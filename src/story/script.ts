@@ -563,10 +563,10 @@ export class Script {
     }
     await this.wait(0.5);
     // From the Security side to the Storage side, between the two doors — it never comes this way.
-    const a = this.actor('husk', V(-2.7, 0, -17.2), -Math.PI / 2, 'idle');
+    const a = this.actor('husk', V(-2.7, 0, -15.4), -Math.PI / 2, 'idle');
     if (a) {
       try { a.setEyes(false); } catch { /* ignore */ }
-      const walk = a.moveTo(V(2.7, 0, -17.2), 1.3).catch(() => undefined);
+      const walk = a.moveTo(V(2.7, 0, -15.4), 1.3).catch(() => undefined);
       // Half-way across, its head turns toward you and the eyes come on. It keeps walking.
       this.seq.spawn('silhouette_look', async () => {
         await this.wait(1.7);
