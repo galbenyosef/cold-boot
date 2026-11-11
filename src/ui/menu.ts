@@ -84,7 +84,7 @@ const CONTROLS: [string[], string][] = [
   [['W', 'A', 'S', 'D'], 'Move'],
   [['SHIFT'], 'Run'],
   [['SPACE'], 'Jump'],
-  [['CTRL'], 'Crouch'],
+  [['C'], 'Crouch'],
   [['LMB'], 'Fire'],
   [['R'], 'Reload'],
   [['1', '2'], 'Weapons'],
