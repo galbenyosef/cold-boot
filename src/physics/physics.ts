@@ -157,7 +157,7 @@ export function createPhysics(): Physics {
     let grounded = false;
     for (let s = 0; s < steps; s++) {
       if (!(body.onGround && body.velocity.y <= 0)) body.velocity.y += g * h;
-      else body.velocity.y = Math.max(body.velocity.y, g * h); // tiny downward bias keeps ground contact
+      else body.velocity.y = g * h * 4; // small downward bias so resting bodies keep touching the ground
       body.position.addScaledVector(body.velocity, h);
 
       const r = body.radius;
