@@ -40,10 +40,18 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     get wheel() { return wheel; },
     get pointerLocked() { return locked; },
     requestPointerLock() {
+      // Both the options form and the plain form may return a promise that rejects (no user gesture,
+      // headless, user pressed Esc too recently) — swallow every rejection.
+      const plain = () => {
+        try {
+          const p = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
+          if (p && p.catch) p.catch(() => { /* ignore */ });
+        } catch { /* ignore */ }
+      };
       try {
         const p = (canvas as any).requestPointerLock({ unadjustedMovement: true });
-        if (p && p.catch) p.catch(() => { try { canvas.requestPointerLock(); } catch { /* ignore */ } });
-      } catch { try { canvas.requestPointerLock(); } catch { /* ignore */ } }
+        if (p && p.catch) p.catch(plain);
+      } catch { plain(); }
     },
     exitPointerLock() { if (document.pointerLockElement) document.exitPointerLock(); },
     endFrame() { justPressed.clear(); mouseJust.clear(); dx = 0; dy = 0; wheel = 0; },
