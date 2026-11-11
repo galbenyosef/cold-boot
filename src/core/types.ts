@@ -514,6 +514,13 @@ export interface EnemySpawn {
   mode: 'dormant' | 'spawn';
   /** Optional pose hint for dormant enemies: 'rack' (hanging on a conveyor hook), 'slumped', 'standing', 'ceiling'. */
   pose?: string;
+  /**
+   * What a dormant machine does while inert (revision 2). 'still' (default) — nothing.
+   * 'watch' — head slowly, almost imperceptibly tracks the player (stops dead if stared at from close).
+   * 'work'  — repeats a slow mechanical task loop (husk at a bench); freezes when the player comes within ~6 m.
+   * 'twitch' — rare small spasms.
+   */
+  idle?: 'still' | 'watch' | 'work' | 'twitch';
 }
 
 export interface PickupSpawn {
@@ -562,6 +569,11 @@ export interface Level extends Updatable {
   setMachine(name: string, state: 'off' | 'idle' | 'active' | 'frenzy'): void;
   /** Named screens (materials.screen) so the story can swap what they show. */
   screen(name: string): THREE.MeshStandardMaterial | undefined;
+  /**
+   * Revision 2: fire a named one-shot scripted set-piece ("vignette") — ids in docs/DESIGN.md.
+   * Safe to call twice (second call is ignored while running / after one-shots). Unknown ids warn once.
+   */
+  vignette(id: string): void;
 }
 
 // ───────────────────────────────────────────────────────────── player (src/player)
@@ -654,6 +666,26 @@ export interface EnemyManager extends Updatable {
   /** Alert everything within radius of a point (gunshot noise). */
   alertNoise(point: THREE.Vector3, radius: number): void;
   aliveInGroup(group: string): number;
+  /**
+   * Revision 2: a non-hostile, non-shootable puppet using the same model + animation as a real enemy,
+   * for scripted scares (a silhouette crossing a doorway, a figure that is gone after a flicker).
+   * Not listed in `all`, never perceives or attacks, emits no enemy:* events except `enemy:step`.
+   */
+  actor(type: EnemyType, position: THREE.Vector3, yaw?: number, pose?: string): EnemyActor;
+}
+
+export interface EnemyActor {
+  readonly object: THREE.Object3D;
+  readonly position: THREE.Vector3;
+  /** Walk/crawl/fly in a straight line to the point with the type's normal gait; resolves on arrival. No pathfinding. */
+  moveTo(point: THREE.Vector3, speed?: number): Promise<void>;
+  /** Dormant pose names as in EnemySpawn.pose, plus 'idle' (standing awake). Blends over ~0.5 s. */
+  setPose(pose: string): void;
+  /** Head/sensor tracks a world point (null = release). */
+  lookAt(point: THREE.Vector3 | null): void;
+  /** Eye / sensor glow on or off. */
+  setEyes(on: boolean): void;
+  remove(): void;
 }
 
 // ───────────────────────────────────────────────────────────── ui (src/ui)

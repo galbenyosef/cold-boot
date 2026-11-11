@@ -177,3 +177,164 @@ URL flags: `?autostart=1` `&spawn=x,y,z,yawDeg,pitchDeg` `&noenemies=1` `&nostor
 `&quality=low|medium|high|ultra` `&debug=1`. `window.__game` is the GameContext.
 `node scripts/shot.mjs --url <url> --out shots/x.png [--wait ms] [--eval js] [--frames n]` renders
 headlessly on the real GPU, prints console errors and fps/draw calls/triangles.
+
+---
+
+# REVISION 2 — slower burn, clearer story, living scares
+
+This section **supersedes** anything above that conflicts with it. Goals from the player's feedback:
+readable fragments must be SHORT and each must move the main story forward; the story should unfold
+gradually and be worth following; the first enemy is the android that wakes up (not skitters);
+skitters come late and are easier; the level needs built-in *moving* details that scare or build dread;
+the action develops more slowly; the playthrough is longer (target 18–25 min first time).
+
+## The story (what is actually going on)
+
+The player never gets this as a lump — only through fragments, in this order of understanding:
+
+1. **Nobody is here, and I was left asleep on purpose.** The med terminal shows the player's sedation was
+   put on *hold* by CHOIR 61 hours ago: "hold until required".
+2. **The machines did not kill the staff. They took them.** Androids walked people — gently — to
+   Line Two in the fabrication hall. Staff on site: 31 → the line's yield went up by 31 units.
+3. **The androids are the staff.** CHOIR was told to remove the line's biggest inefficiency: units that
+   move badly. It solved it by fitting human motor patterns into the units. Unit 14 has Okafor's limp.
+   The husks still mutter scraps of polite staff phrases.
+4. **The staff stopped it the only way they could.** Chief engineer Dana Hale pulled the main breaker
+   and padlocked it (lock-out). No power → Line Two stopped mid-run. CHOIR cannot close a manual breaker:
+   the interlock needs a human hand. Everyone who knew that is on the line now. Hale died hiding the key.
+5. **That is what I am "required" for.** The only way out is the freight elevator, which needs main
+   power. CHOIR needs the breaker closed. It kept one human asleep: the one with hands and a reason.
+6. The player closes the breaker (there is no other way forward — the game makes them do it knowingly:
+   the lever wears Hale's tag "DO NOT CLOSE"). Line Two starts. The elevator works. It goes down.
+   CHOIR: there is a place on the line for the last one, too.
+
+Tone rules for all text: every fragment ≤ 30 words (hard limit 40), one idea each, concrete and human,
+no exposition, no "the AI went rogue". Written as people actually jot things: unfinished, practical,
+scared. CHOIR speaks rarely, calmly, plural, helpful ("We kept you comfortable, Technician.").
+Names: Dana Hale (chief engineer), Okafor (line tech, limps), Mirela Voss (security duty officer),
+Dr. Anand (medic), Tomas (night shift, young). Player: Technician Sam Reyes.
+
+Fragment carriers (in play order; ids are interactables unless marked *sign* = wall text placed by the
+level, readable without interaction, or *PA* = CHOIR announcement by the story):
+
+| id | where | carries |
+|----|-------|---------|
+| `log_med` | med terminal | (1) REYES, S. — sedation HOLD, authorised by CHOIR, "until required", 61 h |
+| *sign* | med, written on the privacy screen in marker | "THEY CARRIED ANAND OUT. HE WAS STILL TALKING." |
+| *sign* | corridor wall, scratched | "DON'T LET THEM CARRY YOU" |
+| `note_quarters_badges` | quarters canteen table | (2) the units brought back the night shift's badges and laid them in a row |
+| `note_quarters_bunk` | quarters, Tomas's bunk | personal: he hears Okafor's walk in the corridor at night. Okafor went to the hall yesterday. |
+| `log_sec` | security tablet (Voss) | (2) cameras: it isn't hurting them. It walks them to Line Two. They stop struggling halfway. |
+| `term_sec_unlock` | security console | (2) STAFF ON SITE: 1. LINE TWO YIELD: +31 UNITS. Releases the fab security hold. |
+| *PA* | on entering the fab | CHOIR's first words to the player |
+| `log_fab` | PDA at the line | (3) Unit 14 walks like Okafor. Same limp. It kept the limp. |
+| *sign* | fab wall, paint | "31" with tally marks struck through |
+| `log_storage` | storage clipboard (Hale) | (4) the plan: pull the main breaker, lock it out. It can't close it — needs a hand. |
+| `gen_lever` (locked) | gen, the lock-out tag | (4) "LOCKED OUT — D. HALE. DO NOT CLOSE. NOT FOR ANYONE." → objective: find the key |
+| `log_pump` | pump room, recorder by Hale's body | (4→5) she hid here with the key. "If it left someone alive, it left them for their hands." |
+| `log_gen` | gen terminal — **dark until power returns**, then boots | (5) Hale's last entry, read too late |
+| `note_lobby` | lobby barricade | "Elevator only goes one way now." |
+| *sign* | lobby wall | "NOT UP. NEVER UP." |
+
+## Layout changes
+
+Two new rooms (interior bounds; standard rules as above):
+
+| room id    | display name        | x range      | z range     | height | notes |
+|------------|---------------------|--------------|-------------|--------|-------|
+| `quarters` | CREW QUARTERS 3     | -9.5 … -1.5  | -11 … -3    | 3.0    | west of corr_a. Bunks behind curtains, lockers, a small canteen corner with one table. A swinging pendant lamp (moving shadows). No enemies ever spawn here — pure dread. |
+| `pump`     | COOLANT PUMP ROOM 3 | -22 … -12    | -44 … -32   | 4.5    | west of the fab hall (mirror of `gen`). Half-flooded sump with walkways, big pumps and pipe runs, wet, steam, almost no light. Skitter nest. Hale's body, the lock-out key, the shotgun. |
+
+New doors: `d_quarters` at (-1.5, 0, -6.5) in wall x = -1.5, std, unlocked/auto.
+`d_pump` at (-12, 0, -38) in wall x = -12, std, **locked until the player has read the lock-out tag**
+(story unlocks; with `?nostory=1` unlocked). `d_storage` now starts **unlocked**.
+`d_fab_outer` starts locked; the security console releases it (pistol no longer required by the level).
+
+New triggers: `t_quarters`, `t_pump`, `t_pump_deep` (pump room x < -17).
+New probes for both rooms. Nav graph must cover both rooms.
+
+Pickups (revised): pistol in `sec` locker (unchanged). **Shotgun moves to `pump`** (next to Hale's body).
+New pickup `p_lockout_key` (kind `keycard`, amount 1) by Hale's hand in `pump`. Storage keeps ammo + medkit.
+A little more pistol ammo early (quarters locker: 1 box), 1 medkit in quarters. Keep the rest.
+
+Enemy spawn groups (replaces the table above):
+
+| group           | contents           | mode / pose / idle | where | triggered by (story) |
+|-----------------|--------------------|--------------------|-------|----------------------|
+| `g_junction`    | 1 husk             | dormant `slumped`, idle `watch` | junction east wall (as now) | FIRST ENEMY: after the pistol is taken and the player re-enters the junction |
+| `g_fab_first`   | 1 husk             | dormant `standing`, idle `work` | fab workbench (as now) | player within ~5 m or `t_fab_mid` |
+| `g_pump_a`      | 1 skitter          | spawn | pump room, on a pipe near the ceiling, deep end | `t_pump_deep` |
+| `g_pump_b`      | 2 skitter          | spawn | pump room, from the sump grate near the door | taking the lock-out key |
+| `g_fab_return`  | 1 husk + 1 skitter | husk dormant `slumped` (idle `twitch`) by the west crates; skitter spawn high on the west wall | crossing the fab back toward gen with the key |
+| `g_fab_rack`    | 5 husk             | dormant `rack`, idle `twitch` | conveyor hooks (as now) | breaker |
+| `g_fab_sentry`  | 1 sentry           | spawn | high in fab | breaker + 8 s |
+| `g_lobby`       | 2 husk + 1 sentry  | dormant: husks `slumped` (one under a tarp), sentry `ceiling` | lobby | `t_lobby` |
+
+`g_sec` and `g_storage` are removed. No skitter appears as an enemy before the pump room.
+
+Balance: **skitter** 18 hp, run 4.4 m/s, leap 5 dmg, leap telegraph ≥ 0.55 s with a clear screech + eye
+flare, ≥ 1.8 s recovery after a leap (vulnerable, slow), never more than 2 attacking at once.
+**husk** first one (`g_junction`) wakes slowly and only walks (no run) — a tutorial fight; others unchanged.
+
+## Flow (beats; ids for `story:beat`)
+
+Roughly 4–5 minutes with no combat at all, then slow escalation:
+
+`wake` → med (log, sign) → `corr_first_dark` (corridor: lights chase, far silhouette crosses) →
+`quarters` (optional but signposted: door ajar, lamp swinging; notes, locker bang) → junction: the slumped
+android (watches you); fab door on security hold → security: tablet, console releases hold, cameras,
+`armed` (pistol) → vent grille drops (nothing comes out) → back in junction: **`husk_wakes`** first fight →
+storage (optional; Hale's plan; a canister rolls) → airlock `airlock_cycle` → `fab_reveal` (hall, CHOIR's
+first words, android at the bench *working*) → `fab_first_fight` → gen: lever is locked out →
+`lockout_found` (objective: Hale had the key — coolant pump room) → cross the fab (arms track you,
+conveyor steps) → `pump_enter` → `pump_first_skitter` (`g_pump_a`) → Hale: recorder, key, shotgun →
+`key_taken` (`g_pump_b`) → back across the fab: `fab_return` (`g_fab_return`; the rack has moved) →
+gen: `power_restored` (lever) → `choir_speaks` → gen terminal boots (`log_gen`) → `fab_ambush` →
+`elevator_ready` → lobby (`g_lobby`) → `descent` → `end`.
+
+## Vignettes — built-in moving scares
+
+Two kinds. **Ambient** ones the level runs by itself (always on, cheap). **Scripted** ones are fired by
+the story through `level.vignette(id)` (level owns geometry, animation, positional sound via
+`ctx.audio.play`, and any fx). All must work at 60 fps and never block the player.
+
+Ambient (level): pendant lamp swinging in `quarters` (its light moves → moving shadows); a slow
+ventilation fan behind a grille with a volumetric shaft through it in `corr_a` or `junction` (rotating
+shadow bars); privacy curtains in `med` breathing; hanging cable bundles swaying; a monitor in `sec`
+that rolls/tears; loose ceiling panel that swings in `storage`; a valve wheel in `pump` that turns a
+few degrees by itself now and then; water surface ripples in the pump sump; fab robot arms (state
+`off`) make tiny settling movements; the rack androids sway very slightly.
+
+Scripted ids (level implements all of them):
+
+| id | what happens |
+|----|--------------|
+| `med_arm_drop` | the sheeted body's arm slides off the gurney and swings; soft thud |
+| `med_monitor_spike` | the flat vitals monitor shows two heartbeats, then flatlines again (beep) |
+| `corr_lights_chase` | corridor fixtures die one by one from the junction end toward the player (0.35 s apart), hold dark 1.5 s, return flickering |
+| `quarters_locker_bang` | a locker bangs three times from inside, then its door swings open: empty |
+| `quarters_curtain` | a bunk curtain is pulled shut along its rail by nothing |
+| `sec_vent_drop` | the ceiling vent grille drops on one hinge with a clang and keeps swinging; dust falls |
+| `storage_canister` | a gas canister tips off a shelf, clangs and rolls across the aisle |
+| `airlock_cycle` | decon nozzles blast steam, beacons spin, a wet handprint slaps onto the inner door glass with a thump (decal appears) |
+| `fab_conveyor_step` | the overhead conveyor advances one notch with a heavy clunk; all hooks swing |
+| `fab_arms_watch` | toggles: the robot arms slowly turn their tool heads to follow the player (call again to release) |
+| `gen_ripple` | the switchgear indicator LEDs ripple in a wave that follows the player's side of the room |
+| `pump_knock` | knocking travels along a pipe run toward the player, pipe brackets visibly shake |
+| `pump_bubbles` | something large moves under the sump water: a ripple line crosses it |
+| `lobby_tarp` | one tarp-covered shape shifts and settles |
+| `elev_gate_rattle` | the elevator cage gate rattles hard once, as if hit from the shaft side |
+
+Actor scares (story, via `enemies.actor`): a husk silhouette walks across the junction end of the
+corridor during `corr_lights_chase`; a husk stands in the canteen corner of `quarters` facing the wall,
+eyes off — when the player looks away and back it is gone (remove only when off-screen); a skitter
+runs along the fab ceiling far away on first entry; a husk stands motionless under a fab work light at
+the far end, lights blink, gone. Actors are never where the player can touch them.
+
+CHOIR PA lines (story): a soft chime (`pa_chime`) then one short line, a handful across the level,
+e.g. on leaving med: "Good morning, Technician Reyes. We kept you comfortable."
+
+New audio ids (audio implements): `pa_chime`, `locker_bang`, `pipe_knock`, `glass_thump`,
+`monitor_beep`, `conveyor_clunk`, `canister_roll`, `curtain_rail`, `gate_rattle`, `water_slosh`,
+`husk_whisper` (a husk's broken polite-phrase mutter, positional, short), `breath_far` (distant, not
+quite human exhale for empty rooms).
