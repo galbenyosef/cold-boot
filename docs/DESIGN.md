@@ -338,3 +338,32 @@ New audio ids (audio implements): `pa_chime`, `locker_bang`, `pipe_knock`, `glas
 `monitor_beep`, `conveyor_clunk`, `canister_roll`, `curtain_rail`, `gate_rattle`, `water_slosh`,
 `husk_whisper` (a husk's broken polite-phrase mutter, positional, short), `breath_far` (distant, not
 quite human exhale for empty rooms).
+
+---
+
+# REVISION 3 — checkpoints (auto-save)
+
+Dying currently reloads the page and restarts from the wake-up. Add auto-save checkpoints.
+
+- A checkpoint is a small JSON snapshot in `localStorage` (key `coldboot.save.v1`): checkpoint id,
+  `PlayerSave` (`player.snapshot()`), the story's progress flags (which beats have happened, which
+  fragments were read, stats: time/kills), and the list of cleared enemy groups. Nothing else.
+- Loading = page reload → normal boot → the story sees the save and **fast-forwards**: for every beat
+  that already happened it applies the beat's lasting *consequences* (door locks, light groups, machine
+  states, screens, enabled interactables, lever thrown, removed groups) WITHOUT replaying the scene
+  (no CHOIR lines, no scares, no notes, no music stings), then `player.restore(save)`, a short fade-in,
+  "CHECKPOINT RESTORED" toast. Scares/PA lines scheduled before the checkpoint never fire again; those
+  after it still do. Already-read fragments stay readable but do not re-trigger their follow-ups.
+- Checkpoints are taken only in calm moments (no active enemies, no note open, player alive, on the
+  ground), always BEFORE a fight, never during one. If the moment is not calm the save is deferred
+  until it is. HUD shows a small unobtrusive "saving" glyph + "CHECKPOINT" for ~2 s.
+- Checkpoint list (id — when): `cp_armed` — pistol taken, before the first android wakes;
+  `cp_fab` — entering the fab hall for the first time (in the airlock, before the reveal);
+  `cp_lockout` — lock-out tag read, before the pump room; `cp_key` — key taken and `g_pump_b` cleared,
+  before crossing the fab again; `cp_breaker` — standing at the breaker with the key, before closing it;
+  `cp_lobby` — after the fab ambush is survived / on reaching the lobby door, before `g_lobby` wakes.
+- Death screen: primary button "LOAD CHECKPOINT" (if a save exists), secondary "RESTART LEVEL" (clears
+  the save). Main menu: "CONTINUE" above "BEGIN" when a save exists; BEGIN asks nothing and clears it.
+  Pause menu: "LOAD CHECKPOINT". Reaching the ending clears the save.
+- Contract: `Player.snapshot()/restore()`, `PlayerSave`, `EnemyManager.removeGroup(group)`.
+- `?nostory=1` ignores saves. `?autostart=1` honours them only with `&continue=1` (for tests).

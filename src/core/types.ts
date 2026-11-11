@@ -624,6 +624,23 @@ export interface Player extends Updatable {
   shake(amount: number): void;
   /** Scripted camera: smoothly look toward a world point over `seconds` (only when controlsEnabled=false). */
   lookAt(point: THREE.Vector3, seconds: number): void;
+  /** Checkpoints: plain-JSON snapshot of everything the player module owns (incl. collected pickups). */
+  snapshot(): PlayerSave;
+  /** Restore a snapshot: teleport, health, weapons/ammo, keys, flashlight; remove already-collected pickups. Emits no pickup events. */
+  restore(save: PlayerSave): void;
+}
+
+/** JSON-serialisable player state for checkpoints. */
+export interface PlayerSave {
+  position: [number, number, number];
+  yaw: number;
+  health: number;
+  weapons: Record<WeaponId, { owned: boolean; clip: number; reserve: number }>;
+  current: WeaponId | null;
+  keys: string[];
+  flashlight: boolean;
+  /** Ids of PickupSpawns already collected. */
+  pickups: string[];
 }
 
 // ───────────────────────────────────────────────────────────── enemies (src/enemies)
@@ -672,6 +689,12 @@ export interface EnemyManager extends Updatable {
    * Not listed in `all`, never perceives or attacks, emits no enemy:* events except `enemy:step`.
    */
   actor(type: EnemyType, position: THREE.Vector3, yaw?: number, pose?: string): EnemyActor;
+  /**
+   * Checkpoints: silently delete a whole spawn group — living, dormant, dead wrecks and not-yet-spawned
+   * members — with no events, fx or sound. Afterwards spawnGroup/wakeGroup for it are no-ops and
+   * aliveInGroup is 0.
+   */
+  removeGroup(group: string): void;
 }
 
 export interface EnemyActor {
