@@ -197,5 +197,5 @@ export function buildGen(L: LevelBuild) {
   b.decal('oil_stain', 3, 19, 0.003, -35.6, 1.8, 1.6, '+y', 0.5);
   b.decal('grime', 0, 15, 0.003, -38, 3, 3, '+y', 1.2);
   b.decal('scorch', 1, 12.236, 1.3, -36.4, 0.7, 0.7, '+x'); // the arc-flash that put you in medical
-  L.ctx.fx.emitter('steam', L.vec(20.2, 0.45, -35), L.vec(0, 1, 0.2), 2);
+  L.ctx.fx.emitter('steam', L.vec(20.2, 0.45, -35), L.vec(0, 1, 0.2), 45);
 }

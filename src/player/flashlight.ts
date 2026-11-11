@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { LightHandle, LightManager, Physics } from '../core/types';
 import { Spring3, clamp } from './math';
 
-export const FILL = { off: 0.5, on: 2.6, distance: 1.25, offset: new THREE.Vector3(0.12, 0.32, 0.12) };
+export const FILL = { off: 1.1, on: 2.6, distance: 1.25, offset: new THREE.Vector3(0.12, 0.32, 0.12) };
 
 export const FLASHLIGHT = {
   color: 0xcfe0ff,

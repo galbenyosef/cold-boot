@@ -54,6 +54,9 @@ vec3 fxLight(vec3 p, float g, out vec3 domDir) {
     total += c; w = dot(c, vec3(0.3333)); domDir += L.direction * w;
   }
 #endif
+  // Particles are not shadowed, so unoccluded lights over-light them: compress and partly desaturate.
+  float fxLum = dot(total, vec3(0.299, 0.587, 0.114));
+  total = mix(vec3(fxLum), total, 0.55) / (1.0 + fxLum * 0.9);
   return total;
 }
 `;

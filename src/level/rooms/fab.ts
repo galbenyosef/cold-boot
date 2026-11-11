@@ -432,7 +432,7 @@ function dressing(L: LevelBuild, R: ReturnType<typeof rng>, conv: Conveyor) {
   // ── fx ──
   L.ctx.fx.emitter('dust', L.vec(1.5, 2.2, -31.5), L.vec(0, -1, 0), 8);
   L.ctx.fx.emitter('dust', L.vec(6.5, 3.5, -35.5), L.vec(0, 1, 0), 8);
-  L.ctx.fx.emitter('steam', L.vec(-11.7, 0.6, -40), L.vec(1, 0.6, 0.2), 3);
+  L.ctx.fx.emitter('steam', L.vec(-11.7, 0.6, -40), L.vec(1, 0.6, 0.2), 45);
   L.ctx.fx.emitter('drip', L.vec(-6.2, 7.2, -34.6), L.vec(0, -1, 0), 1.5);
   L.ctx.fx.emitter('drip', L.vec(7.4, 7.2, -38.6), L.vec(0, -1, 0), 1.0);
 

@@ -76,7 +76,7 @@ export function buildCorridor(L: LevelBuild) {
     b.rbox('ceiling_panel', 0.45, H - 0.25, -6.4, 0.6, 0.02, 0.6, 0.9, 0, 0);
   });
   L.ctx.fx.emitter('sparks', L.vec(0.45, 1.7, -5.5), L.vec(0, -1, 0), 0.6);
-  L.ctx.fx.emitter('steam', L.vec(-1.2, H - 0.45, -10.2), L.vec(0.5, -1, 0.1), 5);
+  L.ctx.fx.emitter('steam', L.vec(-1.2, H - 0.45, -10.2), L.vec(0.5, -1, 0.1), 45);
   L.ctx.fx.emitter('drip', L.vec(-1.2, H - 0.45, -4.3), L.vec(0, -1, 0), 0.8);
 
   // ── drag marks continue from the med bay ──

@@ -71,6 +71,6 @@ export function buildAirlock(L: LevelBuild) {
   b.decal('water_stain', 3, 1.94, 1.1, -24.9, 0.7, 1.8, '-x');
   b.decal('handprint', 1, 0.9, 1.3, Z0 + 0.34, 0.24, 0.24, '+z', 0.2);
   b.decal('blood_smear', 0, 0.4, 0.004, -25.5, 0.6, 0.9, '+y', 0.1);
-  L.ctx.fx.emitter('steam', L.vec(-1.45, 3.0, -24.4), L.vec(0.3, -1, 0), 2);
+  L.ctx.fx.emitter('steam', L.vec(-1.45, 3.0, -24.4), L.vec(0.3, -1, 0), 45);
   L.ctx.fx.emitter('drip', L.vec(0.84, H - 0.36, -21.6), L.vec(0, -1, 0), 1.5);
 }
