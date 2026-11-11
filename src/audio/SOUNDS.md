@@ -2,7 +2,8 @@
 
 Everything is synthesised (no assets). One-shots are pre-rendered offline at load into several variations.
 The `load` set is awaited in `createAudio` (about 0.4–0.6 s). The `idle` set renders in the background right
-after (about 0.3–0.4 s). `lazy` sounds render on first use and still play if they are ready within 0.3 s.
+after (about 0.3–0.4 s), then the `late` set (about 0.25 s; rare Revision-2 vignette sounds). `lazy` sounds
+render on first use and still play if they are ready within 0.3 s.
 Unknown ids warn once and do nothing. Calls made before `unlock()` are safe: one-shots are dropped, and
 loops and music start when the context resumes.
 
@@ -33,25 +34,41 @@ loops and music start when the context resumes.
 | `enemy:died` | `skitter_death`, `husk_death`, `sentry_death` |
 | `enemy:step` | `skitter_step`, `husk_step` (+20% `husk_joint`). Sentry steps are ignored |
 | `story:beat` `wake` | two `heartbeat`s |
-| `story:beat` `corr_blackout` | `power_down` + `vent_scuttle` moving through the ceiling from behind the player to ahead of them (starts +1.4 s) |
-| `story:beat` `sec_ambush` | `metal_clang` at `level.object('sec_vent')` |
-| `story:beat` `storage_unlocked` | `door_unlock` at d_storage |
+| `story:beat` `corr_blackout` *(legacy, Rev 1)* | `power_down` + `vent_scuttle` moving through the ceiling from behind the player to ahead of them (starts +1.4 s) |
+| `story:beat` `sec_ambush` *(legacy)* | `metal_clang` at `level.object('sec_vent')` |
+| `story:beat` `storage_unlocked` *(legacy)* | `door_unlock` at d_storage |
 | `story:beat` `power_restored` | `power_up`. The fab ambience bed also gains a mains-hum layer |
 | `story:beat` `choir_speaks` | `glitch` |
 | `story:beat` `fab_ambush` | `sting` + 3× `alarm_blip`. Does NOT start `alarm_loop`: loop it yourself if wanted |
 | `story:beat` `elevator_ready` | `elevator_arrive` at the elevator |
 | `story:beat` `descent` | `elevator_start` (one-shot). Story/level should `loop('elevator_loop')` for the ride itself |
+| other / Revision-2 beats | nothing. The story and level play their own vignette sounds; beat ids audio doesn't know are ignored, and the legacy cases above simply never fire |
 | `game:state` | `paused` → muffle 0.85; `dead` → muffle 0.6 + `sting`, music silence; `menu` → quiet menu drone (until `setMusic` is called during the menu); `ended` → slight muffle |
 
 ## Automatic (no calls needed)
 
 - **Room reverb and ambience bed:** in `update`, `level.roomAt(player.position)` picks the convolution IR
-  (padded / corridor / hall / machine / shaft), the wet level and the base bed loops
-  (`amb_room` / `amb_fab` / `amb_gen`), with crossfades. `setRoom(id)` forces a room. Don't loop `amb_*`
-  yourself unless you want an extra layer.
-- **Generative distant events:** `drip`, `dist_knock`, `dist_clank`, `metal_groan`, `vent_scuttle` (moving),
-  `dist_voice`, `spark_zap`. They play at random positions 4–26 m away every 9–30 s while the state is
-  `playing`, and are suppressed during combat.
+  (padded / corridor / hall / machine / shaft / dead / cistern), the wet level and the base bed loops
+  (`amb_room` / `amb_fab` / `amb_gen` / `amb_quarters` / `amb_pump`), with crossfades. `setRoom(id)` forces a
+  room. Unknown room ids map by name (`*quarter*|bunk|crew` → quarters, `pump|sump|coolant` → pump, `corr*` →
+  corridor, …) and otherwise fall back to a generic corridor preset. Don't loop `amb_*` yourself unless you want
+  an extra layer.
+  - `quarters`: tiny dead fabric IR, very quiet bed (low air + faint 60 Hz transformer hum), and a
+    `lamp_creak` from the pendant lamp at (-5.5, 2.6, -7) every 6–15 s.
+  - `pump`: long wet metallic `cistern` IR, bed of standing pipe resonances + a thin trickle (no pump running),
+    `drip`s at random points in the room every 1–7 s, distant `water_slosh` / `pipe_knock` / groans.
+- **Room-local events:** the presets above (`local`), independent of the distant-event slot.
+- **Generative distant events — one at a time, never stacked.**
+  - *Quiet "dread" rooms* (`med`, `corr_a`, `quarters`, `junction`, `sec`, `storage`): `far_steps` (a limp,
+    often one floor up, drifting), `drag_far`, a door servo two rooms away (`door_open`, low-passed),
+    `breath_far`, a single distant `husk_whisper` (≤ 1 per 4 min), `pipe_tick`, `dist_knock`, rare groans and
+    scuttles. Mostly behind the player, 20–60 s of silence between them (×1.5 under tension music), the first
+    one 12–35 s after entering. Never while enemies are active or combat music plays. Each one's peak at the
+    listener is capped analytically below the player's own walking footstep (measured 0.13–0.5×).
+  - *Room tone drops out:* in quiet rooms, every ~1.5–3 min, the ambience bed falls to ~5 % (−25 dB) and music
+    to 45 % for 2–4 s, then returns; 45 % of the time a distant event follows 2.5–5 s later.
+  - *Other rooms:* the denser industrial palette (`dist_clank`, `metal_groan`, `dist_knock`, `drip`,
+    `vent_scuttle`, `dist_voice`, `spark_zap`, `water_slosh`, …) every 9–30 s, suppressed during combat.
 - **Low health:** a `heartbeat` that speeds up below 40 hp, plus a `tinnitus` loop below 25 hp.
 - **Music auto-escalation:** if the story requested `ambient` or `tension` and `enemies.activeCount > 0`
   for more than 1.2 s, the music switches to `combat`. After 4 s with no active enemies it plays
@@ -72,11 +89,26 @@ loops and music start when the context resumes.
 - Enemies: **`sentry_charge`** (the enemies module should play it at the start of the sentry's telegraph.
   Audio cannot know when that starts, and the shot itself is automatic on `enemy:attack`)
 
+- Revision 2 (vignettes / story; all 3D with `position`):
+  - `pa_chime` — soft two-tone PA chime through a cheap ceiling speaker (voice bus). Play it right before
+    `choirVoice` (which adds its own PA switch-on). 2D or positional.
+  - `locker_bang` — fist on a steel locker door from inside (one variant is a double hit). Call 3× for the vignette.
+  - `pipe_knock` — single knock on a water-filled pipe. **Variants are cycled in pitch order** (ping-pong, restarting
+    after a 2.5 s pause), so a knock sequence moved along a pipe run reads as travelling.
+  - `glass_thump` — wet palm slap + squeak on thick glass. `monitor_beep` — medical monitor beep.
+  - `conveyor_clunk` — the overhead conveyor indexing one notch (ratchet + chain + structure ring).
+  - `canister_roll` — gas cylinder tips over, clangs, rolls ~2.5 s, knocks into something (≈ 3.4 s total).
+  - `curtain_rail` — curtain rings dragged along a rail (~0.8 s). `gate_rattle` — cage gate hit from the shaft side.
+  - `water_slosh` — something large moving in shallow water.
+  - `husk_whisper` — a husk vocaliser muttering a polite fragment, small and close (6 variants).
+  - `breath_far` — distant not-quite-human exhale ending in a valve click (very quiet).
+  - also: `far_steps`, `drag_far`, `pipe_tick`, `lamp_creak` (used by the ambience layer, playable).
+
 **Loops**
 
 `amb_room`, `amb_fab`, `amb_gen`, `steam_loop`, `spark_loop`, `machine_loop`, `arm_servo_loop`,
 `conveyor_loop`, `elevator_loop`, `alarm_loop`, `skitter_loop`, `husk_loop`, `sentry_loop`, `monitor_hum`,
-`fluorescent_buzz`, `tinnitus`. Pass `{ position }` for 3D. Move them with `setPosition` (allocation-free).
+`fluorescent_buzz`, `tinnitus`, `amb_quarters`, `amb_pump`. Pass `{ position }` for 3D. Move them with `setPosition` (allocation-free).
 3D loops get distance air-absorption and occlusion: a low-pass plus an attenuation when
 `physics.lineOfSight` is blocked, re-checked round-robin at low rate.
 
@@ -115,5 +147,7 @@ Music instruments (music bus): `mus_kick`, `mus_snare`, `mus_hat`, `mus_metal`, 
 
 ## Dev harness
 
-`/dev/audio.html` (`?mode=sounds|music|choir|live`, `&filter=regex`) shows per-sound stats on
-`window.__audioReport` and draws spectrograms.
+`/dev/audio.html` (`?mode=sounds|music|choir|live|ambience`, `&filter=regex`) shows per-sound stats on
+`window.__audioReport` and draws spectrograms. `mode=ambience` (~2 min, real time) measures the dread layer:
+footstep reference peak vs every quiet-room event, the room-tone dropout depth, combat suppression, room-id
+mapping and per-room bed levels.

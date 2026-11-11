@@ -5,7 +5,8 @@ import { worldSounds } from './world';
 import { enemySounds } from './enemies';
 import { loopSounds } from './loops';
 import { musicSounds } from './music';
+import { rev2Sounds } from './rev2';
 
-export const ALL_SOUNDS: SoundDef[] = [...weaponSounds, ...playerSounds, ...worldSounds, ...enemySounds, ...loopSounds, ...musicSounds];
+export const ALL_SOUNDS: SoundDef[] = [...weaponSounds, ...playerSounds, ...worldSounds, ...enemySounds, ...loopSounds, ...musicSounds, ...rev2Sounds];
 
 export const SOUND_MAP: ReadonlyMap<string, SoundDef> = new Map(ALL_SOUNDS.map((d) => [d.id, d]));

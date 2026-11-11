@@ -35,8 +35,12 @@ export interface SoundDef {
   rolloff?: number;
   /** Reverb send multiplier (default 1). */
   send?: number;
-  /** 'load' (awaited in createAudio), 'idle' (rendered in the background right after), 'lazy' (on first use). */
-  when?: 'load' | 'idle' | 'lazy';
+  /** 'load' (awaited in createAudio), 'idle' (rendered in the background right after), 'late' (background,
+   *  after the idle set), 'lazy' (on first use). */
+  when?: 'load' | 'idle' | 'late' | 'lazy';
+  /** Variant selection: 'random' (default, never the same twice) or 'cycle' (step through the variants in
+   *  order, ping-pong; restarts at 0 after a 2.5 s pause — sequences that should sound like they move). */
+  order?: 'random' | 'cycle';
   /** Peak normalisation target (default 0.9). 0 = no normalisation. */
   peak?: number;
   render(s: Synth, v: number): void;

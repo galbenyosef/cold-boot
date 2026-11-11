@@ -297,9 +297,94 @@ async function modeLive() {
   head.textContent = `live: ${report.captured}s captured · nan ${nan} · clip ${clip} · peak voices ${peakVoices}`;
 }
 
+// ───────────────────────────────────────────── ambience (dread layer)
+
+async function modeAmbience() {
+  const ctx = fakeCtx();
+  (ctx.physics as any).lineOfSight = () => true; // worst case: nothing occluded
+  (ctx.level as any).setRoomForTest('quarters');
+  const audio = await createAudio(ctx);
+  await audio.unlock();
+  const dbg = (audio as any).debug;
+  const eng = dbg.engine, amb = dbg.ambience;
+  const ac: AudioContext = eng.ctx;
+  const wait = (s: number) => new Promise((r) => setTimeout(r, s * 1000));
+  // peak / rms meters on the direct sfx bus and the post-duck ambience path (master)
+  const meter = (node: AudioNode) => {
+    const an = ac.createAnalyser(); an.fftSize = 2048; node.connect(an);
+    const buf = new Float32Array(2048);
+    let pk = 0, e = 0, n = 0;
+    const iv = setInterval(() => { an.getFloatTimeDomainData(buf); for (const v of buf) { pk = Math.max(pk, Math.abs(v)); e += v * v; n++; } }, 20);
+    return { reset() { pk = 0; e = 0; n = 0; }, get peak() { return pk; }, get rmsDb() { return +(10 * Math.log10(e / Math.max(1, n) + 1e-12)).toFixed(1); }, stop() { clearInterval(iv); } };
+  };
+  const sfx = meter(eng.buses.sfx), master = meter(eng.master);
+  let last = performance.now();
+  const iv = setInterval(() => { const n = performance.now(); ctx.camera.updateMatrixWorld(); audio.update(Math.min(0.05, (n - last) / 1000)); last = n; }, 16);
+  ctx.events.emit('game:state', { state: 'playing', prev: 'menu' });
+  await wait(2.5); // idle render + bed fade in
+  const out: Record<string, unknown> = { room: eng.roomId, ir: eng.room.ir, bedIds: Object.keys(eng.room.bed) };
+  // 1. footstep reference
+  sfx.reset();
+  const v = new THREE.Vector3();
+  for (let k = 0; k < 6; k++) { ctx.events.emit('player:footstep', { position: v, surface: 'metal', running: false }); await wait(0.45); }
+  const stepPeak = sfx.peak;
+  out.footstepPeak = +stepPeak.toFixed(4);
+  // 2. bed level, then a room-tone dropout
+  master.reset(); await wait(1.5); out.bedRmsDb = master.rmsDb;
+  amb.debugForce('drop'); await wait(0.9);
+  master.reset(); await wait(1.0); out.dropRmsDb = master.rmsDb; out.dropping = amb.dropping;
+  await wait(4.5); master.reset(); await wait(1.0); out.afterDropRmsDb = master.rmsDb; out.droppingAfter = amb.dropping;
+  // 3. every dread event in isolation: direct-sound peak vs footstep
+  const ev: Record<string, unknown> = {};
+  amb.debugForce('hold'); // isolate: no generated events while measuring
+  for (const id of ['far_steps', 'drag_far', 'door_far', 'breath_far', 'husk_whisper', 'pipe_tick', 'dist_knock', 'metal_groan', 'vent_scuttle', 'drip']) {
+    let worst = 0;
+    for (let k = 0; k < 3; k++) {
+      sfx.reset();
+      amb.debugSpawn(id);
+      const e = amb.log[amb.log.length - 1];
+      const dur = Math.min(6, (eng.buffers(id === 'door_far' ? 'door_open' : id)?.[0]?.duration ?? 2) + 0.3);
+      await wait(dur);
+      worst = Math.max(worst, sfx.peak);
+      ev[id] = { ...(ev[id] as object), [`d${k}`]: e?.d, [`v${k}`]: e?.vol };
+    }
+    ev[id] = { ...(ev[id] as object), worstPeak: +worst.toFixed(4), ratio: +(worst / stepPeak).toFixed(2) };
+  }
+  out.events = ev;
+  // 4. generator: single slot + suppression during combat
+  amb.log.length = 0;
+  (ctx.enemies as any).activeCount = 2; audio.setMusic('ambient');
+  await wait(1.6);
+  amb.debugForce('event'); await wait(1.0);
+  out.firedDuringCombat = amb.log.length;
+  (ctx.enemies as any).activeCount = 0;
+  amb.busy = 0;
+  await wait(0.5);
+  // 5. auto room mapping for unknown ids
+  const { presetFor, ROOMS } = await import('../impulses');
+  const mapName = (id: string) => Object.entries(ROOMS).find(([, p]) => p === presetFor(id))?.[0] ?? 'DEFAULT';
+  out.mapping = Object.fromEntries(['crew_quarters_b', 'pump_sump', 'corr_b', 'mystery_room', 'quarters', 'pump'].map((k) => [k, mapName(k)]));
+  // 6. bed + room-local layer per room (distant events held off)
+  const beds: Record<string, unknown> = {};
+  for (const r of ['med', 'quarters', 'corr_a', 'fab', 'pump']) {
+    (ctx.level as any).setRoomForTest(r);
+    await wait(3.2);
+    amb.debugForce('hold');
+    master.reset(); sfx.reset(); await wait(3);
+    beds[r] = { ir: eng.room.ir, masterRmsDb: master.rmsDb, masterPeak: +master.peak.toFixed(3), sfxPeak: +sfx.peak.toFixed(3) };
+  }
+  out.beds = beds;
+  out.genLog = amb.log.slice(-5);
+  out.lateRenderMs = Math.round(eng.lateRenderMs); out.idleRenderMs = Math.round(eng.idleRenderMs); out.preRenderMs = Math.round(eng.preRenderMs);
+  clearInterval(iv); sfx.stop(); master.stop();
+  Object.assign(report, out);
+  head.textContent = 'ambience: ' + JSON.stringify(out).slice(0, 400);
+}
+
 (async () => {
   try {
-    if (mode === 'music') await modeMusic();
+    if (mode === 'ambience') await modeAmbience();
+    else if (mode === 'music') await modeMusic();
     else if (mode === 'choir') await modeChoir();
     else if (mode === 'live') await modeLive();
     else await modeSounds();

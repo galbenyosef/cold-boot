@@ -149,7 +149,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
         const r = ctx.level && pp ? ctx.level.roomAt(pp) : null;
         if (r) {
           if (r.id !== roomCandidate) { roomCandidate = r.id; roomStable = 0; }
-          else if (r.id !== eng.roomId && ++roomStable >= 1) applyRoom(r.id);
+          else if (r.id !== eng.roomId && ++roomStable >= 1) applyRoom(r.id, r.bounds);
         }
         eng.updateLoopOcclusion();
       }
@@ -196,9 +196,11 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     },
   };
 
-  function applyRoom(id: string) {
+  function applyRoom(id: string, bounds?: THREE.Box3 | null) {
     eng.setRoom(id);
-    amb.applyRoom();
+    let b = bounds;
+    if (b === undefined) b = ctx.level?.rooms?.find((r) => r.id === id)?.bounds ?? null;
+    amb.applyRoom(b);
     bedStarted = true;
   }
 
@@ -381,7 +383,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     if (state === 'playing' && !bedStarted) {
       const pp = playerPos();
       const r = ctx.level && pp ? ctx.level.roomAt(pp) : null;
-      applyRoom(r ? r.id : 'med');
+      applyRoom(r ? r.id : 'med', r ? r.bounds : undefined);
     }
     if (state === 'ended') stateMuffle = 0.3;
     void prev;

@@ -4,7 +4,7 @@
  */
 import { mulberry } from './synth/core';
 
-export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate';
+export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate' | 'dead' | 'cistern';
 
 interface IrSpec {
   len: number;
@@ -29,6 +29,10 @@ const SPECS: Record<IrName, IrSpec> = {
   hall: { len: 5.5, rt: [5.0, 4.0, 2.2], predelay: 0.03, early: 22, earlyWin: 0.16, earlyGain: 0.45, ring: [97, 184, 431], ringGain: 0.03, build: 0.18, gain: 1.1 },
   machine: { len: 2.8, rt: [1.9, 1.6, 0.9], predelay: 0.01, early: 18, earlyWin: 0.07, earlyGain: 0.55, ring: [220, 540, 1100, 1850], ringGain: 0.05, build: 0.04, gain: 1 },
   shaft: { len: 4.0, rt: [3.6, 2.6, 1.2], predelay: 0.008, early: 12, earlyWin: 0.04, earlyGain: 0.5, flutter: 0.0145, flutterGain: 0.45, ring: [130, 410, 880], ringGain: 0.06, build: 0.03, gain: 1 },
+  // small fabric room with a low ceiling: short, dark, almost no flutter
+  dead: { len: 0.55, rt: [0.32, 0.2, 0.09], predelay: 0.002, early: 14, earlyWin: 0.012, earlyGain: 0.35, build: 0.004, gain: 0.7 },
+  // flooded concrete sump with steel pipework: long, wet, hard metallic ringing
+  cistern: { len: 5.0, rt: [4.2, 3.4, 1.7], predelay: 0.014, early: 20, earlyWin: 0.08, earlyGain: 0.6, flutter: 0.0175, flutterGain: 0.3, ring: [118, 262, 557, 991, 1720], ringGain: 0.065, build: 0.05, gain: 1.05 },
   plate: { len: 3.2, rt: [2.4, 2.8, 2.2], predelay: 0.012, early: 0, earlyWin: 0.01, earlyGain: 0, build: 0.005, gain: 1 },
 };
 
@@ -99,21 +103,72 @@ export interface RoomPreset {
   bed: Record<string, number>;
   /** Generative distant-event palette: id → weight. */
   events: Record<string, number>;
+  /** Quiet "dread" room: sparse positional one-offs (20–60 s apart), capped below the player's footsteps,
+   *  and occasional room-tone dropouts. */
+  quiet?: boolean;
+  /** Room-local recurring one-offs (not "distant" — independent of the single distant-event slot). */
+  local?: LocalEvent[];
+}
+
+export interface LocalEvent {
+  id: string;
+  /** Seconds between plays [min, max]. */
+  every: [number, number];
+  vol: [number, number];
+  /** Fixed world position; otherwise a random point inside the room bounds at height `y`. */
+  at?: [number, number, number];
+  y?: [number, number];
 }
 
 const CORRIDOR_EVENTS = { drip: 3, dist_knock: 2, vent_scuttle: 1.5, metal_groan: 1, dist_voice: 0.6, dist_clank: 1 };
 const ROOM_EVENTS = { drip: 2, dist_knock: 2, vent_scuttle: 1, metal_groan: 1, dist_voice: 0.5, dist_clank: 0.8 };
+/** Quiet opening rooms: someone/something is still moving around the deck. `door_far` = a door servo two rooms away. */
+const DREAD_ROOM = { far_steps: 2, drag_far: 1.1, door_far: 1, breath_far: 1.2, husk_whisper: 0.5, pipe_tick: 1.6, dist_knock: 0.8, drip: 0.6, metal_groan: 0.5, vent_scuttle: 0.25 };
+const DREAD_CORRIDOR = { far_steps: 2.4, drag_far: 1.2, door_far: 1.2, breath_far: 0.8, husk_whisper: 0.5, pipe_tick: 1.2, dist_knock: 1, drip: 0.8, metal_groan: 0.7, vent_scuttle: 0.3 };
 
 export const ROOMS: Record<string, RoomPreset> = {
-  med: { ir: 'padded', wet: 0.35, bed: { amb_room: 0.8 }, events: ROOM_EVENTS },
-  corr_a: { ir: 'corridor', wet: 0.55, bed: { amb_room: 1 }, events: CORRIDOR_EVENTS },
-  junction: { ir: 'corridor', wet: 0.6, bed: { amb_room: 1 }, events: CORRIDOR_EVENTS },
-  sec: { ir: 'padded', wet: 0.4, bed: { amb_room: 0.85 }, events: ROOM_EVENTS },
-  storage: { ir: 'machine', wet: 0.45, bed: { amb_room: 0.9 }, events: ROOM_EVENTS },
+  med: { ir: 'padded', wet: 0.35, bed: { amb_room: 0.8 }, events: DREAD_ROOM, quiet: true },
+  corr_a: { ir: 'corridor', wet: 0.55, bed: { amb_room: 1 }, events: DREAD_CORRIDOR, quiet: true },
+  quarters: {
+    ir: 'dead', wet: 0.28, bed: { amb_quarters: 1 }, events: DREAD_ROOM, quiet: true,
+    local: [{ id: 'lamp_creak', every: [6, 15], vol: [0.45, 0.9], at: [-5.5, 2.6, -7] }],
+  },
+  junction: { ir: 'corridor', wet: 0.6, bed: { amb_room: 1 }, events: DREAD_CORRIDOR, quiet: true },
+  sec: { ir: 'padded', wet: 0.4, bed: { amb_room: 0.85 }, events: DREAD_ROOM, quiet: true },
+  storage: { ir: 'machine', wet: 0.45, bed: { amb_room: 0.9 }, events: DREAD_ROOM, quiet: true },
   airlock: { ir: 'corridor', wet: 0.6, bed: { amb_room: 0.7, amb_fab: 0.35 }, events: CORRIDOR_EVENTS },
+  pump: {
+    ir: 'cistern', wet: 0.72, bed: { amb_pump: 1 },
+    events: { water_slosh: 2, pipe_knock: 1.2, metal_groan: 1.2, drip: 1, vent_scuttle: 1.2, breath_far: 0.4, dist_clank: 0.6 },
+    local: [
+      { id: 'drip', every: [0.9, 3.8], vol: [0.25, 0.75], y: [2.5, 4.3] },
+      { id: 'drip', every: [2.5, 7], vol: [0.2, 0.5], y: [3, 4.4] },
+    ],
+  },
   fab: { ir: 'hall', wet: 0.75, bed: { amb_fab: 1 }, events: { dist_clank: 3, metal_groan: 3, dist_knock: 1, drip: 1, vent_scuttle: 1, dist_voice: 0.5 } },
   gen: { ir: 'machine', wet: 0.55, bed: { amb_gen: 1, amb_room: 0.3 }, events: { dist_clank: 2, metal_groan: 2, spark_zap: 1, dist_knock: 1 } },
   lobby: { ir: 'machine', wet: 0.5, bed: { amb_room: 0.9, amb_fab: 0.25 }, events: { metal_groan: 2, dist_clank: 2, dist_voice: 1, drip: 1, dist_knock: 1 } },
   elevator: { ir: 'shaft', wet: 0.6, bed: { amb_room: 0.6, amb_fab: 0.2 }, events: { metal_groan: 3, dist_clank: 2, dist_voice: 0.8 } },
 };
 export const DEFAULT_ROOM: RoomPreset = { ir: 'corridor', wet: 0.5, bed: { amb_room: 0.8 }, events: ROOM_EVENTS };
+
+/** Unknown / renamed room ids fall back to the closest known preset by name, then to DEFAULT_ROOM. */
+const ALIASES: Array<[RegExp, string]> = [
+  [/quarter|bunk|crew|dorm|canteen/, 'quarters'], [/pump|sump|coolant|flood/, 'pump'], [/med|infirm/, 'med'],
+  [/sec|guard|monitor/, 'sec'], [/stor|ware|supply/, 'storage'], [/air ?lock|decon/, 'airlock'], [/fab|hall|line/, 'fab'],
+  [/gen|power|switch/, 'gen'], [/lobby|freight/, 'lobby'], [/elev|shaft|lift/, 'elevator'], [/junc|hub/, 'junction'],
+  [/corr|hall|pass|vent/, 'corr_a'],
+];
+const resolved = new Map<string, RoomPreset>();
+export function presetFor(id: string): RoomPreset {
+  const hit = ROOMS[id];
+  if (hit) return hit;
+  let p = resolved.get(id);
+  if (!p) {
+    const k = id.toLowerCase();
+    const a = ALIASES.find(([re]) => re.test(k));
+    p = a ? ROOMS[a[1]] : DEFAULT_ROOM;
+    resolved.set(id, p);
+  }
+  return p;
+}

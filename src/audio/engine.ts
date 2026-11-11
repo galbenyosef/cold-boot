@@ -12,7 +12,7 @@ import type { LoopHandle } from '../core/types';
 import { SR, type BusName, type SoundDef } from './synth/core';
 import { renderDef, renderMany } from './synth/render';
 import { SOUND_MAP } from './sounds';
-import { makeIR, ROOMS, DEFAULT_ROOM, type IrName, type RoomPreset } from './impulses';
+import { makeIR, presetFor, DEFAULT_ROOM, type IrName, type RoomPreset } from './impulses';
 
 const MAX_VOICES = 40;
 const MAX_DIST = 70;
@@ -43,6 +43,8 @@ export interface PlayParams {
   variant?: number;
   /** Skip the occlusion test (already known / not wanted). */
   noOcclusion?: boolean;
+  /** Extra low-pass (Hz) on the direct sound: "through walls / far away". */
+  lowpass?: number;
 }
 
 interface Slot { input: GainNode; conv: ConvolverNode; out: GainNode; ir: IrName | null; }
@@ -53,6 +55,8 @@ export class AudioEngine {
   readonly ctx: AudioContext;
   readonly buses: Record<BusName, GainNode>;
   readonly duck: { music: GainNode; ambience: GainNode };
+  /** Room-tone dropout gains (ambience bed / music), separate from the CHOIR duck. */
+  private readonly tone: { music: GainNode; ambience: GainNode };
   readonly world: GainNode;
   readonly master: GainNode;
   readonly analyser: AnalyserNode;
@@ -73,6 +77,7 @@ export class AudioEngine {
   private voices: Voice[] = [];
   private lastStart = new Map<string, number>();
   private lastVariant = new Map<string, number>();
+  private cycleDir = new Map<string, number>();
   readonly loops = new Set<LoopVoice>();
 
   /** Listener pose (synced from the camera each frame). */
@@ -85,6 +90,7 @@ export class AudioEngine {
   private muffleTarget = -1;
   preRenderMs = 0;
   idleRenderMs = 0;
+  lateRenderMs = 0;
 
   constructor() {
     const AC: typeof AudioContext = (window as any).AudioContext ?? (window as any).webkitAudioContext;
@@ -110,10 +116,11 @@ export class AudioEngine {
 
     this.buses = { sfx: g(1), ambience: g(0.45), music: g(0.5), voice: g(0.95), ui: g(0.55) };
     this.duck = { music: g(1), ambience: g(1) };
+    this.tone = { music: g(1), ambience: g(1) };
     this.buses.sfx.connect(this.world);
     this.buses.voice.connect(this.world);
-    this.buses.music.connect(this.duck.music); this.duck.music.connect(this.world);
-    this.buses.ambience.connect(this.duck.ambience); this.duck.ambience.connect(this.world);
+    this.buses.music.connect(this.tone.music); this.tone.music.connect(this.duck.music); this.duck.music.connect(this.world);
+    this.buses.ambience.connect(this.tone.ambience); this.tone.ambience.connect(this.duck.ambience); this.duck.ambience.connect(this.world);
     this.buses.ui.connect(comp);
 
     // room reverb A/B
@@ -153,13 +160,20 @@ export class AudioEngine {
     for (const n of ['corridor', 'padded', 'hall'] as IrName[]) this.ir(n);
   }
 
-  /** Background render of 'idle' sounds (not awaited by createAudio). */
+  /** Background render of 'idle' sounds (not awaited by createAudio), then the 'late' set. */
   renderIdle(): Promise<void> {
-    const defs = [...SOUND_MAP.values()].filter((d) => d.when === 'idle' && !this.bank.has(d.id));
+    const pick = (w: 'idle' | 'late') => [...SOUND_MAP.values()].filter((d) => d.when === w && !this.bank.has(d.id));
     const t0 = performance.now();
-    return Promise.all(defs.map((d) => this.ensure(d.id))).then(() => {
+    return Promise.all(pick('idle').map((d) => this.ensure(d.id))).then(() => {
       this.idleRenderMs = performance.now() - t0;
-      for (const n of ['machine', 'shaft'] as IrName[]) this.ir(n);
+      for (const n of ['machine', 'shaft', 'dead'] as IrName[]) this.ir(n);
+      return new Promise<void>((res) => setTimeout(res, 50));
+    }).then(() => {
+      const t1 = performance.now();
+      return renderMany(pick('late'), (d, b) => { if (!this.bank.has(d.id)) this.bank.set(d.id, b); }, 3).then(() => {
+        this.lateRenderMs = performance.now() - t1;
+        this.ir('cistern');
+      });
     });
   }
 
@@ -211,7 +225,16 @@ export class AudioEngine {
     const c = this.ctx;
     const src = c.createBufferSource();
     let vi = p.variant ?? Math.floor(Math.random() * bufs.length);
-    if (p.variant === undefined && bufs.length > 1 && vi === this.lastVariant.get(id)) vi = (vi + 1) % bufs.length;
+    if (p.variant === undefined && def.order === 'cycle' && bufs.length > 1) {
+      const lv = this.lastVariant.get(id);
+      let dir = this.cycleDir.get(id) ?? 1;
+      if (lv === undefined || when - prevStart > 2.5) { vi = 0; dir = 1; }
+      else {
+        if (lv + dir < 0 || lv + dir >= bufs.length) dir = -dir;
+        vi = lv + dir;
+      }
+      this.cycleDir.set(id, dir);
+    } else if (p.variant === undefined && bufs.length > 1 && vi === this.lastVariant.get(id)) vi = (vi + 1) % bufs.length;
     this.lastVariant.set(id, vi);
     src.buffer = bufs[vi];
     const pv = def.pitchVar ?? 0.04;
@@ -231,6 +254,7 @@ export class AudioEngine {
       let lpF = 0;
       if (dist > 10) lpF = Math.max(2500, 20000 * Math.exp(-(dist - 10) / 25));
       if (occluded) lpF = lpF ? Math.min(lpF, 750) : 750;
+      if (p.lowpass) lpF = lpF ? Math.min(lpF, p.lowpass) : p.lowpass;
       if (lpF) {
         const lp = c.createBiquadFilter();
         lp.type = 'lowpass'; lp.frequency.value = lpF; lp.Q.value = 0.5;
@@ -332,7 +356,7 @@ export class AudioEngine {
   setRoom(id: string): void {
     if (id === this.roomId) return;
     this.roomId = id;
-    const preset = ROOMS[id] ?? DEFAULT_ROOM;
+    const preset = presetFor(id);
     this.room = preset;
     this.setReverb(preset.ir, preset.wet);
   }
@@ -384,6 +408,13 @@ export class AudioEngine {
   }
 
   setMaster(v: number): void { this.master.gain.setTargetAtTime(Math.max(0, v) * 0.85, this.now, 0.05); }
+
+  /** Room tone level (1 = normal): the ambience bed drops to `bed`, music to `music`. */
+  setRoomTone(bed: number, music: number, tau: number): void {
+    const t = this.now;
+    this.tone.ambience.gain.setTargetAtTime(Math.max(0, bed), t, tau);
+    this.tone.music.gain.setTargetAtTime(Math.max(0, music), t, tau);
+  }
 
   setDuck(amount: number, tau = 0.25): void {
     const t = this.now;
