@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>COLD BOOT — audio harness</title>
+    <style>
+      html, body { margin: 0; background: #07090a; color: #9ab; font: 11px/1.4 ui-monospace, Menlo, monospace; }
+      #head { padding: 6px 8px; white-space: pre; }
+      #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 4px; padding: 4px; }
+      .cell { position: relative; background: #000; }
+      .cell canvas { display: block; width: 100%; }
+      .cell .lbl { position: absolute; left: 4px; top: 2px; color: #dfe; text-shadow: 0 0 3px #000; white-space: pre; pointer-events: none; }
+      .wide { grid-column: 1 / -1; }
+    </style>
+  </head>
+  <body>
+    <div id="head">rendering…</div>
+    <div id="grid"></div>
+    <script type="module" src="/src/audio/dev/harness.ts"></script>
+  </body>
+</html>
