@@ -8,6 +8,7 @@ import type {
 } from '../core/types';
 import { Builder, aabbOf, mergeItems, unitBox, type Face } from './builder';
 import { SignAtlas, type UvRect } from './signatlas';
+import type { DoorImpl } from './doors';
 
 /** Global gain on every authored light intensity (tuned against the real renderer's exposure). */
 export const LIGHT_GAIN = 2.0;
@@ -54,6 +55,17 @@ export class LevelBuild {
   /** Extra hand-placed nav nodes. */
   readonly navExtra: { p: THREE.Vector3; room: string }[] = [];
   lightCount = 0;
+  /** Scripted set-pieces fired through `level.vignette(id)`. */
+  readonly vignettes = new Map<string, { run: () => void; toggle: boolean; fired: boolean }>();
+  /** Doors by id (filled by createLevel after every room is built — use from updaters / vignettes / `afterDoors`). */
+  readonly doors = new Map<string, DoorImpl>();
+  /** Hooks run once the doors exist (things that hang on door leaves). */
+  readonly afterDoors: (() => void)[] = [];
+  /** Is the room currently drawn? (wired up by createLevel; ambient motion only runs in visible rooms) */
+  isVisible: (room: string) => boolean = () => true;
+  private tweens: { t: number; dur: number; step: ((k: number, dt: number) => void) | null; done: (() => void) | null }[] = [];
+  private sims: ((dt: number) => boolean | void)[] = [];
+  private warned = new Set<string>();
   private pendingBounds: { box: THREE.Box3; pos: THREE.Vector3; room: string }[] = [];
   /** Shadow-requesting lights with the room they sit in (the request is withdrawn while that room is culled). */
   readonly castLights: { desc: LightDesc; room: string }[] = [];
@@ -265,10 +277,50 @@ export class LevelBuild {
     return o;
   }
 
+  // ── vignettes / scripted animation ──
+  /** Register a scripted set-piece. One-shots run once; toggles run on every call. */
+  vignette(id: string, run: () => void, toggle = false) { this.vignettes.set(id, { run, toggle, fired: false }); }
+  fireVignette(id: string): void {
+    const v = this.vignettes.get(id);
+    if (!v) { if (!this.warned.has(id)) { this.warned.add(id); console.warn(`[level] unknown vignette "${id}"`); } return; }
+    if (v.fired && !v.toggle) return;
+    v.fired = true;
+    try { v.run(); } catch (e) { console.warn(`[level] vignette "${id}" failed`, e); }
+  }
+  /** After `delay` s, call `step(k, dt)` with k running 0 → 1 over `dur` s, then `done()`. */
+  tween(delay: number, dur: number, step: ((k: number, dt: number) => void) | null, done: (() => void) | null = null) {
+    this.tweens.push({ t: -delay, dur, step, done });
+  }
+  after(delay: number, fn: () => void) { this.tween(delay, 0, null, fn); }
+  /** Free-running simulation: called every frame until it returns false. */
+  sim(step: (dt: number) => boolean | void) { this.sims.push(step); }
+  updateTasks(dt: number) {
+    const tw = this.tweens;
+    for (let i = tw.length - 1; i >= 0; i--) {
+      const a = tw[i];
+      a.t += dt;
+      if (a.t < 0) continue;
+      if (a.step) a.step(a.dur > 0 ? Math.min(1, a.t / a.dur) : 1, dt);
+      if (a.t >= a.dur) { tw.splice(i, 1); if (a.done) a.done(); }
+    }
+    const sm = this.sims;
+    for (let i = sm.length - 1; i >= 0; i--) if (sm[i](dt) === false) sm.splice(i, 1);
+  }
+  /** Always-on motion that only runs while `room` is being drawn. */
+  ambient(room: string, fn: (dt: number, t: number) => void) {
+    this.updaters.push((dt, t) => { if (this.isVisible(room)) fn(dt, t); });
+  }
+  /** Positional one-shot (never throws; unknown ids are the audio module's problem). */
+  sfx(id: string, x: number, y: number, z: number, volume = 1, pitch = 1) {
+    try { this.ctx.audio?.play(id, { position: new THREE.Vector3(x, y, z), volume, pitch }); } catch { /* audio not ready */ }
+  }
+
   // ── gameplay data ──
-  enemy(group: string, type: EnemyType, mode: 'dormant' | 'spawn', x: number, y: number, z: number, yaw: number, pose?: string) {
+  enemy(group: string, type: EnemyType, mode: 'dormant' | 'spawn', x: number, y: number, z: number, yaw: number, pose?: string, idle?: EnemySpawn['idle']) {
     const n = this.enemySpawns.filter((e) => e.group === group).length;
-    this.enemySpawns.push({ id: `${group}_${n + 1}`, type, position: new THREE.Vector3(x, y, z), yaw, group, mode, pose });
+    const e: EnemySpawn = { id: `${group}_${n + 1}`, type, position: new THREE.Vector3(x, y, z), yaw, group, mode, pose };
+    if (idle) e.idle = idle;
+    this.enemySpawns.push(e);
   }
   pickup(id: string, kind: PickupKind, x: number, y: number, z: number, amount: number, yaw = 0) {
     this.pickups.push({ id, kind, position: new THREE.Vector3(x, y, z), amount, yaw });

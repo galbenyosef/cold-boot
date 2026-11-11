@@ -10,6 +10,8 @@ import { buildNav } from './nav';
 import { defineInstances } from './props';
 import { buildMed } from './rooms/med';
 import { buildCorridor } from './rooms/corridor';
+import { buildQuarters } from './rooms/quarters';
+import { buildPump } from './rooms/pump';
 import { buildJunction } from './rooms/junction';
 import { buildSecurity } from './rooms/security';
 import { buildStorage } from './rooms/storage';
@@ -23,18 +25,23 @@ import { TRIGGERS, TriggerSystem } from './triggers';
 const DOORS: DoorSpec[] = [
   { id: 'd_med', x: 0, z: 0, wall: 'z', kind: 'std', locked: false, labelFront: 'SERVICE CORRIDOR A', labelBack: 'MEDICAL 3-A', rooms: ['med', 'corr_a'] },
   { id: 'd_sec', x: -3, z: -17, wall: 'x', kind: 'std', locked: false, labelFront: 'SECURITY 3', labelBack: 'JUNCTION 3', rooms: ['junction', 'sec'] },
-  { id: 'd_storage', x: 3, z: -17, wall: 'x', kind: 'std', locked: true, labelFront: 'JUNCTION 3', labelBack: 'EQUIPMENT STORAGE', rooms: ['junction', 'storage'] },
+  { id: 'd_quarters', x: -1.7, z: -6.5, wall: 'x', kind: 'std', locked: false, labelFront: 'CREW QUARTERS 3', labelBack: 'SERVICE CORRIDOR A', rooms: ['corr_a', 'quarters'], ajar: 0.3 },
+  { id: 'd_storage', x: 3, z: -17, wall: 'x', kind: 'std', locked: false, labelFront: 'JUNCTION 3', labelBack: 'EQUIPMENT STORAGE', rooms: ['junction', 'storage'] },
   { id: 'd_fab_outer', x: 0, z: -20, wall: 'z', kind: 'wide', locked: true, labelFront: 'FAB ACCESS LOCK', labelBack: 'JUNCTION 3', leafMat: 'painted_yellow', rooms: ['junction', 'airlock'] },
   { id: 'd_fab_inner', x: 0, z: -26, wall: 'z', kind: 'wide', locked: false, labelFront: 'FABRICATION HALL 3', labelBack: 'FAB ACCESS LOCK', leafMat: 'painted_yellow', windows: true, rooms: ['airlock', 'fab'] },
   { id: 'd_gen', x: 12, z: -38, wall: 'x', kind: 'std', locked: false, labelFront: 'FABRICATION HALL 3', labelBack: 'POWER DISTRIBUTION 3', rooms: ['fab', 'gen'] },
+  { id: 'd_pump', x: -12.2, z: -38, wall: 'x', kind: 'std', locked: true, labelFront: 'COOLANT PUMP ROOM 3', labelBack: 'FABRICATION HALL 3', rooms: ['fab', 'pump'] },
   { id: 'd_lobby', x: 0, z: -50, wall: 'z', kind: 'wide', locked: true, labelFront: 'FREIGHT LOBBY', labelBack: 'FABRICATION HALL 3', leafMat: 'wall_panel_dark', rooms: ['fab', 'lobby'] },
   { id: 'd_elev', x: 0, z: -58, wall: 'z', kind: 'cage', locked: true, labelFront: 'FREIGHT ELEVATOR', labelBack: 'FREIGHT LOBBY', rooms: ['lobby', 'elevator'] },
 ];
 
-const ROOM_OF: Record<string, string> = { med: 'med', corr: 'corr_a', junction: 'junction', sec: 'sec', storage: 'storage', airlock: 'airlock', fab: 'fab', gen: 'gen', lobby: 'lobby', elevator: 'elevator' };
-/** Portal graph for room visibility: [room A, room B, door id | null (always open), see-through when shut]. */
-const PORTALS: [string, string, string | null, boolean][] = [
-  ['med', 'corr_a', 'd_med', false], ['corr_a', 'junction', null, true], ['junction', 'sec', 'd_sec', false], ['junction', 'storage', 'd_storage', false],
+const ROOM_OF: Record<string, string> = { med: 'med', corr: 'corr_a', quarters: 'quarters', pump: 'pump', junction: 'junction', sec: 'sec', storage: 'storage', airlock: 'airlock', fab: 'fab', gen: 'gen', lobby: 'lobby', elevator: 'elevator' };
+/**
+ * Portal graph for room visibility: [room A, room B, door id | null (always open), see-through when shut].
+ * See-through: true = SEE_RANGE, or the distance (m) from the door within which the far side is drawn.
+ */
+const PORTALS: [string, string, string | null, boolean | number][] = [
+  ['med', 'corr_a', 'd_med', false], ['corr_a', 'quarters', 'd_quarters', 11], ['fab', 'pump', 'd_pump', false], ['corr_a', 'junction', null, true], ['junction', 'sec', 'd_sec', false], ['junction', 'storage', 'd_storage', false],
   ['junction', 'airlock', 'd_fab_outer', false], ['airlock', 'fab', 'd_fab_inner', false], ['fab', 'gen', 'd_gen', false], ['fab', 'lobby', 'd_lobby', false],
   ['lobby', 'elevator', 'd_elev', true],
 ];
@@ -55,8 +62,8 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
   const timings: string[] = [];
   let tl = performance.now();
   const lap = (name: string) => { const n = performance.now(); timings.push(`${name} ${(n - tl).toFixed(0)}`); tl = n; };
-  for (const [name, fn] of [['med', buildMed], ['corr', buildCorridor], ['junction', buildJunction], ['sec', buildSecurity], ['storage', buildStorage],
-    ['airlock', buildAirlock], ['fab', buildFab], ['gen', buildGen], ['lobby', buildLobby], ['elevator', buildElevator]] as const) {
+  for (const [name, fn] of [['med', buildMed], ['corr', buildCorridor], ['quarters', buildQuarters], ['junction', buildJunction], ['sec', buildSecurity], ['storage', buildStorage],
+    ['airlock', buildAirlock], ['fab', buildFab], ['pump', buildPump], ['gen', buildGen], ['lobby', buildLobby], ['elevator', buildElevator]] as const) {
     L.currentRoom = ROOM_OF[name];
     fn(L);
     for (const o of L.root.children) if (!o.userData.rooms || !o.userData.rooms.length) o.userData.rooms = [L.currentRoom];
@@ -67,6 +74,8 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
 
   const doors: DoorImpl[] = makeDoors(L, DOORS);
   if (ctx.debug.noStory) for (const d of doors) d.unlock();
+  for (const d of doors) L.doors.set(d.id, d);
+  for (const fn of L.afterDoors) fn();
   lap('doors');
   const doorMap = new Map<string, DoorImpl>(doors.map((d) => [d.id, d]));
 
@@ -75,7 +84,7 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
   const colliders = L.colliderMeshes();
   const rooms: readonly Room[] = L.rooms;
 
-  const nav: NavNode[] = buildNav(L, rooms, [...DOORS.map((d) => ({ x: d.x, z: d.z })), { x: 0, z: -13.8 }], (id) => (id === 'fab' ? 1.7 : id === 'storage' ? 0.7 : id === 'gen' ? 1.25 : 1.0));
+  const nav: NavNode[] = buildNav(L, rooms, [...DOORS.map((d) => ({ x: d.x, z: d.z })), { x: 0, z: -13.8 }], (id) => (id === 'fab' ? 1.7 : id === 'storage' ? 0.7 : id === 'gen' ? 1.25 : id === 'quarters' ? 0.8 : 1.0));
   lap('nav');
   const triggers = new TriggerSystem(ctx, TRIGGERS);
 
@@ -86,7 +95,7 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
   // ── room visibility (the level is one long axis: without this every room is inside the frustum) ──
   const roomIds = rooms.map((r) => r.id);
   const roomBit = new Map(roomIds.map((id, i) => [id, 1 << i]));
-  const portals = PORTALS.map(([a, b, d, see]) => ({ a: roomBit.get(a)!, b: roomBit.get(b)!, door: d ? doorMap.get(d)! : null, see }));
+  const portals = PORTALS.map(([a, b, d, see]) => ({ a: roomBit.get(a)!, b: roomBit.get(b)!, door: d ? doorMap.get(d)! : null, see: see === true ? SEE_RANGE : see || 0 }));
   const tagged: { obj: THREE.Object3D; mask: number }[] = [];
   for (const o of L.root.children) {
     let mask = 0;
@@ -95,6 +104,7 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
   }
   const castLights = L.castLights.map((c) => ({ desc: c.desc, bit: roomBit.get(c.room) ?? 0 }));
   let lastRoomBit = roomBit.get('med')!, lastMask = -1;
+  L.isVisible = (id) => lastMask === -1 || (lastMask & (roomBit.get(id) ?? 0)) !== 0;
   // Published for the render module: is the room at (x, z) potentially visible? (true outside any room)
   L.root.userData.roomVisible = (x: number, z: number): boolean => {
     if (lastMask === -1) return true;
@@ -117,11 +127,11 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
         const q = portals[i];
         const hasA = (mask & q.a) !== 0, hasB = (mask & q.b) !== 0;
         if (hasA === hasB) continue;
-        let open = q.door === null || q.door.t > 0;
+        let open = q.door === null || q.door.t > q.door.ajar + 1e-3;
         if (!open && q.see) {
-          // shut but see-through (window slits, cage): only worth drawing the far side from reasonably close
+          // shut but see-through (window slits, cage, a door left ajar): only worth drawing the far side from reasonably close
           const dx = p.x - q.door!.position.x, dz = p.z - q.door!.position.z;
-          open = dx * dx + dz * dz < SEE_RANGE * SEE_RANGE;
+          open = dx * dx + dz * dz < q.see * q.see;
         }
         if (open) { mask |= q.a | q.b; grew = true; }
       }
@@ -192,11 +202,13 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
       try { machineAudio(name, state); } catch (e) { console.warn('[level] machine audio failed', e); }
     },
     screen: (name) => L.screens.get(name),
+    vignette(id) { L.fireVignette(id); },
     update(dt) {
       time += dt;
       for (let i = 0; i < doors.length; i++) doors[i].update(dt, ctx);
       triggers.update();
       updateVisibility();
+      L.updateTasks(dt);
       for (let i = 0; i < updaters.length; i++) updaters[i](dt, time);
     },
   };

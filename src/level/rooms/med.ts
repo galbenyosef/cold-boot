@@ -1,5 +1,8 @@
 /** MEDICAL 3-A — the start room. x -5…5, z 0…10, h 3.2. */
+import * as THREE from 'three';
 import { rng } from '../builder';
+import { Curtains, Swing, hangingBundle, easeInOut } from '../ambient';
+import { scrawlMaterial } from '../scrawl';
 import type { LevelBuild } from '../context';
 import { cable, ductRect, floorSlab, hose, lathe, pipe, trench } from '../kit';
 import { bed, boots, counter, curtainGeo, drapedBody, fireExtinguisher, gurney, ivStand, locker, mug, papers, privacyScreen, tablet, vitalsStand, wallCabinet, wallTerminal } from '../props';
@@ -35,10 +38,11 @@ export function buildMed(L: LevelBuild) {
     };
     rail(-4.95, 3.1, -2.7, 3.1); rail(-4.95, 5.7, -2.7, 5.7); rail(-2.7, 0.5, -2.7, 8.4);
     rail(4.95, 3.1, 2.7, 3.1); rail(2.7, 0.5, 2.7, 5.6); rail(4.95, 5.6, 2.7, 5.6);
-    const cloth = L.doubleSided('fabric');
-    const curtain = (x: number, z: number, w: number, ry: number) => { b.push(x, 1.28, z, ry); b.geo(cloth, curtainGeo(w, 1.9, Math.round(w * 6), 0.035), 'keep', undefined, w, 1.9); b.pop(); };
-    curtain(-4.3, 3.1, 1.2, 0); curtain(-3.85, 5.7, 2.1, 0); curtain(-2.7, 7.5, 1.6, PI / 2);
-    curtain(4.45, 3.1, 0.9, 0); curtain(2.7, 1.2, 1.2, PI / 2);
+    // the privacy curtains are one instanced mesh that breathes (see ambient.ts)
+    const cur = new Curtains(L, 'med', L.doubleSided('fabric'));
+    cur.add(-4.3, 2.23, 3.1, 0, 1.2, 1.9).add(-3.85, 2.23, 5.7, 0, 2.1, 1.9, 1.3).add(-2.7, 2.23, 7.5, PI / 2, 1.6, 1.9);
+    cur.add(4.45, 2.23, 3.1, 0, 0.9, 1.9).add(2.7, 2.23, 1.2, PI / 2, 1.2, 1.9, 1.2);
+    cur.finish();
     // sprinkler pipe
     pipe(b, 'painted_orange', [[4.2, H - 0.12, 0.3], [4.2, H - 0.12, 9.9]], 0.022, { flanges: false });
     for (const z of [1.5, 4.0, 6.5, 9.0]) { b.cyl('brass', 4.2, H - 0.18, z, 0.012, 0.08, 'y', 6); b.cyl('brass', 4.2, H - 0.23, z, 0.03, 0.006, 'y', 8); }
@@ -85,7 +89,7 @@ export function buildMed(L: LevelBuild) {
   b.decal('blood_splat', 1, -4.2, 0.002, 4.95, 0.5, 0.5, '+y', 1.2);
   b.decal('blood_smear', 0, -3.9, 0.84, 4.63, 0.6, 0.35, '+y', 0.2);
   b.at(-4.55, 0, 3.6, 0.3, () => ivStand(b, false, 1));
-  b.at(-4.6, 0, 5.2, 0, () => { vitalsStand(b); b.box('screen_off', 0, 1.38, 0.072, 0.38, 0.28, 0.004); });
+  b.at(-4.6, 0, 5.2, 0.5, () => vitalsStand(b));
   b.at(-4.5, 0, 7.9, 0.5, () => ivStand(b, true, 1));
   b.at(-4.55, 0, 0.9, 0.4, () => { vitalsStand(b); b.box('screen_off', 0, 1.38, 0.072, 0.38, 0.28, 0.004); });
 
@@ -138,8 +142,105 @@ export function buildMed(L: LevelBuild) {
   // boots left by the bed
   b.at(0.55, 0, 7.75, 2.2, () => boots(b));
   // loose cable from the ceiling by the dead fixture
-  b.detail(() => cable(b, 'rubber', [0.3, H, 5.7], [0.9, 2.3, 5.9], 0.25, 0.012, 8, 5));
+  hangingBundle(L, 'med', 0.3, H - 0.02, 5.7, [{ dx: 0, dz: 0, len: 0.95, r: 0.012, bow: 0.1 }, { dx: 0.04, dz: -0.03, len: 0.7, r: 0.008 }], { amp: 0.06, period: 3.4 });
+
+  // ── marker on the privacy screen by the player's bed ──
+  b.push(2.75, 0, 7.6, PI / 2 + 0.12); b.push(0, 1.06, 0.099, 0.25);
+  b.detail(() => b.quad(scrawlMaterial(['THEY CARRIED', 'ANAND OUT.', 'HE WAS', 'STILL', 'TALKING.'], { style: 'marker', aspect: 0.6, seed: 11, px: 512, color: '#07080b' }), 0, 0.04, 0, 0.74, 1.23, '-z', 0.02, 'unit', 0.075));
+  b.pop(); b.pop();
+
+  // ── the flat monitor beside the sheeted body: one green line (med_monitor_spike draws two beats on it) ──
+  const mcv = document.createElement('canvas');
+  mcv.width = 256; mcv.height = 192;
+  const mg = mcv.getContext('2d')!;
+  const mtex = new THREE.CanvasTexture(mcv);
+  mtex.colorSpace = THREE.SRGBColorSpace;
+  const mmat = L.ctx.materials.clone('emissive_green', { emissiveMap: mtex, emissive: 0xffffff, emissiveIntensity: 1.6 });
+  mmat.name = 'med_flatline';
+  /** QRS complex, `d` = pixels past the start of the beat. Returns upward deflection in pixels. */
+  const qrs = (d: number) => (d < 0 || d > 40 ? 0 : d < 8 ? Math.sin((d / 8) * PI) * 6 : d < 12 ? 0 : d < 14 ? -(d - 12) * 5 : d < 17 ? -10 + (d - 14) * 27 : d < 20 ? 71 - (d - 17) * 30 : d < 23 ? -19 + (d - 20) * 6.3 : d < 27 ? 0 : Math.sin(((d - 27) / 13) * PI) * 11);
+  /** `head` = sweep position 0..1 (0 = idle flat line); beats = sweep positions where a complex starts. */
+  const drawTrace = (head: number, beats: number[]) => {
+    mg.fillStyle = '#020503'; mg.fillRect(0, 0, 256, 192);
+    mg.strokeStyle = 'rgba(40,120,70,0.25)'; mg.lineWidth = 1;
+    for (let x = 0; x < 256; x += 32) { mg.beginPath(); mg.moveTo(x, 0); mg.lineTo(x, 192); mg.stroke(); }
+    for (let y = 0; y < 192; y += 32) { mg.beginPath(); mg.moveTo(0, y); mg.lineTo(256, y); mg.stroke(); }
+    mg.strokeStyle = '#52ff9a'; mg.lineWidth = 2.5; mg.lineJoin = 'round';
+    mg.beginPath(); mg.moveTo(0, 110);
+    for (let x = 0; x <= 256; x += 1) {
+      let y = 0;
+      if (x <= head * 256) for (const bt of beats) y += qrs(x - bt * 256);
+      mg.lineTo(x, 110 - y);
+    }
+    mg.stroke();
+    const live = head > 0 && head < 1;
+    if (live) { mg.fillStyle = '#d8ffe6'; mg.beginPath(); mg.arc(head * 256, 110, 3.5, 0, 6.3); mg.fill(); }
+    const beating = live && beats.length > 0;
+    mg.fillStyle = beating ? '#52ff9a' : '#ff5540'; mg.font = 'bold 26px monospace';
+    mg.fillText(beats.length > 1 && live ? '41' : '--', 10, 34);
+    mg.font = '13px monospace'; mg.fillText(beating ? 'HR' : 'ASYSTOLE', 60, 30);
+    mtex.needsUpdate = true;
+  };
+  drawTrace(0, []);
+  {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.28), mmat);
+    m.position.set(-4.6 + Math.sin(0.5) * 0.0725, 1.38, 5.2 + Math.cos(0.5) * 0.0725);
+    m.rotation.y = 0.5;
+    m.name = 'screen:med_flatline';
+    L.root.add(m);
+  }
+  const mglow = L.point('med', -4.45, 1.4, 5.45, 0x58ffa0, 0.35, 2.4);
+  L.vignette('med_monitor_spike', () => {
+    const beats = [0.22, 0.56];
+    let t = 0, n = 0;
+    const DUR = 2.8;
+    L.sim((dt) => {
+      t += dt;
+      const head = Math.min(1, t / DUR);
+      let shown = 0;
+      for (const bt of beats) if (head > bt + 0.06) shown++;
+      if (shown > n) { n = shown; L.sfx('monitor_beep', -4.6, 1.4, 5.2, 0.8, 1); mglow.intensityScale = 3.5; }
+      mglow.intensityScale += (1 - mglow.intensityScale) * Math.min(1, dt * 5);
+      drawTrace(head, beats);
+      if (t > DUR + 0.8) { drawTrace(0, []); mglow.intensityScale = 1; L.sfx('monitor_beep', -4.6, 1.4, 5.2, 0.45, 0.5); return false; }
+      return true;
+    });
+  });
+
+  // ── med_arm_drop: the arm of the body under the sheet slides off the mattress and hangs ──
+  const skin = L.ctx.materials.clone('plastic_white', { color: 0x9c8a80 }); skin.name = 'med_skin';
+  const ab = L.part('med:arm');
+  ab.rod('fabric', 0, 0, 0, 0, -0.3, 0, 0.05, 8); // sleeve of the gown
+  ab.rod(skin, 0, -0.28, 0, 0, -0.54, 0.01, 0.036, 8);
+  ab.sphere(skin, 0, -0.6, 0.015, 0.045, 8, 1.5, 1.0, 0.5);
+  for (let i = 0; i < 4; i++) ab.rod(skin, -0.03 + i * 0.02, -0.65, 0.015, -0.034 + i * 0.023, -0.725, 0.03, 0.0085, 5);
+  ab.rod(skin, 0.04, -0.6, 0.02, 0.07, -0.66, 0.035, 0.009, 5);
+  const arm = ab.build(false);
+  // shoulder at the room-side edge of the mattress (the body lies head to the west wall); at rest the arm
+  // lies along the body, on the mattress, hand towards the foot of the bed
+  const SHX = -4.2, SHY = 0.8, SHZ = 4.86;
+  const REST = PI / 2 - 0.04;
+  arm.position.set(SHX, SHY, SHZ - 0.12);
+  arm.rotation.z = REST;
+  for (const m of arm.children) m.castShadow = true;
+  L.root.add(arm);
+  L.objects.set('med_arm', arm);
+  L.vignette('med_arm_drop', () => {
+    // creeps to the edge, a beat, then gravity takes it: it swings from the shoulder, knuckles tick the frame
+    L.tween(0, 1.4, (k) => { arm.position.z = SHZ - 0.12 + 0.14 * easeInOut(k); arm.rotation.z = REST - 0.05 * k; arm.rotation.x = 0.25 * easeInOut(k); });
+    const sw = new Swing(0, 15, 0.9, REST - 0.05);
+    let t = 0, ticked = false;
+    L.after(1.9, () => L.sim((dt) => {
+      t += dt;
+      const a = sw.step(dt);
+      arm.rotation.z = a;
+      arm.rotation.x = 0.25 * Math.max(0, 1 - t * 1.5) + Math.sin(t * 2.3) * 0.07 * Math.exp(-t * 0.45);
+      if (!ticked && a < 0.15) { ticked = true; L.sfx('body_fall', SHX, 0.5, SHZ, 0.3, 1.3); }
+      return t < 12;
+    }));
+  });
 
   L.ctx.fx.emitter('drip', L.vec(-0.55, 1.14, 9.7), L.vec(0, -1, 0), 1.2);
+
   L.ctx.fx.emitter('dust', L.vec(0, 2.0, 2.4), L.vec(0, -1, 0), 6);
 }

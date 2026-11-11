@@ -1,6 +1,7 @@
 /** SECURITY 3 — x -11…-3, z -21…-13, h 3.2. Monitor wall, console, weapon locker (pistol), ceiling vent. */
 import * as THREE from 'three';
 import { rng } from '../builder';
+import { Swing } from '../ambient';
 import type { LevelBuild } from '../context';
 import { cableBundle, ductRect, floorSlab, louvre, pipe, trench } from '../kit';
 import { bench, chair, console, crate, desk, fireExtinguisher, locker, lockerRow, monitorBezel, mug, papers, switchgear, tablet } from '../props';
@@ -41,16 +42,47 @@ export function buildSecurity(L: LevelBuild) {
     b.decal('scratches', 1, vx - 0.9, H - 0.001, vz, 0.8, 0.8, '-y');
     b.decal('oil_drip', 1, vx, 0.002, vz + 0.2, 0.7, 0.7, '+y');
   });
+  // the grille: shut until `sec_vent_drop` — hinge along X at the origin, hangs down -Y once it lets go
   const vent = L.part('sec_vent');
-  louvre(vent, -0.37, -0.74, 0.37, 0, -0.02, 0.04);
-  const ventObj = vent.build();
+  for (const s of [-1, 1]) vent.box('trim_steel', s * 0.36, -0.37, 0, 0.03, 0.74, 0.03);
+  vent.box('trim_steel', 0, -0.015, 0, 0.75, 0.03, 0.03).box('trim_steel', 0, -0.725, 0, 0.75, 0.03, 0.03);
+  for (let i = 0; i < 9; i++) vent.rbox('trim_steel', 0, -0.075 - i * 0.075, 0, 0.7, 0.055, 0.008, 0.65, 0, 0);
+  const ventObj = vent.build(false);
   ventObj.position.set(vx, H - 0.43, vz - 0.37);
-  ventObj.rotation.set(-PI / 2 + 1.25, 0, 0.06);
+  const SHUT = -PI / 2;
+  ventObj.rotation.x = SHUT;
   for (const m of ventObj.children) (m as THREE.Mesh).castShadow = true;
   L.root.add(ventObj);
   L.objects.set('sec_vent', ventObj);
-  L.enemy('g_sec', 'skitter', 'spawn', vx, 2.55, vz, -PI / 2);
-  L.enemy('g_sec', 'skitter', 'spawn', vx - 0.25, 2.55, vz + 0.2, -PI / 2);
+  L.vignette('sec_vent_drop', () => {
+    const fx = L.ctx.fx, p = new THREE.Vector3();
+    const dust = (n: number, y: number) => fx.smoke(p.set(vx + (Math.random() - 0.5) * 0.4, y, vz + (Math.random() - 0.5) * 0.4), { count: n, size: 0.3, color: 0x8d8a80, rise: -0.5, life: 2.2 });
+    // one fastener gives: the free edge sags a finger's width and ticks. Then nothing. Then it lets go.
+    L.sfx('pipe_tick', vx, H - 0.4, vz + 0.3, 0.7, 1.2);
+    L.tween(0, 0.12, (k) => { ventObj.rotation.x = SHUT + 0.07 * k; });
+    dust(2, H - 0.5);
+    const sw = new Swing(0, 19.5, 0.5, SHUT + 0.07);
+    let t = 0, prev = SHUT, first = true, last = 0;
+    L.after(1.1, () => {
+      L.sfx('metal_clang', vx, H - 0.5, vz, 1, 0.9);
+      dust(6, H - 0.45);
+      L.sim((dt) => {
+        t += dt;
+        const a = sw.step(dt);
+        ventObj.rotation.x = a;
+        ventObj.rotation.z = Math.sin(t * 5.1) * 0.05 * Math.exp(-t * 0.35);
+        if (prev < 0 !== a < 0) {
+          // every pass through the bottom: the hinge complains, quieter each time
+          const e = Math.min(1, Math.abs(sw.v) / 5);
+          if (first) { first = false; dust(4, H - 0.6); }
+          if (e > 0.06 && t - last > 0.3) { last = t; L.sfx('metal_groan', vx, H - 0.45, vz - 0.37, 0.12 + e * 0.45, 1.5 + e * 0.5); }
+        }
+        if (t < 2.5 && Math.random() < dt * 5) dust(1, H - 0.5);
+        prev = a;
+        return t < 30 && sw.energy > 0.004;
+      });
+    });
+  });
 
   // ── monitor wall + main console (west) ──
   b.at(-11, 0, -17, PI / 2, () => {
@@ -63,7 +95,44 @@ export function buildSecurity(L: LevelBuild) {
     for (const [lx, y] of [[-0.62, 2.63], [0.62, 2.63], [-0.62, 1.92], [0.62, 1.92]]) monitorBezel(b, lx, y, 1.1, 0.6, 0.11);
   });
   const kinds = ['camera_feed', 'static', 'static', 'camera_feed'] as const;
-  [[-16.38, 2.63], [-17.62, 2.63], [-16.38, 1.92], [-17.62, 1.92]].forEach(([z, y], i) => L.screen(`sec_monitor_${i + 1}`, kinds[i], 1.1, 0.6, -10.888, y, z, '+x'));
+  const monitors = [[-16.38, 2.63], [-17.62, 2.63], [-16.38, 1.92], [-17.62, 1.92]].map(([z, y], i) => L.screen(`sec_monitor_${i + 1}`, kinds[i], 1.1, 0.6, -10.888, y, z, '+x'));
+  // monitor 4 has lost vertical hold: every so often the picture rolls, tears, and catches again
+  {
+    const W = 1.1, Hh = 0.6, GAP = 0.035;
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array(24), uv = new Float32Array(16), nor = new Float32Array(24);
+    for (let i = 0; i < 8; i++) nor[i * 3 + 2] = 1;
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.setIndex([0, 1, 2, 2, 1, 3, 4, 5, 6, 6, 5, 7]);
+    const quad = (o: number, y0: number, y1: number, v0: number, v1: number, skew: number) => {
+      const xs = [-W / 2, W / 2, -W / 2, W / 2], ys = [y0, y0, y1, y1], vs = [v0, v0, v1, v1];
+      for (let i = 0; i < 4; i++) { pos[(o + i) * 3] = xs[i] + (i > 1 ? skew : 0); pos[(o + i) * 3 + 1] = ys[i]; uv[(o + i) * 2] = i % 2; uv[(o + i) * 2 + 1] = vs[i]; }
+    };
+    const set = (r: number, skew: number) => {
+      const split = -Hh / 2 + (1 - r) * Hh;
+      quad(0, -Hh / 2, Math.max(-Hh / 2, split - (r > 0 ? GAP / 2 : 0)), r, r > 0 ? 1 - GAP / (2 * Hh) : 1, 0);
+      quad(4, Math.min(Hh / 2, split + GAP / 2), Hh / 2, 0, Math.max(0, r - GAP / (2 * Hh)), skew);
+      g.attributes.position.needsUpdate = true; g.attributes.uv.needsUpdate = true;
+    };
+    set(0, 0);
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0.7);
+    monitors[3].geometry = g;
+    let wait = 3, r = 0, v = 0, rolling = false, hold = 0, tear = 0;
+    L.ambient('sec', (dt, t) => {
+      if (!rolling) {
+        wait -= dt;
+        if (tear > 0) { tear -= dt; set(0.93, Math.sin(t * 90) * 0.03); if (tear <= 0) set(0, 0); }
+        else if (Math.random() < dt * 0.25) tear = 0.09;
+        if (wait <= 0) { rolling = true; hold = 1.2 + Math.random() * 2.6; v = 0.2; }
+        return;
+      }
+      hold -= dt;
+      v += ((hold > 0 ? 1.7 + Math.sin(t * 3.1) * 0.6 : 0.25) - v) * Math.min(1, dt * 3);
+      r += v * dt;
+      if (r >= 1) { r -= 1; if (hold <= 0) { rolling = false; r = 0; wait = 5 + Math.random() * 9; set(0, 0); return; } }
+      set(r, Math.sin(t * 37) * 0.012 + (Math.sin(t * 5.3) > 0.8 ? 0.05 : 0));
+    });
+  }
   b.at(-10.15, 0, -17, PI / 2, () => console(b, 3.6, R));
   L.screen('sec_console', 'terminal_idle', 1.0, 0.42, -10.418, 1.17, -17, '+x');
   L.interact('term_sec_unlock', 'terminal', 'Use security console', -9.95, 1.05, -17);

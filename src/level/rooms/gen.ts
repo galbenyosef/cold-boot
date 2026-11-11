@@ -5,6 +5,7 @@ import type { LevelBuild, MachineState } from '../context';
 import { cableBundle, ductRect, floorSlab, hazardStrip, ibeam, lathe, panel, pipe, trench, valve } from '../kit';
 import { crate, floorCable, switchgear, wallTerminal } from '../props';
 import { beacon, ceilingSlab, troffer, wallFace } from '../structure';
+import { scrawlMaterial } from '../scrawl';
 
 const PI = Math.PI;
 
@@ -152,22 +153,140 @@ export function buildGen(L: LevelBuild) {
   lever.add(lampRed, lampGreen);
   L.root.add(lever);
   L.objects.set('gen_lever', lever);
-  const it = L.interact('gen_lever', 'lever', 'Throw main breaker', LX - 0.25, 1.35, LZ, true, 2.4);
-  let thrown = false, lt = 0;
-  L.ctx.events.on('interact', (e) => { if (e.id === 'gen_lever' && !thrown) { thrown = true; it.enabled = false; } });
-  L.updaters.push((dt) => {
-    if (!thrown || lt >= 1) return;
-    lt = Math.min(1, lt + dt / 0.45);
-    // accelerate, hit the stop, tiny bounce
-    const e = lt < 0.8 ? (lt / 0.8) * (lt / 0.8) : 1 + Math.sin(((lt - 0.8) / 0.2) * PI) * 0.035;
-    arm.rotation.x = OFF + (ON - OFF) * e;
-    if (lt > 0.8) { lampRed.visible = false; lampGreen.visible = true; }
+  const it = L.interact('gen_lever', 'lever', 'Main breaker', LX - 0.25, 1.35, LZ, true, 2.4);
+
+  // Hale's lock-out: a hasp through the lever with her padlock on it, and the tag. Named `gen_lockout`.
+  const tagMat = scrawlMaterial(['D. HALE', 'DO NOT', 'CLOSE', 'NOT FOR', 'ANYONE'], {
+    style: 'pen', aspect: 0.56, px: 256, seed: 9, color: '#161a22', top: 0.3,
+    bg: (g, W, Hh) => {
+      g.fillStyle = '#d9d4c6'; g.fillRect(0, 0, W, Hh);
+      g.fillStyle = '#a3170f'; g.fillRect(0, 0, W, Hh * 0.27);
+      g.fillStyle = '#efe9da'; g.font = `bold ${Math.round(W * 0.2)}px sans-serif`; g.textAlign = 'center';
+      g.fillText('DANGER', W / 2, Hh * 0.13); g.font = `bold ${Math.round(W * 0.115)}px sans-serif`; g.fillText('LOCKED OUT', W / 2, Hh * 0.235);
+      g.fillStyle = '#222'; g.beginPath(); g.arc(W / 2, Hh * 0.045, W * 0.035, 0, 6.3); g.fill();
+    },
+  });
+  const kb = L.part('gen_lockout');
+  kb.box('painted_orange', 0, 0.02, 0, 0.012, 0.16, 0.05);                       // hasp plate through the lever cheek
+  kb.box('painted_orange', 0.02, -0.04, 0, 0.05, 0.03, 0.05);
+  kb.box('brass', 0.045, -0.115, 0, 0.022, 0.06, 0.055);                         // padlock body
+  kb.torus('steel_raw', 0.045, -0.075, 0, 0.02, 0.005, 'x', 10);                 // shackle
+  kb.rod('steel_raw', 0.03, -0.06, 0.02, 0.0, -0.165, 0.085, 0.0025, 4);         // tag wire
+  const lockout = kb.build(false);
+  lockout.name = 'gen_lockout';
+  {
+    const tag = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.178), tagMat);
+    tag.position.set(0.0, -0.25, 0.085); tag.rotation.set(0.12, 0.25, 0.09);
+    lockout.add(tag);
+  }
+  // hangs on the lever arm, half way up, on the side facing the door
+  lockout.position.set(0.105, Math.cos(OFF) * 0.3, Math.sin(OFF) * 0.3 + 0.01);
+  lockout.scale.setScalar(1.45);
+  for (const m of lockout.children) m.castShadow = false;
+  lever.add(lockout);
+  L.objects.set('gen_lockout', lockout);
+
+  // gen_lever_throw (story, once the player has the key): padlock off, lever down, breaker closed
+  L.vignette('gen_lever_throw', () => {
+    it.enabled = false;
+    const wp = new THREE.Vector3();
+    lever.updateMatrixWorld(true);
+    L.root.attach(lockout);
+    lockout.userData.rooms = ['gen'];
+    lockout.getWorldPosition(wp);
+    L.sfx('pipe_tick', wp.x, wp.y, wp.z, 0.8, 1.6);
+    // the shackle springs, the lock swings clear, drops, rings on the plate floor and lies there
+    let vy = 0.6, vx = -0.5, vz = 0.25, t = 0, hits = 0;
+    L.tween(0, 0.28, (k) => { lockout.rotation.z = -0.5 * k; });
+    L.after(0.3, () => L.sim((dt) => {
+      t += dt;
+      vy -= 9.8 * dt;
+      lockout.position.x += vx * dt; lockout.position.y += vy * dt; lockout.position.z += vz * dt;
+      lockout.rotation.x += 7 * dt * (hits ? 0.4 : 1); lockout.rotation.z -= 4 * dt * (hits ? 0.3 : 1);
+      if (lockout.position.y < 0.04) {
+        lockout.position.y = 0.04;
+        L.sfx('metal_clang', lockout.position.x, 0.05, lockout.position.z, 0.35 / (1 + hits), 2.2);
+        if (++hits > 2 || Math.abs(vy) < 0.8) { lockout.rotation.set(PI / 2, 0, lockout.rotation.z); return false; }
+        vy = -vy * 0.35; vx *= 0.5; vz *= 0.5;
+      }
+      return t < 4;
+    }));
+    // a breath — then the bar comes down: accelerates, hits the stop, a tiny bounce
+    L.tween(1.0, 0.45, (k) => {
+      const e = k < 0.8 ? (k / 0.8) * (k / 0.8) : 1 + Math.sin(((k - 0.8) / 0.2) * PI) * 0.035;
+      arm.rotation.x = OFF + (ON - OFF) * e;
+      if (k > 0.8 && lampRed.visible) { lampRed.visible = false; lampGreen.visible = true; L.sfx('metal_clang', LX, 1.2, LZ, 0.7, 0.7); }
+    });
+  });
+
+  // gen_ripple: the indicator bars along the tops of the switchgear follow whoever walks past
+  const LEDS: number[] = [];
+  for (const [z, s] of [[-32.4, -1], [-43.6, 1]] as const) for (let i = 0; i < 8; i++) for (let k = 0; k < 6; k++) LEDS.push(13.3 + i * 0.82 - 0.25 + k * 0.1, z + s * 0.372);
+  const NLED = LEDS.length / 2;
+  const ledMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  ledMat.name = 'gen_leds';
+  const leds = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 0.022, 0.012), ledMat, NLED);
+  leds.name = 'gen:leds';
+  const ledLvl = new Float32Array(NLED).fill(0.05);
+  const lm = new THREE.Matrix4(), lc = new THREE.Color();
+  const ledWrite = (i: number) => { const v = ledLvl[i]; leds.setColorAt(i, lc.setRGB(v * 1.9, v * (0.55 + v * 0.25), v * 0.1 + Math.max(0, v - 1) * 0.5)); };
+  for (let i = 0; i < NLED; i++) { leds.setMatrixAt(i, lm.makeTranslation(LEDS[i * 2], 2.225, LEDS[i * 2 + 1])); ledWrite(i); }
+  leds.computeBoundingSphere(); leds.computeBoundingBox();
+  L.root.add(leds);
+  let rippleT = -1, tick = 0;
+  L.vignette('gen_ripple', () => { if (rippleT < 0) { rippleT = 0; tick = 0; } }, true);
+  L.ambient('gen', (dt, t) => {
+    const pl = L.ctx.player?.position;
+    if (rippleT < 0 || !pl) {
+      // idle: an occasional single LED blinks awake and dies again
+      if (Math.random() < dt * 1.5) { const i = (Math.random() * NLED) | 0; ledLvl[i] = 0.5; }
+      let dirty = false;
+      for (let i = 0; i < NLED; i++) if (ledLvl[i] > 0.05) { ledLvl[i] = Math.max(0.05, ledLvl[i] - dt * 0.8); ledWrite(i); dirty = true; }
+      if (dirty) leds.instanceColor!.needsUpdate = true;
+      return;
+    }
+    rippleT += dt;
+    const DUR = 9, env = Math.min(1, rippleT / 0.5) * Math.min(1, (DUR - rippleT) / 1.5);
+    const north = pl.z > -38;
+    // a wave runs the length of the row once, then a patch of light keeps pace with the player
+    const front = 12.6 + rippleT * 7;
+    for (let i = 0; i < NLED; i++) {
+      const x = LEDS[i * 2], mine = (LEDS[i * 2 + 1] > -38) === north;
+      const dx = x - pl.x;
+      let v = Math.exp(-dx * dx * 1.1) * (0.75 + 0.25 * Math.sin(t * 14 - Math.abs(dx) * 6)) * 2.2;
+      const df = x - front;
+      v += Math.exp(-df * df * 2.5) * 1.6;
+      if (!mine) v *= 0.12;
+      ledLvl[i] = 0.05 + v * env;
+      ledWrite(i);
+    }
+    leds.instanceColor!.needsUpdate = true;
+    tick -= dt;
+    if (tick <= 0 && env > 0.5) { tick = 0.16 + Math.random() * 0.2; L.sfx('pipe_tick', Math.max(13, Math.min(19.5, pl.x)), 2.1, north ? -32.8 : -43.2, 0.22, 1.8 + Math.random() * 0.5); }
+    if (rippleT >= DUR) rippleT = -1;
   });
 
   // ── engineer's terminal by the door ──
   b.at(12.2, 0, -35.0, PI / 2, () => wallTerminal(b, 1.35));
-  L.screen('gen_terminal', 'terminal_idle', 0.44, 0.3, 12.333, 1.43, -35.0, '+x', { tilt: -0.18 });
-  L.interact('log_gen', 'log', 'Read terminal', 12.4, 1.42, -35.0);
+  // dead until the power comes back: black glass, no prompt. The story enables `log_gen` (and may setScreen);
+  // the moment it does, the tube warms up by itself.
+  const gscr = L.screen('gen_terminal', 'terminal_idle', 0.44, 0.3, 12.333, 1.43, -35.0, '+x', { tilt: -0.18 });
+  const gmat = gscr.material as THREE.MeshStandardMaterial;
+  const gFull = gmat.emissiveIntensity;
+  gmat.emissiveIntensity = 0;
+  const gIt = L.interact('log_gen', 'log', 'Read terminal', 12.4, 1.42, -35.0, false);
+  const gGlow = L.point('gen', 12.8, 1.45, -35.0, 0x60ffb0, 1.5, 3, { enabled: false });
+  let gBoot = -1;
+  L.updaters.push((dt) => {
+    if (gBoot < 0) { if (!gIt.enabled) return; gBoot = 0; gGlow.enabled = true; L.sfx('terminal_beep', 12.35, 1.43, -35.0, 0.7, 0.8); }
+    if (gBoot >= 1.6) return;
+    gBoot += dt;
+    // cold start: a flash, a stutter, then steady
+    const k = Math.min(1, gBoot / 1.6);
+    const f = k < 0.08 ? 1.6 : k < 0.3 ? 0.08 : k < 0.75 ? (Math.sin(gBoot * 55) > 0 ? 0.9 : 0.25) : 1;
+    gmat.emissiveIntensity = gFull * f;
+    gGlow.intensityScale = f;
+  });
   b.at(12.75, 0, -33.5, 0.2, () => crate(b, 0.8, 0.6, 0.6, 'painted_dark', 'PPE'));
   L.pickup('p_gen_med', 'medkit', 12.75, 0.6, -33.5, 35, 0.3);
   b.at(21.3, 0, -33.3, -0.3, () => crate(b, 0.9, 0.7, 0.7, 'wall_panel', 'FUSES'));
@@ -185,7 +304,6 @@ export function buildGen(L: LevelBuild) {
   L.spot('gen', 17.6, 0.4, TZ, 19.2, 2.2, TZ, 0xffa040, 40, 6, 0.9, { enabled: false, vol: true });
   L.point('gen', 16.0, 1.5, -33.4, 0x50ff80, 3.5, 5);
   L.point('gen', 16.0, 1.5, -42.6, 0xffb040, 3.5, 5, { flicker: 'pulse' });
-  L.point('gen', 12.8, 1.45, -35.0, 0x60ffb0, 1.5, 3);
   let bm: THREE.Material | undefined;
   for (const [x, z] of [[12.2, -33], [12.2, -43], [22, -35], [22, -41]] as const) {
     b.at(x, 0, z, x < 13 ? PI / 2 : -PI / 2, () => { bm = (beacon(b, L, 'gen_emergency', 0, 3.2, 0.1, 1, 0xff2a12, 60, 11, 'emissive_red', false, 'alarm', bm) as any).glowMat; });

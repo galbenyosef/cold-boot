@@ -4,6 +4,8 @@ import type { LevelBuild } from '../context';
 import { cable, cableBundle, ductRect, floorSlab, pipe, trench, valve } from '../kit';
 import { fireExtinguisher, toolCart, tools } from '../props';
 import { beacon, ceilingSlab, troffer, wallFace } from '../structure';
+import { scrawlMaterial } from '../scrawl';
+import type { LightHandle } from '../../core/types';
 
 export function buildCorridor(L: LevelBuild) {
   const b = L.builder('corr_a');
@@ -17,8 +19,8 @@ export function buildCorridor(L: LevelBuild) {
   ceilingSlab(b, -1.9, -14, 1.9, 0, H);
 
   wallFace(b, { n: '-z', plane: Z1, from: -1.5, to: 1.5, h: H, t: 0.2, openings: [{ c: 0, w: 1.6, h: 2.4 }], seed: 5, trayY: 0 });
-  wallFace(b, { n: '+x', plane: -1.5, from: Z0, to: Z1, h: H, seed: 6, bay: 1.9, ext: [0, 0.2], features: 0.5, trayY: 2.2 });
-  wallFace(b, { n: '-x', plane: 1.5, from: Z0, to: Z1, h: H, seed: 7, bay: 1.9, ext: [0, 0.2], features: 0.5, trayY: 0 });
+  wallFace(b, { n: '+x', plane: -1.5, from: Z0, to: Z1, h: H, seed: 6, bay: 1.9, ext: [0, 0.2], features: 0.5, trayY: 2.2, openings: [{ c: -6.5, w: 1.6, h: 2.4 }] });
+  wallFace(b, { n: '-x', plane: 1.5, from: Z0, to: Z1, h: H, seed: 7, bay: 1.9, ext: [0, 0.2], features: 0.5, trayY: 0, clear: [[-7.6, -5.4]] });
 
   // ── portal frames (pilasters continue across the ceiling) ──
   const n = 7, step = (Z1 - Z0) / n;
@@ -58,11 +60,40 @@ export function buildCorridor(L: LevelBuild) {
   });
 
   // ── lights: four troffers, mostly failing ──
-  troffer(b, L, { group: 'corr_a', x: -0.1, y: H, z: -2.2, axis: 'z', intensity: 50, distance: 7.5, flicker: 'broken', cast: true, vol: true, priority: 2 });
+  const tubes: { h: LightHandle; z: number; flicker: 'broken' | 'fluorescent' }[] = [
+    { h: troffer(b, L, { group: 'corr_a', x: -0.1, y: H, z: -2.2, axis: 'z', intensity: 50, distance: 7.5, flicker: 'broken', cast: true, vol: true, priority: 2 })!, z: -2.2, flicker: 'broken' },
+    { h: troffer(b, L, { group: 'corr_a', x: -0.1, y: H, z: -9.4, axis: 'z', intensity: 42, distance: 7, flicker: 'broken', vol: true })!, z: -9.4, flicker: 'broken' },
+    { h: troffer(b, L, { group: 'corr_a', x: -0.1, y: H, z: -12.8, axis: 'z', intensity: 36, distance: 6.5, flicker: 'fluorescent' })!, z: -12.8, flicker: 'fluorescent' },
+  ];
   troffer(b, L, { group: 'corr_a', x: -0.1, y: H, z: -5.9, axis: 'z', dead: true });
-  troffer(b, L, { group: 'corr_a', x: -0.1, y: H, z: -9.4, axis: 'z', intensity: 42, distance: 7, flicker: 'broken', vol: true });
-  troffer(b, L, { group: 'corr_a', x: -0.1, y: H, z: -12.8, axis: 'z', intensity: 36, distance: 6.5, flicker: 'fluorescent' });
-  b.at(-1.5, 0, -6.6, Math.PI / 2, () => beacon(b, L, 'corr_a_emergency', 0, 2.5, 0.1, 1, 0xff2a12, 50, 9));
+  b.at(-1.5, 0, -4.95, Math.PI / 2, () => beacon(b, L, 'corr_a_emergency', 0, 2.5, 0.1, 1, 0xff2a12, 50, 9));
+
+  // corr_lights_chase: the tubes die one by one from the junction end towards whoever is walking down it,
+  // the corridor holds its breath in the dark, then they stutter back.
+  L.vignette('corr_lights_chase', () => {
+    const order = tubes.slice().sort((p, q) => p.z - q.z);
+    const was = order.map((o) => o.h.enabled);
+    order.forEach((o, i) => {
+      L.after(i * 0.35, () => {
+        if (!o.h.enabled) return;
+        // a last over-bright gasp, then out
+        o.h.intensityScale = 1.8; o.h.setFlicker('strobe');
+        L.sfx('spark_zap', -0.1, H - 0.2, o.z, 0.35, 0.8 + i * 0.12);
+        L.after(0.12, () => { o.h.enabled = false; o.h.intensityScale = 1; });
+      });
+    });
+    const dark = (order.length - 1) * 0.35 + 0.12 + 1.5;
+    L.after((order.length - 1) * 0.35 + 0.3, () => L.sfx('power_down', 0, 1.5, -7, 0.5));
+    // return: nearest the player first, each one strobing before it settles into its usual bad habits
+    order.slice().reverse().forEach((o, i) => {
+      L.after(dark + i * 0.22, () => {
+        if (!was[order.indexOf(o)]) return;
+        o.h.enabled = true; o.h.setFlicker('strobe'); o.h.intensityScale = 0.6;
+        L.sfx('spark_zap', -0.1, H - 0.2, o.z, 0.2, 1.5);
+        L.tween(0.5 + i * 0.15, 0.6, (k) => { o.h.intensityScale = 0.6 + 0.4 * k; }, () => { o.h.setFlicker(o.flicker); o.h.intensityScale = 1; });
+      });
+    });
+  });
   b.at(1.5, 0, -11.4, -Math.PI / 2, () => beacon(b, L, 'corr_a_emergency', 0, 2.5, 0.1, 1, 0xff2a12, 50, 9));
 
   // ── dropped tool cart, spilled tools, a cut cable sparking ──
@@ -91,6 +122,9 @@ export function buildCorridor(L: LevelBuild) {
   b.sign('← MEDICAL 3-A', 'directional', 1.464, 1.75, -12.4, 0.8, 0.16, '-x', 0, true);
   b.sign('CAUTION — LIVE TRENCH BELOW GRATING', 'warning', -1.464, 1.45, -8.6, 0.9, 0.14, '+x', 0, true);
   b.sign('A', 'stencil', 0.95, 0.003, -13.2, 0.5, 0.6, '+y');
+  // scratched into the paint opposite the quarters door, where the light from that door falls
+  b.quad(scrawlMaterial(["DON'T LET", 'THEM', 'CARRY YOU'], { style: 'scratch', aspect: 1.25, seed: 3 }), 1.465, 1.66, -6.3, 0.9, 0.72, '-x', 0.03, 'unit', 0.004);
+  b.decal('scratches', 3, 1.464, 1.0, -6.0, 0.5, 0.5, '-x', 1.0);
   b.sign('ERIDU DEEP FABRICATION — SUBLEVEL 3', 'label', 1.464, 2.35, -7.0, 1.4, 0.1, '-x');
   b.at(1.5, 0.6, -3.2, -Math.PI / 2, () => fireExtinguisher(b));
   b.decal('grime', 1, 0, 0.002, -11.5, 2.4, 2.4, '+y', 0.3);

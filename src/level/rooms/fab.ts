@@ -8,7 +8,8 @@ import type { LevelBuild, MachineState } from '../context';
 import { cable, cableBundle, channel, ductRect, ductRound, floorSlab, grate, handrail, hazardStrip, hose, ibeam, pipe, trench, truss, valve } from '../kit';
 import { Conveyor, LoopPath, ArmRig, RobotArm, armPedestal, type ArmSpec, type HookLoad } from '../machines';
 import { androidArm, androidLeg, androidTorso, boots, cableCoil, crate, drapedBody, drum, floorCable, gasBottle, lockerRow, pallet, tablet, toolCart, tools, vise, workTable } from '../props';
-import { beacon, ceilingSlab, highbay, wallFace, workLight } from '../structure';
+import { beacon, bulkhead, ceilingSlab, highbay, wallFace, workLight } from '../structure';
+import { tallyMaterial } from '../scrawl';
 
 const PI = Math.PI;
 const H = 8;
@@ -33,7 +34,7 @@ function shell(L: LevelBuild, R: ReturnType<typeof rng>) {
   wallFace(b, { n: '-z', plane: -26.2, from: -12, to: 12, h: H, t: 0.2, openings: [{ c: 0, w: 3.0, h: 2.8 }], style: 'dark', seed: 51, bay: 4, columns: true, trayY: 3.3, features: 0.5 });
   wallFace(b, { n: '+z', plane: -49.8, from: -12, to: 12, h: H, t: 0.2, openings: [{ c: 0, w: 3.0, h: 2.8 }], style: 'dark', seed: 52, bay: 4, columns: true, trayY: 3.3, features: 0.5 });
   wallFace(b, { n: '-x', plane: 11.8, from: -49.8, to: -26.2, h: H, t: 0.2, openings: [{ c: -38, w: 1.6, h: 2.4 }], style: 'dark', seed: 53, bay: 4, columns: true, trayY: 3.3, features: 0.5 });
-  wallFace(b, { n: '+x', plane: -12, from: -49.8, to: -26.2, h: H, style: 'dark', seed: 54, bay: 4, columns: true, trayY: 0, features: 0.3 });
+  wallFace(b, { n: '+x', plane: -12, from: -49.8, to: -26.2, h: H, style: 'dark', seed: 54, bay: 4, columns: true, trayY: 0, features: 0.3, openings: [{ c: -38, w: 1.6, h: 2.4 }], clear: [[-36.6, -33.2]] });
 
   // ── roof trusses + purlins ──
   for (let z = -28; z >= -48; z -= 4) {
@@ -278,7 +279,24 @@ function line(L: LevelBuild, R: ReturnType<typeof rng>): Conveyor {
   let armState: MachineState = 'off';
   L.machines.set('fab_arms', (s) => { armState = s; });
   const ctx = L.ctx;
-  L.updaters.push((dt, t) => { if (armState !== 'off') for (let i = 0; i < arms.length; i++) arms[i].update(dt, t, armState, ctx); });
+  // fab_arms_watch (toggle): while powered down, the arms bring their tool heads round to follow the player
+  let watching = false;
+  let servo: { stop(f?: number): void; setVolume(v: number, f?: number): void } | null = null;
+  const eyeT = new THREE.Vector3();
+  L.vignette('fab_arms_watch', () => {
+    watching = !watching;
+    try {
+      if (watching && !servo) servo = ctx.audio.loop('arm_servo_loop', { position: new THREE.Vector3(0, 2, -38), volume: 0.16, pitch: 0.7 });
+      else if (!watching && servo) { servo.stop(2.5); servo = null; }
+    } catch { /* no audio */ }
+  }, true);
+  L.updaters.push((dt, t) => {
+    if (armState !== 'off') { for (let i = 0; i < arms.length; i++) arms[i].update(dt, t, armState, ctx); return; }
+    if (!L.isVisible('fab')) return;
+    const pl = ctx.player;
+    const tgt = watching && pl ? eyeT.copy(pl.position).setY(pl.position.y + 1.6) : null;
+    for (let i = 0; i < arms.length; i++) arms[i].rest(dt, tgt);
+  });
   // power umbilicals from the trenches to the pedestals, safety markings
   for (const s of specs) {
     const sg = Math.sign(s.x);
@@ -332,10 +350,26 @@ function line(L: LevelBuild, R: ReturnType<typeof rng>): Conveyor {
   convObj.name = 'fab_conveyor'; convObj.position.set(0, railY, -38);
   L.root.add(convObj); L.objects.set('fab_conveyor', convObj);
   L.machines.set('fab_conveyor', (s) => { conv.state = s; });
-  L.updaters.push((dt, t) => conv.update(dt, t));
+  L.ambient('fab', (dt, t) => conv.update(dt, t));
+  // fab_conveyor_step: the dead conveyor advances one notch by itself
+  let stepBusy = false;
+  L.vignette('fab_conveyor_step', () => {
+    if (stepBusy) return;
+    stepBusy = true;
+    const fx = L.ctx.fx, p = new THREE.Vector3();
+    // the drive takes up slack with a creak, a held breath, then the clunk and everything swings
+    L.sfx('metal_groan', 0, railY + 0.4, -33, 0.5, 0.7);
+    L.after(0.9, () => {
+      L.sfx('conveyor_clunk', 0, railY + 0.3, -33, 1, 1);
+      conv.notch();
+      for (const s of [3, 9, 15, 21, 27, 33]) { path.at(s, pp); fx.smoke(p.set(pp.x, railY - 0.2, pp.z), { count: 3, size: 0.35, color: 0x8a867c, rise: -0.7, life: 2.4 }); }
+    });
+    L.after(1.25, () => conv.notch());
+    L.after(6, () => { stepBusy = false; });
+  }, true);
 
   // husks hang from five hooks: feet 3.2 m above the floor
-  for (const h of conv.hookPositions) if (h.load === 'husk') L.enemy('g_fab_rack', 'husk', 'dormant', h.x, 3.2, h.z, h.yaw, 'rack');
+  for (const h of conv.hookPositions) if (h.load === 'husk') L.enemy('g_fab_rack', 'husk', 'dormant', h.x, 3.2, h.z, h.yaw, 'rack', 'twitch');
   return conv;
 }
 
@@ -368,9 +402,23 @@ function dressing(L: LevelBuild, R: ReturnType<typeof rng>, conv: Conveyor) {
     });
   });
   L.pickup('p_fab_med', 'medkit', -5.05, 0.92, -36.55, 35, 0.3);
-  L.enemy('g_fab_first', 'husk', 'dormant', -4.1, 0, -37.2, PI / 2, 'standing');
-  L.enemy('g_fab_first', 'skitter', 'dormant', 0.0, 0, -35.6, 0, 'under');
-  L.enemy('g_fab_first', 'skitter', 'dormant', 0.0, 0, -40.9, PI, 'under');
+  L.enemy('g_fab_first', 'husk', 'dormant', -4.1, 0, -37.2, PI / 2, 'standing', 'work');
+  // g_fab_return: an android slumped against the LOT 3-118 stack (seen, inert, on the way to the pump room) and
+  // a skitter clinging to the west wall above the catwalk
+  L.enemy('g_fab_return', 'husk', 'dormant', -8.2, 0, -34.78, PI, 'slumped', 'twitch');
+  L.enemy('g_fab_return', 'skitter', 'spawn', -11.72, 5.0, -41.0, -PI / 2);
+  s.decal('oil_stain', 3, -8.2, 0.003, -35.1, 1.3, 1.3, '+y', 1.4);
+  s.decal('oil_drip', 1, -8.2, 0.5, -34.243, 0.4, 0.7, '+z');
+
+  // ── the pump room door in the west wall: signposted, with its own small lamp ──
+  n.sign('COOLANT PUMP ROOM 3', 'stencil', -11.964, 3.12, -38, 2.3, 0.26, '+x');
+  n.sign('← COOLANT PUMPS', 'directional', -11.964, 2.2, -40.0, 1.0, 0.2, '+x', 0, true);
+  n.sign('COOLANT ←', 'stencil', -9.6, 0.004, -38.0, 1.9, 0.4, '+y', -PI / 2);
+  n.sign('LOCK-OUT POINT — SEE CHIEF ENGINEER', 'warning', -11.964, 1.75, -36.2, 0.8, 0.14, '+x', 0, true);
+  hazardStrip(n, -11.2, -39.0, -11.05, -37.0);
+  n.at(-12, 0, -36.55, PI / 2, () => bulkhead(n, L, 'fab', 0, 2.5, 0.04, 0x9fd8ff, 5, 4.5, 'emissive_cyan', { flicker: 'fluorescent' }));
+  // "31": painted on the wall north of that door, over a field of tally marks
+  n.quad(tallyMaterial(1.55), -11.962, 1.98, -34.75, 2.1, 1.35, '+x', -0.02, 'unit', 0.004);
   s.decal('oil_stain', 1, -4.2, 0.003, -37.3, 1.3, 1.3, '+y', 0.2);
 
   // ── the body at the line + PDA ──
@@ -449,10 +497,12 @@ function dressing(L: LevelBuild, R: ReturnType<typeof rng>, conv: Conveyor) {
   // ── fx ──
   L.ctx.fx.emitter('dust', L.vec(1.5, 2.2, -31.5), L.vec(0, -1, 0), 8);
   L.ctx.fx.emitter('dust', L.vec(6.5, 3.5, -35.5), L.vec(0, 1, 0), 8);
-  L.ctx.fx.emitter('steam', L.vec(-11.7, 0.6, -40), L.vec(1, 0.6, 0.2), 45);
+  L.ctx.fx.emitter('steam', L.vec(-11.7, 0.6, -40.1), L.vec(1, 0.7, -0.5), 40);
   L.ctx.fx.emitter('drip', L.vec(-6.2, 7.2, -34.6), L.vec(0, -1, 0), 1.5);
   L.ctx.fx.emitter('drip', L.vec(7.4, 7.2, -38.6), L.vec(0, -1, 0), 1.0);
 
   L.enemy('g_fab_sentry', 'sentry', 'spawn', 5.5, 5.9, -45.0, 0);
+  // story marker: a figure standing in the beam of the far work light, facing back up the hall
+  L.marker('fab_figure', -1.55, 0, -47.6, PI);
   void conv;
 }

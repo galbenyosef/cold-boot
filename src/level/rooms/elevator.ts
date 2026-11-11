@@ -186,6 +186,19 @@ export function buildElevator(L: LevelBuild) {
     cab.rotation.z = Math.sin(t * 7.3) * 0.0015 * k;
   });
 
+  // elev_gate_rattle: something heavy hits the cage gate from the shaft side — once
+  L.vignette('elev_gate_rattle', () => {
+    const d = L.doors.get('d_elev');
+    L.sfx('gate_rattle', 0, 1.5, -58, 1, 1);
+    d?.shake(0.04, 1.5);
+    const p = new THREE.Vector3();
+    for (const x of [-1.2, 0, 1.1]) L.ctx.fx.smoke(p.set(x, 3.0, -57.9), { count: 3, size: 0.3, color: 0x8a8880, rise: -0.6, life: 1.8 });
+    // the cab takes the blow too
+    let t = 0;
+    L.sim((dt) => { t += dt; const k = Math.exp(-t * 3.5); cab.position.z = Math.sin(t * 38) * 0.012 * k; cab.rotation.x = Math.sin(t * 31) * 0.003 * k; if (t > 1.6) { cab.position.z = 0; cab.rotation.x = 0; return false; } return true; });
+    L.after(0.42, () => d?.shake(0.015, 0.9));
+  });
+
   // signs
   st.sign('12 t', 'stencil', 0, 0.004, -62.5, 1.0, 0.4, '+y');
   void panel; void R;

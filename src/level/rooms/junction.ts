@@ -1,5 +1,7 @@
 /** JUNCTION 3 — x -3…3, z -20…-14, h 3.2. Signage hub; the slumped android sits against the east wall. */
+import * as THREE from 'three';
 import { rng } from '../builder';
+import { hangingBundle } from '../ambient';
 import type { LevelBuild } from '../context';
 import { cableBundle, floorSlab, ibeam, pipe, trench } from '../kit';
 import { bench, crate, fireExtinguisher } from '../props';
@@ -15,7 +17,43 @@ export function buildJunction(L: LevelBuild) {
 
   floorSlab(b, 'floor_plate', -3, -20, 3, -14, [[-0.5, -17.5, 0.5, -16.5]], 'metal');
   trench(b, -0.5, -17.5, 0.5, -16.5, 0.4, R, true);
-  ceilingSlab(b, -3, -20, 3, -13.6, H);
+  // ceiling with a square opening for the ventilation shaft (fan + light above it)
+  const FX = 0, FZ = -15.4, FR = 1.0;
+  ceilingSlab(b, -3, -20, 3, FZ - FR, H); ceilingSlab(b, -3, FZ + FR, 3, -13.6, H);
+  ceilingSlab(b, -3, FZ - FR, FX - FR, FZ + FR, H); ceilingSlab(b, FX + FR, FZ - FR, 3, FZ + FR, H);
+  const SH = 2.0; // shaft height above the ceiling
+  for (const s of [-1, 1]) {
+    b.box('painted_dark', FX + s * (FR + 0.1), H + SH / 2, FZ, 0.2, SH, 2 * FR + 0.4);
+    b.box('painted_dark', FX, H + SH / 2, FZ + s * (FR + 0.1), 2 * FR, SH, 0.2);
+  }
+  b.box('painted_dark', FX, H + SH + 0.1, FZ, 2 * FR + 0.4, 0.2, 2 * FR + 0.4);
+  {
+    // shroud: square plate with a round hole, so light only gets past through the fan disc
+    const sh = new THREE.Shape([new THREE.Vector2(-FR, -FR), new THREE.Vector2(FR, -FR), new THREE.Vector2(FR, FR), new THREE.Vector2(-FR, FR)]);
+    const hole = new THREE.Path(); hole.absarc(0, 0, FR - 0.08, 0, Math.PI * 2, true); sh.holes.push(hole);
+    const g = new THREE.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: false, curveSegments: 20 });
+    b.geo('trim_steel', g, 'box', new THREE.Matrix4().makeRotationX(-Math.PI / 2).setPosition(FX, H + 0.22, FZ));
+    // guard: ring + three bars under the blades (their shadows stand still while the blades' sweep)
+    b.torus('trim_steel', FX, H + 0.02, FZ, FR - 0.06, 0.03, 'y', 24);
+    for (let i = 0; i < 3; i++) b.rbox('trim_steel', FX, H + 0.02, FZ, 2 * FR - 0.1, 0.03, 0.035, 0, (i * Math.PI) / 3, 0);
+    b.detail(() => { for (const s of [-1, 1]) { b.box('trim_steel', FX + s * (FR + 0.02), H - 0.02, FZ, 0.1, 0.05, 2 * FR + 0.14); b.box('trim_steel', FX, H - 0.02, FZ + s * (FR + 0.02), 2 * FR + 0.14, 0.05, 0.1); } });
+  }
+  const fb = L.part('junction:fan');
+  fb.cyl('painted_dark', 0, 0, 0, 0.17, 0.2, 'y', 12);
+  for (let i = 0; i < 4; i++) { fb.push(0, 0, 0, (i * Math.PI) / 2, 0, 0); fb.rbox('painted_dark', 0.53, 0, 0, 0.78, 0.02, 0.34, 0.42, 0, 0); fb.pop(); }
+  const fan = fb.build(false);
+  fan.position.set(FX, H + 0.45, FZ);
+  for (const m of fan.children) m.castShadow = true;
+  L.root.add(fan);
+  L.objects.set('junction_fan', fan);
+  const fanLight = L.spot('junction', FX, H + SH - 0.15, FZ, FX, 0, FZ + 0.5, 0xcfe2ff, 260, 9, 0.6, { cast: true, vol: true, priority: 3, penumbra: 0.25 });
+  b.detail(() => b.box(L.glow(fanLight, 'emissive_white'), FX, H + SH - 0.02, FZ, 0.7, 0.03, 0.7));
+  let fanA = 0;
+  L.ambient('junction', (dt, t) => { fanA += dt * (0.85 + Math.sin(t * 0.21) * 0.12); fan.rotation.y = fanA; });
+  let fanHum: { stop(f?: number): void } | null = null;
+  L.updaters.push(() => { if (!fanHum && L.ctx.state === 'playing') { try { fanHum = L.ctx.audio.loop('machine_loop', { position: new THREE.Vector3(FX, H + 0.4, FZ), volume: 0.1, pitch: 0.6 }); } catch { fanHum = { stop() {} }; } } });
+  // cables hanging out of the ceiling by the storage door
+  hangingBundle(L, 'junction', 1.9, H - 0.02, -18.9, [{ dx: 0, dz: 0, len: 1.05 }, { dx: 0.05, dz: 0.03, len: 0.8, r: 0.01 }, { dx: -0.04, dz: 0.05, len: 1.25, r: 0.009, bow: 0.1 }], { amp: 0.05, period: 3.8 });
 
   wallFace(b, { n: '-z', plane: -14, from: -2.8, to: 2.8, h: H, t: 0.4, openings: [{ c: 0, w: 3.0, h: 3.0, margin: 0.1 }], seed: 11, trayY: 0 });
   wallFace(b, { n: '+z', plane: -19.8, from: -2.8, to: 2.8, h: H, t: 0.2, openings: [{ c: 0, w: 3.0, h: 2.8 }], seed: 12, trayY: 0 });
@@ -32,8 +70,8 @@ export function buildJunction(L: LevelBuild) {
 
   // ── ceiling: cross of beams, ring of conduit around the sign hub ──
   ibeam(b, 'trim_steel', 'x', 0, H - 0.11, -17, 5.6, 0.14, 0.22);
-  ibeam(b, 'trim_steel', 'z', 0, H - 0.11, -17, 5.8, 0.14, 0.22);
-  for (const z of [-15.3, -18.7]) b.box('trim_steel', 0, H - 0.06, z, 5.6, 0.12, 0.1);
+  ibeam(b, 'trim_steel', 'z', 0, H - 0.11, -18.2, 3.4, 0.14, 0.22);
+  b.box('trim_steel', 0, H - 0.06, -18.7, 5.6, 0.12, 0.1);
   b.detail(() => {
     pipe(b, 'copper', [[-2.6, H - 0.2, -14.3], [-2.6, H - 0.2, -19.5]], 0.05, { every: 1.8 });
     pipe(b, 'steel_raw', [[2.55, H - 0.2, -14.3], [2.55, H - 0.2, -15.6], [1.7, H - 0.2, -15.6], [1.7, H - 0.2, -19.5]], 0.04, { every: 1.5 });
@@ -60,7 +98,6 @@ export function buildJunction(L: LevelBuild) {
   });
 
   // ── lights ──
-  troffer(b, L, { group: 'junction', x: 0, y: H, z: -15.4, axis: 'x', intensity: 48, distance: 7.5, angle: 1.1, flicker: 'fluorescent', cast: true, priority: 2 });
   troffer(b, L, { group: 'junction', x: 0, y: H, z: -18.7, axis: 'x', intensity: 30, distance: 6.5, angle: 1.0, flicker: 'broken' });
   L.point('junction', 0, hy - 0.5, -17, 0x60e0ff, 2.5, 4.5);
   b.at(-2.8, 0, -18.45, PI / 2, () => bulkhead(b, L, 'junction', 0, 2.2, 0.04, 0xffb070, 5, 4.5));
@@ -88,5 +125,5 @@ export function buildJunction(L: LevelBuild) {
   b.decal('blood_smear', 0, -0.9, 0.002, -16.2, 0.5, 1.4, '+y', -1.2);
   b.decal('blood_smear', 1, -2.1, 0.002, -16.9, 0.5, 1.2, '+y', -1.5);
 
-  L.enemy('g_junction', 'husk', 'dormant', 2.3, 0, -15.1, PI / 2, 'slumped');
+  L.enemy('g_junction', 'husk', 'dormant', 2.3, 0, -15.1, PI / 2, 'slumped', 'watch');
 }

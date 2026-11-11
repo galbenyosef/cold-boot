@@ -23,6 +23,8 @@ export interface DoorSpec {
   windows?: boolean;
   /** The two rooms this door connects. */
   rooms: [string, string];
+  /** Never shuts completely while unlocked: rests at this openness (0..1 of travel time). Std doors only. */
+  ajar?: number;
 }
 
 const ZIG: [number, number][] = [[1.5, 1.25], [1.05, 1.25], [0.85, 1.55], [0.35, 1.55], [0.15, 1.25], [-0.15, 1.25], [-0.35, 1.55], [-0.85, 1.55], [-1.05, 1.25], [-1.5, 1.25]];
@@ -49,6 +51,12 @@ export class DoorImpl implements Door {
   private deniedFlash = 0;
   private prompt: Interactable;
   private lastEase = -1;
+  private rattle = 0;
+  private rattleDur = 1;
+  private rattleAmp = 0;
+  private rattleT = 0;
+  /** Resting openness while unlocked (see DoorSpec.ajar). */
+  readonly ajar: number;
 
   constructor(private L: LevelBuild, private spec: DoorSpec, frames: Builder) {
     const ctx = L.ctx;
@@ -78,9 +86,16 @@ export class DoorImpl implements Door {
       id: `door_${spec.id}`, kind: 'door', prompt: 'Locked', position: new THREE.Vector3(spec.x, 1.3, spec.z), radius: 2.0,
       enabled: this.locked, onUse: () => this.deny(),
     });
+    this.ajar = std ? spec.ajar ?? 0 : 0;
     this.apply(0);
+    if (this.ajar && !this.locked) { this.t = this.ajar; this.apply(this.t * this.t * (3 - 2 * this.t)); }
     this.refreshStatus();
   }
+
+  /** Animated leaf (std: left / right; wide + cage: upper / lower) — to hang things on. */
+  leaf(i: number): THREE.Object3D { return this.leaves[i]; }
+  /** Shudder the leaves as if something hit them (`amp` metres, decaying over `seconds`). */
+  shake(amp: number, seconds: number) { this.rattle = seconds; this.rattleDur = seconds; this.rattleAmp = amp; this.rattleT = 0; }
 
   get isOpen() { return this.target === 1; }
 
@@ -170,19 +185,25 @@ export class DoorImpl implements Door {
     }
     if (this.locked && this.target === 1) this.close();
 
-    if (this.t !== this.target) {
+    const goal = this.target === 0 && this.ajar && !this.locked ? this.ajar : this.target;
+    if (this.t !== goal) {
       const step = dt / this.duration;
-      this.t = this.target > this.t ? Math.min(1, this.t + step) : Math.max(0, this.t - step);
+      this.t = goal > this.t ? Math.min(goal, this.t + step) : Math.max(goal, this.t - step);
       // heavy ease: slow start, firm stop
       const x = this.t;
       this.apply(x * x * (3 - 2 * x));
     }
-    if (this.deniedFlash > 0) {
-      this.deniedFlash -= dt;
-      // tiny shudder of the leaves when denied
-      const s = this.deniedFlash > 0 ? Math.sin(this.deniedFlash * 90) * 0.004 * (this.deniedFlash / 0.6) : 0;
-      if (this.spec.kind === 'std') { this.leaves[0].position.z = s; this.leaves[1].position.z = -s; }
-      else { this.leaves[0].position.z = s; this.leaves[1].position.z = s; }
+    if (this.deniedFlash > 0 || this.rattle > 0) {
+      // tiny shudder of the leaves when denied; a hard, decaying rattle when something hits them
+      let s = 0, r = 0;
+      if (this.deniedFlash > 0) { this.deniedFlash -= dt; if (this.deniedFlash > 0) s = Math.sin(this.deniedFlash * 90) * 0.004 * (this.deniedFlash / 0.6); }
+      if (this.rattle > 0) {
+        this.rattle -= dt; this.rattleT += dt;
+        if (this.rattle > 0) { const k = this.rattle / this.rattleDur; r = Math.cos(this.rattleT * 62) * this.rattleAmp * k * k; }
+      }
+      const l0 = this.leaves[0], l1 = this.leaves[1];
+      if (this.spec.kind === 'std') { l0.position.z = s + r; l1.position.z = -s + r * 0.7; }
+      else { l0.position.z = s + r; l1.position.z = s + r * 0.8; l0.rotation.x = -r * 0.5; l1.rotation.x = r * 0.35; }
     }
   }
 
@@ -316,7 +337,7 @@ export function makeDoors(L: LevelBuild, specs: DoorSpec[]): DoorImpl[] {
     // door: a view with five doorways in it pays ~7 draws for their frames, not ~40.
     const south = s.z < -30;
     const frames = L.namedBuilder(south ? 'frames_s' : 'frames_n');
-    frames.rooms = south ? ['fab', 'gen', 'lobby', 'elevator'] : ['med', 'corr_a', 'junction', 'sec', 'storage', 'airlock', 'fab'];
+    frames.rooms = south ? ['fab', 'gen', 'pump', 'lobby', 'elevator'] : ['med', 'corr_a', 'quarters', 'junction', 'sec', 'storage', 'airlock', 'fab'];
     return new DoorImpl(L, s, frames);
   });
 }

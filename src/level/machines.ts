@@ -8,6 +8,7 @@ import type { GameContext } from '../core/types';
 import type { Builder, Mat } from './builder';
 import type { LevelBuild, MachineState } from './context';
 import { hose, ibeam } from './kit';
+import { Swing } from './ambient';
 import { androidArm, androidLeg, androidTorso } from './props';
 
 const PI = Math.PI;
@@ -114,11 +115,18 @@ export class RobotArm {
   private sparkTimer = 0;
   private phase: number;
   readonly tool: ArmTool;
+  private ry: number;
+  /** Powered-down life: tiny hydraulic settling offsets per joint + when the next one happens. */
+  private micro = new Float32Array(4);
+  private microWait: number;
+  private microBack = 0;
 
   constructor(L: LevelBuild, spec: ArmSpec, rig: ArmRig) {
     this.seed = spec.seed * 2654435761 >>> 0;
     this.tool = spec.tool;
     this.phase = spec.seed * 1.7;
+    this.ry = spec.ry;
+    this.microWait = 2 + spec.seed * 2.3;
     const Y = spec.color, J: Mat = 'robot_joint', D: Mat = 'painted_dark';
     this.root.position.set(spec.x, 0.45, spec.z);
     this.root.rotation.y = spec.ry;
@@ -237,6 +245,50 @@ export class RobotArm {
     this.j5.rotation.y = this.cur[4];
   }
 
+  /**
+   * Powered down (`off`). Without a target: the arm holds its frozen pose but is not quite dead — now and
+   * then one joint sags a degree and catches. With a target (`fab_arms_watch`): it slowly brings its tool
+   * head round to point at that world position and keeps it there.
+   */
+  rest(dt: number, target: THREE.Vector3 | null) {
+    const c = this.cur, f = this.frozen, m = this.micro;
+    if (target) {
+      const p = this.root.position, wx = target.x - p.x, wz = target.z - p.z;
+      const cs = Math.cos(this.ry), sn = Math.sin(this.ry);
+      const lx = wx * cs - wz * sn, lz = wx * sn + wz * cs;
+      let yaw = Math.atan2(lx, lz);
+      // take the short way round from where the turret is now
+      while (yaw - c[0] > PI) yaw -= 2 * PI;
+      while (yaw - c[0] < -PI) yaw += 2 * PI;
+      const dist = Math.hypot(lx, lz);
+      const down = Math.atan2(2.75 - target.y, Math.max(0.8, dist - 1.2));
+      const goal0 = yaw, goal1 = 0.22, goal2 = 0.95, goal3 = Math.max(-0.4, Math.min(2.0, PI / 2 + down - 1.17));
+      // rate-limited, eased: heavy machinery turning with the brakes half on
+      const mv = (i: number, g: number, rate: number) => { const d = g - c[i], step = rate * dt; c[i] += Math.abs(d) < step ? d : Math.sign(d) * Math.min(step, Math.abs(d) * 2.5 * dt + step * 0.15); };
+      mv(0, goal0, 0.45); mv(1, goal1, 0.22); mv(2, goal2, 0.25); mv(3, goal3, 0.5);
+      this.apply();
+      return;
+    }
+    this.microWait -= dt;
+    if (this.microWait <= 0) {
+      this.microWait = 6 + this.rand() * 13;
+      const j = 1 + Math.floor(this.rand() * 3);
+      m[j] += (this.rand() < 0.7 ? 1 : -1) * (0.012 + this.rand() * 0.02);
+      this.microBack = 0.5 + this.rand() * 0.6;
+    }
+    if (this.microBack > 0) { this.microBack -= dt; if (this.microBack <= 0) for (let i = 0; i < 4; i++) m[i] *= 0.35; }
+    let moved = false;
+    for (let i = 0; i < 4; i++) {
+      const g = f[i] + m[i], d = g - c[i];
+      if (Math.abs(d) < 1e-5) continue;
+      // released from watching: wind back slowly; settling: quick little drop
+      const step = (Math.abs(d) > 0.06 ? 0.3 : 0.12) * dt;
+      c[i] += Math.abs(d) < step ? d : Math.sign(d) * step;
+      moved = true;
+    }
+    if (moved) this.apply();
+  }
+
   update(dt: number, time: number, state: MachineState, ctx: GameContext) {
     if (state === 'off') return;
     const c = this.cur;
@@ -340,6 +392,8 @@ export class Conveyor {
   private sprockets: THREE.Object3D[] = [];
   private spin = 0;
   private lurch = 0;
+  /** Shared pendulum excited by `notch()`: every hanger swings along the rail with it. */
+  private nudge = new Swing(0, 8.5, 0.55);
   readonly hookPositions: { x: number; z: number; yaw: number; load: HookLoad }[] = [];
 
   constructor(L: LevelBuild, b: Builder, path: LoopPath, railY: number, loads: HookLoad[], offset: number) {
@@ -401,11 +455,18 @@ export class Conveyor {
 
   addSprocket(o: THREE.Object3D) { this.sprockets.push(o); }
 
+  /** The chain takes up one link: sprockets jump a tooth, everything on the rail swings. */
+  notch() {
+    this.nudge.v += 0.62;
+    this.spin += PI / 12;
+    for (let i = 0; i < this.sprockets.length; i++) this.sprockets[i].rotation.y = this.spin * (i % 2 ? -1 : 1);
+  }
+
   update(dt: number, time: number) {
-    const target = this.state === 'off' ? 0 : this.state === 'idle' ? 0.012 : this.state === 'active' ? 0.05 : 0.15;
-    if (this.amp === 0 && target === 0) return;
+    // never quite still: even powered down the rail creaks and the loads turn a hair on their hooks
+    const target = this.state === 'off' ? 0.011 : this.state === 'idle' ? 0.014 : this.state === 'active' ? 0.05 : 0.15;
     this.amp += (target - this.amp) * Math.min(1, dt * 1.2);
-    if (target === 0 && this.amp < 0.0005) this.amp = 0;
+    const n = this.nudge.energy > 1e-4 ? this.nudge.step(dt) : 0;
     const fast = this.state === 'frenzy' ? 2.2 : 1;
     if (this.state === 'active' || this.state === 'frenzy') {
       this.lurch -= dt;
@@ -415,8 +476,10 @@ export class Conveyor {
     }
     for (let i = 0; i < this.hangers.length; i++) {
       const h = this.hangers[i];
-      if (h.still) continue;
-      h.obj.rotation.x = h.rx + Math.sin(time * 1.9 * fast + h.phase) * this.amp;
+      // hooks that carry a husk only rotate about the rail, and only by a fraction: the android hanging
+      // there belongs to the enemies module and must stay lined up with its yoke (≤ ~1 cm at the yoke)
+      if (h.still) { h.obj.rotation.x = Math.sin(time * 0.9 + h.phase) * 0.006 + n * 0.02; continue; }
+      h.obj.rotation.x = h.rx + Math.sin(time * 1.9 * fast + h.phase) * this.amp + n * (0.8 + (i % 3) * 0.15);
       h.obj.rotation.z = h.rz + Math.sin(time * 2.3 * fast + h.phase * 1.7) * this.amp * 1.4;
     }
   }
