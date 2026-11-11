@@ -110,6 +110,14 @@ export const HUSK_POSES: Record<string, PoseSpec> = {
     armL: [6, 0, 14], elbowL: 14, armR: [2, 0, 12], elbowR: 12,
     legL: [-70, 0, 8], kneeL: 118, footL: 20, legR: [-52, 0, 10], kneeR: 110, footR: 35,
   },
+  /** Prone base pose for the legless crawl (arms are driven by IK on top of this). */
+  crawl: {
+    hips: { pos: [0, 0.26, -0.32], rot: [64, 0, 0] },
+    spine1: [-6, 0, 0], spine2: [-12, 0, 0], neck: [-30, 0, 0], head: [-24, 0, 0],
+    armL: [-60, 0, 20], elbowL: 40, armR: [-60, 0, 20], elbowR: 40,
+    legL: [16, 4, 8], kneeL: 14, footL: 40, legR: [12, -4, 8], kneeR: 22, footR: 46,
+    fingers: 30,
+  },
   deadFront: {
     hips: { pos: [0, 0.155, 0.1], rot: [84, 0, 8] },
     spine1: [4, 6, 3], spine2: [3, 8, 4], neck: [-8, 20, 0], head: [-14, 40, 0],

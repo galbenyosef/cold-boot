@@ -12,6 +12,16 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 export type V3 = [number, number, number];
 
+/**
+ * Global tessellation level for the builders (1 = hero mesh). LOD / shadow-proxy passes re-run the same
+ * authoring code with a lower `k`: every primitive scales its segment counts, chamfers collapse to plain
+ * boxes below 0.6. Set by RigBuilder.author*(); never touch it at gameplay time.
+ */
+export const DETAIL = { k: 1 };
+function seg(n: number, min = 3): number {
+  return DETAIL.k >= 1 ? n : Math.max(min, Math.round(n * DETAIL.k));
+}
+
 function ni(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const out = g.index ? g.toNonIndexed() : g;
   if (out !== g) g.dispose();
@@ -46,6 +56,7 @@ class Soup {
 
 /** Chamfered box centred on the origin. `b` = chamfer size. 44 triangles, flat shaded. */
 export function box(w: number, h: number, d: number, b = 0): THREE.BufferGeometry {
+  if (DETAIL.k < 0.6) b = 0;
   if (b <= 0) return ni(new THREE.BoxGeometry(w, h, d));
   const hx = w / 2, hy = h / 2, hz = d / 2;
   b = Math.min(b, hx * 0.95, hy * 0.95, hz * 0.95);
@@ -99,26 +110,28 @@ export function wedge(w0: number, d0: number, w1: number, d1: number, h: number,
 }
 
 /** Cylinder along Y, centred. */
-export function cyl(rTop: number, rBot: number, h: number, seg = 12, open = false): THREE.BufferGeometry {
-  return ni(new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, open));
+export function cyl(rTop: number, rBot: number, h: number, segs = 12, open = false): THREE.BufferGeometry {
+  return ni(new THREE.CylinderGeometry(rTop, rBot, h, seg(segs, 4), 1, open));
 }
 
 /** Cylinder with chamfered rims (lathe). */
-export function bcyl(r: number, h: number, bevel: number, seg = 14): THREE.BufferGeometry {
+export function bcyl(r: number, h: number, bevel: number, segs = 14): THREE.BufferGeometry {
   const hh = h / 2;
-  return hlathe([[0, -hh], [r - bevel, -hh], [r, -hh + bevel], [r, hh - bevel], [r - bevel, hh], [0, hh]], seg);
+  if (DETAIL.k < 0.6) return cyl(r, r, h, segs);
+  return hlathe([[0, -hh], [r - bevel, -hh], [r, -hh + bevel], [r, hh - bevel], [r - bevel, hh], [0, hh]], segs);
 }
 
 /** Hard-edged lathe: like lathe() but with faceted profile corners (each profile segment gets its own normals). */
-export function hlathe(profile: [number, number][], seg = 14): THREE.BufferGeometry {
+export function hlathe(profile: [number, number][], segs = 14): THREE.BufferGeometry {
+  const seg_ = seg(segs, 5);
   const s: number[] = [], n: number[] = [];
   for (let i = 0; i < profile.length - 1; i++) {
     const [r0, y0] = profile[i], [r1, y1] = profile[i + 1];
     // outward normal of the profile segment in (r, y): rotate the direction by -90°
     let nr = y1 - y0, ny = -(r1 - r0);
     const l = Math.hypot(nr, ny) || 1; nr /= l; ny /= l;
-    for (let k = 0; k < seg; k++) {
-      const a0 = (k / seg) * Math.PI * 2, a1 = ((k + 1) / seg) * Math.PI * 2;
+    for (let k = 0; k < seg_; k++) {
+      const a0 = (k / seg_) * Math.PI * 2, a1 = ((k + 1) / seg_) * Math.PI * 2;
       const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
       const p00 = [r0 * s0, y0, r0 * c0], p01 = [r0 * s1, y0, r0 * c1], p10 = [r1 * s0, y1, r1 * c0], p11 = [r1 * s1, y1, r1 * c1];
       const n0 = [nr * s0, ny, nr * c0], n1 = [nr * s1, ny, nr * c1];
@@ -134,11 +147,11 @@ export function hlathe(profile: [number, number][], seg = 14): THREE.BufferGeome
 }
 
 export function sphere(r: number, ws = 12, hs = 8): THREE.BufferGeometry {
-  return ni(new THREE.SphereGeometry(r, ws, hs));
+  return ni(new THREE.SphereGeometry(r, seg(ws, 5), seg(hs, 3)));
 }
 
 export function torus(R: number, r: number, radial = 6, tubular = 16, arc = Math.PI * 2): THREE.BufferGeometry {
-  return ni(new THREE.TorusGeometry(R, r, radial, tubular, arc));
+  return ni(new THREE.TorusGeometry(R, r, seg(radial, 3), seg(tubular, 6), arc));
 }
 
 /** Cylinder between two points. */
@@ -156,7 +169,7 @@ export function rod(a: V3, b: V3, r: number, seg = 8, r2 = r): THREE.BufferGeome
 export function tube(points: V3[], r: number, radial = 6, tubular = 0, tension = 0.5): THREE.BufferGeometry {
   const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)), false, 'catmullrom', tension);
   const n = tubular || Math.max(4, Math.round(curve.getLength() / 0.025));
-  return ni(new THREE.TubeGeometry(curve, Math.min(n, 48), r, radial, false));
+  return ni(new THREE.TubeGeometry(curve, seg(Math.min(n, 48), 3), r, seg(radial, 3), false));
 }
 
 /** Hex bolt head, axis Y, sitting on y=0. */
@@ -172,7 +185,7 @@ export function plate(outline: [number, number][], thickness: number, bevel = 0.
   if (holes) for (const h of holes) shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))));
   const bv = Math.min(bevel, thickness * 0.45);
   const g = new THREE.ExtrudeGeometry(shape, {
-    depth: thickness - bv * 2, bevelEnabled: bv > 0, bevelSize: bv, bevelThickness: bv, bevelSegments: 1, steps: 1, curveSegments: 6,
+    depth: thickness - bv * 2, bevelEnabled: bv > 0 && DETAIL.k >= 0.6, bevelSize: bv, bevelThickness: bv, bevelSegments: 1, steps: 1, curveSegments: seg(6, 2),
   });
   g.translate(0, 0, -(thickness - bv * 2) / 2);
   const out = ni(g);
@@ -197,7 +210,8 @@ export interface PatchOpts {
  * (patch border and edges of masked-out cells). The workhorse for armour / shell plates.
  */
 export function patch(fn: (u: number, v: number, out: THREE.Vector3) => void, o: PatchOpts): THREE.BufferGeometry {
-  const { nu, nv, thickness } = o;
+  const { thickness } = o;
+  const nu = seg(o.nu, Math.min(o.nu, 2)), nv = seg(o.nv, 1);
   const W = nu + 1, H = nv + 1;
   const P: THREE.Vector3[] = new Array(W * H);
   const N: THREE.Vector3[] = new Array(W * H);

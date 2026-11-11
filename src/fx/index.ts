@@ -5,8 +5,9 @@
  * decals 1 per used (name, variant) batch, generic debris 1 per shard shape (4).
  * Everything is pooled and built at load; steady-state frames allocate nothing.
  *
- * Auto-handled events: 'bullet:impact' (decal + sparks/dust/chips by surface),
- * 'enemy:damaged' (a few sparks + a couple of oil droplets).
+ * Auto-handled events: 'bullet:impact' (decal + sparks/dust/chips by surface).
+ * Hits on machines are NOT handled here: the enemies module owns its hit effects (scaled by damage / part,
+ * coalesced per enemy per frame) and calls sparks()/fluid()/flash() itself.
  */
 import * as THREE from 'three';
 import type { DecalName, FxSystem, GameContext, Quality, Surface } from '../core/types';
@@ -332,11 +333,6 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
   }
 
   ctx.events.on('bullet:impact', (e) => impact(e.point, e.normal, e.surface));
-  ctx.events.on('enemy:damaged', (e) => {
-    _q.copy(e.direction).negate();
-    sparksImpl(e.point, _q, 5, 4, false, 1.0);
-    fluidImpl(e.point, e.direction, 2, false);
-  });
 
   // ── arcs
   const arcTick = (s: ArcSlot, dt: number) => {

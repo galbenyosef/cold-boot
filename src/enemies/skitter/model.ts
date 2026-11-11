@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext } from '../../core/types';
-import { RigBuilder, type RigTemplate } from '../shared/rig';
+import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, patch, plate, rod, sphere, torus, tube, wedge, xf, type V3 } from '../shared/prims';
 
 export const SK = {
@@ -26,7 +26,22 @@ export interface SkitterTemplate {
 const D = Math.PI / 180;
 
 export function buildSkitterTemplate(ctx: GameContext): SkitterTemplate {
-  const b = new RigBuilder();
+  const M = ctx.materials;
+  const mats: Record<string, THREE.Material> = {
+    glow: glowMaterial(),
+    painted: M.get('painted_yellow'), frame: M.get('robot_frame'), joint: M.get('robot_joint'), rubber: M.get('rubber'),
+    chrome: M.get('chrome'), steel: M.get('steel_raw'), glass: M.get('screen_off'), red: M.get('emissive_red'), amber: M.get('emissive_amber'),
+  };
+  const { template, data } = buildRigLods(authorSkitter, mats, {
+    radius: 1.0, center: new THREE.Vector3(0, 0.2, 0),
+    fold: { red: 'glow', amber: 'glow', chrome: 'steel' }, tint: { red: tintOf(0xff0702, 2.2), amber: tintOf(0xff6a08, 2.5) },
+    lod: { k: 0.45, minFeature: 0.012, remap: { chrome: 'joint', steel: 'joint', glass: 'frame', rubber: 'frame', amber: null } },
+    proxy: { k: 0.3, minFeature: 0.025, exclude: ['glass', 'red', 'amber', 'chrome', 'rubber'] },
+  });
+  return { rig: template, legs: data };
+}
+
+function authorSkitter(b: RigBuilder): string[] {
   const Y0 = SK.bodyY;
   b.bone('body', null, 0, Y0, 0);
   b.bone('abdomen', 'body', 0, Y0 + 0.01, -0.17);
@@ -207,11 +222,5 @@ export function buildSkitterTemplate(ctx: GameContext): SkitterTemplate {
     L(torus(0.009, 0.004, 5, 8), 0, 0, SK.tibia - 0.055, 0, 0, 0);
   }
 
-  const M = ctx.materials;
-  const mats: Record<string, THREE.Material> = {
-    painted: M.get('painted_yellow'), frame: M.get('robot_frame'), joint: M.get('robot_joint'), rubber: M.get('rubber'),
-    chrome: M.get('chrome'), steel: M.get('steel_raw'), glass: M.get('screen_off'), red: M.get('emissive_red'), amber: M.get('emissive_amber'),
-  };
-  const rig = b.build(mats, { shadow: ['painted', 'frame', 'joint', 'steel'], radius: 1.0, center: new THREE.Vector3(0, 0.2, 0) });
-  return { rig, legs };
+  return legs;
 }

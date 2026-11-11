@@ -54,7 +54,7 @@ async function main() {
     renderer.setSize(innerWidth, innerHeight, false);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // r187: PCFSoftShadowMap was removed (PCF is soft now)
     ctx.renderer = renderer;
     ctx.render = fakeRender(ctx) as any;
     ctx.materials = fakeMaterials();
@@ -85,7 +85,13 @@ async function main() {
   };
   addBox(60, 0.4, 60, 0, -0.2, 0, floorMat);
   addBox(60, 8, 0.4, 0, 4, -3.2, wallMat);            // back wall (z = -3)
-  addBox(60, 0.4, 60, 0, P('ceil', '6') === '0' ? 40 : Number(P('ceil', '6')) + 0.2, 0, wallMat);
+  addBox(60, 0.4, 60, 0, P('ceil', q.get('room') === '1' ? '3.2' : '6') === '0' ? 40 : Number(P('ceil', q.get('room') === '1' ? '3.2' : '6')) + 0.2, 0, wallMat);
+  if (q.get('room') === '1') {
+    // closed box room for surface-crawling tests: side walls at x = ±4, ceiling 3.2, a ceiling vent at (vx, vz)
+    addBox(0.4, 8, 60, -4.2, 4, 0, wallMat); addBox(0.4, 8, 60, 4.2, 4, 0, wallMat);
+    const vx = Number(P('vx', '0')), vz = Number(P('vz', '0'));
+    if (q.get('vent') === '1') addBox(0.9, 0.4, 0.9, vx, 3.0, vz, wallMat);
+  }
   if (q.get('obst') === '1') { addBox(1.2, 1.2, 1.2, 2.5, 0.6, 4, wallMat); addBox(4, 2.5, 0.4, -3, 1.25, 6, wallMat); addBox(0.6, 0.25, 3, 0, 0.125, 5, wallMat); }
   ctx.physics.build(colliders);
 
@@ -99,6 +105,10 @@ async function main() {
     lights.add({ type: 'point', position: new THREE.Vector3(-3, 1.5, -2), color: 0x4a7a90, intensity: 6, distance: 12 });
   }
 
+  if (q.get('room') === '1') {
+    lights.add({ type: 'point', position: new THREE.Vector3(0, 2.7, 4), color: 0xffe8d0, intensity: 40, distance: 18 });
+    lights.add({ type: 'spot', position: new THREE.Vector3(2.5, 3.0, 11), target: new THREE.Vector3(-3, 1, 5), color: 0xfff1e0, intensity: 160, distance: 22, angle: 0.7, penumbra: 0.6, castShadow: true });
+  }
   // ── fake level + player
   const spawnPos = new THREE.Vector3(Number(P('x', '0')), pose === 'rack' ? 3.2 : pose === 'ceiling' ? 0 : Number(P('y', '0')), pose === 'slumped' ? -2.62 : Number(P('z', '0')));
   const dormant = pose !== 'none' || state === 'dormant';
@@ -112,7 +122,7 @@ async function main() {
       });
     }
   }
-  ctx.level = { nav: [], doors: [], enemySpawns, rooms: [], colliders, update() {} } as any;
+  ctx.level = { root: new THREE.Group(), nav: [], doors: [], enemySpawns, rooms: [], colliders, roomAt: () => null, update() {} } as any;
   const player = {
     position: new THREE.Vector3(0, 0, 9), eye: new THREE.Vector3(0, 1.65, 9), velocity: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, -1),
     alive: true, health: 100, maxHealth: 100,
@@ -124,6 +134,8 @@ async function main() {
   const t0 = performance.now();
   const enemies = await createEnemies(ctx);
   ctx.enemies = enemies;
+  if (q.get('lod')) (enemies as any).world.forceLod = Number(q.get('lod'));
+  const tuneSkitters = () => { for (const e of enemies.all as any[]) if (e.type === 'skitter') { if (q.get('climb')) e.climbChance = Number(q.get('climb')); if (q.get('ceilp')) e.ceilingChance = Number(q.get('ceilp')); } };
   const buildMs = performance.now() - t0;
   const templates = (enemies as any).templates;
   const info: string[] = [`build ${buildMs.toFixed(0)} ms`];
@@ -148,6 +160,7 @@ async function main() {
     enemies.spawnGroup('g');
   }
   const first = () => enemies.all[0];
+  tuneSkitters();
 
   // scripted player per state
   const events_: string[] = [];
@@ -157,7 +170,8 @@ async function main() {
   let steps = 0;
   events.on('enemy:step', () => { steps++; });
   let time = 0;
-  let woke = false, killed = false, hitT = 0;
+  let woke = false, killed = false, hitT = 0, nHits = 0, severed = false;
+  const maxHits = Number(P('hits', '999'));
   const up = new THREE.Vector3(0, 1, 0);
   const tmp = new THREE.Vector3();
   const sim = (dt: number) => {
@@ -181,13 +195,16 @@ async function main() {
     }
     player.eye.copy(player.position).setY(player.position.y + 1.65);
     if (state === 'wake' && !woke && time > Number(P('wakeat', '0.5'))) { woke = true; enemies.wakeGroup('g', 0.6); }
-    if ((state === 'dead' || state === 'hit') && e && e.alive) {
+    if ((state === 'dead' || state === 'hit') && e && e.alive && nHits < maxHits) {
       hitT -= dt;
-      if (time > 0.6 && hitT <= 0) {
-        hitT = state === 'dead' ? 0.25 : 1.0;
+      if (time > Number(P('hitat', '0.6')) && hitT <= 0) {
+        nHits++;
+        hitT = Number(P('hitgap', state === 'dead' ? '0.25' : '1.0'));
         const part = P('dmg', 'torso');
         const tgt = tmp.copy(e.position); tgt.y += part === 'head' ? 1.68 : part === 'arm' ? 1.25 : part === 'leg' ? 0.5 : 1.3;
         if (part === 'arm') tgt.x += 0.215 * (Math.cos((e as any).yaw + Math.PI));
+        if (part === 'leg') { tgt.x += 0.1 * (Math.cos((e as any).yaw + Math.PI)); tgt.z -= 0.1 * Math.sin((e as any).yaw + Math.PI); }
+        if (part === 'armr') { tgt.y = e.position.y + 1.25; tgt.x -= 0.215 * (Math.cos((e as any).yaw + Math.PI)); }
         if (type === 'skitter') tgt.y = e.position.y + 0.22;
         if (type === 'sentry') tgt.y = e.position.y;
         const origin = new THREE.Vector3(player.eye.x, tgt.y, player.eye.z);
@@ -197,6 +214,11 @@ async function main() {
         else console.log('[harness] hitscan missed');
         void killed;
       }
+    }
+    if (q.get('sever') && !severed && time > Number(q.get('sever')) && e) {
+      severed = true;
+      const d = new THREE.Vector3(1, 0, 0);
+      (e as any).severArm(0, d); (e as any).severArm(1, d);
     }
     if (['walk', 'run', 'attack', 'chase'].includes(state) && time < 0.1) enemies.alertNoise(spawnPos, 100);
     enemies.update(dt);
@@ -230,6 +252,8 @@ async function main() {
     }
     o.normalize().multiplyScalar(dist);
     camera.position.copy(camTarget).add(o);
+    if (q.get('campos')) { const a = q.get('campos')!.split(',').map(Number); camera.position.set(a[0], a[1], a[2]); }
+    if (q.get('look')) { const a = q.get('look')!.split(',').map(Number); camTarget.set(a[0], a[1], a[2]); }
     camera.lookAt(camTarget);
     if (lightMode === 'dark' && flash) {
       flash.position.copy(camera.position); flash.target.copy(camTarget);

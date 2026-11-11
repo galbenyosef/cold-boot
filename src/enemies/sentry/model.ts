@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext } from '../../core/types';
-import { RigBuilder, type RigTemplate } from '../shared/rig';
+import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, hlathe, patch, rod, sphere, torus, tube, wedge, xf } from '../shared/prims';
 
 export interface SentryTemplate { rig: RigTemplate; }
@@ -15,7 +15,23 @@ export const SN = { nacX: 0.275, ductR: 0.14, gimbalY: -0.105, gimbalZ: 0.085, m
 const D = Math.PI / 180;
 
 export function buildSentryTemplate(ctx: GameContext): SentryTemplate {
-  const b = new RigBuilder();
+  const M = ctx.materials;
+  const mats: Record<string, THREE.Material> = {
+    glow: glowMaterial(),
+    armor: M.get('gunmetal'), frame: M.get('robot_frame'), joint: M.get('robot_joint'), accent: M.get('painted_orange'), rubber: M.get('rubber'),
+    steel: M.get('steel_raw'), chrome: M.get('chrome'), glass: M.get('screen_off'), lamp: M.get('emissive_white'), red: M.get('emissive_red'),
+    sign: M.sign('SEC SD-2', 'warning', 3),
+  };
+  const { template } = buildRigLods(authorSentry, mats, {
+    radius: 0.8, center: new THREE.Vector3(0, 0, 0),
+    fold: { red: 'glow', lamp: 'glow', chrome: 'steel' }, tint: { red: tintOf(0xff0702, 2.2), lamp: tintOf(0xe8f0ff, 4) },
+    lod: { k: 0.45, minFeature: 0.012, remap: { chrome: 'joint', steel: 'joint', glass: 'frame', rubber: 'frame', sign: 'armor' } },
+    proxy: { k: 0.3, minFeature: 0.03, exclude: ['glass', 'red', 'lamp', 'sign', 'chrome', 'rubber'] },
+  });
+  return { rig: template };
+}
+
+function authorSentry(b: RigBuilder): void {
   b.bone('body', null, 0, 0, 0);
   b.bone('nac_l', 'body', SN.nacX, 0.01, -0.01);
   b.bone('nac_r', 'body', -SN.nacX, 0.01, -0.01);
@@ -141,13 +157,4 @@ export function buildSentryTemplate(ctx: GameContext): SentryTemplate {
   b.bind('gunglow').mat('red'); L(sphere(0.0095, 8, 6), 0.045, -0.035, 0.133, 0, 0, 0, 1, 1, 0.4);
   b.bind('turret').mat('rubber');
   L(tube([[0.0, 0.01, -0.03], [0.02, 0.03, -0.05], [0.045, 0.0, -0.045], [0.045, -0.025, -0.035]], 0.005, 5, 8));
-
-  const M = ctx.materials;
-  const mats: Record<string, THREE.Material> = {
-    armor: M.get('gunmetal'), frame: M.get('robot_frame'), joint: M.get('robot_joint'), accent: M.get('painted_orange'), rubber: M.get('rubber'),
-    steel: M.get('steel_raw'), chrome: M.get('chrome'), glass: M.get('screen_off'), lamp: M.get('emissive_white'), red: M.get('emissive_red'),
-    sign: M.sign('SEC SD-2', 'warning', 3),
-  };
-  const rig = b.build(mats, { shadow: ['armor', 'frame', 'joint', 'steel'], radius: 0.8, center: new THREE.Vector3(0, 0, 0) });
-  return { rig };
 }

@@ -4,8 +4,9 @@
  * Per-type behaviour lives in husk/skitter/sentry.
  */
 import * as THREE from 'three';
-import type { CapsuleBody, Enemy, EnemyType, GameContext, LoopHandle } from '../core/types';
-import type { HitVolume } from './shared/hit';
+import type { CapsuleBody, DynamicBox, Enemy, EnemyType, GameContext, LoopHandle } from '../core/types';
+import { volumeNormal, type HitVolume } from './shared/hit';
+import type { Rig } from './shared/rig';
 import { angleDiff } from './shared/ik';
 import type { NavGraph } from './nav';
 
@@ -23,10 +24,28 @@ export interface EnemyWorld {
   playerEyeAgo(seconds: number, out: THREE.Vector3): THREE.Vector3;
   rand(): number;
   onDeath(e: EnemyBase): void;
+  /** Debug: force a visible LOD (-1 = by distance). */
+  forceLod: number;
 }
 
 const _from = new THREE.Vector3(), _to = new THREE.Vector3();
-const _n = new THREE.Vector3();
+const _n = new THREE.Vector3(), _hn = new THREE.Vector3(), _mean = new THREE.Vector3();
+const HIT_SLOTS = 12;
+const PART_RANK: Record<string, number> = { limb: 1, torso: 2, core: 2, head: 3 };
+
+/** Hits accumulated during one frame, flushed as ONE effect burst (shotgun = 9 damage calls). */
+export interface HitBurst {
+  /** Number of damage calls. */
+  n: number;
+  /** Sum of raw damage. */
+  amount: number;
+  /** Representative impact point / outward normal / shot direction. */
+  point: THREE.Vector3; normal: THREE.Vector3; dir: THREE.Vector3;
+  /** Most important part hit ('head' > 'torso'/'core' > 'limb'). */
+  part: string;
+  /** Region of the representative hit. */
+  region: string;
+}
 let nextId = 1;
 
 export abstract class EnemyBase implements Enemy {
@@ -52,6 +71,13 @@ export abstract class EnemyBase implements Enemy {
   diedAt = 0;
   /** Corpse finished collapsing → no more updates. */
   settled = false;
+  /** Rig whose LOD / visibility the manager drives (set by subclasses). */
+  lodRig: Rig | null = null;
+  /** Level object whose `visible` tells whether this machine's room is being drawn (cached, see manager). */
+  roomTag: THREE.Object3D | null = null;
+  roomTagAt = -1;
+  /** Keep the object hidden regardless of distance (e.g. a skitter still inside its vent). */
+  holdHidden = false;
 
   // perception
   seesPlayer = false;
@@ -76,6 +102,17 @@ export abstract class EnemyBase implements Enemy {
   private loop: LoopHandle | null = null;
   private loopTimer = 0;
 
+  // hit fx accumulation (see queueHit / flushHits)
+  private hitPts: THREE.Vector3[] = [];
+  private hitNrm: THREE.Vector3[] = [];
+  private readonly burst: HitBurst = { n: 0, amount: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), dir: new THREE.Vector3(), part: '', region: '' };
+
+  // wreck collision
+  /** Set by subclasses when the wreck has come to rest: low box hugging the torso (world space). */
+  wreckBox: THREE.Box3 | null = null;
+  wreckBody: DynamicBox | null = null;
+  wreckChecked = 0;
+
   constructor(protected world: EnemyWorld, readonly group: string, position: THREE.Vector3, yaw: number, radius: number, height: number) {
     this.body = { position: position.clone(), velocity: new THREE.Vector3(), radius, height, onGround: false, gravityScale: 1 };
     this.yaw = yaw;
@@ -87,6 +124,18 @@ export abstract class EnemyBase implements Enemy {
   }
 
   get position(): THREE.Vector3 { return this.body.position; }
+  /** World position of the sensor used for line-of-sight checks. */
+  protected eyePos(out: THREE.Vector3): THREE.Vector3 {
+    const p = this.body.position;
+    return out.set(p.x, p.y + this.eyeHeight, p.z);
+  }
+  /** World centre of the hitscan broad-phase sphere (radius boundRadius). */
+  boundCenter(out: THREE.Vector3): THREE.Vector3 {
+    out.copy(this.object.position); out.y += this.boundCenterY;
+    return out;
+  }
+  /** Bodies with this set are skipped by the manager's separation pass (e.g. clinging to a wall). */
+  ignoreSeparation = false;
   get hunting(): boolean { return this.alive && this.awake && (this.state === 'alert' || this.state === 'chase' || this.state === 'attack' || this.state === 'stagger'); }
 
   abstract update(dt: number): void;
@@ -106,8 +155,47 @@ export abstract class EnemyBase implements Enemy {
   /** Free per-instance GPU resources and leave the scene. */
   dispose(): void {
     this.stopLoop(0);
+    if (this.wreckBody) { this.wreckBody.remove(); this.wreckBody = null; }
+    this.wreckBox = null;
     this.object.removeFromParent();
   }
+
+  // ── hit effects ────────────────────────────────────────────────────────
+  /** Record one hit for this frame's effect burst (the burst is emitted once by flushHits). */
+  protected queueHit(vol: HitVolume, amount: number, point: THREE.Vector3, dir: THREE.Vector3): void {
+    const b = this.burst;
+    if (this.hitPts.length === 0) for (let i = 0; i < HIT_SLOTS; i++) { this.hitPts.push(new THREE.Vector3()); this.hitNrm.push(new THREE.Vector3()); }
+    const k = b.n < HIT_SLOTS ? b.n : HIT_SLOTS - 1;
+    this.hitPts[k].copy(point);
+    // outward normal: the capsule surface normal, bent toward the shooter
+    volumeNormal(vol, point, _hn);
+    this.hitNrm[k].copy(_hn).addScaledVector(dir, -0.6).normalize();
+    if (b.n === 0) { b.dir.set(0, 0, 0); b.part = vol.part; b.region = vol.region; }
+    else if ((PART_RANK[vol.part] ?? 0) > (PART_RANK[b.part] ?? 0)) { b.part = vol.part; b.region = vol.region; }
+    b.dir.add(dir);
+    b.n++;
+    b.amount += amount;
+  }
+
+  /** Emit the accumulated burst (called by the manager once per frame, also for corpses). */
+  flushHits(): void {
+    const b = this.burst;
+    if (b.n === 0) return;
+    const m = Math.min(b.n, HIT_SLOTS);
+    _mean.set(0, 0, 0);
+    for (let i = 0; i < m; i++) _mean.add(this.hitPts[i]);
+    _mean.multiplyScalar(1 / m);
+    // representative impact: the recorded point closest to the centroid of the pattern
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < m; i++) { const d = this.hitPts[i].distanceToSquared(_mean); if (d < bd) { bd = d; bi = i; } }
+    b.point.copy(this.hitPts[bi]); b.normal.copy(this.hitNrm[bi]);
+    if (b.dir.lengthSq() > 1e-8) b.dir.normalize(); else b.dir.copy(b.normal).negate();
+    try { this.hitFx(b); } catch { /* fx optional */ }
+    b.n = 0; b.amount = 0;
+  }
+
+  /** Per-type look of a (coalesced) hit. */
+  protected abstract hitFx(b: HitBurst): void;
 
   protected setState(s: Enemy['state']): void {
     if (this.state === s) return;
@@ -145,7 +233,7 @@ export abstract class EnemyBase implements Enemy {
     if (this.losTimer > 0) return;
     this.losTimer = 0.15 + w.rand() * 0.04;
     if (!w.playerAlive || this.dist > 40) { this.seesPlayer = false; return; }
-    _from.set(p.x, p.y + this.eyeHeight, p.z);
+    this.eyePos(_from);
     this.seesPlayer = w.ctx.physics.lineOfSight(_from, w.playerEye);
   }
 

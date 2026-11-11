@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type { LightHandle } from '../../core/types';
-import { EnemyBase, type EnemyWorld } from '../ai';
+import { EnemyBase, type EnemyWorld, type HitBurst } from '../ai';
 import { hv, type HitVolume } from '../shared/hit';
 import { angleDiff, damp, noise1, smooth, solveLimb, spring, type Spring } from '../shared/ik';
 import { Piston } from '../shared/piston';
@@ -12,7 +12,14 @@ import type { Rig } from '../shared/rig';
 import { HUSK_DIM as K, type HuskTemplate } from './model';
 import { applySpec, HUSK_POSES } from './poses';
 
-type Mode = 'dormant' | 'wake' | 'idle' | 'react' | 'chase' | 'windup' | 'strike' | 'recover' | 'stagger' | 'flail' | 'dying' | 'dead';
+type Mode = 'dormant' | 'wake' | 'idle' | 'react' | 'chase' | 'windup' | 'strike' | 'recover' | 'stagger' | 'flail'
+  | 'topple' | 'crawl' | 'cwindup' | 'cstrike' | 'crecover' | 'writhe' | 'dying' | 'dead';
+
+/** One hand of the legless crawl: planted in world space, swung forward when it falls behind. */
+interface Hand {
+  pos: THREE.Vector3; from: THREE.Vector3; to: THREE.Vector3;
+  t: number; dur: number;
+}
 
 interface Foot {
   side: number;
@@ -25,11 +32,17 @@ interface Foot {
 }
 
 const WALK = 1.3, RUN = 4.0, MELEE = 18, HP = 90;
+/** Raw damage a leg takes before it snaps at the knee; crawler grab damage. */
+const LEG_BREAK = 42, CRAWL_MELEE = 9, CRAWL_SPEED = 0.8;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _pole = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _upQ = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _imp = new THREE.Vector3();
 const X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
+const _S = new THREE.Vector3(), _T = new THREE.Vector3(), _dn = new THREE.Vector3(), _pp = new THREE.Vector3(), _ud = new THREE.Vector3();
+const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _fw = new THREE.Vector3(), _lf = new THREE.Vector3();
+const _mb = new THREE.Matrix4();
+const EYE_KEYS = ['glow'];
 const keyCache = new WeakMap<HuskTemplate, Map<string, Float32Array>>();
 
 export class Husk extends EnemyBase {
@@ -80,6 +93,14 @@ export class Husk extends EnemyBase {
   private stepPhaseEmit = 0;
   private thrash = 0;
   private wander = 0;
+  // legless crawl
+  private legGone = [false, false];
+  private crawler = false;
+  private hands: Hand[];
+  private crawlArm = -1;    // attacking arm while prone (1 left, -1 right)
+  private crawlAtk = 0;     // 0 rest → 1 raised → 2 slammed
+  private crawlBob = 0;
+  private flat = 0;
 
   constructor(world: EnemyWorld, private tpl: HuskTemplate, group: string, position: THREE.Vector3, yaw: number, dormant: boolean, pose?: string) {
     super(world, group, position, yaw, 0.35, 1.8);
@@ -95,6 +116,7 @@ export class Husk extends EnemyBase {
     const sign = tpl.signs[this.id % tpl.signs.length];
     this.rig = tpl.rig.instantiate({ sign });
     this.B = this.rig.byName;
+    this.lodRig = this.rig;
     this.object.add(this.rig.root);
     for (const p of tpl.pistons) this.pistons.push(new Piston(this.rig, p.cyl, p.rod, p.a, p.b));
     this.plates = tpl.plates.map((p) => ({ ...p, gone: false }));
@@ -139,6 +161,8 @@ export class Husk extends EnemyBase {
     });
     this.feet = [mk(1), mk(-1)];
     this.resetFeet();
+    const mh = (): Hand => ({ pos: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), t: 1, dur: 0.32 });
+    this.hands = [mh(), mh()];
 
     this.pose = dormant ? (pose === 'rack' || pose === 'slumped' || pose === 'standing' ? pose : 'standing') : '';
     if (dormant) {
@@ -176,12 +200,15 @@ export class Husk extends EnemyBase {
     this.eyeOn = on;
     this.B.eye.scale.setScalar(on ? 1 : 1e-4);
     this.B.led.scale.setScalar(on ? 1 : 1e-4);
+    this.rig.setKeysVisible(EYE_KEYS, on);
   }
 
   private setMode(m: Mode): void {
     this.mode = m; this.modeTime = 0; this.phase = 0;
     this.setState(m === 'dormant' ? 'dormant' : m === 'idle' ? 'idle' : m === 'wake' || m === 'react' ? 'alert' : m === 'chase' ? 'chase'
-      : m === 'windup' || m === 'strike' || m === 'recover' ? 'attack' : m === 'stagger' || m === 'flail' ? 'stagger' : 'dead');
+      : m === 'windup' || m === 'strike' || m === 'recover' || m === 'cwindup' || m === 'cstrike' || m === 'crecover' ? 'attack'
+      : m === 'crawl' || m === 'writhe' ? 'chase'
+      : m === 'stagger' || m === 'flail' || m === 'topple' ? 'stagger' : 'dead');
   }
 
   /** Start blending from the current bone state to whatever the following frames produce. */
@@ -230,6 +257,7 @@ export class Husk extends EnemyBase {
   }
 
   private goChase(): void {
+    if (this.crawler) { this.setMode(this.armGone[0] && this.armGone[1] ? 'writhe' : 'crawl'); return; }
     if (this.headGone) { this.setMode('flail'); return; }
     this.setMode('chase');
   }
@@ -271,6 +299,7 @@ export class Husk extends EnemyBase {
         if (this.modeTime > 0.7) this.goChase();
         break;
       case 'flail': this.tickFlail(dt); break;
+      case 'topple': case 'crawl': case 'cwindup': case 'cstrike': case 'crecover': case 'writhe': this.tickCrawl(dt); break;
       case 'dying': this.tickDying(dt); break;
     }
     this.finishPose(dt);
@@ -476,6 +505,220 @@ export class Husk extends EnemyBase {
       this.mode = 'dead';
       this.settled = true;
       this.setEye(false);
+      this.finishPose();
+      this.makeWreckBox();
+    }
+  }
+
+  /** Low collision box hugging the torso of the wreck (hips → neck), registered later by the manager. */
+  private makeWreckBox(): void {
+    const B = this.B, p = this.body.position;
+    _v.setFromMatrixPosition(B.hips.matrixWorld);
+    _v2.setFromMatrixPosition(B.neck.matrixWorld);
+    const box = new THREE.Box3();
+    box.min.set(Math.min(_v.x, _v2.x) - 0.17, p.y, Math.min(_v.z, _v2.z) - 0.17);
+    box.max.set(Math.max(_v.x, _v2.x) + 0.17, p.y + THREE.MathUtils.clamp(Math.max(_v.y, _v2.y) - p.y + 0.12, 0.36, 0.44), Math.max(_v.z, _v2.z) + 0.17);
+    this.wreckBox = box;
+  }
+
+  // ───────────────────────────────────────────────────────── legless crawl
+
+  private startCrawl(dir: THREE.Vector3): void {
+    this.crawler = true;
+    this.atkWind = 0; this.atkStrike = 0; this.reach = 0; this.thrash = 0; this.lurch = 0; this.hitch = 0;
+    this.running = false;
+    this.body.height = 0.8;
+    this.body.velocity.x += dir.x * 1.2; this.body.velocity.z += dir.z * 1.2;
+    this.startBlend(0.55);
+    this.setMode('topple');
+    this.crawlAtk = 0; this.crawlArm = -1;
+    // hands start roughly under the shoulders once down
+    const p = this.body.position, ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? 1 : -1, h = this.hands[i];
+      h.pos.set(p.x + s * 0.15 + side * 0.22 * c, p.y, p.z + c * 0.15 - side * 0.22 * s);
+      h.t = 1;
+    }
+  }
+
+  private tickCrawl(dt: number): void {
+    const w = this.world, p = this.body.position;
+    const ry = this.yaw + Math.PI;
+    const armsLeft = (this.armGone[0] ? 0 : 1) + (this.armGone[1] ? 0 : 1);
+    this.lookW = this.headGone ? 0 : damp(this.lookW, 1, 3, dt);
+    let speed = 0;
+    let rem = 0;
+    const hd = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z);
+    switch (this.mode) {
+      case 'topple':
+        this.thrash = 0;
+        if (this.modeTime > 0.75) {
+          this.emit('enemy:step'); this.emit('enemy:step');
+          try { w.ctx.fx.smoke(p, { count: 4, size: 0.45, color: 0x3a3a3b, rise: 0.15, life: 1.1 }); } catch { /* fx optional */ }
+          this.goChase();
+        }
+        break;
+      case 'crawl': {
+        if (!w.playerAlive) break;
+        this.navigate(dt, 0.2);
+        const bias = this.watchdog(dt, hd > 1.0, 2.2);
+        let tx = this.waypoint.x, tz = this.waypoint.z;
+        if (bias !== 0) { const dx = tx - p.x, dz = tz - p.z; tx += -dz * bias * 0.9; tz += dx * bias * 0.9; }
+        rem = this.faceToward(tx, tz, 1.5 * dt);
+        const align = Math.max(0, Math.cos(rem));
+        // the body surges while a planted hand pulls, stalls while both are travelling
+        let pulling = 0;
+        for (let i = 0; i < 2; i++) if (!this.armGone[i] && this.hands[i].t >= 1) pulling++;
+        const surge = armsLeft === 2 ? (pulling === 1 ? 1.25 : 0.55) : (pulling === 1 ? 1.0 : 0.15);
+        speed = CRAWL_SPEED * (armsLeft === 2 ? 1 : 0.6) * surge * align * align;
+        if (hd < 0.95) speed = 0;
+        if (hd < 1.4 && Math.abs(w.playerPos.y - p.y) < 1.2 && Math.abs(rem) < 0.7 && this.seesPlayer) {
+          this.crawlArm = !this.armGone[1] ? -1 : 1;
+          this.setMode('cwindup');
+          this.emitAttack('melee');
+        }
+        break;
+      }
+      case 'cwindup':
+        this.faceToward(w.playerPos.x, w.playerPos.z, 2 * dt);
+        this.crawlAtk = smooth(this.modeTime / 0.4);
+        if (this.modeTime >= 0.5) this.setMode('cstrike');
+        break;
+      case 'cstrike':
+        this.crawlAtk = 1 + smooth(this.modeTime / 0.1);
+        if (!this.struck && this.modeTime >= 0.07) {
+          this.struck = true;
+          const dx = w.playerPos.x - p.x, dz = w.playerPos.z - p.z;
+          const ang = Math.abs(angleDiff(Math.atan2(-dx, -dz), this.yaw));
+          if (w.playerAlive && Math.hypot(dx, dz) < 1.75 && ang < 1.1 && Math.abs(w.playerPos.y - p.y) < 1.0) w.ctx.player.damage(CRAWL_MELEE, p);
+          // the hand stays where it slammed down
+          const h = this.hands[this.crawlArm > 0 ? 0 : 1];
+          h.t = 1; this.handHome(this.crawlArm, 0.5, h.pos);
+        }
+        if (this.modeTime >= 0.18) this.setMode('crecover');
+        break;
+      case 'crecover':
+        this.crawlAtk = damp(this.crawlAtk, 0, 8, dt);
+        if (this.modeTime >= 0.55) { this.crawlAtk = 0; this.struck = false; this.goChase(); }
+        break;
+      case 'writhe':
+        // armless: thrashes in place (and a headless crawler dies off)
+        this.thrash = 0.9;
+        if (this.headGone && this.modeTime > 1.6) { this.die(_v.set(Math.sin(ry), 0, Math.cos(ry))); return; }
+        break;
+    }
+    if (this.mode === 'cwindup') this.struck = false;
+    this.moveGround(dt, Math.sin(ry), Math.cos(ry), speed, this.mode === 'topple' ? 2.5 : 5);
+    this.crawlPose(dt);
+  }
+
+  /** World position a hand reaches for: in front of its shoulder on the floor (`ahead` metres). */
+  private handHome(side: number, ahead: number, out: THREE.Vector3): THREE.Vector3 {
+    const p = this.body.position, ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    // shoulders sit ~0.36 m in front of the capsule centre when prone
+    const fz = 0.2 + ahead, lx = side * 0.24;
+    out.set(p.x + s * fz + lx * c, p.y + 0.035, p.z + c * fz - lx * s);
+    return out;
+  }
+
+  private crawlPose(dt: number): void {
+    const B = this.B, w = this.world, p = this.body.position, t = w.time;
+    const ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    _fw.set(s, 0, c); _lf.set(c, 0, -s);
+    this.rig.apply(this.keys.get('crawl')!);
+    // without arms to prop it up the chest sinks to the floor
+    const armsLeft = (this.armGone[0] ? 0 : 1) + (this.armGone[1] ? 0 : 1);
+    this.flat = damp(this.flat, armsLeft === 0 ? 1 : armsLeft === 1 ? 0.3 : 0, 4, dt);
+    if (this.flat > 0.001) {
+      B.hips.position.y -= 0.1 * this.flat;
+      B.hips.quaternion.multiply(_q.setFromEuler(_e.set(0.32 * this.flat, 0, 0)));
+      B.spine2.quaternion.multiply(_q.setFromEuler(_e.set(0.15 * this.flat, 0, 0)));
+    }
+    const v = this.body.velocity, speed = Math.hypot(v.x, v.z);
+    // ── hands: step when the planted hand trails too far behind its shoulder
+    const swingDur = this.armGone[0] || this.armGone[1] ? 0.42 : 0.34;
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? 1 : -1, h = this.hands[i], o = this.hands[1 - i];
+      if (this.armGone[i]) continue;
+      this.handHome(side, 0.38, _v3);
+      if (h.t >= 1) {
+        const behind = (_v3.x - h.pos.x) * _fw.x + (_v3.z - h.pos.z) * _fw.z;
+        const lat = Math.abs((h.pos.x - _v3.x) * _lf.x + (h.pos.z - _v3.z) * _lf.z);
+        const otherOk = this.armGone[1 - i] || o.t >= 1;
+        if (otherOk && (behind > 0.3 || lat > 0.3 || (speed < 0.05 && Math.hypot(_v3.x - h.pos.x, _v3.z - h.pos.z) > 0.3)) && this.mode !== 'topple') {
+          h.t = 0; h.dur = swingDur; h.from.copy(h.pos);
+        }
+      }
+      if (h.t < 1) {
+        h.t += dt / h.dur;
+        h.to.copy(_v3).addScaledVector(_fw, 0.1);
+        const g = this.groundAt(h.to.x, p.y + 0.5, h.to.z, 1.2);
+        h.to.y = (g !== null ? g : p.y) + 0.035;
+        if (h.t >= 1) {
+          h.t = 1; h.pos.copy(h.to);
+          this.crawlBob -= 0.04;
+          this.emit('enemy:step');
+        } else {
+          const k = smooth(h.t);
+          h.pos.lerpVectors(h.from, h.to, k);
+          h.pos.y += Math.sin(Math.PI * h.t) * 0.16;
+        }
+      }
+    }
+    // ── torso: lunges forward on each pull, rolls toward the planted hand, heaves
+    this.crawlBob = damp(this.crawlBob, 0, 6, dt);
+    const swL = this.hands[0].t < 1 ? Math.sin(Math.PI * this.hands[0].t) : 0;
+    const swR = this.hands[1].t < 1 ? Math.sin(Math.PI * this.hands[1].t) : 0;
+    const heave = Math.sin(t * 2.1 + this.seed) * 0.012;
+    const atk = Math.min(1, this.crawlAtk), slam = Math.max(0, this.crawlAtk - 1);
+    B.hips.position.y += this.crawlBob + heave + atk * 0.06 - slam * 0.08;
+    B.hips.quaternion.multiply(_q.setFromEuler(_e.set(-atk * 0.22 + slam * 0.3, (swR - swL) * 0.12, (swL - swR) * 0.12)));
+    B.spine2.quaternion.multiply(_q.setFromEuler(_e.set(0, (swR - swL) * 0.15 + (this.crawlArm > 0 ? 1 : -1) * (atk * 0.35 - slam * 0.5), 0)));
+    // the legs drag; the broken one twitches
+    for (let i = 0; i < 2; i++) {
+      const sfx = i === 0 ? 'l' : 'r';
+      const j = this.legGone[i] ? noise1(t * 7 + i * 3, this.seed + 90) * 0.25 : noise1(t * 1.3 + i * 3, this.seed + 91) * 0.08;
+      B['thigh_' + sfx].quaternion.multiply(_q.setFromEuler(_e.set(j + (i === 0 ? swR : swL) * 0.12, 0, 0)));
+    }
+    if (this.thrash > 0) {
+      const a = this.thrash;
+      for (let i = 0; i < 2; i++) {
+        const sfx = i === 0 ? 'l' : 'r';
+        B['thigh_' + sfx].quaternion.multiply(_q.setFromEuler(_e.set(noise1(t * 6.6 + i, this.seed + 75) * 0.6 * a, 0, noise1(t * 4.1 + i, this.seed + 85) * 0.3 * a)));
+        B['uarm_' + sfx].quaternion.multiply(_q.setFromEuler(_e.set(noise1(t * 7.1 + i, this.seed + 30) * 0.9 * a, 0, noise1(t * 5.3 + i, this.seed + 40) * 0.6 * a)));
+      }
+      B.hips.quaternion.multiply(_q.setFromEuler(_e.set(0, 0, noise1(t * 3.3, this.seed + 95) * 0.3 * a)));
+    }
+    // ── arm IK in world space (needs the chest's world transform first)
+    this.object.position.copy(p);
+    this.object.rotation.y = ry;
+    this.object.updateMatrixWorld(true);
+    for (let i = 0; i < 2; i++) {
+      if (this.armGone[i]) continue;
+      const side = i === 0 ? 1 : -1, sfx = i === 0 ? 'l' : 'r', h = this.hands[i];
+      const uarm = B['uarm_' + sfx];
+      _S.setFromMatrixPosition(uarm.matrixWorld);
+      // wrist target: the planted / travelling hand, or the strike arc
+      _T.copy(h.pos).addScaledVector(_fw, -0.06).setY(h.pos.y + 0.075);
+      let pole = 1;
+      if (this.crawlArm === side && this.crawlAtk > 0.001) {
+        // raise high and back, then hammer down in front
+        _v.copy(_S).addScaledVector(Y, 0.42).addScaledVector(_fw, 0.05).addScaledVector(_lf, side * 0.12);
+        this.handHome(side, 0.55, _v2); _v2.y += 0.05;
+        if (this.crawlAtk <= 1) _T.lerp(_v, atk); else _T.copy(_v).lerp(_v2, slam);
+        pole = 0.6;
+      }
+      _q2.setFromRotationMatrix(uarm.parent!.matrixWorld);
+      _v2.copy(_lf).multiplyScalar(side * 0.85).addScaledVector(_fw, -0.45 * pole).addScaledVector(Y, 0.35);
+      const bend = armIK(_S, _T, _v2, K.uarm, K.larm + 0.04, _q2, uarm);
+      B['larm_' + sfx].quaternion.setFromAxisAngle(X, -bend);
+      // palm down, fingers claw into the floor while planted
+      const grip = h.t >= 1 ? 0.75 : 0.15;
+      B['hand_' + sfx].quaternion.setFromEuler(_e.set(0.75 - (h.t < 1 ? 0.45 : 0), 0, 0));
+      if (i === 0) {
+        B.fing_l.quaternion.setFromEuler(_e.set(-grip, 0, 0));
+        B.fing2_l.quaternion.setFromEuler(_e.set(-grip * 1.2, 0, 0));
+      }
     }
   }
 
@@ -681,7 +924,7 @@ export class Husk extends EnemyBase {
         B.head.quaternion.slerp(_q3, this.lookW);
       }
       // tools
-      const winding = this.mode === 'windup' || this.mode === 'strike';
+      const winding = this.mode === 'windup' || this.mode === 'strike' || this.mode === 'cwindup' || this.mode === 'cstrike';
       if (this.tool === 1) {
         this.bladeSpeed = damp(this.bladeSpeed, winding ? 70 : this.mode === 'chase' && this.dist < 5 ? 22 : 0, 4, dt);
         B.blade.rotateX(this.bladeSpeed * dt);
@@ -722,18 +965,26 @@ export class Husk extends EnemyBase {
 
   // ───────────────────────────────────────────────────────── damage
 
+  /** One coalesced burst per frame: pistol torso = small tight spray, head = brighter + flash, shotgun = big. */
+  protected hitFx(b: HitBurst): void {
+    const fx = this.world.ctx.fx, A = b.amount;
+    const head = b.part === 'head', limb = b.part === 'limb';
+    const sp = THREE.MathUtils.clamp(Math.round(2 + A / 7 + (head ? 3 : 0)), 3, 18);
+    fx.sparks(b.point, b.normal, sp, (head ? 3.4 : 2.5) + Math.min(2.5, A / 30));
+    const fl = Math.min(8, limb ? Math.round(A / 26) : Math.round(A / 11) - (head ? 1 : 0));
+    if (fl > 0) fx.fluid(b.point, b.dir, fl);
+    if (head) { _v.copy(b.point).addScaledVector(b.normal, 0.08); fx.flash(_v, 0xffc27a, 1.4 + Math.min(3, A * 0.04), 0.05, 2.5); }
+    if (A >= 40) fx.smoke(b.point, { count: 2, size: 0.28, color: 0x2a2a2c, rise: 0.3, life: 0.9 });
+  }
+
   applyDamage(vol: HitVolume, amount: number, point: THREE.Vector3, dir: THREE.Vector3): void {
     if (!this.alive) return;
-    const w = this.world, fx = w.ctx.fx;
+    const w = this.world;
     const mult = vol.part === 'head' ? 2 : vol.part === 'limb' ? 0.7 : 1;
     const dmg = amount * mult;
     this.health -= dmg;
     w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg });
-    _v3.copy(dir).negate();
-    try {
-      fx.sparks(point, _v3, 3 + Math.round(amount / 6), 3);
-      fx.fluid(point, dir, 2 + Math.round(amount / 5));
-    } catch { /* fx optional */ }
+    this.queueHit(vol, amount, point, dir);
 
     // flinch: push in rig space
     const ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
@@ -750,6 +1001,7 @@ export class Husk extends EnemyBase {
     if (w.rand() < amount / 22) this.shedPlate(reg, dir);
     if ((reg === 'arm_l' || reg === 'arm_r') && this.regionDmg[reg] >= 34 && !this.armGone[reg === 'arm_l' ? 0 : 1]) this.severArm(reg === 'arm_l' ? 0 : 1, dir);
     if (reg === 'head' && !this.headGone && this.regionDmg[reg] * 2 >= 60 && this.health > 0) this.destroyHead(dir);
+    if ((reg === 'leg_l' || reg === 'leg_r') && this.regionDmg[reg] >= LEG_BREAK && !this.legGone[reg === 'leg_l' ? 0 : 1] && this.health > 0) this.breakLeg(reg === 'leg_l' ? 0 : 1, dir);
 
     if (this.health <= 0) {
       if (reg === 'head' && !this.headGone) this.burstHead(dir);
@@ -758,6 +1010,7 @@ export class Husk extends EnemyBase {
     }
     if (this.mode === 'dormant') { this.wakeDelay = -1; this.beginWake(1.7); return; }
     if (this.mode === 'idle') { this.enterAlert(); }
+    if (this.crawler) return; // prone: flinches only
     // heavy hits stagger (and interrupt a wind-up)
     this.recentDmg += dmg; this.recentT = 0.25;
     if (this.recentDmg >= 30 && (this.mode === 'chase' || this.mode === 'windup' || this.mode === 'recover' || this.mode === 'react')) {
@@ -804,6 +1057,27 @@ export class Husk extends EnemyBase {
     _v.setFromMatrixPosition(this.B['larm_' + sfx].matrixWorld);
     try { w.ctx.fx.sparks(_v, _v2.copy(dir).negate(), 14, 4); w.ctx.fx.fluid(_v, dir, 10); } catch { /* */ }
     if (this.mode === 'windup' || this.mode === 'strike') { this.atkWind = 0; this.atkStrike = 0; this.setMode('stagger'); }
+    if (this.crawler && this.mode !== 'topple') { this.crawlAtk = 0; this.goChase(); }
+  }
+
+  /** A leg snaps at the knee: shin + foot fly off, the machine topples and crawls on its arms. */
+  private breakLeg(i: number, dir: THREE.Vector3): void {
+    const sfx = i === 0 ? 'l' : 'r', w = this.world;
+    this.legGone[i] = true;
+    for (const pl of this.plates) if (pl.bone === 'p_shin_' + sfx && !pl.gone) { pl.gone = true; this.shedBone(pl.bone, dir, 2.5); }
+    _v.setFromMatrixPosition(this.B['shin_' + sfx].matrixWorld);
+    this.shedBone('foot_' + sfx, dir, 2);
+    this.shedBone('shin_' + sfx, dir, 3);
+    for (const v of this.volumes) if (v.bone === this.B['shin_' + sfx]) v.enabled = false;
+    this.stumpBone = this.B['shin_' + sfx]; this.stumpSpark = 4;
+    try { w.ctx.fx.sparks(_v, _v2.copy(dir).negate(), 14, 4); w.ctx.fx.fluid(_v, dir, 8); } catch { /* */ }
+    if (!this.awake) {
+      this.awake = true; this.wakeDelay = -1; this.pose = '';
+      this.setEye(true); this.startLoop('husk_loop', 0.8);
+      w.ctx.events.emit('enemy:woke', { id: this.id, type: this.type, position: this.body.position });
+    }
+    this.body.onGround = false;
+    if (!this.crawler && this.mode !== 'dying' && this.mode !== 'dead') this.startCrawl(dir);
   }
 
   private burstHead(dir: THREE.Vector3): void {
@@ -823,6 +1097,7 @@ export class Husk extends EnemyBase {
     this.burstHead(dir);
     if (!this.awake) { this.awake = true; this.wakeDelay = -1; this.startLoop('husk_loop', 0.8); this.pose = ''; this.resetFeet(); }
     this.body.onGround = false;
+    if (this.crawler) { this.setMode('writhe'); return; }
     this.setMode('flail');
     this.startBlend(0.2);
   }
@@ -837,13 +1112,13 @@ export class Husk extends EnemyBase {
     const ry = this.yaw + Math.PI;
     const along = dir.x * Math.sin(ry) + dir.z * Math.cos(ry);
     const r = w.rand();
-    this.deadKey = this.pose === 'slumped' ? 'deadSide' : r < 0.2 ? 'deadSide' : along > 0.2 ? 'deadFront' : along < -0.2 ? 'deadBack' : (r < 0.6 ? 'deadFront' : 'deadBack');
+    this.deadKey = this.crawler ? 'deadFront' : this.pose === 'slumped' ? 'deadSide' : r < 0.2 ? 'deadSide' : along > 0.2 ? 'deadFront' : along < -0.2 ? 'deadBack' : (r < 0.6 ? 'deadFront' : 'deadBack');
     this.body.velocity.x += dir.x * 1.6; this.body.velocity.z += dir.z * 1.6;
     this.body.onGround = false;
-    this.thrash = 0; this.atkWind = 0; this.atkStrike = 0; this.reach = 0;
-    this.startBlend(this.pose === 'slumped' ? 0.5 : 0.3);
+    this.thrash = 0; this.atkWind = 0; this.atkStrike = 0; this.reach = 0; this.crawlAtk = 0;
+    this.startBlend(this.pose === 'slumped' || this.crawler ? 0.5 : 0.3);
     this.setMode('dying');
-    if (this.pose === 'slumped') this.modeTime = 0.33;
+    if (this.pose === 'slumped' || this.crawler) this.modeTime = 0.33;
     this.stopLoop(0.4);
     _v.set(this.body.position.x, this.body.position.y + 1.2, this.body.position.z);
     try { w.ctx.fx.sparks(_v, Y, 16, 4); w.ctx.fx.smoke(_v, { count: 4, size: 0.5, color: 0x202022, rise: 0.5, life: 2 }); } catch { /* */ }
@@ -856,4 +1131,34 @@ export class Husk extends EnemyBase {
     this.rig.skeleton.dispose();
     super.dispose();
   }
+}
+
+const _iq = new THREE.Quaternion();
+/**
+ * Two-bone arm IK in world space for a limb hanging along local -Y whose elbow flexes about local X with a
+ * NEGATIVE angle (forearm swings toward local +Z). Writes `upper.quaternion` (relative to its parent whose
+ * world rotation is `parentQ`) and returns the elbow flex angle (>= 0; apply as rotation.x = -bend).
+ */
+function armIK(S: THREE.Vector3, T: THREE.Vector3, elbowDir: THREE.Vector3, l1: number, l2: number, parentQ: THREE.Quaternion, upper: THREE.Object3D): number {
+  _dn.copy(T).sub(S);
+  let dist = _dn.length();
+  if (dist < 1e-5) { _dn.set(0, -1, 0); dist = 0.1; }
+  _dn.multiplyScalar(1 / (_dn.length() || 1));
+  dist = Math.min(Math.max(dist, Math.abs(l1 - l2) + 0.03), (l1 + l2) * 0.995);
+  const a = Math.acos(THREE.MathUtils.clamp((l1 * l1 + dist * dist - l2 * l2) / (2 * l1 * dist), -1, 1));
+  const bend = Math.PI - Math.acos(THREE.MathUtils.clamp((l1 * l1 + l2 * l2 - dist * dist) / (2 * l1 * l2), -1, 1));
+  _pp.copy(elbowDir).addScaledVector(_dn, -elbowDir.dot(_dn));
+  if (_pp.lengthSq() < 1e-8) _pp.set(0, 1, 0).addScaledVector(_dn, -_dn.y);
+  _pp.normalize();
+  _ud.copy(_dn).multiplyScalar(Math.cos(a)).addScaledVector(_pp, Math.sin(a)).normalize();
+  // basis: y = -upper direction, z = toward the target side of the bend plane, x = y × z
+  _by.copy(_ud).negate();
+  _bz.copy(_dn).addScaledVector(_ud, -_dn.dot(_ud));
+  if (_bz.lengthSq() < 1e-8) _bz.copy(_pp).negate();
+  _bz.normalize();
+  _bx.copy(_by).cross(_bz).normalize();
+  _mb.makeBasis(_bx, _by, _bz);
+  _iq.setFromRotationMatrix(_mb);
+  upper.quaternion.copy(parentQ).invert().multiply(_iq);
+  return bend;
 }

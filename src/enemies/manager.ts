@@ -7,11 +7,16 @@ import type { Enemy, EnemyHit, EnemyManager, EnemySpawn, EnemyType, GameContext 
 import { EnemyBase, type EnemyWorld } from './ai';
 import { NavGraph } from './nav';
 import { raycastVolumes, volumeNormal, type HitVolume, type VolumeHit } from './shared/hit';
+import { syncShellEnv } from './husk/model';
 
 export type EnemyFactory = (world: EnemyWorld, group: string, position: THREE.Vector3, yaw: number, opts: { dormant: boolean; pose?: string; emerge?: boolean; delay?: number }) => EnemyBase;
 
 const MAX_CORPSES = 12;
 const HISTORY = 64;
+/** Visible LOD switch distances (camera → machine), with hysteresis. */
+const LOD_FAR = 12, LOD_NEAR = 10;
+/** Inert machines (dormant / wrecks) further than this, or in a room the level is not drawing, are hidden. */
+const INERT_CULL = 45, AWAKE_CULL = 75;
 
 interface InternalHit extends EnemyHit { _volume: HitVolume; }
 
@@ -46,6 +51,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       return out.set(histPos[best * 3], histPos[best * 3 + 1], histPos[best * 3 + 2]);
     },
     rand,
+    forceLod: -1,
     onDeath(e) {
       ctx.events.emit('enemy:died', { id: e.id, type: e.type, position: e.position, group: e.group });
       corpses.push(e);
@@ -80,6 +86,77 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       else pending.push(s);
     }
   }
+
+  // ── room-visibility tags: the level hides whole room groups (portal culling); find one group per room.
+  const roomTags = new Map<string, THREE.Object3D | null>();
+  const roomTag = (id: string): THREE.Object3D | null => {
+    let o = roomTags.get(id);
+    if (o !== undefined) return o;
+    o = null;
+    let bestN = 1e9;
+    const kids = ctx.level?.root?.children ?? [];
+    for (const k of kids) {
+      const rs = k.userData?.rooms as string[] | undefined;
+      if (rs && rs.includes(id) && rs.length < bestN) { o = k; bestN = rs.length; }
+    }
+    roomTags.set(id, o);
+    return o;
+  };
+  const camPos = new THREE.Vector3();
+  const visibility = () => {
+    camPos.setFromMatrixPosition(ctx.camera.matrixWorld);
+    for (let i = 0; i < all.length; i++) {
+      const e = all[i];
+      const o = e.object;
+      const d = o.position.distanceTo(camPos);
+      const inert = !e.awake || e.settled;
+      let show = !e.holdHidden && d < (inert ? INERT_CULL : AWAKE_CULL);
+      if (show && inert) {
+        // dormant / settled machines do not move: cache which room they are in
+        if (e.roomTagAt < 0 || (e.settled && e.roomTagAt < e.diedAt + 0.01)) {
+          const r = ctx.level?.roomAt?.(e.position);
+          e.roomTag = r ? roomTag(r.id) : null;
+          e.roomTagAt = world.time;
+        }
+        if (e.roomTag && !e.roomTag.visible) show = false;
+      }
+      if (o.visible !== show) o.visible = show;
+      const rig = e.lodRig;
+      if (!rig || !show) continue;
+      if (world.forceLod >= 0) rig.setLod(world.forceLod);
+      else if (rig.lod === 0 && d > LOD_FAR) rig.setLod(1);
+      else if (rig.lod === 1 && d < LOD_NEAR) rig.setLod(0);
+    }
+  };
+
+  // ── wreck collision: a low box over each corpse, unless it would plug a doorway or trap the player
+  let wreckTimer = 0;
+  const wrecks = (dt: number) => {
+    wreckTimer -= dt;
+    if (wreckTimer > 0) return;
+    wreckTimer = 0.25;
+    const doors = ctx.level?.doors ?? [];
+    for (let i = 0; i < corpses.length; i++) {
+      const e = corpses[i];
+      if (!e.wreckBox || e.wreckBody || e.wreckChecked < 0) continue;
+      const b = e.wreckBox;
+      let blocked = false;
+      for (let d = 0; d < doors.length && !blocked; d++) {
+        const dp = doors[d].position;
+        const cx = Math.min(Math.max(dp.x, b.min.x), b.max.x), cz = Math.min(Math.max(dp.z, b.min.z), b.max.z);
+        if (Math.hypot(cx - dp.x, cz - dp.z) < 1.2 && Math.abs(dp.y - b.min.y) < 2) blocked = true;
+      }
+      if (blocked) { e.wreckChecked = -1; continue; } // never: a corpse in a doorway stays walk-through
+      // the player (capsule r ≈ 0.35) standing in / on it: try again later
+      const pp = world.playerPos, r = 0.38;
+      if (pp.x > b.min.x - r && pp.x < b.max.x + r && pp.z > b.min.z - r && pp.z < b.max.z + r && pp.y < b.max.y + 0.05 && pp.y > b.min.y - 1.8) continue;
+      try { e.wreckBody = ctx.physics.addBox(b, 'robot'); } catch { e.wreckChecked = -1; }
+    }
+  };
+
+  // pooled hitscan results (the caller consumes a hit immediately; 16 in flight is plenty for a shotgun blast)
+  const hitPool: InternalHit[] = [];
+  let hitPoolIdx = 0;
 
   const best: VolumeHit = { t: 0, volume: null };
   const _c = new THREE.Vector3(), _oc = new THREE.Vector3();
@@ -123,7 +200,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         const e = all[i];
         if (!e.alive) continue;
         // broad phase: ray vs bounding sphere
-        _c.copy(e.object.position); _c.y += e.boundCenterY;
+        e.boundCenter(_c);
         _oc.copy(_c).sub(origin);
         const tca = _oc.dot(direction);
         const d2 = _oc.lengthSq() - tca * tca;
@@ -134,10 +211,13 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       }
       const vol = best.volume as HitVolume | null;
       if (!hitEnemy || !vol) return null;
-      const point = new THREE.Vector3().copy(origin).addScaledVector(direction, best.t);
-      const hit: InternalHit = {
-        enemy: hitEnemy, point, normal: volumeNormal(vol, point, new THREE.Vector3()), distance: best.t, part: vol.part, _volume: vol,
-      };
+      if (hitPool.length < 16) hitPool.push({ enemy: hitEnemy, point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, part: '', _volume: vol });
+      const hit = hitPool[hitPoolIdx % hitPool.length];
+      hitPoolIdx = (hitPoolIdx + 1) % 16;
+      hit.enemy = hitEnemy;
+      hit.point.copy(origin).addScaledVector(direction, best.t);
+      volumeNormal(vol, hit.point, hit.normal);
+      hit.distance = best.t; hit.part = vol.part; hit._volume = vol;
       return hit;
     },
     damage(hit, amount, direction) {
@@ -178,13 +258,17 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         e.update(Math.min(e.lodAcc, 0.1));
         e.lodAcc = 0;
       }
+      visibility();
+      for (let i = 0; i < all.length; i++) all[i].flushHits();
+      wrecks(dt);
+      if ((frame & 31) === 0) syncShellEnv(ctx);
       // separation between living, awake bodies
       for (let i = 0; i < all.length; i++) {
         const a = all[i];
-        if (!a.alive || !a.awake) continue;
+        if (!a.alive || !a.awake || a.ignoreSeparation) continue;
         for (let j = i + 1; j < all.length; j++) {
           const b = all[j];
-          if (!b.alive || !b.awake) continue;
+          if (!b.alive || !b.awake || b.ignoreSeparation) continue;
           const pa = a.body.position, pb = b.body.position;
           const min = a.body.radius + b.body.radius + 0.12;
           const dx = pb.x - pa.x, dz = pb.z - pa.z;

@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { DETAIL } from './prims';
 
 export interface BoneDef {
   name: string;
@@ -35,6 +36,27 @@ export class RigBuilder {
   mirror = 1;
   /** Bones whose geometry should be available as loose debris meshes. */
   debrisBones = new Set<string>();
+  /** LOD passes: chunks whose bounding box is smaller than this (largest extent, metres) are dropped. */
+  minFeature = 0;
+  /** Optional per-material vertex colouring (grime) applied after merging, see build(). */
+  colorize: Record<string, (p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color) => void> = {};
+  /** Material keys folded into another key for every visible build (e.g. all emissive bits → 'glow'). */
+  fold: Record<string, string> = {};
+  /** Per SOURCE key vertex colour (linear, may exceed 1) written when its chunks are folded (glow tints). */
+  tint: Record<string, [number, number, number]> = {};
+
+  /** Final key of a chunk (after LOD remap + fold), tagging folded chunks with their tint colour. */
+  private keyOf(c: Chunk, remap?: Record<string, string | null>): string | null {
+    let key: string | null = remap && c.mat in remap ? remap[c.mat] : c.mat;
+    if (key !== null && this.fold[key]) key = this.fold[key];
+    if (key !== null && key !== c.mat && this.tint[c.mat] && !c.geo.getAttribute('color')) {
+      const t = this.tint[c.mat];
+      const n = c.geo.getAttribute('position').count, col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { col[i * 3] = t[0]; col[i * 3 + 1] = t[1]; col[i * 3 + 2] = t[2]; }
+      c.geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    return key;
+  }
 
   /** Define a bone. Position in MODEL space; optional bind rotation (model space euler YXZ). */
   bone(name: string, parent: string | null, x: number, y: number, z: number, ry = 0, rx = 0, rz = 0): number {
@@ -65,8 +87,16 @@ export class RigBuilder {
   bind(bone: string): this { this.curBone = this.idx(bone); return this; }
   mat(m: string): this { this.curMat = m; return this; }
 
+  private tooSmall(geo: THREE.BufferGeometry): boolean {
+    if (this.minFeature <= 0) return false;
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    return Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z) < this.minFeature;
+  }
+
   private push(geo: THREE.BufferGeometry, m: THREE.Matrix4, keepUV: boolean, bone: number) {
     geo.applyMatrix4(m);
+    if (this.tooSmall(geo)) { geo.dispose(); return geo; }
     if (m.determinant() < 0) flipWinding(geo);
     if (!keepUV) projectUV(geo);
     const n = geo.getAttribute('position').count;
@@ -99,6 +129,7 @@ export class RigBuilder {
    */
   cable(geo: THREE.BufferGeometry, boneA: string, boneB: string, from: THREE.Vector3, to: THREE.Vector3, ease = true): this {
     const a = this.idx(boneA), b = this.idx(boneB);
+    if (this.tooSmall(geo)) { geo.dispose(); return this; }
     projectUV(geo);
     const pos = geo.getAttribute('position');
     const n = pos.count;
@@ -121,15 +152,17 @@ export class RigBuilder {
   build(materials: Record<string, THREE.Material>, opts: { shadow: string[]; radius: number; center: THREE.Vector3 }): RigTemplate {
     const byMat = new Map<string, THREE.BufferGeometry[]>();
     for (const c of this.chunks) {
-      if (!materials[c.mat]) throw new Error(`[rig] no material for key ${c.mat}`);
-      let list = byMat.get(c.mat);
-      if (!list) byMat.set(c.mat, (list = []));
+      const key = this.keyOf(c)!;
+      if (!materials[key]) throw new Error(`[rig] no material for key ${key}`);
+      let list = byMat.get(key);
+      if (!list) byMat.set(key, (list = []));
       list.push(c.geo);
     }
     const meshes: TemplateMesh[] = [];
     let triangles = 0;
     for (const [mat, list] of byMat) {
       let g = mergeGeometries(list, false)!;
+      this.applyColor(mat, g);
       g = mergeVertices(g, 1e-5);
       triangles += g.index ? g.index.count / 3 : g.getAttribute('position').count / 3;
       g.boundingSphere = new THREE.Sphere(opts.center.clone(), opts.radius);
@@ -145,6 +178,7 @@ export class RigBuilder {
         if (c.bone !== bi) continue;
         const g = c.geo.clone();
         g.deleteAttribute('skinIndex'); g.deleteAttribute('skinWeight');
+        g.deleteAttribute('color');
         g.applyMatrix4(inv);
         let l = groups.get(c.mat);
         if (!l) groups.set(c.mat, (l = []));
@@ -162,11 +196,142 @@ export class RigBuilder {
     const boneInverses = this.bones.map((b) => new THREE.Matrix4().copy(b.bind).invert());
     return new RigTemplate(this.bones, boneInverses, meshes, debris, triangles, opts.radius, opts.center);
   }
+
+  private applyColor(mat: string, g: THREE.BufferGeometry): void {
+    const fn = this.colorize[mat];
+    if (!fn) return;
+    const pos = g.getAttribute('position'), nor = g.getAttribute('normal');
+    const col = new Float32Array(pos.count * 3);
+    const p = new THREE.Vector3(), n = new THREE.Vector3(), c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      p.fromBufferAttribute(pos, i); n.fromBufferAttribute(nor, i);
+      c.setRGB(1, 1, 1);
+      fn(p, n, c);
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
+
+  /**
+   * Reduced visible LOD from the chunks authored by THIS builder (run the author code with a low DETAIL.k first).
+   * `remap` folds materials together to save draw calls (value null = drop the chunks). Same bone layout as the
+   * template it is attached to.
+   */
+  buildLod(materials: Record<string, THREE.Material>, remap: Record<string, string | null>, opts: { radius: number; center: THREE.Vector3 }): { meshes: TemplateMesh[]; triangles: number } {
+    const byMat = new Map<string, THREE.BufferGeometry[]>();
+    for (const c of this.chunks) {
+      const key = this.keyOf(c, remap);
+      if (key === null) continue;
+      let list = byMat.get(key);
+      if (!list) byMat.set(key, (list = []));
+      list.push(c.geo);
+    }
+    const meshes: TemplateMesh[] = [];
+    let triangles = 0;
+    for (const [mat, list] of byMat) {
+      let g = mergeGeometries(list, false)!;
+      this.applyColor(mat, g);
+      g = mergeVertices(g, 1e-5);
+      triangles += g.index ? g.index.count / 3 : g.getAttribute('position').count / 3;
+      g.boundingSphere = new THREE.Sphere(opts.center.clone(), opts.radius);
+      meshes.push({ key: mat, geometry: g, material: materials[mat], castShadow: false });
+    }
+    for (const c of this.chunks) c.geo.dispose();
+    this.chunks.length = 0;
+    return { meshes, triangles };
+  }
+
+  /** One merged position-only geometry (all materials except `exclude`) used as the shadow-casting proxy. */
+  buildShadow(exclude: string[], opts: { radius: number; center: THREE.Vector3 }): { geometry: THREE.BufferGeometry; triangles: number } {
+    const list: THREE.BufferGeometry[] = [];
+    for (const c of this.chunks) {
+      if (exclude.includes(c.mat)) continue;
+      c.geo.deleteAttribute('normal'); c.geo.deleteAttribute('uv');
+      list.push(c.geo);
+    }
+    let g = mergeGeometries(list, false)!;
+    g = mergeVertices(g, 1e-4);
+    for (const c of this.chunks) c.geo.dispose();
+    this.chunks.length = 0;
+    g.boundingSphere = new THREE.Sphere(opts.center.clone(), opts.radius);
+    return { geometry: g, triangles: g.index ? g.index.count / 3 : g.getAttribute('position').count / 3 };
+  }
+}
+
+let _glow: THREE.MeshBasicMaterial | null = null;
+/** Unlit HDR material for every small emissive bit of the machines; colour comes from vertex colours (tint). */
+export function glowMaterial(): THREE.MeshBasicMaterial {
+  if (!_glow) { _glow = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }); _glow.name = 'enemy_glow'; }
+  return _glow;
+}
+
+/** Linear RGB × intensity of a library emissive colour, for glow vertex tints. */
+export function tintOf(hex: number, intensity: number): [number, number, number] {
+  const c = new THREE.Color(hex).multiplyScalar(intensity);
+  return [c.r, c.g, c.b];
+}
+
+export interface LodSpec {
+  /** Tessellation factor for prims (see DETAIL). */
+  k: number;
+  minFeature: number;
+}
+
+/**
+ * Run `author` (which defines bones + geometry on a fresh builder) three times: hero mesh, distance LOD, shadow
+ * proxy. All three share one bone layout, so every instance drives them with ONE skeleton.
+ */
+export function buildRigLods<T>(
+  author: (b: RigBuilder) => T,
+  materials: Record<string, THREE.Material>,
+  opts: {
+    radius: number; center: THREE.Vector3;
+    lod: LodSpec & { remap: Record<string, string | null> };
+    proxy: LodSpec & { exclude: string[] };
+    colorize?: RigBuilder['colorize'];
+    fold?: RigBuilder['fold'];
+    tint?: RigBuilder['tint'];
+  },
+): { template: RigTemplate; data: T } {
+  const run = (k: number, minFeature: number) => {
+    const b = new RigBuilder();
+    b.minFeature = minFeature;
+    if (opts.colorize) b.colorize = opts.colorize;
+    if (opts.fold) b.fold = opts.fold;
+    if (opts.tint) b.tint = opts.tint;
+    DETAIL.k = k;
+    try { return { b, data: author(b) }; } finally { DETAIL.k = 1; }
+  };
+  const hero = run(1, 0);
+  const template = hero.b.build(materials, { shadow: [], radius: opts.radius, center: opts.center });
+  const lod = run(opts.lod.k, opts.lod.minFeature);
+  const l1 = lod.b.buildLod(materials, opts.lod.remap, opts);
+  const px = run(opts.proxy.k, opts.proxy.minFeature);
+  const sh = px.b.buildShadow(opts.proxy.exclude, opts);
+  template.lod1 = l1.meshes; template.lod1Triangles = l1.triangles;
+  template.shadowGeometry = sh.geometry; template.shadowTriangles = sh.triangles;
+  return { template, data: hero.data };
+}
+
+let _shadowOnly: THREE.MeshBasicMaterial | null = null;
+/** Writes nothing in colour passes; the mesh exists only to be rendered into shadow maps. */
+function shadowOnlyMaterial(): THREE.MeshBasicMaterial {
+  if (!_shadowOnly) {
+    _shadowOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false });
+    _shadowOnly.name = 'enemy_shadow_proxy';
+  }
+  return _shadowOnly;
 }
 
 interface TemplateMesh { key: string; geometry: THREE.BufferGeometry; material: THREE.Material; castShadow: boolean; }
 
 export class RigTemplate {
+  /** Distance LOD meshes (same skeleton). Empty = no LOD. */
+  lod1: TemplateMesh[] = [];
+  lod1Triangles = 0;
+  /** Shadow-only proxy geometry (position + skinning). Null = the hero meshes cast. */
+  shadowGeometry: THREE.BufferGeometry | null = null;
+  shadowTriangles = 0;
   constructor(
     public bones: BoneDef[],
     private boneInverses: THREE.Matrix4[],
@@ -193,19 +358,28 @@ export class RigTemplate {
       if (d.parent >= 0) bones[d.parent].add(b); else root.add(b);
     }
     const skeleton = new THREE.Skeleton(bones, this.boneInverses);
-    const meshes: THREE.SkinnedMesh[] = [];
-    for (const t of this.meshes) {
-      const m = new THREE.SkinnedMesh(t.geometry, materialOverride?.[t.key] ?? t.material);
-      m.castShadow = t.castShadow;
-      m.receiveShadow = true;
+    const make = (geometry: THREE.BufferGeometry, material: THREE.Material, cast: boolean, receive: boolean) => {
+      const m = new THREE.SkinnedMesh(geometry, material);
+      m.castShadow = cast;
+      m.receiveShadow = receive;
       m.bind(skeleton, IDENTITY);
       // Fixed generous bounds (three would otherwise compute bounds once from the bind pose).
       m.boundingSphere = new THREE.Sphere(this.center.clone(), this.radius);
       m.matrixAutoUpdate = false;
       root.add(m);
-      meshes.push(m);
+      return m;
+    };
+    const proxy = this.shadowGeometry !== null;
+    const meshes: THREE.SkinnedMesh[] = [];
+    for (const t of this.meshes) { const m = make(t.geometry, materialOverride?.[t.key] ?? t.material, proxy ? false : t.castShadow, true); m.userData.key = t.key; meshes.push(m); }
+    const lod1: THREE.SkinnedMesh[] = [];
+    for (const t of this.lod1) { const m = make(t.geometry, materialOverride?.[t.key] ?? t.material, false, true); m.userData.key = t.key; m.visible = false; lod1.push(m); }
+    let shadow: THREE.SkinnedMesh | null = null;
+    if (this.shadowGeometry) {
+      shadow = make(this.shadowGeometry, shadowOnlyMaterial(), true, false);
+      shadow.renderOrder = -10;
     }
-    return new Rig(this, root, bones, byName, skeleton, meshes);
+    return new Rig(this, root, bones, byName, skeleton, meshes, lod1, shadow);
   }
 
   /** Loose (non-skinned) mesh of one bone's geometry, for debris. Null when the bone has none registered. */
@@ -230,9 +404,35 @@ export class Rig {
     public byName: Record<string, THREE.Bone>,
     public skeleton: THREE.Skeleton,
     public meshes: THREE.SkinnedMesh[],
+    public lod1: THREE.SkinnedMesh[] = [],
+    public shadow: THREE.SkinnedMesh | null = null,
   ) {
     this.poseSize = bones.length * 4 + 3;
   }
+
+  /** Currently shown visible LOD (0 hero, 1 reduced). */
+  lod = 0;
+  setLod(level: number): void {
+    if (this.lod1.length === 0) level = 0;
+    if (level === this.lod) return;
+    this.lod = level;
+    this.refresh();
+  }
+  /** Material keys whose meshes are currently not drawn (e.g. emissive eyes of a powered-down machine). */
+  private off = new Set<string>();
+  setKeysVisible(keys: readonly string[], on: boolean): void {
+    let changed = false;
+    for (const k of keys) {
+      if (on ? this.off.delete(k) : !this.off.has(k)) { changed = true; if (!on) this.off.add(k); }
+    }
+    if (changed) this.refresh();
+  }
+  private refresh(): void {
+    for (let i = 0; i < this.meshes.length; i++) this.meshes[i].visible = this.lod === 0 && !this.off.has(this.meshes[i].userData.key);
+    for (let i = 0; i < this.lod1.length; i++) this.lod1[i].visible = this.lod === 1 && !this.off.has(this.lod1[i].userData.key);
+  }
+  /** Enable / disable the shadow proxy (e.g. while hidden). */
+  setShadow(on: boolean): void { if (this.shadow) this.shadow.castShadow = on; }
 
   b(name: string): THREE.Bone {
     const bone = this.byName[name];

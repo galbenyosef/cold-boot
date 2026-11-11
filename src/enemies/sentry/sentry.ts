@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type { LightHandle } from '../../core/types';
-import { EnemyBase, type EnemyWorld } from '../ai';
+import { EnemyBase, type EnemyWorld, type HitBurst } from '../ai';
 import { hv, type HitVolume } from '../shared/hit';
 import { angleDiff, damp, noise1, smooth, spring, type Spring } from '../shared/ik';
 import type { Rig } from '../shared/rig';
@@ -17,6 +17,7 @@ const CHARGE = 0.9, PULSE_GAP = 0.15, AIM_LAG = 0.24;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _aim = new THREE.Vector3(), _muz = new THREE.Vector3(), _dir = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
+const GLOW_KEYS = ['glow'];
 const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0);
 let beamGeo: THREE.CylinderGeometry | null = null, beamMat: THREE.MeshBasicMaterial | null = null, boltMat: THREE.MeshBasicMaterial | null = null;
 
@@ -55,6 +56,7 @@ export class Sentry extends EnemyBase {
     this.cool = 1 + world.rand();
     this.rig = tpl.rig.instantiate();
     this.B = this.rig.byName;
+    this.lodRig = this.rig;
     this.object.add(this.rig.root);
     const B = this.B;
     this.volumes = [
@@ -114,6 +116,7 @@ export class Sentry extends EnemyBase {
     this.B.lampglow.scale.setScalar(on ? 1 : 1e-4);
     this.B.gunglow.scale.setScalar(1e-4);
     if (this.spot) this.spot.enabled = on;
+    this.rig.setKeysVisible(GLOW_KEYS, on);
   }
 
   private powerOn(): void {
@@ -133,6 +136,7 @@ export class Sentry extends EnemyBase {
     this.awake = true; this.wakeDelay = -1;
     this.setMode('boot');
     this.powerOn();
+    this.rig.setKeysVisible(GLOW_KEYS, true);
     if (woke) this.world.ctx.events.emit('enemy:woke', { id: this.id, type: this.type, position: this.body.position });
   }
 
@@ -403,6 +407,12 @@ export class Sentry extends EnemyBase {
 
   // ───────────────────────────────────────────────────────── damage
 
+  protected hitFx(b: HitBurst): void {
+    const fx = this.world.ctx.fx, A = b.amount;
+    fx.sparks(b.point, b.normal, THREE.MathUtils.clamp(Math.round(3 + A / 6 + (b.part === 'head' ? 2 : 0)), 4, 16), 3.5 + Math.min(2.5, A / 30));
+    if (A >= 40) fx.smoke(b.point, { count: 2, size: 0.3, color: 0x1c1c1e, rise: 0.4, life: 1.0 });
+  }
+
   applyDamage(vol: HitVolume, amount: number, point: THREE.Vector3, dir: THREE.Vector3): void {
     if (!this.alive) return;
     const w = this.world;
@@ -410,7 +420,7 @@ export class Sentry extends EnemyBase {
     const dmg = amount * mult;
     this.health -= dmg;
     w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg });
-    try { w.ctx.fx.sparks(point, _v.copy(dir).negate(), 5 + Math.round(amount / 5), 4); } catch { /* */ }
+    this.queueHit(vol, amount, point, dir);
     this.body.velocity.addScaledVector(dir, Math.min(3, amount * 0.09));
     this.wob.v += (w.rand() - 0.5) * Math.min(30, amount) * 0.25;
     if (this.health <= 0) { this.die(dir); return; }
@@ -429,6 +439,7 @@ export class Sentry extends EnemyBase {
     this.setMode('dying');
     this.setLit(false);
     this.B.led.scale.setScalar(1);
+    this.rig.setKeysVisible(GLOW_KEYS, true);
     try { w.ctx.fx.sparks(this.body.position, UP, 14, 4); w.ctx.fx.flash(this.body.position, 0xffa040, 5, 0.1, 5); } catch { /* */ }
     this.diedAt = w.time;
     w.onDeath(this);
@@ -452,9 +463,14 @@ export class Sentry extends EnemyBase {
     this.stopLoop(0.1);
     if (this.spot) { this.spot.remove(); this.spot = null; }
     this.B.led.scale.setScalar(1e-4);
+    this.rig.setKeysVisible(GLOW_KEYS, false);
     // wreck settles on its belly, canted
     const g = this.groundBelow();
-    if (g !== null && p.y - g < 1.2) p.y = g + 0.17;
+    if (g !== null && p.y - g < 1.2) {
+      p.y = g + 0.17;
+      // the wreck is a low obstacle (registered by the manager unless it lies in a doorway)
+      this.wreckBox = new THREE.Box3(new THREE.Vector3(p.x - 0.3, g, p.z - 0.3), new THREE.Vector3(p.x + 0.3, g + 0.36, p.z + 0.3));
+    }
     this.body.velocity.set(0, 0, 0);
     this.B.body.quaternion.setFromEuler(_e.set(0.25, 0, 0.5, 'YXZ'));
     this.object.position.copy(p);

@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext } from '../../core/types';
-import { RigBuilder, type RigTemplate } from '../shared/rig';
+import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, hlathe, keyLerp, patch, plate, rod, rng, shell, sphere, spow, torus, tube, wedge, xf, type V3 } from '../shared/prims';
 
 export const HUSK_DIM = {
@@ -61,7 +61,25 @@ function crack(u: number, v: number, u0: number, v0: number, u1: number, v1: num
 }
 
 export function buildHuskTemplate(ctx: GameContext): HuskTemplate {
-  const b = new RigBuilder();
+  const M = ctx.materials;
+  const signs = ['HD7-0417', 'HD7-0388', 'HD7-0452', 'HD7-0291'].map((t) => M.sign(t, 'stencil', 3));
+  const mats: Record<string, THREE.Material> = {
+    glow: glowMaterial(),
+    shell: huskShell(ctx), frame: M.get('robot_frame'), joint: M.get('robot_joint'), rubber: M.get('rubber'),
+    chrome: M.get('chrome'), steel: M.get('steel_raw'), painted: M.get('painted_orange'), glass: M.get('screen_off'),
+    red: M.get('emissive_red'), cyan: M.get('emissive_cyan'), sign: signs[0],
+  };
+  const { template, data } = buildRigLods(authorHusk, mats, {
+    radius: 1.5, center: new THREE.Vector3(0, 0.95, 0),
+    fold: { red: 'glow', cyan: 'glow', chrome: 'steel' }, tint: { red: tintOf(0xff0702, 2.2), cyan: tintOf(0x10c8ff, 2.5) },
+    lod: { k: 0.55, minFeature: 0.012, remap: { chrome: 'joint', steel: 'joint', glass: 'frame', rubber: 'frame', sign: 'shell' } },
+    proxy: { k: 0.25, minFeature: 0.03, exclude: ['glass', 'red', 'cyan', 'sign', 'chrome', 'rubber'] },
+    colorize: { shell: shellGrime },
+  });
+  return { rig: template, pistons: data.pistons, signs, plates: data.plates };
+}
+
+function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: string; region: string }[] } {
   const R = rng(417);
   const pistons: PistonDef[] = [];
   const plates: { bone: string; region: string }[] = [];
@@ -119,7 +137,8 @@ export function buildHuskTemplate(ctx: GameContext): HuskTemplate {
   b.bone('needle', 'tool_inj', -K.shoulderX, 0.76, K.shoulderZ);
 
   for (const n of ['p_shoulder_l', 'p_shoulder_r', 'p_thigh_l', 'p_thigh_r', 'p_shin_l', 'p_shin_r', 'p_chest_l', 'p_chest_r',
-    'p_larm_l', 'p_back', 'p_abdomen', 'p_pelvis', 'p_face', 'p_cranium', 'uarm_l', 'uarm_r', 'larm_l', 'larm_r', 'hand_l', 'head']) b.debrisBones.add(n);
+    'p_larm_l', 'p_back', 'p_abdomen', 'p_pelvis', 'p_face', 'p_cranium', 'uarm_l', 'uarm_r', 'larm_l', 'larm_r', 'hand_l', 'head',
+    'shin_l', 'shin_r', 'foot_l', 'foot_r']) b.debrisBones.add(n);
   plates.push(
     { bone: 'p_chest_l', region: 'torso' }, { bone: 'p_chest_r', region: 'torso' }, { bone: 'p_back', region: 'torso' },
     { bone: 'p_abdomen', region: 'torso' }, { bone: 'p_pelvis', region: 'torso' },
@@ -557,15 +576,52 @@ export function buildHuskTemplate(ctx: GameContext): HuskTemplate {
     L(rod([-0.03, -0.03, -0.03], [-0.034, -0.06, -0.085], 0.006, 6));
   }
 
-  const M = ctx.materials;
-  const signs = ['HD7-0417', 'HD7-0388', 'HD7-0452', 'HD7-0291'].map((t) => M.sign(t, 'stencil', 3));
-  const mats: Record<string, THREE.Material> = {
-    shell: M.get('robot_shell'), frame: M.get('robot_frame'), joint: M.get('robot_joint'), rubber: M.get('rubber'),
-    chrome: M.get('chrome'), steel: M.get('steel_raw'), painted: M.get('painted_orange'), glass: M.get('screen_off'),
-    red: M.get('emissive_red'), cyan: M.get('emissive_cyan'), sign: signs[0],
-  };
-  const rig = b.build(mats, { shadow: ['shell', 'frame', 'joint', 'steel', 'painted'], radius: 1.5, center: new THREE.Vector3(0, 0.95, 0) });
-  return { rig, pistons, signs, plates };
+  return { pistons, plates };
+}
+
+/**
+ * Worn shell: the library's robot_shell reads as clean white plastic under direct light. Darker, warmer albedo,
+ * rougher, weaker reflections; vertex colours (shellGrime) add grime toward the feet, in crevices and undersides.
+ */
+let _shell: THREE.MeshStandardMaterial | null = null;
+export function huskShell(ctx: GameContext): THREE.MeshStandardMaterial {
+  if (_shell && (_shell as any).__lib === ctx.materials) return _shell;
+  const base = ctx.materials.get('robot_shell');
+  const m = ctx.materials.clone('robot_shell', {
+    color: new THREE.Color(0.45, 0.43, 0.38).multiply(base.color ?? new THREE.Color(1, 1, 1)),
+    roughness: Math.min(1, (base.roughness ?? 0.5) * 1.4 + 0.15),
+    vertexColors: true,
+  });
+  (m as any).__lib = ctx.materials;
+  (m as any).__envMul = 0.6;
+  m.name = 'husk_shell_worn';
+  _shell = m;
+  return m;
+}
+
+/** Keep the worn shell's reflections at a fraction of the library value (setEnvMap resets clones). */
+export function syncShellEnv(ctx: GameContext): void {
+  if (!_shell) return;
+  const want = ctx.materials.get('robot_shell').envMapIntensity * (_shell as any).__envMul;
+  if (_shell.envMapIntensity !== want) _shell.envMapIntensity = want;
+}
+
+function shellGrime(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
+  // big blotches + fine mottling
+  const big = vnoise(p.x * 7 + p.z * 3.1, p.y * 6.5 + p.z * 2.3);
+  const fine = vnoise(p.x * 31 + 5.1, p.y * 29 + p.z * 17);
+  // grime rises from the feet, collects on undersides and toward the back
+  const low = THREE.MathUtils.clamp(1 - p.y / 1.1, 0, 1);
+  const under = Math.max(0, -n.y);
+  const back = Math.max(0, -n.z) * 0.3;
+  let k = 0.98 - big * 0.42 - fine * 0.16 - low * low * 0.35 - under * 0.3 - back * 0.25;
+  // streaks running down from seams
+  const streak = vnoise(p.x * 60, 0.5) * vnoise(p.z * 60, p.y * 3);
+  k -= streak * 0.22;
+  k = THREE.MathUtils.clamp(k, 0.24, 1);
+  // oil-brown tint in the dirt
+  const d = 1 - k;
+  out.setRGB(k + d * 0.06, k + d * 0.02, k - d * 0.05);
 }
 
 /** Flat quad in XY facing +Z with 0..1 UVs. */
