@@ -15,7 +15,7 @@ const PICKUP_TEXT: Record<PickupKind, [string, string]> = {
   ammo_pistol: ['9MM ROUNDS', ''],
   ammo_shotgun: ['12G SHELLS', ''],
   medkit: ['TRAUMA GEL', 'health'],
-  keycard: ['ACCESS CARD', 'weapon'],
+  keycard: ['LOCK-OUT KEY', 'weapon'],
 };
 
 export class Hud {
@@ -64,6 +64,10 @@ export class Hud {
   private pendingRoom: string | null = null;
   private roomPoll = 0;
   private torchEverToggled = false;
+  /** Set by the story (ui.setTorchHint): show the [F] hint only where it is dark and it matters. */
+  torchHintWanted = false;
+  /** True while a note card is open: the interaction prompt would sit right on top of it. */
+  promptSuppressed = false;
   private torchHintTime = 0;
   private tmp = new THREE.Vector3();
 
@@ -161,8 +165,8 @@ export class Hud {
     this.objective.classList.remove('fresh');
     void this.objective.offsetWidth; // restart the rule animation
     this.objective.classList.add('fresh');
-    this.freshLeft = 3.2;
-    try { this.ctx.audio.play('terminal_beep', { volume: 0.35 }); } catch { /* ignore */ }
+    this.freshLeft = 5;
+    try { this.ctx.audio.play('terminal_beep', { volume: 0.18 }); } catch { /* ignore */ }
   }
 
   toast(text: string): void {
@@ -236,10 +240,10 @@ export class Hud {
       toggle(this.torch, 'on', torch);
       setText(this.torchState, torch ? 'LIGHT ON' : 'LIGHT OFF');
     }
-    // Flashlight hint: pulse "[F]" until the player has used it once.
-    if (!this.torchEverToggled && ctx.state === 'playing') {
+    // Flashlight hint: pulse "[F]" only when the story asks for it, until the player has used it once.
+    if (this.torchHintWanted && !this.torchEverToggled && !torch && ctx.state === 'playing') {
       this.torchHintTime += dt;
-      toggle(this.torchHint, 'hidden', this.torchHintTime < 4);
+      toggle(this.torchHint, 'hidden', this.torchHintTime < 0.5);
     } else if (!this.torchHint.classList.contains('hidden')) this.torchHint.classList.add('hidden');
 
     // ── weapon
@@ -284,7 +288,7 @@ export class Hud {
     }
 
     // ── prompt + crosshair
-    const focus = p.focus && p.focus.enabled ? p.focus : null;
+    const focus = p.focus && p.focus.enabled && !this.promptSuppressed ? p.focus : null;
     const fkey = focus ? focus.id + '|' + focus.prompt : null;
     if (fkey !== c.focus) {
       c.focus = fkey;

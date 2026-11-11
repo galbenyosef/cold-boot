@@ -1,6 +1,9 @@
-/** Subtitles: speaker label + typewriter line. CHOIR lines get a distinct glitchy cyan treatment. */
+/**
+ * Subtitles: speaker label + typewriter line. CHOIR lines get a distinct glitchy cyan treatment;
+ * speaker 'PA' is CHOIR over the public-address system: a chime icon, calmer, no glitching.
+ */
 import type { GameContext } from '../core/types';
-import { h, setText, toggle, Typewriter, glyph } from './dom';
+import { h, setText, toggle, Typewriter, glyph, svg } from './dom';
 
 export class Subtitles {
   readonly root: HTMLDivElement;
@@ -20,6 +23,9 @@ export class Subtitles {
     this.spk = h('div', 'spk', this.root);
     const wave = h('span', 'wave', this.spk);
     for (let i = 0; i < 7; i++) this.waveBars.push(h('i', '', wave));
+    // PA chime icon: a small horn with two sound arcs.
+    const chime = h('span', 'chime', this.spk);
+    svg('0 0 22 14', ['M1 5 H4 L9 1.5 V12.5 L4 9 H1 Z', 'M12.5 4.2 C14 5.6 14 8.4 12.5 9.8', 'M15.5 2 C18.6 4.8 18.6 9.2 15.5 12'], chime);
     this.spkName = h('span', '', this.spk, '');
     this.line = h('div', 'line', this.root);
     this.tw = new Typewriter(this.line, 42);
@@ -27,9 +33,11 @@ export class Subtitles {
   }
 
   show(speaker: string, text: string, duration: number): void {
+    const pa = /^pa$/i.test(speaker.trim());
     this.choir = /^choir$/i.test(speaker.trim());
     toggle(this.root, 'choir', this.choir);
-    setText(this.spkName, speaker.toUpperCase());
+    toggle(this.root, 'pa', pa);
+    setText(this.spkName, pa ? 'CHOIR · PUBLIC ADDRESS' : speaker.toUpperCase());
     toggle(this.spk, 'hidden', !speaker);
     // Reveal so the whole line is readable for at least ~45% of its time on screen.
     const cps = Math.max(28, Math.min(70, text.length / Math.max(0.6, duration * 0.55)));

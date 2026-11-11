@@ -292,7 +292,7 @@ export class DeathScreen {
 
 export class EndingScreen {
   private title: GlitchTitle | null = null;
-  constructor(private ctx: GameContext, private parent: HTMLElement) {}
+  constructor(private ctx: GameContext, private parent: HTMLElement, private text: { eyebrow: string; status: string; tbc: string } = { eyebrow: 'End of Sublevel 3', status: '', tbc: 'TO BE CONTINUED' }) {}
 
   async show(): Promise<void> {
     const ctx = this.ctx;
@@ -300,11 +300,12 @@ export class EndingScreen {
     const st = (ctx.story as StoryInternal | undefined)?.stats;
     const root = h('div', 'layer ov ending interactive grain', this.parent);
     const stage = h('div', 'stage', root);
-    const eyebrow = h('div', 'lbl', stage, 'End of Sublevel 3');
+    const eyebrow = h('div', 'lbl', stage, this.text.eyebrow);
     eyebrow.style.marginBottom = '30px';
     const tWrap = h('div', '', stage);
     this.title = new GlitchTitle(tWrap, 'COLD BOOT');
-    const tbc = h('div', 'tbc', stage, 'TO BE CONTINUED');
+    const status = h('div', 'lbl endstatus', stage, this.text.status);
+    const tbc = h('div', 'tbc', stage, this.text.tbc);
     const stats = h('div', 'stats', stage);
     const stat = (label: string, value: string) => { const s = h('div', 'stat', stats); h('span', 'lbl', s, label); h('b', '', s, value); };
     stat('Time', fmtTime(st?.time ?? ctx.time));
@@ -315,9 +316,9 @@ export class EndingScreen {
     const credit = h('div', 'lbl credit', stage, 'Every texture, mesh and sound in this game is generated in code');
     void root.offsetWidth;
     root.classList.add('show');
-    const seq = [eyebrow, tWrap, tbc, stats, acts, credit];
+    const seq = [eyebrow, tWrap, status, tbc, stats, acts, credit];
     for (const [i, e] of seq.entries()) {
-      await sleep(i === 0 ? 0.8 : i === 2 ? 1.6 : 0.9);
+      await sleep(i === 0 ? 0.8 : i === 2 || i === 3 ? 1.6 : 0.9);
       e.classList.add('show');
     }
   }

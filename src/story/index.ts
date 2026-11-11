@@ -92,5 +92,8 @@ export async function createStory(ctx: GameContext): Promise<StorySystem> {
 
     lateUpdate(dt: number) { rig.lateUpdate(dt); },
   };
+  // Review / test hooks (scripts/playthrough.mjs): fire a scare in place, read the script state.
+  Object.assign(story, { fire: (name: string) => script.fire(name), hurry: () => script.hurry() });
+  Object.defineProperty(story, 'debugState', { get: () => script.debugState });
   return story;
 }

@@ -3,6 +3,7 @@
  * Everything here is additive to the core contract; other modules never need it.
  */
 import type { StorySystem, UISystem } from '../core/types';
+import type { NoteStyle } from '../story/text';
 
 /** sessionStorage flag: set by the death screen's RESTART so the reload skips menu + intro cards. */
 export const SKIP_INTRO_KEY = 'coldboot.skipIntro';
@@ -24,6 +25,15 @@ export interface UIInternal extends UISystem {
   showResumeGate(): Promise<void>;
   /** Solid black cover above the canvas (between cards and the first frame of a scene). */
   blackout(on: boolean, seconds?: number): void;
+  /**
+   * Compact, non-pausing note card for a short fragment (revision 2). Resolves when it closes
+   * (E / Esc / click / walking away / taking damage).
+   */
+  showNote(header: string, body: string, style?: NoteStyle): Promise<void>;
+  closeNote(): void;
+  readonly noteOpen: boolean;
+  /** Pulse the "[F]" flashlight hint next to the vitals (story shows it only in the dark corridor). */
+  setTorchHint(on: boolean): void;
 }
 
 export interface StoryInternal extends StorySystem {

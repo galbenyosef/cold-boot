@@ -9,7 +9,7 @@ import { createEvents } from '../../core/events';
 import { createInput } from '../../core/input';
 import { createUI } from '../index';
 import type { UIInternal } from '../types';
-import { LOGS, SEC_CONSOLE, CHOIR, INTRO_CARDS, TITLE_CARD } from '../../story/text';
+import { LOGS, SEC_CONSOLE, CHOIR, INTRO_CARDS, TITLE_CARD, FRAGMENTS } from '../../story/text';
 
 const q = new URLSearchParams(location.search);
 const screen = q.get('screen') ?? 'hud';
@@ -85,7 +85,7 @@ async function main() {
   requestAnimationFrame(loop);
 
   const dev = document.getElementById('dev')!;
-  for (const s of ['menu', 'hud', 'hud-low', 'choir', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake']) {
+  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake']) {
     const a = document.createElement('a'); a.href = `?screen=${s}`; a.textContent = s; dev.appendChild(a);
   }
 
@@ -114,8 +114,31 @@ async function main() {
     case 'choir':
       playing();
       emit('story:objective', { text: 'Restore main power — Power Distribution 3' });
-      emit('story:subtitle', { speaker: 'CHOIR', text: CHOIR.fabReveal[1].text, duration: 30 });
+      emit('story:subtitle', { speaker: 'CHOIR', text: CHOIR.fabReveal[0].text, duration: 30 });
       break;
+    case 'hud-quiet':
+      // The quiet opening: unarmed, objective dimmed, only the contextual flashlight hint.
+      playing();
+      emit('story:objective', { text: 'Find someone' });
+      ui.setTorchHint(true);
+      setTimeout(() => emit('story:toast', { text: 'F  flashlight' }), 300);
+      break;
+    case 'pa':
+      playing();
+      emit('story:objective', { text: 'Find someone' });
+      emit('story:subtitle', { speaker: 'PA', text: CHOIR.paWake[0].text, duration: 30 });
+      break;
+    case 'note':
+    case 'note-terminal':
+    case 'note-tag':
+    case 'note-voice': {
+      playing();
+      emit('story:objective', { text: 'Find someone' });
+      const id = q.get('id') ?? ({ note: 'log_sec', 'note-terminal': 'log_med', 'note-tag': 'tag_lockout', 'note-voice': 'log_pump' } as Record<string, string>)[screen];
+      const f = FRAGMENTS[id] ?? FRAGMENTS.log_sec;
+      void ui.showNote(f.header, f.body, f.style);
+      break;
+    }
     case 'log': playing(); ctx.setState('paused'); void ui.showLog(LOGS.log_med.title, LOGS.log_med.body); break;
     case 'console': playing(); ctx.setState('paused'); void ui.showLog(SEC_CONSOLE.title, SEC_CONSOLE.body); break;
     case 'pause':

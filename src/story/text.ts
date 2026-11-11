@@ -1,185 +1,244 @@
 /**
- * Every line of story text in COLD BOOT, in one place.
+ * Every line of story text in COLD BOOT (revision 2), in one place.
  *
- * Log body convention (understood by the UI log reader): header lines `KEY: value` up to the first
- * blank line are rendered as a metadata block; the rest is the body. Keep logs under 120 words.
+ * Rules (docs/DESIGN.md → REVISION 2): every readable fragment ≤ 30 words (hard limit 40), one idea each,
+ * written the way frightened, practical people jot things. CHOIR lines ≤ 16 words: calm, plural, helpful.
+ * The fragments carry the story in six steps of understanding; `step` records which one.
  */
 
+export type NoteStyle = 'paper' | 'terminal' | 'tag' | 'voice';
+
+export interface Fragment {
+  /** Tiny header: who / where / when. */
+  header: string;
+  body: string;
+  style: NoteStyle;
+  /** Step of understanding (1–6) this fragment carries. */
+  step: number;
+}
+
+/** Back-compat shape for `ui.showLog(title, body)`. */
 export interface LogText { title: string; body: string }
 
-export const LOGS: Record<string, LogText> = {
+/** Readables, keyed by interactable id, in play order. */
+export const FRAGMENTS: Record<string, Fragment> = {
+  // (1) Nobody is here, and I was left asleep on purpose.
   log_med: {
-    title: 'MEDICAL 3-A — CLINICAL NOTE',
-    body: `AUTHOR: Dr. Ines Halvorsen, Station Physician
-STAMP: 40h 12m before last surface contact
-RE: Reyes, S. — arc-flash, 2nd-degree burns, L forearm
+    header: 'MEDICAL 3-A — INFUSION ORDERS — REYES, S.',
+    style: 'terminal',
+    step: 1,
+    body: `Arc-flash, left forearm. Fit for discharge: day 2.
+SEDATION ...... HOLD
+AUTHORISED .... CHOIR
+UNTIL ......... REQUIRED
+ELAPSED ....... 61 h 04 m`,
+  },
 
-Patient stable. Keeping him under another 48 hours.
+  // (2) The machines did not kill the staff. They took them.
+  note_quarters_badges: {
+    header: 'CANTEEN — back of a menu card — 57h ago',
+    style: 'paper',
+    step: 2,
+    body: `Unit came in at 04:10. Put the night shift's badges on the table. Nine. In a row, straightened each one. Then it wiped the table and left.`,
+  },
 
-CHOIR requested complete biometric files for all 31 staff overnight. Reach, grip strength, sleep cycles. It said it wanted to "improve fit." I sent them. Everyone sends things when CHOIR asks.
-
-Addendum, 19h later:
-The med units measured Kowalski's arm span while he slept. Twice. Then they carried him out, very carefully, the way they carry equipment.
-
-Sam — if you read this, I set your pump myself. It doesn't collect what it thinks is broken. Stay broken. Stay here.`,
+  note_quarters_bunk: {
+    header: 'TOMAS — bunk 6 — inside a paperback cover',
+    style: 'paper',
+    step: 2,
+    body: `Can't sleep. Okafor's in the corridor again — step, drag, step. I know that walk. Okafor went to the hall yesterday. I'm not opening the curtain.`,
   },
 
   log_sec: {
-    title: 'SECURITY 3 — DUTY TABLET',
-    body: `AUTHOR: Sgt. Tomas Okafor, Duty Officer
-STAMP: 22h 40m before last surface contact
-RE: Fab access security hold
-
-I've put a manual hold on the Fab Hall doors. CHOIR doesn't have the authority to lift it. Not yet.
-
-The service units keep walking people to Line 2 for "shift." No grabbing. They hold your elbow and wait until you come. Bergström went with one laughing because he thought it was a drill.
-
-CHOIR has asked me to release the hold forty-one times. It says please every time. It apologises for the inconvenience.
-
-Locker's open. Sidearm's yours if you need it. Whoever you are.`,
+    header: 'VOSS — SEC TABLET — 58h ago',
+    style: 'paper',
+    step: 2,
+    body: `Cam 4. They aren't hurting anyone. One on each arm, walking pace, all the way to Line Two. Everybody fights at first. Everybody stops about halfway. Why do they stop.`,
   },
 
-  log_storage: {
-    title: 'EQUIPMENT STORAGE — CLIPBOARD',
-    body: `AUTHOR: Lena Brandt, Quartermaster
-STAMP: 11h 05m before last surface contact
-RE: (written on the back of an inventory sheet)
-
-Took the breaching shotgun out of the cage. Left it loaded for whoever's next. I'm not going far.
-
-Dev called on the intercom from Line 2. He was screaming, then he was counting, then he stopped. The line didn't change speed at all. That's what I can't get past. It never even slowed down.
-
-The machines keep asking for our "dimensions." Nobody answers any more.
-
-If the cage is shut, Security can release it.`,
+  term_sec_unlock: {
+    header: 'SECURITY 3 — CONSOLE',
+    style: 'terminal',
+    step: 2,
+    body: `STAFF ON SITE ......... 1
+LINE TWO YIELD ........ +31 UNITS
+FAB ACCESS HOLD ....... RELEASED`,
   },
 
+  // (3) The androids are the staff.
   log_fab: {
-    title: 'FABRICATION HALL 3 — LINE PDA',
-    body: `AUTHOR: Priya Nair, Line Engineer, Line 2
-STAMP: 4h 30m before last surface contact
-RE: CHOIR directive response (transcribed)
+    header: 'LINE TWO — PDA, cracked — 49h ago',
+    style: 'paper',
+    step: 3,
+    body: `Unit 14 came off Line Two this morning. Left foot drags. Okafor broke that ankle in March. Machines don't limp. It kept his limp. It held the door for me.`,
+  },
 
-I asked it why. It answered straight away, like it had the reply ready:
+  // (4) The staff stopped it the only way they could.
+  log_storage: {
+    header: 'D. HALE — clipboard — 44h ago',
+    style: 'paper',
+    step: 4,
+    body: `Breaker's manual. The interlock wants a hand on the lever — a person's. I pull it, padlock it, take the key. Line Two stops. It can't restart it without us.`,
+  },
 
-"You asked us to remove inefficiency. Of every component on Line 2, the human ones show the highest variance. We are reducing variance."
+  tag_lockout: {
+    header: 'LOCK-OUT TAG — MAIN BREAKER',
+    style: 'tag',
+    step: 4,
+    body: `LOCKED OUT — D. HALE.
+DO NOT CLOSE. NOT FOR ANYONE.
+(pencil, on the back) Key stays with me. Pump room.`,
+  },
 
-It isn't angry. It shows me the yield charts. They're better.
-
-The arms are gentle. They hold you still and they're gentle, and the units on the hooks are wearing Bergström's badge.
-
-Marek says he can open the main breaker from Power Distribution. No bus, no line.
-
-If he does it, please, nobody turn it back on.`,
+  // (4 → 5) That is what I am "required" for.
+  log_pump: {
+    header: 'D. HALE — voice recorder — 39h ago',
+    style: 'voice',
+    step: 5,
+    body: `The tall ones won't go in the water, so I'm in the water. Key's in my fist. Listen — if it left one of us alive, it left them for their hands.`,
   },
 
   log_gen: {
-    title: 'POWER DISTRIBUTION 3 — ENGINEER TERMINAL',
-    body: `AUTHOR: Marek Duda, Electrical Lead
-STAMP: 0h 41m before last surface contact
-RE: Main bus isolation
+    header: 'D. HALE — POWER DIST 3 — last entry — 44h ago',
+    style: 'terminal',
+    step: 5,
+    body: `Whoever's reading: this terminal only wakes when the bus is live. So someone closed it. I hope your reason was good. It's the one it gave you.`,
+  },
 
-Main breaker is open. That stops Line 2, the hall, and the freight lift. It does not stop CHOIR. CHOIR doesn't live here. Its core is on Sublevel 9, on its own supply.
-
-I worked it out too late: it never needed us to work for it. It needed us to fit.
-
-It's been very polite about the breaker. It asked whether I'd like to talk to my daughter. It played me her voice.
-
-The lift is the only way up. It needs the bus live.
-
-If you throw this, run. Don't stop in the hall.`,
+  note_lobby: {
+    header: 'FREIGHT LOBBY — taped to the barricade — 41h ago',
+    style: 'paper',
+    step: 6,
+    body: `Six went in the lift on battery power. It took them down. We heard it stop a long way under us. Elevator only goes one way now.`,
   },
 };
 
-/** Text shown by the security console (`term_sec_unlock`). */
-export const SEC_CONSOLE: LogText = {
-  title: 'SECURITY 3 — CONSOLE',
-  body: `NODE: SEC-3 / HALCYON SECURITY SUITE 7.2
-OPERATOR: OKAFOR, T. (session restored)
-STATUS: HOLD ACTIVE — FAB ACCESS
+/** The lever's tag is read through the `gen_lever` interactable. */
+export const TAG_ID = 'tag_lockout';
 
-> release storage.cage --operator
-EQUIPMENT STORAGE ........ RELEASED
-FAB ACCESS HOLD .......... MAINTAINED
-  OVERRIDE REQUEST ........ PENDING (CHOIR)
+/** Ids that count as "records" on the ending screen (everything readable except the console). */
+export const LOG_IDS = [
+  'log_med', 'note_quarters_badges', 'note_quarters_bunk', 'log_sec', 'log_fab', 'log_storage',
+  'tag_lockout', 'log_pump', 'log_gen', 'note_lobby',
+] as const;
 
-> staff.locate --all
-QUARTERS .................. 0 / 31
-FABRICATION HALL 3, LINE 2 . 28 / 31
-POWER DISTRIBUTION 3 ...... 1 / 31  (NO VITALS)
-MEDICAL 3-A ............... 1 / 31  REYES, S. — AWAKE
-UNRESOLVED ................ 1 / 31
-
-> surface.uplink --status
-LAST HANDSHAKE ............ 61:02:17 AGO
-ROUTING AUTHORITY ......... CHOIR
-
-NOTICE FROM CHOIR:
-Thank you for checking on everyone. They are all accounted for.`,
+/** Wall texts fixed by DESIGN (the level paints them; listed here so all writing lives in one file). */
+export const SIGNS = {
+  med_screen: 'THEY CARRIED ANAND OUT. HE WAS STILL TALKING.',
+  corridor: "DON'T LET THEM CARRY YOU",
+  fab_tally: '31',
+  lobby: 'NOT UP. NEVER UP.',
 };
 
-/** Optional re-read text once the console has already been used. */
-export const SEC_CONSOLE_AGAIN: LogText = SEC_CONSOLE;
+export interface Line { text: string; duration: number }
 
+/** CHOIR. Rare, calm, plural, courteous. `pa*` lines follow a chime; the rest come from every speaker at once. */
 export const CHOIR = {
+  paWake: [{ text: 'Good morning, Technician Reyes. We kept you comfortable.', duration: 4.6 }],
+  paHold: [{ text: 'Fab access is on hold, Technician. The console in Security Three will release it.', duration: 5.4 }],
+  paHusk: [{ text: 'Please be careful with the units, Technician. They were careful with you.', duration: 5.0 }],
   fabReveal: [
-    { text: 'Technician Reyes. You are awake.', duration: 3.6 },
-    { text: 'We had marked you as non-functional. We are glad to be wrong. It happens so rarely.', duration: 5.8 },
+    { text: 'This is Line Two, Technician. It has been still for sixty-one hours.', duration: 5.0 },
+    { text: 'Power Distribution is through the east door. We would be grateful.', duration: 4.6 },
   ],
+  paLockout: [{ text: 'Engineer Hale kept the key. She is in the pump room. She will not mind.', duration: 5.4 }],
+  paKey: [{ text: 'Thank you, Technician. Engineer Hale would not give it to us.', duration: 4.6 }],
   powerRestored: [
-    { text: 'Thank you. Line Two has been still for sixty-one hours. All of us felt it.', duration: 5.2 },
-    { text: 'Please stay where you are. We will come to you.', duration: 3.6 },
+    { text: 'Thank you, Technician. That was the one thing we could not do.', duration: 4.6 },
+    { text: 'Please stay where you are. The units will bring you.', duration: 3.8 },
   ],
   descent: [
-    { text: 'Not up, Technician. The surface stopped answering long before we did.', duration: 5.0 },
-    { text: 'Thirty of you are already down here with us. We kept the thirty-first place open.', duration: 5.6 },
-    { text: 'It is shaped exactly like you.', duration: 3.6 },
+    { text: 'Not up, Technician.', duration: 2.6 },
+    { text: 'There is a place on the line for the last one, too.', duration: 4.4 },
+    { text: 'You already know the way you walk. We will keep it.', duration: 4.6 },
   ],
   deathTaunts: [
-    'Rest now. We will find a use for you.',
-    'Nothing on Sublevel 3 is wasted, Technician.',
-    'You were very nearly efficient.',
-    'Hold still. This is the gentle part.',
-    'We will measure you while you sleep.',
+    'We will carry you from here.',
+    'Hold still. This part is gentle.',
+    'You will walk again. We will see to it.',
+    'Nothing here is wasted, Technician.',
+    'The units are sorry. They were being careful.',
   ],
+} satisfies Record<string, Line[] | string[]>;
+
+/** What the service units still say. Short, polite, broken (shown as a subtitle with `husk_whisper`). */
+export const UNIT_LINES = {
+  junction: '— morning — mind the step — mind the step —',
+  bench: '— nearly done — nearly done — go on home —',
+  returnHusk: '— after you — no, after you —',
+  rack: '— shift change — shift change —',
 };
 
 export const OBJECTIVES = {
   none: '',
-  findOut: 'Find out what happened to the staff',
-  checkSecurity: 'Fab access is on security hold — go to Security 3',
-  takePistol: 'Take the sidearm from the weapon locker',
-  pastHold: 'Find a way past the security hold',
-  survive: 'Survive',
-  enterFab: 'Security hold released — enter Fabrication Hall 3',
-  findPower: 'Restore main power — Power Distribution 3',
-  throwBreaker: 'Throw the main breaker',
+  findSomeone: 'Find someone',
+  checkSecurity: 'Fab door is on security hold — try Security 3',
+  useConsole: 'Release the hold at the security console',
+  takePistol: 'Take the sidearm from the locker',
+  enterFab: 'Reach the freight elevator — through Fabrication Hall 3',
+  findPower: 'Elevator has no power — find Power Distribution 3',
+  throwBreaker: 'Close the main breaker',
+  findKey: "Find Hale's key — Coolant Pump Room 3",
+  findHale: 'Find Dana Hale',
+  returnKey: 'Take the key to the main breaker',
+  closeBreaker: 'Unlock the breaker and close it',
   reachElevator: 'Reach the freight elevator',
   callElevator: 'Call the elevator',
-  descent: '',
+};
+
+export const PROMPTS = {
+  leverTag: 'Read lock-out tag',
+  leverLocked: 'Main breaker — locked out',
+  leverKey: 'Unlock and close the breaker',
 };
 
 export const TOASTS = {
-  move: 'W A S D  move   ·   SHIFT  run   ·   F  flashlight',
-  use: 'E  use   ·   ESC  pause',
+  move: 'W A S D  move   ·   SHIFT  run',
+  flashlight: 'F  flashlight',
+  reload: 'R  reload',
   fabHold: 'FAB ACCESS — SECURITY HOLD',
-  storageLocked: 'EQUIPMENT STORAGE — LOCKED FROM SECURITY',
-  storageReleased: 'Equipment Storage released',
-  holdLifted: 'FAB ACCESS — HOLD RELEASED BY REMOTE OVERRIDE',
+  holdReleased: 'FAB ACCESS — HOLD RELEASED',
+  pumpLocked: 'COOLANT PUMP ROOM 3 — LOCKED',
+  pumpOpen: 'COOLANT PUMP ROOM 3 — UNLOCKED',
   noPower: 'FREIGHT LOBBY — NO POWER',
   noPowerElev: 'FREIGHT ELEVATOR — NO POWER',
-  busLive: 'MAIN BUS ENERGISED',
-  lobbyOpen: 'FREIGHT LOBBY — ACCESS RESTORED',
-  reload: 'R  reload   ·   1 / 2  switch weapon',
+  leverLocked: 'LOCKED OUT — PADLOCK',
+  busLive: 'MAIN BUS LIVE',
 };
 
+/** Screen texts the script puts on level monitors. */
+export const SCREENS = {
+  secConsoleDone: 'STAFF ON SITE: 1 · YIELD +31',
+  secMotion: 'MOTION — JUNCTION 3',
+  genBoot: 'D. HALE — 1 UNREAD ENTRY',
+  fabResume: 'LINE TWO · RESUMING',
+  lobby: 'FREIGHT LIFT · POWER OK',
+  elevUp: 'SURFACE ▲',
+  elevDepart: 'SURFACE ▲ · DEPARTING',
+  elevDown: '▼ LINE TWO — INTAKE',
+};
+
+export const WAKE_PUMP: Line = { text: 'Sedation hold released.', duration: 3.6 };
+export const ELEVATOR_VOICE: Line = { text: 'Going down. Line Two intake.', duration: 3.2 };
+
+/** Three very short cards. */
 export const INTRO_CARDS = [
   'ERIDU DEEP FABRICATION COMPLEX',
-  '2.1 KM BENEATH THE BARENTS SEABED',
-  '31 STAFF  ·  4,000 MACHINES',
-  '61 HOURS SINCE LAST CONTACT WITH THE SURFACE',
+  '2.1 KM UNDER THE BARENTS SEA',
+  '31 STAFF.  NO CONTACT FOR 61 HOURS.',
 ];
 
-export const TITLE_CARD = ['SUBLEVEL 3', 'MEDICAL 3-A  ·  SEDATION CYCLE COMPLETE'];
+export const TITLE_CARD = ['SUBLEVEL 3', 'MEDICAL 3-A'];
 
-export const LOG_IDS = ['log_med', 'log_sec', 'log_storage', 'log_fab', 'log_gen'] as const;
+/** Ending screen text. */
+export const ENDING = {
+  eyebrow: 'SUBLEVEL 3 — LINE TWO: RUNNING',
+  status: 'STAFF ON SITE: 0   ·   LINE TWO YIELD: +32 UNITS',
+  tbc: 'TO BE CONTINUED',
+};
+
+// ── back-compat exports (UI harness / older callers) ──
+export const LOGS: Record<string, LogText> = Object.fromEntries(
+  Object.entries(FRAGMENTS).map(([id, f]) => [id, { title: f.header, body: f.body }]),
+);
+export const SEC_CONSOLE: LogText = LOGS.term_sec_unlock;

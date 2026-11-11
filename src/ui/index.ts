@@ -10,7 +10,8 @@ import { Hud } from './hud';
 import { Subtitles } from './subtitles';
 import { MainMenu } from './menu';
 import { Cards, DeathScreen, EndingScreen, LogReader, PauseMenu, resumeGate } from './screens';
-import { CHOIR } from '../story/text';
+import { CHOIR, ENDING } from '../story/text';
+import { NoteCard } from './note';
 
 export async function createUI(ctx: GameContext): Promise<UISystem> {
   if (!document.getElementById('cb-style')) {
@@ -38,13 +39,14 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
   const lidBot = h('div', 'lid bot hidden', root);
   const hud = new Hud(ctx, root);
   const subs = new Subtitles(ctx, root);
+  const note = new NoteCard(ctx, root);
   const black = h('div', 'layer black', root);
   const log = new LogReader(ctx, root);
   const cards = new Cards(ctx, root);
   const menu = new MainMenu(ctx, settings, root);
   const pause = new PauseMenu(ctx, settings, root, () => hud.roomName);
   const death = new DeathScreen(ctx, root, CHOIR.deathTaunts, () => hud.roomName);
-  const ending = new EndingScreen(ctx, root);
+  const ending = new EndingScreen(ctx, root, ENDING);
 
   let hudWanted = true;
   const syncHud = () => hud.setVisible(hudWanted && ctx.state === 'playing');
@@ -110,13 +112,21 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
       toggle(black, 'on', on);
     },
     showResumeGate() { return resumeGate(ctx, root).then(() => { pause.grace = 1.5; }); },
+    showNote(header, body, style) { return note.open(header, body, style); },
+    closeNote() { note.close(); },
+    get noteOpen() { return note.isOpen; },
+    setTorchHint(on) { hud.torchHintWanted = on; },
 
     update(dt) {
       const s = ctx.state;
       syncHud();
+      hud.promptSuppressed = note.isOpen;
       hud.update(dt);
       subs.update(dt);
       log.update(dt);
+      // Esc on an open note only closes the note (it must not also open the pause menu this frame).
+      const noteEsc = note.isOpen && ctx.input.pressed('Escape');
+      note.update(dt);
       menu.update(dt);
       death.update(dt);
       ending.update(dt);
@@ -125,8 +135,9 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
       const locked = ctx.input.pointerLocked;
       if (pause.grace > 0) pause.grace -= dt;
       if (log.isOpen && lastLock && !locked && !ctx.debug.autostart) log.close();
+      if (note.isOpen && lastLock && !locked && !ctx.debug.autostart) note.close();
       if (!ctx.debug.autostart && !log.isOpen && (s === 'playing' || s === 'cutscene')) {
-        if (ctx.input.pressed('Escape') || (!locked && pause.grace <= 0)) pause.open();
+        if ((ctx.input.pressed('Escape') && !noteEsc) || (!locked && pause.grace <= 0)) pause.open();
       } else if (pause.open_ && ctx.input.pressed('Escape') && pause.grace <= 0) {
         pause.resume();
       }
