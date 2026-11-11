@@ -314,11 +314,12 @@ export function workLight(b: Builder, L: LevelBuild, group: string, x: number, z
   b.rod('steel_raw', 0, 0.85, 0, 0, H - 0.1, 0, 0.02, 6);
   b.cyl('painted_dark', 0, 0.92, 0, 0.04, 0.1, 'y', 8);
   b.box('painted_dark', 0, H - 0.08, 0, 0.6, 0.04, 0.05);
+  const lens = L.glow(h, 'emissive_amber', 1.4);
   for (const s of [-1, 1]) {
     b.push(s * 0.19, H, 0, 0, -pitch);
     b.box('painted_yellow', 0, 0, 0, 0.32, 0.24, 0.12);
     b.detail(() => {
-      b.box(L.glow(h, 'emissive_amber', 1.4), 0, 0, -0.062, 0.27, 0.19, 0.008);
+      b.box(lens, 0, 0, -0.062, 0.27, 0.19, 0.008);
       for (let k = -1; k <= 1; k++) b.box('steel_raw', k * 0.09, 0, -0.07, 0.006, 0.2, 0.006);
       for (let k = 0; k < 4; k++) b.box('painted_dark', 0, 0.09 - k * 0.06, 0.075, 0.28, 0.02, 0.03);
     });

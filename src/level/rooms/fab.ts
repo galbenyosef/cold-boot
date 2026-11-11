@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { rng, type Builder } from '../builder';
 import type { LevelBuild, MachineState } from '../context';
 import { cable, cableBundle, channel, ductRect, ductRound, floorSlab, grate, handrail, hazardStrip, hose, ibeam, pipe, trench, truss, valve } from '../kit';
-import { Conveyor, LoopPath, RobotArm, armPedestal, type ArmSpec, type HookLoad } from '../machines';
+import { Conveyor, LoopPath, ArmRig, RobotArm, armPedestal, type ArmSpec, type HookLoad } from '../machines';
 import { androidArm, androidLeg, androidTorso, boots, cableCoil, crate, drapedBody, drum, floorCable, gasBottle, lockerRow, pallet, tablet, toolCart, tools, vise, workTable } from '../props';
 import { beacon, ceilingSlab, highbay, wallFace, workLight } from '../structure';
 
@@ -152,6 +152,19 @@ function shell(L: LevelBuild, R: ReturnType<typeof rng>) {
   const mains: [number, number, boolean, boolean][] = [[-5.5, -30.5, false, true], [5.5, -30.5, false, false], [-5.5, -38, true, false], [5.5, -38, true, false], [-5.5, -45.5, false, false], [5.5, -45.5, false, true]];
   let gm: THREE.Material | undefined;
   for (const [x, z, cast, vol] of mains) gm = (highbay(b, L, { group: 'fab', x, y: 6.85, z, top: 7.25, intensity: 420, distance: 15, angle: 0.8, color: 0xd6ecff, cast, vol, enabled: false, priority: 2, glowMat: gm }) as any).glowMat;
+  // Cold accents for the emergency state, so the hall is not a flat red monochrome and machines coming at
+  // you read as silhouettes: one high-bay that keeps trying to strike, and the status screen washing the
+  // south end. The level switches them itself: on while the beacons run and the mains are dead.
+  const failing = L.spot('fab_accent', 5.5, 6.78, -38, 5.5, 0, -38, 0xd6ecff, 300, 15, 0.8,
+    { cast: true, vol: true, flicker: 'broken', enabled: false, priority: 2, penumbra: 0.5 });
+  b.detail(() => b.cyl(L.glow(failing, 'emissive_white'), 5.5, 6.82, -38, 0.2, 0.012, 'y', 12));
+  L.spot('fab_accent', 0, 5.3, -49.0, 0, 0.5, -40.5, 0x8fe6ee, 110, 22, 1.0, { flicker: 'fluorescent', enabled: false, penumbra: 0.9 });
+  let accentOn = false;
+  L.updaters.push(() => {
+    const mainLights = L.ctx.render.lights.group('fab'), emergencyLights = L.ctx.render.lights.group('fab_emergency');
+    const want = emergencyLights.length > 0 && emergencyLights[0].enabled && mainLights.length > 0 && !mainLights[0].enabled;
+    if (want !== accentOn) { accentOn = want; L.ctx.render.lights.setGroup('fab_accent', { enabled: want }); }
+  });
   let bm: THREE.Material | undefined;
   for (const [x, z] of [[6.3, -33], [-6.3, -33], [6.3, -43], [-6.3, -43]]) bm = (beacon(b, L, 'fab_emergency', x, 4.3, z, 1, 0xff2a12, 95, 14, 'emissive_red', false, 'alarm', bm) as any).glowMat;
   b.at(0, 3.2, -49.8, 0, () => beacon(b, L, 'fab_emergency', 1.9, 0, 0.2, 1, 0xff2a12, 70, 12, 'emissive_red', false, 'alarm', bm));
@@ -204,7 +217,7 @@ function jig(b: Builder, R: ReturnType<typeof rng>, stage: number) {
 }
 
 function line(L: LevelBuild, R: ReturnType<typeof rng>): Conveyor {
-  const b = L.builder('fab_props');
+  const b = L.namedBuilder('fab_shell'); // one zone for the whole hall: one draw per material
   const zN = -31.6, zS = -44.4, len = zN - zS, zc = (zN + zS) / 2;
   // side beams, legs, cross members, rollers
   for (const s of [-1, 1]) {
@@ -255,7 +268,10 @@ function line(L: LevelBuild, R: ReturnType<typeof rng>): Conveyor {
     { x: 2.6, z: -42, ry: -PI / 2, tool: 'gripper', seed: 5, color: 'painted_yellow' },
     { x: -2.6, z: -42, ry: PI / 2, tool: 'welder', seed: 6, color: 'painted_orange' },
   ];
-  const arms = specs.map((s) => { armPedestal(b, s.x, s.z); return new RobotArm(L, s); });
+  const rig = new ArmRig(L);
+  const arms = specs.map((s) => { armPedestal(b, s.x, s.z); return new RobotArm(L, s, rig); });
+  rig.finish();
+  for (const a of arms) a.pose();
   const armGroup = new THREE.Group();
   armGroup.name = 'fab_arms';
   L.objects.set('fab_arms', armGroup); L.root.add(armGroup);
@@ -304,6 +320,7 @@ function line(L: LevelBuild, R: ReturnType<typeof rng>): Conveyor {
     sp.cyl('robot_joint', 0, 0, 0, 0.75, 0.06, 'y', 24);
     sp.cyl('robot_joint', 0, 0, 0, 0.16, 0.2, 'y', 10);
     for (let i = 0; i < 12; i++) { const a = (i * PI) / 6; sp.box('robot_joint', Math.cos(a) * 0.78, 0, Math.sin(a) * 0.78, 0.09, 0.06, 0.09); }
+    sp.cast = false;
     for (let i = 0; i < 5; i++) { const a = (i * 2 * PI) / 5; sp.cyl('painted_dark', Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45, 0.13, 0.064, 'y', 8); }
     const g = sp.build(false);
     g.position.set(0, railY + 0.14, cz);
@@ -335,7 +352,7 @@ function puddle(L: LevelBuild, b: Builder, x: number, z: number, r: number, seed
 }
 
 function dressing(L: LevelBuild, R: ReturnType<typeof rng>, conv: Conveyor) {
-  const n = L.namedBuilder('fab_props'), s = n;
+  const n = L.namedBuilder('fab_shell'), s = n;
 
   // ── workbench where the standing husk "works" (west of the line, centre) ──
   s.at(-5.0, 0, -37.2, PI / 2, () => {

@@ -41,6 +41,14 @@ export class Probes {
   readonly target = pmremLikeTarget();
   readonly probes: Probe[] = [];
   enabled = true;
+  /**
+   * Called around each progressive re-capture face render (true = about to render, false = done). The
+   * render system uses it to keep that frame cheap: no dynamic objects in the reflection, no shadow refresh.
+   */
+  onCapture: ((begin: boolean) => void) | null = null;
+  /** Called on frames where the probe system does a burst of extra draws (prefiltering a re-captured cube). */
+  onHeavyFrame: (() => void) | null = null;
+  private finishing = false;
 
   private readonly pmrem: THREE.PMREMGenerator;
   private cubeRT: THREE.WebGLCubeRenderTarget;
@@ -114,7 +122,8 @@ export class Probes {
     this.recapFace = -1;
   }
 
-  private blendPass(a: THREE.Texture | null, b: THREE.Texture | null, mix: number): void {
+  /** `parity` 0/1 blends only the even/odd mip levels (a cross-fade alternates them to halve its per-frame cost). */
+  private blendPass(a: THREE.Texture | null, b: THREE.Texture | null, mix: number, parity = -1): void {
     const r = this.renderer;
     const u = this.blendMat.uniforms;
     u.tA.value = a;
@@ -124,6 +133,7 @@ export class Probes {
     const maxLod = t.texture.mipmaps.length - 1;
     const prevTarget = r.getRenderTarget();
     for (let lod = 0; lod <= maxLod; lod++) {
+      if (parity >= 0 && (lod & 1) !== parity) continue;
       u.uLod.value = lod;
       this.blendCamera.activeMipmapLevel = lod;
       const size = t.width >> lod;
@@ -150,6 +160,7 @@ export class Probes {
     this.rooms = rooms;
     this.current = -1;
     this.mix = 1;
+    this.finishing = false;
     this.recapFace = -1;
     for (const pos of positions) this.probes.push({ position: pos.clone(), pmrem: null, box: this.roomOf(pos), dirty: false });
     if (this.probes.length === 0) return;
@@ -208,6 +219,7 @@ export class Probes {
     const p = this.probes[i];
     this.current = i;
     this.mix = 1;
+    this.finishing = false;
     this.toIndex = -1;
     this.swapScratch = false;
     this.recapFace = -1;
@@ -224,6 +236,7 @@ export class Probes {
     this.toIndex = toIndex;
     this.swapScratch = swap;
     this.mix = 0;
+    this.finishing = false;
     this.blendTick = 0;
   }
 
@@ -245,14 +258,19 @@ export class Probes {
     }
     if (this.settle > 0) this.settle -= realDt;
 
-    if (this.mix < 1) {
-      // Cross-fade in progress (blend every other frame to halve the cost; ~36 tiny draws per blend).
-      this.mix = Math.min(1, this.mix + realDt / CROSSFADE);
+    if (this.mix < 1 || this.finishing) {
+      // Cross-fade in progress: every frame half of the mip levels are re-blended (even / odd alternating,
+      // ~18 tiny draws), and the last step takes two frames so that both halves end exactly on the target.
+      const last = this.finishing;
+      if (!last) {
+        this.mix = Math.min(1, this.mix + realDt / CROSSFADE);
+        if (this.mix >= 1) this.finishing = true;
+      } else this.finishing = false;
       this.blendTick++;
       const k = this.mix * this.mix * (3 - 2 * this.mix);
-      if (this.mix >= 1 || (this.blendTick & 1) === 0) this.blendPass(this.fromTex, this.toTex, k);
+      this.blendPass(this.fromTex, this.toTex, k, this.blendTick & 1);
       this.lights.setProbeBoxes(this.fromBox, this.toBox, k);
-      if (this.mix >= 1) {
+      if (last) {
         if (this.swapScratch) {
           const p = this.probes[this.current];
           const old = p.pmrem;
@@ -288,13 +306,16 @@ export class Probes {
       const cam = this.cubeCamera;
       if (this.recapFace === 0) { cam.position.copy(cur.position); cam.updateMatrixWorld(true); }
       this.lights.applyBake(true);
+      this.onCapture?.(true);
       const prev = r.getRenderTarget();
       r.setRenderTarget(this.cubeRT, this.recapFace);
       r.render(this.scene, cam.children[this.recapFace] as THREE.Camera);
       r.setRenderTarget(prev);
+      this.onCapture?.(false);
       this.lights.applyBake(false);
       this.recapFace++;
     } else {
+      this.onHeavyFrame?.();
       this.scratch = this.pmrem.fromCubemap(this.cubeRT.texture, this.scratch);
       cur.dirty = false;
       this.recapFace = -1;

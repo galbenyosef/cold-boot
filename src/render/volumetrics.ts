@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Handle } from './lights';
 import type { QualityPreset } from './quality';
+import { LIGHT_BOX_EDGE } from './patch';
 import { VOL_FRAG, VOL_VERT } from './shaders';
 
 /** Global scattering strength: radiance per candela per metre of beam (tuned by eye against the grade). */
@@ -89,6 +90,8 @@ class Cone {
         tShadow: { value: null },
         uShadowMatrix: { value: new THREE.Matrix4() },
         uShadowOn: { value: 0 },
+        uBoxC: { value: new THREE.Vector3() },
+        uBoxH: { value: new THREE.Vector3(1e6, 1e6, 1e6) },
       },
       side: THREE.BackSide,
       depthTest: false,
@@ -190,6 +193,7 @@ export class Volumetrics {
         uApex: { value: new THREE.Vector3() }, uAxis: { value: new THREE.Vector3(0, -1, 0) }, uCosOuter: { value: 0.8 },
         uCosInner: { value: 0.9 }, uRange: { value: 10 }, uColor: { value: new THREE.Color() },
         tShadow: { value: null }, uShadowMatrix: { value: new THREE.Matrix4() }, uShadowOn: { value: 0 },
+        uBoxC: { value: new THREE.Vector3() }, uBoxH: { value: new THREE.Vector3(1e6, 1e6, 1e6) },
       },
       side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true,
       blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
@@ -250,6 +254,15 @@ export class Volumetrics {
         }
       }
       u.uShadowOn.value = shadowOn;
+      const bb = shadowOn ? undefined : desc.bounds;
+      if (bb) {
+        (u.uBoxC.value as THREE.Vector3).set((bb.min.x + bb.max.x) * 0.5, (bb.min.y + bb.max.y) * 0.5, (bb.min.z + bb.max.z) * 0.5);
+        (u.uBoxH.value as THREE.Vector3).set(
+          Math.max((bb.max.x - bb.min.x) * 0.5 - LIGHT_BOX_EDGE, 0), Math.max((bb.max.y - bb.min.y) * 0.5 - LIGHT_BOX_EDGE, 0), Math.max((bb.max.z - bb.min.z) * 0.5 - LIGHT_BOX_EDGE, 0));
+      } else {
+        (u.uBoxC.value as THREE.Vector3).set(0, 0, 0);
+        (u.uBoxH.value as THREE.Vector3).set(1e6, 1e6, 1e6);
+      }
 
       const r = Math.tan(angle) * range * 1.04;
       mesh.position.copy(h.position);

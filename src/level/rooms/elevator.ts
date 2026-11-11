@@ -133,6 +133,7 @@ export function buildElevator(L: LevelBuild) {
   const sb = L.part('elevator_sill');
   const SL = 260;
   sb.box(wall, 0, -SL / 2 - 0.06, -57.94, 3.04, SL, 0.06);
+  sb.cast = false;
   for (let y = -1; y > -SL; y -= 1) sb.box('trim_steel', 0, y, -57.975, 3.04, Math.round(-y) % PERIOD === 0 ? 0.22 : 0.1, 0.03);
   for (let y = -3; y > -SL; y -= 2 * PERIOD) sb.box('hazard_stripes', 0, y, -57.985, 2.4, 0.3, 0.012);
   const sill = sb.build(false);

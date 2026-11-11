@@ -35,9 +35,11 @@ const ROOM_OF: Record<string, string> = { med: 'med', corr: 'corr_a', junction: 
 /** Portal graph for room visibility: [room A, room B, door id | null (always open), see-through when shut]. */
 const PORTALS: [string, string, string | null, boolean][] = [
   ['med', 'corr_a', 'd_med', false], ['corr_a', 'junction', null, true], ['junction', 'sec', 'd_sec', false], ['junction', 'storage', 'd_storage', false],
-  ['junction', 'airlock', 'd_fab_outer', false], ['airlock', 'fab', 'd_fab_inner', true], ['fab', 'gen', 'd_gen', false], ['fab', 'lobby', 'd_lobby', false],
+  ['junction', 'airlock', 'd_fab_outer', false], ['airlock', 'fab', 'd_fab_inner', false], ['fab', 'gen', 'd_gen', false], ['fab', 'lobby', 'd_lobby', false],
   ['lobby', 'elevator', 'd_elev', true],
 ];
+/** Rooms behind a shut see-through door are drawn only within this distance of that door. */
+const SEE_RANGE = 22;
 const MACHINE_LOOPS: Record<string, { id: string; pos: [number, number, number]; vol: Record<string, number> }> = {
   fab_arms: { id: 'arm_servo_loop', pos: [0, 1.5, -38], vol: { idle: 0.25, active: 0.7, frenzy: 1 } },
   fab_conveyor: { id: 'conveyor_loop', pos: [0, 5.5, -38], vol: { idle: 0.2, active: 0.7, frenzy: 1 } },
@@ -57,10 +59,11 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
     ['airlock', buildAirlock], ['fab', buildFab], ['gen', buildGen], ['lobby', buildLobby], ['elevator', buildElevator]] as const) {
     L.currentRoom = ROOM_OF[name];
     fn(L);
-    for (const o of L.root.children) if (!o.userData.rooms) o.userData.rooms = [L.currentRoom];
+    for (const o of L.root.children) if (!o.userData.rooms || !o.userData.rooms.length) o.userData.rooms = [L.currentRoom];
     lap(name);
   }
   L.currentRoom = '';
+  L.finishLightBounds();
 
   const doors: DoorImpl[] = makeDoors(L, DOORS);
   if (ctx.debug.noStory) for (const d of doors) d.unlock();
@@ -90,7 +93,17 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
     for (const r of (o.userData.rooms as string[] | undefined) ?? []) mask |= roomBit.get(r) ?? 0;
     if (mask) tagged.push({ obj: o, mask });
   }
+  const castLights = L.castLights.map((c) => ({ desc: c.desc, bit: roomBit.get(c.room) ?? 0 }));
   let lastRoomBit = roomBit.get('med')!, lastMask = -1;
+  // Published for the render module: is the room at (x, z) potentially visible? (true outside any room)
+  L.root.userData.roomVisible = (x: number, z: number): boolean => {
+    if (lastMask === -1) return true;
+    for (let i = 0; i < rooms.length; i++) {
+      const b = rooms[i].bounds;
+      if (x > b.min.x + 0.05 && x < b.max.x - 0.05 && z > b.min.z + 0.05 && z < b.max.z - 0.05) return (lastMask & (1 << i)) !== 0;
+    }
+    return true;
+  };
   const updateVisibility = () => {
     const p = ctx.camera.position;
     for (let i = 0; i < rooms.length; i++) {
@@ -104,13 +117,22 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
         const q = portals[i];
         const hasA = (mask & q.a) !== 0, hasB = (mask & q.b) !== 0;
         if (hasA === hasB) continue;
-        if (q.see || (q.door !== null && q.door.t > 0)) { mask |= q.a | q.b; grew = true; }
+        let open = q.door === null || q.door.t > 0;
+        if (!open && q.see) {
+          // shut but see-through (window slits, cage): only worth drawing the far side from reasonably close
+          const dx = p.x - q.door!.position.x, dz = p.z - q.door!.position.z;
+          open = dx * dx + dz * dz < SEE_RANGE * SEE_RANGE;
+        }
+        if (open) { mask |= q.a | q.b; grew = true; }
       }
       if (!grew) break;
     }
     if (mask === lastMask) return;
     lastMask = mask;
     for (let i = 0; i < tagged.length; i++) tagged[i].obj.visible = (tagged[i].mask & mask) !== 0;
+    // A culled room's shadow casters are not drawn, so its lights must not hold shadow maps (they stay
+    // confined by their bounds instead; this also frees the shadow slots for rooms that are in view).
+    for (let i = 0; i < castLights.length; i++) castLights[i].desc.castShadow = (castLights[i].bit & mask) !== 0 || castLights[i].bit === 0;
   };
 
   // ── positional machine loops (nothing else knows where the machines are) ──

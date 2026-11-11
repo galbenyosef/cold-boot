@@ -92,6 +92,53 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
   let lastTime = performance.now();
   let prepareMs = 0;
 
+  // ── room occlusion for objects owned by other modules (enemies, pickups, decals…) ──
+  // The level hides its own rooms behind closed doors; everything else in those rooms would still be drawn
+  // (the level is one long axis, so most of it is inside the frustum). Such objects are hidden for the
+  // duration of the world pass only and restored right after, so their owners never see `visible` change.
+  const occluded: THREE.Object3D[] = [];
+  function occludeForeign(): void {
+    const level = (ctx as Partial<GameContext>).level;
+    const roomVisible = level?.root?.userData?.roomVisible as ((x: number, z: number) => boolean) | undefined;
+    if (!roomVisible) return;
+    const kids = scene.children;
+    for (let i = 0; i < kids.length; i++) {
+      const o = kids[i];
+      if (!o.visible || o === level!.root || o === lights.root || (o as THREE.Camera).isCamera) continue;
+      const p = o.position;
+      if (p.x !== 0 || p.z !== 0) {
+        // a positioned thing (an enemy): judged by where it stands
+        if (!roomVisible(p.x, p.z)) { o.visible = false; occluded.push(o); }
+      } else if ((o as THREE.Group).isGroup) {
+        // a container at the origin (pickups, debris, decals): judge each positioned child
+        const cs = o.children;
+        for (let j = 0; j < cs.length; j++) {
+          const c = cs[j], q = c.position;
+          if (c.visible && (q.x !== 0 || q.z !== 0) && !roomVisible(q.x, q.z)) { c.visible = false; occluded.push(c); }
+        }
+      }
+    }
+  }
+  /** Hide everything that is not level geometry or a light (reflection re-capture: static world only). */
+  function hideDynamic(): void {
+    const level = (ctx as Partial<GameContext>).level;
+    const kids = scene.children;
+    for (let i = 0; i < kids.length; i++) {
+      const o = kids[i];
+      if (!o.visible || o === level?.root || o === lights.root) continue;
+      o.visible = false;
+      occluded.push(o);
+    }
+  }
+  probes.onCapture = (begin) => {
+    if (begin) { hideDynamic(); lights.deferShadows(); } else restoreForeign();
+  };
+  probes.onHeavyFrame = () => lights.deferShadows();
+  function restoreForeign(): void {
+    for (let i = 0; i < occluded.length; i++) occluded[i].visible = true;
+    occluded.length = 0;
+  }
+
   function applySize(): void {
     const dpr = Math.min(window.devicePixelRatio || 1, preset.maxPixelRatio);
     const ratio = Math.min(dpr, Math.sqrt(preset.maxPixels / (cssW * cssH)));
@@ -129,7 +176,9 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     renderer.setRenderTarget(post.scene);
     renderer.setClearColor(clearCol, 1);
     renderer.clear();
+    occludeForeign();
     renderer.render(scene, camera);
+    restoreForeign();
 
     // ── first-person viewmodel: own target + depth, same lights, composited over the world in the merge pass
     camera.layers.set(VIEWMODEL_LAYER);

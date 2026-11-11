@@ -72,8 +72,30 @@ export function skinParts(root: THREE.Object3D, bones: THREE.Bone[], parts: { b:
   return out;
 }
 
-export class RobotArm {
+/** Shared rig for a group of arms: ONE skinned mesh per material for all of them (see `ArmRig.finish`). */
+export class ArmRig {
   readonly root = new THREE.Group();
+  readonly bones: THREE.Bone[] = [];
+  readonly parts: { b: Builder; bone: number }[] = [];
+  readonly paints = new Set<THREE.Material>();
+  private readonly box = new THREE.Box3();
+  constructor(L: LevelBuild) {
+    this.root.name = 'robot_arm';
+    L.root.add(this.root);
+  }
+  include(base: THREE.Vector3) { this.box.expandByPoint(base); }
+  /** Bind every arm added so far (bones must still be in their bind pose). */
+  finish() {
+    const c = this.box.getCenter(new THREE.Vector3());
+    c.y += 1.4;
+    const r = this.box.getSize(new THREE.Vector3()).length() / 2 + 4.2;
+    skinParts(this.root, this.bones, this.parts, (m) => this.paints.has(m), c, r);
+  }
+}
+
+export class RobotArm {
+  /** Arm base (a bone of the shared rig). */
+  readonly root = new THREE.Bone();
   private j1 = new THREE.Bone();
   private j2 = new THREE.Bone();
   private j3 = new THREE.Bone();
@@ -93,14 +115,18 @@ export class RobotArm {
   private phase: number;
   readonly tool: ArmTool;
 
-  constructor(L: LevelBuild, spec: ArmSpec) {
+  constructor(L: LevelBuild, spec: ArmSpec, rig: ArmRig) {
     this.seed = spec.seed * 2654435761 >>> 0;
     this.tool = spec.tool;
     this.phase = spec.seed * 1.7;
     const Y = spec.color, J: Mat = 'robot_joint', D: Mat = 'painted_dark';
     this.root.position.set(spec.x, 0.45, spec.z);
     this.root.rotation.y = spec.ry;
-    this.root.name = 'robot_arm';
+    this.root.name = 'robot_arm_base';
+    rig.root.add(this.root);
+    rig.include(this.root.position);
+    const bone0 = rig.bones.length;
+    rig.bones.push(this.j1, this.j2, this.j3, this.j4, this.j5);
     this.root.add(this.j1);
     this.j2.position.set(0, 0.62, 0.1); this.j1.add(this.j2);
     this.j3.position.set(0, 1.4, 0); this.j2.add(this.j3);
@@ -191,11 +217,12 @@ export class RobotArm {
     for (let i = 0; i < 4; i++) this.frozen[i] = pa[i] + (pb[i] - pa[i]) * k;
     this.frozen[4] = r() * 6;
     this.cur.set(this.frozen); this.from.set(this.frozen); this.to.set(this.frozen);
-    L.root.add(this.root);
-    const paint = b.mat(Y);
-    skinParts(this.root, [this.j1, this.j2, this.j3, this.j4, this.j5], parts, (m) => m === paint, new THREE.Vector3(0, 1.4, 0), 4.2);
-    this.apply();
+    rig.paints.add(b.mat(Y));
+    for (const p of parts) rig.parts.push({ b: p.b, bone: bone0 + p.bone });
   }
+
+  /** Pose the arm (call after `ArmRig.finish()` has bound the skeleton). */
+  pose() { this.apply(); }
 
   private rand(): number {
     this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0;
@@ -366,7 +393,9 @@ export class Conveyor {
       this.hangers.push({ obj: bone, phase: k * 2.1, still: load === 'husk', rx, rz });
     }
     L.root.add(root);
-    skinParts(root, bones, parts, () => true, new THREE.Vector3(0, railY - 1, (path.zN + path.zS) / 2), 12);
+    // only the bodies / frames throw shadows (cables, joints and visors are inside their silhouettes)
+    const shell = L.ctx.materials.get('robot_shell'), frame = L.ctx.materials.get('robot_frame');
+    skinParts(root, bones, parts, (m) => m === shell || m === frame, new THREE.Vector3(0, railY - 1, (path.zN + path.zS) / 2), 12);
     for (const h of this.hangers) if (!h.still) { h.obj.rotation.x = h.rx; h.obj.rotation.z = h.rz; }
   }
 

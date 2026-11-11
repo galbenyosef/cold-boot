@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { FlickerMode, LightDesc, LightGroupPatch, LightHandle, LightManager } from '../core/types';
 import { Flicker, FLICKER_MEAN } from './flicker';
 import type { QualityPreset } from './quality';
-import { probeBoxesAvailable } from './patch';
+import { LIGHT_BOX_EDGE, lightBoxesAvailable, probeBoxesAvailable } from './patch';
 
 const FADE_TIME = 0.15;
 /** Lights further than this beyond their own reach are never considered. */
@@ -21,9 +21,15 @@ export class PoolSlot {
   releasing = false;
   /** Shadow map must be re-rendered. */
   dirty = true;
+  /** This frame's scheduled refresh is mandatory (light moved / slot changed), not just the periodic one. */
+  must = false;
   readonly lastPos = new THREE.Vector3(Infinity, 0, 0);
   readonly lastTarget = new THREE.Vector3();
   lastAngle = 0;
+  /** Data light carrying this slot's `LightDesc.bounds` (see patch.ts), or null when unsupported. */
+  box: THREE.HemisphereLight | null = null;
+  /** Bounds currently written to `box` (undefined = never written). */
+  boxOf: THREE.Box3 | null | undefined = undefined;
   constructor(
     readonly light: THREE.SpotLight | THREE.PointLight,
     readonly isSpot: boolean,
@@ -44,7 +50,11 @@ export class Handle implements LightHandle {
   readonly dir = new THREE.Vector3(0, -1, 0);
   readonly flicker: Flicker;
   readonly bindings: EmissiveBinding[] = [];
+  /** Brightness multiplier applied to the real light. */
   _factor = 0;
+  /** Public `factor` / bound-emissive multiplier. Equals `_factor` except for rotating 'alarm' spots, whose
+   *  lamp stays on while the lens pulses as the beam sweeps past the viewer. */
+  _pulse = 0;
   slot: PoolSlot | null = null;
   score = 0;
   eligible = false;
@@ -69,7 +79,7 @@ export class Handle implements LightHandle {
     this.flicker.set(desc.flicker ?? 'none');
   }
 
-  get factor(): number { return this._factor; }
+  get factor(): number { return this._pulse; }
 
   setFlicker(mode: FlickerMode): void { this.flicker.set(mode); }
   setColor(color: THREE.ColorRepresentation): void { this.color.set(color); }
@@ -178,6 +188,8 @@ export class LightPool implements LightManager {
       if (any.shadow?.map) { any.shadow.map.depthTexture?.dispose(); any.shadow.map.dispose(); }
       (l as THREE.Light).dispose();
     }
+    for (const s of this.spotSlots) if (s.box) { this.root.remove(s.box); s.box.dispose(); }
+    for (const s of this.pointSlots) if (s.box) { this.root.remove(s.box); s.box.dispose(); }
     this.lights.length = 0;
     this.spotSlots.length = 0;
     this.pointSlots.length = 0;
@@ -216,6 +228,28 @@ export class LightPool implements LightManager {
       this.lights.push(l);
       this.pointSlots.push(new PoolSlot(l, false, false, i));
     }
+    // One data light per slot, in shader order (all spots, then all points) — see patch.ts #4.
+    if (lightBoxesAvailable) {
+      for (const s of this.spotSlots) { s.box = this.dataLight(); this.writeLightBox(s, null); }
+      for (const s of this.pointSlots) { s.box = this.dataLight(); this.writeLightBox(s, null); }
+    }
+  }
+
+  /** Upload a slot's light bounds (null = unbounded). Only touches the uniforms when the box changes. */
+  private writeLightBox(s: PoolSlot, b: THREE.Box3 | null): void {
+    const l = s.box;
+    if (!l) return;
+    if (b === null) {
+      if (s.boxOf === null) return;
+      s.boxOf = null;
+      l.color.setRGB(0, 0, 0);
+      l.groundColor.setRGB(1e6, 1e6, 1e6);
+      return;
+    }
+    s.boxOf = b;
+    const e = LIGHT_BOX_EDGE;
+    l.color.setRGB((b.min.x + b.max.x) * 0.5, (b.min.y + b.max.y) * 0.5, (b.min.z + b.max.z) * 0.5);
+    l.groundColor.setRGB(Math.max((b.max.x - b.min.x) * 0.5 - e, 0), Math.max((b.max.y - b.min.y) * 0.5 - e, 0), Math.max((b.max.z - b.min.z) * 0.5 - e, 0));
   }
 
   setShadowQuality(preset: QualityPreset): void {
@@ -273,6 +307,7 @@ export class LightPool implements LightManager {
     for (const s of this.pointSlots) if (s.handle === h) { s.handle = null; s.fade = 0; s.releasing = false; }
     h.slot = null;
     h._factor = 0;
+    h._pulse = 0;
     for (const b of h.bindings) b.material.emissiveIntensity = 0;
     this.hooks?.onRemove(h);
   }
@@ -326,8 +361,6 @@ export class LightPool implements LightManager {
       const isAlarmSpot = h.isSpot && h.flicker.mode === 'alarm';
       const factor = h.enabled ? h.intensityScale * (isAlarmSpot ? 1 : fl) : 0;
       h._factor = factor;
-      const bs = h.bindings;
-      for (let j = 0; j < bs.length; j++) bs[j].material.emissiveIntensity = bs[j].base * factor;
 
       // Aim direction (alarm spots sweep around the vertical axis).
       if (h.isSpot) {
@@ -346,6 +379,23 @@ export class LightPool implements LightManager {
         h.dir.copy(_d);
         h.aim.copy(h.position).addScaledVector(_d, Math.max(len, 1));
       }
+
+      // Bound emissive fixtures follow the light; a rotating beacon's lens flares as its beam sweeps past
+      // the viewer (0.12 floor: the lamp inside never goes fully dark), in phase with the rotating beam.
+      let pulse = factor;
+      if (isAlarmSpot && factor > 0) {
+        if (bake) pulse = factor * FLICKER_MEAN.alarm;
+        else {
+          const vx = viewPos.x - h.position.x, vz = viewPos.z - h.position.z;
+          const vl = Math.hypot(vx, vz), dl = Math.hypot(h.dir.x, h.dir.z);
+          const c = vl > 1e-3 && dl > 1e-3 ? Math.max(0, (vx * h.dir.x + vz * h.dir.z) / (vl * dl)) : 1;
+          const c2 = c * c;
+          pulse = factor * (0.12 + 0.88 * c2 * c2);
+        }
+      }
+      h._pulse = pulse;
+      const bs = h.bindings;
+      for (let j = 0; j < bs.length; j++) bs[j].material.emissiveIntensity = bs[j].base * pulse;
 
       // ── relevance score
       h.selected = false;
@@ -509,6 +559,9 @@ export class LightPool implements LightManager {
       }
       const desc = h.desc;
       const f = s.fade * s.fade * (3 - 2 * s.fade);
+      // A light that currently owns a shadow map is occluded properly (and should spill through open doors),
+      // so its bounds only apply while it is unshadowed.
+      this.writeLightBox(s, s.shadow && desc.castShadow ? null : desc.bounds ?? null);
       l.position.copy(h.position);
       l.target.position.copy(h.aim);
       l.color.copy(h.color);
@@ -526,6 +579,7 @@ export class LightPool implements LightManager {
           if (bake) need = true;
           else if (!h.inView) { if (moved) s.dirty = true; }
           else need = s.dirty || moved || (frame + s.index) % this.shadowEvery === 0;
+          s.must = need && (bake || s.dirty || moved);
           if (need) {
             s.dirty = false;
             s.lastPos.copy(h.position);
@@ -546,6 +600,7 @@ export class LightPool implements LightManager {
       const h = s.handle;
       if (!h) { l.intensity = 0; continue; }
       const f = s.fade * s.fade * (3 - 2 * s.fade);
+      this.writeLightBox(s, h.desc.bounds ?? null);
       l.position.copy(h.position);
       l.color.copy(h.color);
       l.intensity = h.desc.intensity * h._factor * f;
@@ -577,7 +632,7 @@ export class LightPool implements LightManager {
       const h = hs[i];
       const bs = h.bindings;
       if (bs.length === 0) continue;
-      const f = on ? bakeFactor(h) : h._factor;
+      const f = on ? (h.enabled ? h.intensityScale * FLICKER_MEAN[h.flicker.mode] : 0) : h._pulse;
       for (let j = 0; j < bs.length; j++) bs[j].material.emissiveIntensity = bs[j].base * f;
     }
   }
@@ -592,6 +647,21 @@ export class LightPool implements LightManager {
       }
     }
     this.write(false);
+  }
+
+  /**
+   * Skip this frame's shadow-map refreshes (used on frames that are already heavy: probe re-capture).
+   * Mandatory ones are redone next frame; periodic ones simply wait for their next turn.
+   */
+  deferShadows(): void {
+    for (let i = 0; i < this.spotSlots.length; i++) {
+      const s = this.spotSlots[i];
+      if (!s.shadow) continue;
+      const sh = (s.light as THREE.SpotLight).shadow;
+      if (sh.needsUpdate) { sh.needsUpdate = false; if (s.must) s.dirty = true; }
+    }
+    this.shadowUpdates = 0;
+    this.renderer.shadowMap.needsUpdate = false;
   }
 
   /** Force every shadow slot to re-render next update (after teleports, quality changes, bakes). */

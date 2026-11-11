@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import type { Door, DynamicBox, GameContext, Interactable } from '../core/types';
 import type { Builder, Mat } from './builder';
 import type { LevelBuild } from './context';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { extrude, hazardStrip, panelOn } from './kit';
 
 export interface DoorSpec {
@@ -232,13 +233,11 @@ export class DoorImpl implements Door {
     b.pop();
 
     // status screens (two quads, one material)
-    const g = new THREE.PlaneGeometry(0.15, 0.1);
-    for (const s of [1, -1]) {
-      const m = new THREE.Mesh(g, this.statusMat);
-      m.position.set(s * (w / 2 + jw / 2 + 0.02), 1.43, s * (T + pr + 0.042));
-      m.rotation.y = s > 0 ? 0 : Math.PI;
-      root.add(m);
-    }
+    const quads = [1, -1].map((s) => new THREE.PlaneGeometry(0.15, 0.1)
+      .applyMatrix4(new THREE.Matrix4().makeRotationY(s > 0 ? 0 : Math.PI).setPosition(s * (w / 2 + jw / 2 + 0.02), 1.43, s * (T + pr + 0.042))));
+    const m = new THREE.Mesh(mergeGeometries(quads, false)!, this.statusMat);
+    m.name = `${sp.id}:status`;
+    root.add(m);
   }
 
   private buildLeaves(root: THREE.Group) {
@@ -250,6 +249,7 @@ export class DoorImpl implements Door {
         const b = L.part(`${sp.id}:leaf${side}`);
         const x0 = side < 0 ? -w / 2 - 0.02 : 0, x1 = side < 0 ? 0 : w / 2 + 0.02, xc = (x0 + x1) / 2, lw = x1 - x0;
         b.bx(mat, x0, 0.01, -0.05, x1, h + 0.02, 0.05);
+        b.cast = false; // only the slab throws a shadow: one shadow draw per leaf
         b.bx('trim_steel', side < 0 ? -0.012 : 0, 0.01, -0.056, side < 0 ? 0 : 0.012, h, 0.056);
         for (const f of ['+z', '-z'] as const) {
           const z = f === '+z' ? 0.05 : -0.05, sg = f === '+z' ? 1 : -1;
@@ -270,6 +270,7 @@ export class DoorImpl implements Door {
       const lower: [number, number][] = [[-1.52, -0.3], [1.52, -0.3], ...ZIG.map((p) => [p[0] * 1.0133, p[1] - 0.006] as [number, number])];
       extrude(up, mat, upper, 0.16, 0, 0, -0.08);
       extrude(lo, mat, lower, 0.16, 0, 0, -0.08);
+      up.cast = lo.cast = false; // only the slabs throw shadows
       for (const f of ['+z', '-z'] as const) {
         const z = f === '+z' ? 0.08 : -0.08, sg = f === '+z' ? 1 : -1;
         panelOn(up, 'trim_steel', -0.6, 2.25, z, 0.95, 0.75, f, 0.03, 0.04);
@@ -311,8 +312,11 @@ export class DoorImpl implements Door {
 
 export function makeDoors(L: LevelBuild, specs: DoorSpec[]): DoorImpl[] {
   return specs.map((s) => {
-    const frames = L.builder(`frame:${s.id}`);
-    frames.rooms = s.rooms;
+    // All door frames live in two shared zones (north / south half of the level) instead of one zone per
+    // door: a view with five doorways in it pays ~7 draws for their frames, not ~40.
+    const south = s.z < -30;
+    const frames = L.namedBuilder(south ? 'frames_s' : 'frames_n');
+    frames.rooms = south ? ['fab', 'gen', 'lobby', 'elevator'] : ['med', 'corr_a', 'junction', 'sec', 'storage', 'airlock', 'fab'];
     return new DoorImpl(L, s, frames);
   });
 }

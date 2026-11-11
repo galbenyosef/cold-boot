@@ -9,13 +9,14 @@
 import * as THREE from 'three';
 import type { DecalName, MaterialName, SignStyle, Surface } from '../core/types';
 import type { LevelBuild } from './context';
+import type { UvRect } from './signatlas';
 
 export type Mat = MaterialName | THREE.Material;
 export type UvMode = 'box' | 'keep' | 'unit';
 export type Axis = 'x' | 'y' | 'z';
 export type Face = '+x' | '-x' | '+y' | '-y' | '+z' | '-z';
 
-interface Item { geo: THREE.BufferGeometry; m: THREE.Matrix4; uv: UvMode; su: number; sv: number }
+interface Item { geo: THREE.BufferGeometry; m: THREE.Matrix4; uv: UvMode; su: number; sv: number; /** atlas sub-rectangle (resolved before merging) */ uvr?: UvRect }
 interface Batch { mat: THREE.Material; cast: boolean; items: Item[] }
 
 const _p = new THREE.Vector3();
@@ -119,6 +120,7 @@ export function mergeItems(items: Item[]): THREE.BufferGeometry {
         else { U[u] = wx; U[u + 1] = wy; }
       } else if (ua) {
         U[u] = ua[i * usz] * it.su; U[u + 1] = ua[i * usz + 1] * it.sv;
+        if (it.uvr) { U[u] = it.uvr.ou + U[u] * it.uvr.su; U[u + 1] = it.uvr.ov + U[u + 1] * it.uvr.sv; }
       }
     }
     if (g.index) {
@@ -156,6 +158,8 @@ export class Builder {
   tris = 0;
   /** Room ids this zone belongs to (visibility culling). */
   rooms: string[] = [];
+  /** Static zones put their signs into the shared sign atlas (parts built on the spot cannot: the atlas is laid out last). */
+  atlasSigns = false;
 
   constructor(readonly L: LevelBuild, readonly name: string) {}
 
@@ -274,7 +278,12 @@ export class Builder {
       mm.multiply(_m.makeScale(w + 0.04, h + 0.04, 0.012));
       this.geo('painted_dark', unitBox(), 'box', mm);
     }
-    this.quad(this.L.signMat(text, style, w / h), cx, cy, cz, w, h, face, rot, 'unit', off);
+    const at = this.atlasSigns ? this.L.signSlot(text, style, w / h) : null;
+    if (at) {
+      this.quad(at.mat, cx, cy, cz, w, h, face, rot, 'unit', off);
+      const items = this.batch(at.mat, false).items;
+      items[items.length - 1].uvr = at.rect;
+    } else this.quad(this.L.signMat(text, style, w / h), cx, cy, cz, w, h, face, rot, 'unit', off);
     this.cast = c;
     return this;
   }
@@ -343,6 +352,10 @@ export class Builder {
       mesh.receiveShadow = false;
       mesh.matrixAutoUpdate = false;
       mesh.renderOrder = -10;
+      // The proxy only matters in shadow passes. In colour passes its draw range is pushed past the end
+      // of the index buffer, which makes the renderer skip the draw call entirely.
+      mesh.onBeforeShadow = showRange;
+      mesh.onBeforeRender = hideRange;
       group.add(mesh);
     }
     for (const [name, mats] of this.insts) {
@@ -373,6 +386,10 @@ export class Builder {
     return mergeItems(items);
   }
 }
+
+type RangeHook = (r: unknown, s: unknown, c: unknown, cc: unknown, geometry: THREE.BufferGeometry) => void;
+const showRange: RangeHook = (_r, _s, _c, _cc, geometry) => { geometry.drawRange.start = 0; };
+const hideRange = ((_r: unknown, _s: unknown, _c: unknown, geometry: THREE.BufferGeometry) => { geometry.drawRange.start = 1e9; }) as THREE.Object3D['onBeforeRender'];
 
 let _shadowOnly: THREE.MeshBasicMaterial | null = null;
 /** Draws nothing in colour passes; exists only so the mesh is rendered into shadow maps. */

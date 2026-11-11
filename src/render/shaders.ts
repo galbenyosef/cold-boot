@@ -1,3 +1,4 @@
+import { LIGHT_BOX_EDGE } from './patch';
 /** GLSL for the post chain. All passes use the fullscreen triangle from fullscreen.ts (varying vUv). */
 
 const COMMON = /* glsl */ `
@@ -439,6 +440,8 @@ uniform vec3 uColor;
 uniform float uTime;
 uniform float uFrame;
 uniform sampler2D tNoise;
+uniform vec3 uBoxC;
+uniform vec3 uBoxH;
 #ifdef VOL_SHADOWS
 uniform sampler2DShadow tShadow;
 uniform mat4 uShadowMatrix;
@@ -505,6 +508,8 @@ void main() {
     float density = 0.45 + 0.85 * n1 + 0.5 * n1 * n2;
     // Scattering right in front of the lens is suppressed: standing inside a beam should not fog the whole view.
     float s = spot * atten * density * smoothstep(0.15, 2.5, t);
+    // LightDesc.bounds: the shaft ends where the light does.
+    s *= 1.0 - smoothstep(0.0, ${LIGHT_BOX_EDGE.toFixed(3)}, length(max(abs(p - uBoxC) - uBoxH, 0.0)));
     #ifdef VOL_SHADOWS
     if (uShadowOn > 0.5 && s > 1e-5) {
       vec4 sc = uShadowMatrix * vec4(p, 1.0);
