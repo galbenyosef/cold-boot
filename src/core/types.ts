@@ -266,6 +266,12 @@ export interface LightDesc {
   volumetric?: boolean;
   /** Start disabled. */
   enabled?: boolean;
+  /**
+   * Optional world-space box outside which this light contributes nothing (soft edge). Use it for lights
+   * that cannot get a shadow (point lights, low-priority spots) so they do not shine through walls:
+   * normally the light's room bounds, slightly expanded.
+   */
+  bounds?: THREE.Box3;
 }
 
 export interface LightHandle {
