@@ -12,13 +12,14 @@
 import * as THREE from 'three';
 import type { LightHandle } from '../../core/types';
 import { EnemyBase, type EnemyWorld, type HitBurst } from '../ai';
+import type { FactoryOpts } from '../manager';
 import { hv, type HitVolume } from '../shared/hit';
 import { angleDiff, damp, noise1, smooth, solvePlanar, spring, type Spring } from '../shared/ik';
 import type { Rig } from '../shared/rig';
 import { SK, type SkitterTemplate } from './model';
 
-type Mode = 'dormant' | 'emerge' | 'unfold' | 'idle' | 'chase' | 'look' | 'crouch' | 'leap' | 'retreat' | 'stagger'
-  | 'towall' | 'climb' | 'wcrouch' | 'fall' | 'dying' | 'dead';
+type Mode = 'puppet' | 'dormant' | 'emerge' | 'unfold' | 'idle' | 'chase' | 'look' | 'crouch' | 'leap' | 'retreat' | 'stagger'
+  | 'towall' | 'climb' | 'wcrouch' | 'fall' | 'hold' | 'recover' | 'dying' | 'dead';
 
 interface Leg {
   side: number; index: number; group: number;
@@ -32,7 +33,12 @@ interface Leg {
   gone: boolean;
 }
 
-const SPEED = 5.6, HP = 25, MELEE = 8;
+/** Revision 2 balance: 18 hp, 4.4 m/s, 5 per leap. */
+const SPEED = 4.4, HP = 18, MELEE = 5;
+/** Leap telegraph (rear up + eye flare, then a short dip) and the slow, exposed recovery after landing. */
+const TELEGRAPH = 0.6, RECOVER = 1.8;
+/** Never more than this many skitters on an attack run at once (the rest circle / hold on walls). */
+const MAX_ATTACKERS = 2;
 /** Surface crawling: speed on walls / ceilings, max time attached, leap ranges. */
 const CLIMB_SPEED = 3.6, SURF_MAX = 11, WALL_LEAP = 4.2, CEIL_LEAP = 2.8;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _t = new THREE.Vector3(), _imp = new THREE.Vector3();
@@ -42,6 +48,8 @@ const _qt = new THREE.Quaternion();
 const _p2 = new THREE.Vector2();
 const _e = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0);
+const PROBE_DIRS = [UP, DOWN, new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+  new THREE.Vector3(1, 0, 1).normalize(), new THREE.Vector3(-1, 0, 1).normalize(), new THREE.Vector3(1, 0, -1).normalize(), new THREE.Vector3(-1, 0, -1).normalize()];
 const EYE_KEYS = ['glow'];
 
 export class Skitter extends EnemyBase {
@@ -74,6 +82,17 @@ export class Skitter extends EnemyBase {
   private exploded = false;
   private lastYaw = 0; private yawRate = 0;
   private leapCool = 0;
+  /** Holds one of the MAX_ATTACKERS attack-run slots. */
+  token = false;
+  private holdT = 0;
+  private recoverDur = RECOVER;
+  private rear = 0; private flare = 0;
+  // puppet (EnemyManager.actor)
+  private pTarget = new THREE.Vector3();
+  private pMoving = false; private pSpeed = SPEED; private pDone: (() => void) | null = null;
+  private pTuck = 0; private pStuck = 0; private pLastD = 1e9;
+  private lookPt: THREE.Vector3 | null = null;
+  private readonly lookBuf = new THREE.Vector3();
 
   // ── surface frame (floor: n = up, fwd from yaw)
   /** True while clinging to a wall / ceiling (gravity off, physics capsule unused). */
@@ -99,8 +118,9 @@ export class Skitter extends EnemyBase {
   climbChance = 0.5;
   ceilingChance = 0.35;
 
-  constructor(world: EnemyWorld, private tpl: SkitterTemplate, group: string, position: THREE.Vector3, yaw: number, o: { dormant: boolean; emerge?: boolean; delay?: number }) {
+  constructor(world: EnemyWorld, private tpl: SkitterTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, 0.3, 0.5);
+    this.isActor = !!o.actor;
     this.health = HP;
     this.eyeHeight = 0.3;
     this.boundCenterY = 0.2; this.boundRadius = 0.75;
@@ -141,7 +161,14 @@ export class Skitter extends EnemyBase {
     this.qVis.setFromRotationMatrix(_mb.makeBasis(this.left, this.n, this.fwd));
     this.plantAll();
     this.delay = o.delay ?? 0;
-    if (o.dormant) {
+    if (this.isActor) {
+      this.mode = 'puppet'; this.state = 'idle';
+      const tucked = o.pose === 'tucked' || o.pose === 'slumped' || o.pose === 'rack' || o.pose === 'under' || o.pose === 'standing';
+      this.pTuck = tucked ? 1 : 0; this.curl = this.pTuck;
+      if (o.pose === 'ceiling') this.attachCeiling(3.5); else this.attachNearest(this.body.position);
+      if (this.attached) { this.qVis.setFromRotationMatrix(_mb.makeBasis(this.left, this.n, this.fwd)); this.plantAll(); }
+      this.setEye(!tucked && o.pose !== 'ceiling');
+    } else if (o.dormant) {
       this.mode = 'dormant'; this.state = 'dormant';
       this.curl = 1; this.bodyY = 0.085;
       this.setEye(false);
@@ -195,15 +222,24 @@ export class Skitter extends EnemyBase {
       this.setMode('unfold');
       return;
     }
+    // spawned on a pipe / wall / ceiling (nearest surface within 0.6 m is not the floor): start clinging to it
+    if (this.attachNearest(p)) {
+      this.qVis.setFromRotationMatrix(_mb.makeBasis(this.left, this.n, this.fwd));
+      this.plantAll();
+      this.curl = 1;
+      this.setMode('unfold');
+      return;
+    }
     this.body.velocity.set((this.world.rand() - 0.5) * 1.5, -1, (this.world.rand() - 0.5) * 1.5);
     this.body.onGround = false;
   }
 
   private setMode(m: Mode): void {
     this.mode = m; this.modeTime = 0;
-    this.setState(m === 'dormant' ? 'dormant' : m === 'idle' ? 'idle' : m === 'emerge' || m === 'unfold' ? 'alert'
-      : m === 'chase' || m === 'look' || m === 'retreat' || m === 'towall' || m === 'climb' || m === 'fall' ? 'chase'
-      : m === 'crouch' || m === 'leap' || m === 'wcrouch' ? 'attack' : m === 'stagger' ? 'stagger' : 'dead');
+    if (m === 'hold' || m === 'recover' || m === 'retreat' || m === 'dying') this.token = false;
+    this.setState(m === 'dormant' ? 'dormant' : m === 'idle' || m === 'puppet' ? 'idle' : m === 'emerge' || m === 'unfold' ? 'alert'
+      : m === 'chase' || m === 'look' || m === 'retreat' || m === 'towall' || m === 'climb' || m === 'fall' || m === 'hold' ? 'chase'
+      : m === 'crouch' || m === 'leap' || m === 'wcrouch' ? 'attack' : m === 'stagger' || m === 'recover' ? 'stagger' : 'dead');
   }
 
   /** Frame vectors for standing on the floor with the current yaw. */
@@ -252,6 +288,49 @@ export class Skitter extends EnemyBase {
     this.fwd.copy(_v.normalize());
     this.left.crossVectors(this.n, this.fwd).normalize();
     this.surfTime = 0; this.surfCheckT = 0; this.surfCheck.copy(point); this.stillT = 0;
+  }
+
+  /**
+   * Cling to the nearest non-floor surface (wall, pipe, ceiling) within `range` of `at` — short raycasts in ten
+   * directions. Returns false (and stays put) when the nearest surface is the floor or nothing is in reach.
+   */
+  private attachNearest(at: THREE.Vector3, range = 0.6): boolean {
+    const phys = this.world.ctx.physics;
+    let best: { point: THREE.Vector3; normal: THREE.Vector3; distance: number } | null = null;
+    _o.set(at.x, at.y + 0.04, at.z);
+    for (let i = 0; i < PROBE_DIRS.length; i++) {
+      const h = phys.raycast(_o, PROBE_DIRS[i], range);
+      if (h && (!best || h.distance < best.distance)) best = h;
+    }
+    if (!best || best.normal.y > 0.7) return false;
+    _v.copy(best.point); _t.copy(best.normal);
+    this.attachTo(_v, _t);
+    this.headToward(this.world.playerPos, 1e3);
+    this.surfGoal = _t.y < -0.6 ? 'ceiling' : 'wall';
+    this.fromCeiling = _t.y < -0.6;
+    return true;
+  }
+
+  private attachCeiling(range: number): boolean {
+    const p = this.body.position;
+    _o.set(p.x, p.y + 0.05, p.z);
+    const hit = this.world.ctx.physics.raycast(_o, UP, range);
+    if (!hit || hit.normal.y > -0.7) return false;
+    _v.copy(hit.point); _t.copy(hit.normal);
+    this.attachTo(_v, _t);
+    this.surfGoal = 'ceiling'; this.fromCeiling = true;
+    return true;
+  }
+
+  /** Claim an attack-run slot (max MAX_ATTACKERS skitters at once). */
+  private acquire(): boolean {
+    if (this.token) return true;
+    const all = this.world.enemies;
+    let n = 0;
+    for (let i = 0; i < all.length; i++) { const e = all[i] as Skitter; if (e !== this && e.type === 'skitter' && e.alive && e.token) n++; }
+    if (n >= MAX_ATTACKERS) return false;
+    this.token = true;
+    return true;
   }
 
   /** Let go of the surface: becomes a ballistic body (floor rules) again. */
@@ -362,6 +441,7 @@ export class Skitter extends EnemyBase {
     this.stateTime += dt; this.modeTime += dt;
     const w = this.world, p = this.body.position, phys = w.ctx.physics;
     if (this.mode === 'dead') return;
+    if (this.mode === 'puppet') { this.tickPuppet(dt); return; }
     if (this.mode === 'dormant') {
       if (this.wakeDelay >= 0) {
         this.wakeDelay -= dt;
@@ -414,6 +494,7 @@ export class Skitter extends EnemyBase {
         break;
       case 'chase': {
         if (!w.playerAlive) { this.moveGround(dt, 0, 0, 0, 8); break; }
+        if (!this.acquire()) { this.holdT = 0.3; this.retreatDir = w.rand() < 0.5 ? -1 : 1; this.setMode('hold'); break; }
         this.navigate(dt, 0.22);
         const bias = this.watchdog(dt, true, 5);
         let tx = this.waypoint.x - p.x, tz = this.waypoint.z - p.z;
@@ -481,7 +562,7 @@ export class Skitter extends EnemyBase {
       case 'wcrouch': {
         // clinging telegraph: pulls in tight to the surface, then springs
         this.headToward(w.playerPos, 8 * dt);
-        if (this.modeTime > 0.3) {
+        if (this.modeTime > TELEGRAPH) {
           const fromCeil = this.n.y < -0.5;
           this.detach();
           this.launchAt(fromCeil ? 0.85 : 1.15);
@@ -506,7 +587,7 @@ export class Skitter extends EnemyBase {
         // telegraph: body dips, rear lifts, mandibles gape
         this.moveGround(dt, 0, 0, 0, 16);
         this.faceToward(w.playerPos.x, w.playerPos.z, 10 * dt);
-        if (this.modeTime > 0.26) {
+        if (this.modeTime > TELEGRAPH) {
           this.launchAt(1.15);
           this.bit = false;
           this.setMode('leap');
@@ -533,7 +614,38 @@ export class Skitter extends EnemyBase {
           this.floorFrame();
           this.plantAll();
           this.leapCool = 1.2 + w.rand() * 0.8;
-          this.startRetreat(0.9 + w.rand() * 0.9);
+          this.recoverDur = RECOVER + w.rand() * 0.4;
+          this.setMode('recover');
+        }
+        break;
+      }
+      case 'recover': {
+        // landed off balance: slow, legs splayed, turning back toward the player — the moment to shoot it
+        wantCurl = 0.12;
+        const ax = p.x - w.playerPos.x, az = p.z - w.playerPos.z, al = Math.hypot(ax, az) || 1;
+        const back = hd < 2.5 ? 0.55 : 0;
+        this.moveGround(dt, ax / al, az / al, back, 3);
+        this.faceToward(w.playerPos.x, w.playerPos.z, 1.6 * dt);
+        if (this.modeTime > this.recoverDur) this.startRetreat(0.5 + w.rand() * 0.6);
+        break;
+      }
+      case 'hold': {
+        // another two are already on an attack run: circle at a distance, waiting for a slot
+        if (!w.playerAlive) { this.moveGround(dt, 0, 0, 0, 8); break; }
+        const ax = p.x - w.playerPos.x, az = p.z - w.playerPos.z;
+        const al = Math.hypot(ax, az) || 1;
+        const away = hd < 5 ? 1 : hd > 7.5 ? -0.7 : 0.05;
+        let dx = (ax / al) * away + (-az / al) * this.retreatDir, dz = (az / al) * away + (ax / al) * this.retreatDir;
+        if (this.watchdog(dt, true, 5) !== 0) this.retreatDir = -this.retreatDir;
+        const dl = Math.hypot(dx, dz) || 1;
+        dx /= dl; dz /= dl;
+        this.faceToward(p.x + dx, p.z + dz, 8 * dt);
+        this.moveGround(dt, dx, dz, SPEED * 0.55, 10);
+        this.holdT -= dt;
+        if (this.holdT <= 0) {
+          this.holdT = 0.35 + w.rand() * 0.2;
+          if (this.acquire()) this.setMode('chase');
+          else if (w.rand() < 0.15 && this.seesPlayer) { this.lookDur = 0.4 + w.rand() * 0.5; this.setMode('look'); }
         }
         break;
       }
@@ -578,6 +690,11 @@ export class Skitter extends EnemyBase {
       }
     }
     if (!this.attached && this.mode !== 'towall') this.floorFrame();
+    // leap telegraph: rears up with the eye flaring, then a short dip before the spring
+    const tele = this.mode === 'crouch' || this.mode === 'wcrouch';
+    const mt = this.modeTime;
+    this.rear = tele ? smooth(mt / 0.22) * (1 - smooth((mt - TELEGRAPH + 0.17) / 0.14)) : damp(this.rear, 0, 10, dt);
+    this.flare = tele ? smooth(mt / 0.12) : this.mode === 'leap' ? damp(this.flare, 0.4, 6, dt) : damp(this.flare, 0, 5, dt);
     this.curl = damp(this.curl, wantCurl, this.mode === 'dying' ? 9 : 12, dt);
     this.air = damp(this.air, wantAir, 16, dt);
     this.pose(dt);
@@ -631,14 +748,15 @@ export class Skitter extends EnemyBase {
     // strike from the surface
     const range = onCeil ? CEIL_LEAP : WALL_LEAP;
     const height = p.y - w.playerPos.y;
-    if (this.leapCool <= 0 && hd < range && hd > 0.6 && this.seesPlayer && height > -0.5) {
+    if (this.leapCool <= 0 && hd < range && hd > 0.6 && this.seesPlayer && height > -0.5 && this.acquire()) {
       this.setMode('wcrouch');
       this.emitAttack('melee');
       return;
     }
     // parked on the surface with no shot (player far along / away from it): drop and use the floor
     this.stillT = speed === 0 ? this.stillT + dt : 0;
-    if (this.stillT > (this.seesPlayer ? 1.6 : 0.8)) { this.stillT = 0; this.loseGrip(); }
+    // (without an attack slot it holds on the wall instead, until SURF_MAX)
+    if (this.stillT > (this.seesPlayer ? 1.6 : 0.8) && (this.token || this.acquire())) { this.stillT = 0; this.loseGrip(); }
   }
 
   /** Lost the surface (edge, doorway, moving door, timeout): drop and carry on as a floor machine. */
@@ -734,16 +852,18 @@ export class Skitter extends EnemyBase {
     void phys;
     // ── body
     spring(this.bob, 0, 4.5, 0.35, dt || 0.016);
-    const crouch = this.mode === 'crouch' ? smooth(this.modeTime / 0.2) : this.mode === 'wcrouch' ? smooth(this.modeTime / 0.2) : 0;
+    const crouch = this.mode === 'crouch' || this.mode === 'wcrouch' ? smooth((this.modeTime - TELEGRAPH + 0.17) / 0.14) : 0;
+    const rear = this.rear;
+    const rec = this.mode === 'recover' ? 1 - smooth((this.modeTime - this.recoverDur + 0.4) / 0.4) : 0;
     const look = this.mode === 'look' ? 1 : 0;
-    let by = SK.bodyY + (n ? avgY / n : 0) * 0.6 + this.bob.x * 0.5 - crouch * 0.07 - look * 0.03 + Math.sin(t * 31 + this.seed) * 0.003 * Math.min(1, speed / 3);
+    let by = SK.bodyY + (n ? avgY / n : 0) * 0.6 + this.bob.x * 0.5 - crouch * 0.07 - look * 0.03 + rear * 0.06 - rec * 0.05 + noise1(t * 5, this.seed + 13) * 0.02 * rec + Math.sin(t * 31 + this.seed) * 0.003 * Math.min(1, speed / 3);
     if (this.attached) by -= 0.035; // hugs walls / ceilings tighter
     by = by * (1 - this.curl) + 0.09 * this.curl;
     if (this.mode === 'dormant') by = 0.085;
     this.bodyY = damp(this.bodyY, by, 18, dt || 1);
     const accelLean = THREE.MathUtils.clamp(speed * 0.012, 0, 0.08);
-    const wantPitch = (n >= 3 ? pitchAcc * 1.2 : 0) + accelLean + crouch * 0.28 - this.air * 0.35 + (this.mode === 'emerge' ? 0.3 : 0);
-    const wantRoll = (n >= 3 ? rollAcc * 0.9 : 0) + THREE.MathUtils.clamp(-this.yawRate * 0.03, -0.3, 0.3);
+    const wantPitch = (n >= 3 ? pitchAcc * 1.2 : 0) + accelLean + crouch * 0.28 - rear * 0.55 - this.air * 0.35 + (this.mode === 'emerge' ? 0.3 : 0);
+    const wantRoll = (n >= 3 ? rollAcc * 0.9 : 0) + THREE.MathUtils.clamp(-this.yawRate * 0.03, -0.3, 0.3) + noise1(t * 3.1, this.seed + 17) * 0.22 * rec;
     this.pitch = damp(this.pitch, wantPitch, 12, dt || 1);
     this.roll = damp(this.roll, wantRoll, 10, dt || 1);
     const fl = this.flip * this.flip * (3 - 2 * this.flip);
@@ -766,10 +886,10 @@ export class Skitter extends EnemyBase {
     B.tail3.quaternion.setFromEuler(_e.set(droop * 0.3, this.tail[1].x * 0.8, 0, 'YXZ'));
 
     // ── head tracks the player; antennae whip; mandibles chatter
-    if (dt > 0 && this.awake && this.alive) {
-      _d.copy(w.playerEye).sub(p);
+    if (dt > 0 && (this.awake || this.isActor) && this.alive) {
+      _d.copy(this.lookPt ?? w.playerEye).sub(p);
       const lx = _d.dot(Lv), lz = _d.dot(F), ly = _d.dot(N) - this.bodyY;
-      const tracking = this.state !== 'idle';
+      const tracking = this.isActor ? this.lookPt !== null : this.state !== 'idle';
       const wy = tracking ? THREE.MathUtils.clamp(Math.atan2(lx, lz), -1.1, 1.1) : Math.sin(t * 0.7 + this.seed) * 0.5;
       const wp = tracking ? THREE.MathUtils.clamp(-Math.atan2(ly, Math.hypot(lx, lz)), -0.8, 0.4) - this.pitch : 0.1;
       spring(this.headYaw, wy, 5, 0.42, dt);
@@ -779,7 +899,11 @@ export class Skitter extends EnemyBase {
         if (w.rand() < dt * 1.2) this.ant[i].v += (w.rand() - 0.5) * 30;
         spring(this.ant[i], tgt, 6, 0.25, dt);
       }
-      const gape = this.mode === 'crouch' || this.mode === 'wcrouch' ? 0.9 : this.mode === 'leap' ? (this.bit ? 0.05 : 1.0) : 0.2 + Math.max(0, noise1(t * 6, this.seed + 9)) * 0.5 * (hdNear(this.dist));
+      if (this.eyeOn) {
+        this.B.eye.scale.setScalar(1 + this.flare * (1.3 + Math.sin(t * 47) * 0.25));
+        if (this.light) this.light.intensityScale = 1 + this.flare * 5;
+      }
+      const gape = this.mode === 'crouch' || this.mode === 'wcrouch' ? 0.25 + 0.75 * Math.max(rear, crouch) : this.mode === 'leap' ? (this.bit ? 0.05 : 1.0) : 0.2 + Math.max(0, noise1(t * 6, this.seed + 9)) * 0.5 * (hdNear(this.dist));
       this.mand = damp(this.mand, gape, this.mode === 'leap' ? 30 : 14, dt);
     } else if (!this.alive && dt > 0) {
       for (let i = 0; i < 4; i++) spring(this.ant[i], 0.9, 3, 0.3, dt);
@@ -807,7 +931,10 @@ export class Skitter extends EnemyBase {
       const l = this.legs[i];
       if (l.gone) continue;
       _m.multiplyMatrices(l.inv, _inv);
-      _t.copy(l.pos).applyMatrix4(_m);
+      _t.copy(l.pos);
+      if (rear > 0.001 && l.index === 0) _t.addScaledVector(N, 0.17 * rear).addScaledVector(F, 0.05 * rear).addScaledVector(Lv, l.side * 0.03 * rear);
+      else if (rec > 0.001) _t.addScaledVector(Lv, l.side * 0.05 * rec);
+      _t.applyMatrix4(_m);
       if (this.curl > 0.001) {
         // curled: tips pulled in under the belly, knees up
         _v2.set(0, -0.05 - 0.035 * Math.sin(i * 2.1), 0.1 + 0.03 * Math.cos(i * 1.7));
@@ -837,6 +964,85 @@ export class Skitter extends EnemyBase {
     out.copy(home);
   }
 
+  // ───────────────────────────────────────────────────────── puppet (EnemyManager.actor)
+
+  private tickPuppet(dt: number): void {
+    const w = this.world, p = this.body.position, v = this.body.velocity, phys = w.ctx.physics;
+    this.speedNow = 0;
+    let falling = false;
+    if (!this.attached && !this.body.onGround && this.pMoving) {
+      // lost the surface mid-crawl: drop
+      phys.moveBody(this.body, dt);
+      falling = !this.body.onGround;
+      if (!falling) { this.bob.v -= 1.6; this.emit('enemy:step'); this.floorFrame(); this.plantAll(); }
+    } else if (this.pMoving) {
+      this.pStuck += dt;
+      if (this.attached) {
+        _v.copy(this.pTarget).sub(p); _v.addScaledVector(this.n, -_v.dot(this.n));
+        const d = _v.length();
+        if (this.pStuck > 1.2) { const prog = this.pLastD - d; this.pStuck = 0; this.pLastD = d; if (prog < 0.1) this.arrive(); }
+        if (d < 0.25) this.arrive();
+        else if (this.pMoving) {
+          const rem = this.headToward(this.pTarget, 7 * dt);
+          const sp = Math.min(this.pSpeed * Math.max(0.3, Math.cos(Math.min(1.4, Math.abs(rem)))), d * 3 + 0.3);
+          this.speedNow = sp;
+          if (!this.crawl(Math.min(sp * dt, d))) { this.detach(this.fwd.x * 0.5, 0, this.fwd.z * 0.5); }
+          else v.copy(this.fwd).multiplyScalar(sp);
+        }
+      } else {
+        const dx = this.pTarget.x - p.x, dz = this.pTarget.z - p.z, d = Math.hypot(dx, dz);
+        if (this.pStuck > 1.2) { const prog = this.pLastD - d; this.pStuck = 0; this.pLastD = d; if (prog < 0.1) this.arrive(); }
+        if (d < 0.2 || (d < 0.5 && v.x * dx + v.z * dz < 0)) this.arrive();
+        else if (this.pMoving) {
+          const rem = this.faceToward(this.pTarget.x, this.pTarget.z, 9 * dt);
+          const sp = Math.min(this.pSpeed * Math.max(0.2, Math.cos(rem)), d * 3 + 0.3);
+          const ry = this.yaw + Math.PI, k = Math.min(1, 12 * dt);
+          v.x += (Math.sin(ry) * sp - v.x) * k; v.z += (Math.cos(ry) * sp - v.z) * k;
+        }
+      }
+    }
+    if (!this.attached && !falling) {
+      if (!this.pMoving) { const k = Math.exp(-10 * dt); v.x *= k; v.z *= k; }
+      v.y = 0;
+      p.x += v.x * dt; p.z += v.z * dt;
+      if (v.x * v.x + v.z * v.z > 1e-4) { const g = this.groundAt(p.x, p.y + 0.5, p.z, 1.2); if (g !== null) p.y = g; }
+      this.floorFrame();
+    } else if (this.attached && !this.pMoving) v.set(0, 0, 0);
+    this.curl = damp(this.curl, this.pTuck, 6, dt);
+    this.air = damp(this.air, falling ? 0.6 : 0, 10, dt);
+    this.pose(dt);
+  }
+
+  private arrive(): void {
+    this.pMoving = false;
+    const d = this.pDone; this.pDone = null;
+    if (d) d();
+  }
+
+  override puppetMove(point: THREE.Vector3, speed: number | undefined, done: () => void): void {
+    if (this.pDone) this.arrive();
+    if (!this.attached) this.attachNearest(this.body.position);
+    this.pTarget.copy(point);
+    this.pSpeed = THREE.MathUtils.clamp(speed ?? (this.attached ? CLIMB_SPEED : SPEED), 0.3, 8);
+    this.pMoving = true; this.pDone = done; this.pStuck = 0; this.pLastD = 1e9;
+    this.pTuck = 0;
+    if (!this.attached) this.body.onGround = true;
+  }
+
+  override puppetPose(pose: string): void {
+    if (pose === 'ceiling') { if (!this.attached) this.attachCeiling(3.5); this.pTuck = 0; return; }
+    this.pTuck = pose === 'idle' ? 0 : 1;
+    if (this.pTuck && this.pMoving) this.arrive();
+  }
+
+  override puppetLook(point: THREE.Vector3 | null): void {
+    if (point) { this.lookBuf.copy(point); this.lookPt = this.lookBuf; } else this.lookPt = null;
+  }
+
+  override puppetEyes(on: boolean): void { this.setEye(on); }
+
+  override puppetStop(): void { if (this.pDone) this.arrive(); this.pMoving = false; }
+
   // ───────────────────────────────────────────────────────── damage
 
   protected hitFx(b: HitBurst): void {
@@ -863,7 +1069,8 @@ export class Skitter extends EnemyBase {
       else if (this.mode === 'climb' || this.mode === 'wcrouch') this.setMode('stagger');
       return;
     }
-    if (this.mode === 'chase' || this.mode === 'look' || this.mode === 'crouch' || this.mode === 'retreat' || this.mode === 'unfold' || this.mode === 'towall') {
+    if (this.mode === 'recover') { this.body.velocity.x += dir.x * 2.5; this.body.velocity.z += dir.z * 2.5; return; }
+    if (this.mode === 'chase' || this.mode === 'look' || this.mode === 'crouch' || this.mode === 'retreat' || this.mode === 'unfold' || this.mode === 'towall' || this.mode === 'hold') {
       this.body.velocity.x += dir.x * 4; this.body.velocity.z += dir.z * 4;
       this.setMode('stagger');
     }
@@ -892,7 +1099,7 @@ export class Skitter extends EnemyBase {
     if (!this.alive) return;
     const w = this.world;
     if (this.attached) this.detach();
-    this.alive = false; this.health = 0; this.awake = true;
+    this.alive = false; this.health = 0; this.awake = true; this.token = false;
     this.body.velocity.x += dir.x * 3; this.body.velocity.z += dir.z * 3; this.body.velocity.y = Math.max(this.body.velocity.y, 2.6);
     this.body.onGround = false;
     this.flipDir = w.rand() < 0.5 ? -1 : 1;

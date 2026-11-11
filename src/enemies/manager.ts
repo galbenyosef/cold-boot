@@ -3,13 +3,20 @@
  * separation between bodies, update LOD, corpse cap.
  */
 import * as THREE from 'three';
-import type { Enemy, EnemyHit, EnemyManager, EnemySpawn, EnemyType, GameContext } from '../core/types';
+import type { Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySpawn, EnemyType, GameContext } from '../core/types';
 import { EnemyBase, type EnemyWorld } from './ai';
 import { NavGraph } from './nav';
 import { raycastVolumes, volumeNormal, type HitVolume, type VolumeHit } from './shared/hit';
 import { syncShellEnv } from './husk/model';
 
-export type EnemyFactory = (world: EnemyWorld, group: string, position: THREE.Vector3, yaw: number, opts: { dormant: boolean; pose?: string; emerge?: boolean; delay?: number }) => EnemyBase;
+export interface FactoryOpts {
+  dormant: boolean; pose?: string; emerge?: boolean; delay?: number;
+  /** Dormant behaviour (EnemySpawn.idle). */
+  idle?: string;
+  /** Build a scripted puppet (EnemyManager.actor) instead of a live machine. */
+  actor?: boolean;
+}
+export type EnemyFactory = (world: EnemyWorld, group: string, position: THREE.Vector3, yaw: number, opts: FactoryOpts) => EnemyBase;
 
 const MAX_CORPSES = 12;
 const HISTORY = 64;
@@ -24,6 +31,8 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
   const all: EnemyBase[] = [];
   const corpses: EnemyBase[] = [];
   const pending: EnemySpawn[] = [];
+  /** Scripted puppets (not in `all`: never hit, never counted). */
+  const actors: EnemyBase[] = [];
   let seed = 0x9e3779b9;
   const rand = () => {
     seed = (seed + 0x6d2b79f5) >>> 0;
@@ -52,6 +61,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     },
     rand,
     forceLod: -1,
+    whisperUntil: 0,
     onDeath(e) {
       ctx.events.emit('enemy:died', { id: e.id, type: e.type, position: e.position, group: e.group });
       corpses.push(e);
@@ -67,7 +77,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     },
   };
 
-  function create(type: EnemyType, position: THREE.Vector3, yaw: number, group: string, opts: { dormant: boolean; pose?: string; emerge?: boolean; delay?: number }): EnemyBase {
+  function create(type: EnemyType, position: THREE.Vector3, yaw: number, group: string, opts: FactoryOpts): EnemyBase {
     const f = factories[type] ?? factories.husk;
     const e = f(world, group, position, yaw, opts);
     all.push(e);
@@ -82,7 +92,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
 
   if (!ctx.debug.noEnemies) {
     for (const s of ctx.level.enemySpawns ?? []) {
-      if (s.mode === 'dormant') create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose });
+      if (s.mode === 'dormant') create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle });
       else pending.push(s);
     }
   }
@@ -103,30 +113,31 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     return o;
   };
   const camPos = new THREE.Vector3();
+  const cullOne = (e: EnemyBase) => {
+    const o = e.object;
+    const d = o.position.distanceTo(camPos);
+    const inert = !e.awake || e.settled;
+    let show = !e.holdHidden && d < (inert ? INERT_CULL : AWAKE_CULL);
+    if (show && (inert || e.isActor)) {
+      // dormant / settled machines do not move: cache which room they are in (puppets: refresh at ~4 Hz)
+      if (e.roomTagAt < 0 || (e.settled && e.roomTagAt < e.diedAt + 0.01) || (e.isActor && world.time - e.roomTagAt > 0.25)) {
+        const r = ctx.level?.roomAt?.(e.position);
+        e.roomTag = r ? roomTag(r.id) : e.isActor ? e.roomTag : null;
+        e.roomTagAt = world.time;
+      }
+      if (e.roomTag && !e.roomTag.visible) show = false;
+    }
+    if (o.visible !== show) o.visible = show;
+    const rig = e.lodRig;
+    if (!rig || !show) return;
+    if (world.forceLod >= 0) rig.setLod(world.forceLod);
+    else if (rig.lod === 0 && d > LOD_FAR) rig.setLod(1);
+    else if (rig.lod === 1 && d < LOD_NEAR) rig.setLod(0);
+  };
   const visibility = () => {
     camPos.setFromMatrixPosition(ctx.camera.matrixWorld);
-    for (let i = 0; i < all.length; i++) {
-      const e = all[i];
-      const o = e.object;
-      const d = o.position.distanceTo(camPos);
-      const inert = !e.awake || e.settled;
-      let show = !e.holdHidden && d < (inert ? INERT_CULL : AWAKE_CULL);
-      if (show && inert) {
-        // dormant / settled machines do not move: cache which room they are in
-        if (e.roomTagAt < 0 || (e.settled && e.roomTagAt < e.diedAt + 0.01)) {
-          const r = ctx.level?.roomAt?.(e.position);
-          e.roomTag = r ? roomTag(r.id) : null;
-          e.roomTagAt = world.time;
-        }
-        if (e.roomTag && !e.roomTag.visible) show = false;
-      }
-      if (o.visible !== show) o.visible = show;
-      const rig = e.lodRig;
-      if (!rig || !show) continue;
-      if (world.forceLod >= 0) rig.setLod(world.forceLod);
-      else if (rig.lod === 0 && d > LOD_FAR) rig.setLod(1);
-      else if (rig.lod === 1 && d < LOD_NEAR) rig.setLod(0);
-    }
+    for (let i = 0; i < all.length; i++) cullOne(all[i]);
+    for (let i = 0; i < actors.length; i++) cullOne(actors[i]);
   };
 
   // ── wreck collision: a low box over each corpse, unless it would plug a doorway or trap the player
@@ -162,8 +173,8 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
   const _c = new THREE.Vector3(), _oc = new THREE.Vector3();
   let frame = 0;
 
-  const manager: EnemyManager & { world: EnemyWorld } = {
-    world,
+  const manager: EnemyManager & { world: EnemyWorld; actors: EnemyBase[] } = {
+    world, actors,
     all: all as readonly Enemy[],
     get activeCount() {
       let n = 0;
@@ -236,6 +247,31 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       }
     },
     aliveInGroup,
+    actor(type, position, yaw = 0, pose) {
+      const e = (factories[type] ?? factories.husk)(world, '', position, yaw, { dormant: false, pose, actor: true });
+      actors.push(e);
+      let removed = false;
+      const handle: EnemyActor = {
+        object: e.object,
+        get position() { return e.position; },
+        moveTo(point, speed) {
+          if (removed) return Promise.resolve();
+          return new Promise<void>((resolve) => e.puppetMove(point, speed, resolve));
+        },
+        setPose(p) { if (!removed) e.puppetPose(p); },
+        lookAt(p) { if (!removed) e.puppetLook(p); },
+        setEyes(on) { if (!removed) e.puppetEyes(on); },
+        remove() {
+          if (removed) return;
+          removed = true;
+          e.puppetStop();
+          const i = actors.indexOf(e);
+          if (i >= 0) actors.splice(i, 1);
+          e.dispose();
+        },
+      };
+      return handle;
+    },
     update(dt) {
       if (dt <= 0) return;
       world.time += dt;
@@ -255,6 +291,13 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         e.lodAcc += dt;
         // far-away machines tick at half rate
         if (e.dist > 28 && e.awake && ((frame + e.id) & 1) === 0) continue;
+        e.update(Math.min(e.lodAcc, 0.1));
+        e.lodAcc = 0;
+      }
+      for (let i = 0; i < actors.length; i++) {
+        const e = actors[i];
+        e.lodAcc += dt;
+        if (!e.object.visible && ((frame + e.id) & 3) !== 0) continue; // hidden puppets tick at quarter rate
         e.update(Math.min(e.lodAcc, 0.1));
         e.lodAcc = 0;
       }

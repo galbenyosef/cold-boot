@@ -123,6 +123,7 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   b.bone('p_cranium', 'head', 0, 1.76, -0.03);
   b.bone('eye', 'head', 0.035, 1.712, 0.07); // scaled to 0 while dormant (sensor glow)
   b.bone('led', 'spine2', 0, 1.36, 0.1);      // status LEDs glow
+  b.bone('eye2', 'head', -0.03, 1.712, 0.07); // the faint second sensor (ignites separately)
   // left hand fingers
   b.bone('fing_l', 'hand_l', K.shoulderX, 0.79, 0.0);
   b.bone('fing2_l', 'fing_l', K.shoulderX, 0.75, 0.0);
@@ -353,7 +354,7 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   lens(50, SV - 0.045, 0.02, 0.007, 0.02, 'joint', 'head');
   lens(50, SV - 0.045, 0.012, 0.0038, 0, 'cyan', 'eye', 0.5);
   // faint second sensor glowing through the intact end of the glass
-  lens(-27, SV, 0.0052, 0.0045, 0, 'red', 'eye', 0.3);
+  lens(-27, SV, 0.0052, 0.0045, 0, 'red', 'eye2', 0.3);
   b.bind('head');
   // face plate: breakable. Visor slot; the glass is smashed at its left end, cracks run over brow and cheek.
   b.bind('p_face').mat('shell');

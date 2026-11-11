@@ -5,12 +5,13 @@
 import * as THREE from 'three';
 import type { LightHandle } from '../../core/types';
 import { EnemyBase, type EnemyWorld, type HitBurst } from '../ai';
+import type { FactoryOpts } from '../manager';
 import { hv, type HitVolume } from '../shared/hit';
 import { angleDiff, damp, noise1, smooth, spring, type Spring } from '../shared/ik';
 import type { Rig } from '../shared/rig';
 import { SN, type SentryTemplate } from './model';
 
-type Mode = 'dormant' | 'boot' | 'idle' | 'hunt' | 'charge' | 'burst' | 'stagger' | 'dying' | 'dead';
+type Mode = 'puppet' | 'dormant' | 'boot' | 'idle' | 'hunt' | 'charge' | 'burst' | 'stagger' | 'dying' | 'dead';
 
 const HP = 60, DMG = 10, HOVER = 2.2, RADIUS = 0.42;
 const CHARGE = 0.9, PULSE_GAP = 0.15, AIM_LAG = 0.24;
@@ -45,9 +46,16 @@ export class Sentry extends EnemyBase {
   private dockY = 0;
   private lastVel = new THREE.Vector3();
   private clamp = 0;
+  // puppet (EnemyManager.actor)
+  private pTarget = new THREE.Vector3();
+  private pMoving = false; private pSpeed = 2.5; private pDone: (() => void) | null = null;
+  private pDock = false; private pStuck = 0; private pLastD = 1e9;
+  private lookPt: THREE.Vector3 | null = null;
+  private readonly lookBuf = new THREE.Vector3();
 
-  constructor(world: EnemyWorld, private tpl: SentryTemplate, group: string, position: THREE.Vector3, yaw: number, o: { dormant: boolean; emerge?: boolean; delay?: number }) {
+  constructor(world: EnemyWorld, private tpl: SentryTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, RADIUS, 0.5);
+    this.isActor = !!o.actor;
     this.health = HP;
     this.eyeHeight = 0;
     this.boundCenterY = 0; this.boundRadius = 0.6;
@@ -75,7 +83,19 @@ export class Sentry extends EnemyBase {
     for (const m of [this.beam, this.bolt]) { m.visible = false; m.frustumCulled = false; m.renderOrder = 5; world.ctx.scene.add(m); }
 
     const p = this.body.position;
-    if (o.dormant) {
+    if (this.isActor) {
+      this.mode = 'puppet'; this.state = 'idle';
+      if (o.pose === 'ceiling') {
+        this.pDock = true;
+        this.findDock();
+        p.y = this.dockY; this.clamp = 1;
+        this.setLit(false);
+      } else {
+        if (p.y - (this.groundBelow() ?? p.y) < 0.8) p.y += HOVER;
+        this.fanSpeed = 60;
+        this.setLit(true);
+      }
+    } else if (o.dormant) {
       // dock to the first ceiling above the spawn point
       _v.set(p.x, p.y + 0.3, p.z);
       const hit = world.ctx.physics.raycast(_v, UP, 14);
@@ -101,6 +121,13 @@ export class Sentry extends EnemyBase {
     this.lightTarget.set(p.x, p.y - 2, p.z);
     this.pose(0);
     this.emit('enemy:spawned');
+  }
+
+  private findDock(): void {
+    const p = this.body.position;
+    _v.set(p.x, p.y + 0.3, p.z);
+    const hit = this.world.ctx.physics.raycast(_v, UP, 14);
+    this.dockY = hit ? hit.point.y - 0.215 : p.y + 0.5;
   }
 
   private groundBelow(): number | null {
@@ -142,7 +169,7 @@ export class Sentry extends EnemyBase {
 
   private setMode(m: Mode): void {
     this.mode = m; this.modeTime = 0;
-    this.setState(m === 'dormant' ? 'dormant' : m === 'idle' ? 'idle' : m === 'boot' ? 'alert' : m === 'hunt' ? 'chase'
+    this.setState(m === 'dormant' ? 'dormant' : m === 'idle' || m === 'puppet' ? 'idle' : m === 'boot' ? 'alert' : m === 'hunt' ? 'chase'
       : m === 'charge' || m === 'burst' ? 'attack' : m === 'stagger' ? 'stagger' : 'dead');
   }
 
@@ -163,6 +190,7 @@ export class Sentry extends EnemyBase {
     this.stateTime += dt; this.modeTime += dt;
     const w = this.world, p = this.body.position, v = this.body.velocity, phys = w.ctx.physics;
     if (this.mode === 'dead') return;
+    if (this.mode === 'puppet') { this.tickPuppet(dt); return; }
     if (this.mode === 'dormant') {
       if (this.wakeDelay >= 0) { this.wakeDelay -= dt; if (this.wakeDelay <= 0) this.beginBoot(true); }
       return;
@@ -404,6 +432,89 @@ export class Sentry extends EnemyBase {
       }
     } catch { if (hitPlayer) { try { w.ctx.player.damage(DMG, this.body.position); } catch { /* */ } } }
   }
+
+  // ───────────────────────────────────────────────────────── puppet (EnemyManager.actor)
+
+  private tickPuppet(dt: number): void {
+    const w = this.world, p = this.body.position, v = this.body.velocity, t = w.time;
+    let ax = 0, ay = 0, az = 0;
+    if (this.pDock) {
+      // docked under the ceiling: clamps closed, fans spun down
+      if (!this.pMoving) {
+        this.clamp = damp(this.clamp, Math.abs(p.y - this.dockY) < 0.06 ? 1 : 0, 5, dt);
+        ay += (this.dockY - p.y) * 6 - v.y * 4; ax -= v.x * 3; az -= v.z * 3;
+      }
+      this.fanSpeed = damp(this.fanSpeed, this.clamp > 0.9 ? 0 : 60, 2, dt);
+    } else {
+      this.clamp = damp(this.clamp, 0, 6, dt);
+      this.fanSpeed = damp(this.fanSpeed, this.pMoving ? 80 : 60, 3, dt);
+    }
+    if (this.pMoving) {
+      _v.copy(this.pTarget).sub(p);
+      const d = _v.length();
+      this.pStuck += dt;
+      if (this.pStuck > 1.5) { const prog = this.pLastD - d; this.pStuck = 0; this.pLastD = d; if (prog < 0.1) this.arrive(); }
+      if (d < 0.2) this.arrive();
+      else if (this.pMoving) {
+        const want = Math.min(this.pSpeed, d * 1.4 + 0.1);
+        ax += ((_v.x / d) * want - v.x) * 2.6; ay += ((_v.y / d) * want - v.y) * 2.6; az += ((_v.z / d) * want - v.z) * 2.6;
+      }
+      this.hoverY = p.y;
+    } else if (!this.pDock) {
+      ay += (this.hoverY - p.y) * 5 - v.y * 3.5; ax -= v.x * 2; az -= v.z * 2;
+    }
+    if (this.clamp < 0.5) { ay += Math.sin(t * 1.9 + this.seed) * 0.9; ax += noise1(t * 0.6, this.seed) * 0.6; az += noise1(t * 0.6, this.seed + 4) * 0.6; }
+    v.x += ax * dt; v.y += ay * dt; v.z += az * dt;
+    p.addScaledVector(v, dt);
+    _v.copy(p);
+    if (w.ctx.physics.resolveSphere(_v, RADIUS)) p.copy(_v);
+    const ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    const lax = ax * c - az * s, laz = ax * s + az * c;
+    spring(this.bank, THREE.MathUtils.clamp(-lax * 0.035, -0.32, 0.32), 1.8, 0.6, dt);
+    spring(this.tilt, THREE.MathUtils.clamp(laz * 0.035, -0.28, 0.28), 1.8, 0.6, dt);
+    spring(this.wob, 0, 3, 0.3, dt);
+    if (this.lookPt) {
+      this.faceToward(this.lookPt.x, this.lookPt.z, 2.5 * dt);
+      this.lightTarget.lerp(this.lookPt, 1 - Math.exp(-6 * dt));
+    } else {
+      if (Math.hypot(v.x, v.z) > 0.6) this.faceToward(p.x + v.x, p.z + v.z, 2.5 * dt);
+      _v.set(p.x + Math.sin(ry) * 3, p.y - 1.6, p.z + Math.cos(ry) * 3);
+      this.lightTarget.lerp(_v, 1 - Math.exp(-2 * dt));
+    }
+    this.pose(dt);
+  }
+
+  private arrive(): void {
+    this.pMoving = false;
+    const d = this.pDone; this.pDone = null;
+    if (d) d();
+  }
+
+  override puppetMove(point: THREE.Vector3, speed: number | undefined, done: () => void): void {
+    if (this.pDone) this.arrive();
+    this.pTarget.copy(point);
+    this.pSpeed = THREE.MathUtils.clamp(speed ?? 2.5, 0.3, 6);
+    this.pMoving = true; this.pDone = done; this.pStuck = 0; this.pLastD = 1e9;
+    this.pDock = false;
+  }
+
+  override puppetPose(pose: string): void {
+    if (this.pMoving) this.arrive();
+    if (pose === 'ceiling') { this.pDock = true; this.findDock(); }
+    else if (this.pDock) {
+      this.pDock = false;
+      const g = this.groundBelow();
+      this.hoverY = Math.max(this.body.position.y - 0.9, (g ?? this.body.position.y - HOVER) + 1.2);
+    }
+  }
+
+  override puppetLook(point: THREE.Vector3 | null): void {
+    if (point) { this.lookBuf.copy(point); this.lookPt = this.lookBuf; } else this.lookPt = null;
+  }
+
+  override puppetEyes(on: boolean): void { this.setLit(on); }
+
+  override puppetStop(): void { if (this.pDone) this.arrive(); this.pMoving = false; }
 
   // ───────────────────────────────────────────────────────── damage
 

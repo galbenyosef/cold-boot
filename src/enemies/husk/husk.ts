@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import type { LightHandle } from '../../core/types';
 import { EnemyBase, type EnemyWorld, type HitBurst } from '../ai';
+import type { FactoryOpts } from '../manager';
 import { hv, type HitVolume } from '../shared/hit';
 import { angleDiff, damp, noise1, smooth, solveLimb, spring, type Spring } from '../shared/ik';
 import { Piston } from '../shared/piston';
@@ -12,7 +13,7 @@ import type { Rig } from '../shared/rig';
 import { HUSK_DIM as K, type HuskTemplate } from './model';
 import { applySpec, HUSK_POSES } from './poses';
 
-type Mode = 'dormant' | 'wake' | 'idle' | 'react' | 'chase' | 'windup' | 'strike' | 'recover' | 'stagger' | 'flail'
+type Mode = 'puppet' | 'dormant' | 'wake' | 'idle' | 'react' | 'chase' | 'windup' | 'strike' | 'recover' | 'stagger' | 'flail'
   | 'topple' | 'crawl' | 'cwindup' | 'cstrike' | 'crecover' | 'writhe' | 'dying' | 'dead';
 
 /** One hand of the legless crawl: planted in world space, swung forward when it falls behind. */
@@ -32,6 +33,16 @@ interface Foot {
 }
 
 const WALK = 1.3, RUN = 4.0, MELEE = 18, HP = 90;
+/** Tutorial machine (group g_junction): walk only, longer telegraph, lighter blow. */
+const GENTLE_GROUP = 'g_junction', GENTLE_MELEE = 12, WINDUP = 0.5, GENTLE_WINDUP = 0.7, GENTLE_RECOVER = 0.85;
+/** Dormant 'watch': head tracking rates (rad/s) — creeping, frozen when stared at from close, catching up unseen. */
+const WATCH_CREEP = 4 * Math.PI / 180, WATCH_CATCHUP = 38 * Math.PI / 180, WATCH_STARE = 5, WATCH_MAX = 1.45;
+/** Dormant 'work': freeze within / resume beyond (m). */
+const WORK_FREEZE = 6, WORK_RESUME = 9;
+/** Mutter: range, per-husk interval, assumed clip length. */
+const WHISPER_RANGE = 8, WHISPER_MIN = 12, WHISPER_RAND = 13, WHISPER_LEN = 3.2;
+const D2R = Math.PI / 180;
+const _qi = new THREE.Quaternion();
 /** Raw damage a leg takes before it snaps at the knee; crawler grab damage. */
 const LEG_BREAK = 42, CRAWL_MELEE = 9, CRAWL_SPEED = 0.8;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _pole = new THREE.Vector3();
@@ -43,6 +54,8 @@ const _S = new THREE.Vector3(), _T = new THREE.Vector3(), _dn = new THREE.Vector
 const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _fw = new THREE.Vector3(), _lf = new THREE.Vector3();
 const _mb = new THREE.Matrix4();
 const EYE_KEYS = ['glow'];
+/** Dormant pose / puppet pose name → key pose. */
+const POSE_KEY: Record<string, string> = { slumped: 'slumped', rack: 'hang', standing: 'bent', ceiling: 'bent', tucked: 'slumped', under: 'slumped' };
 const keyCache = new WeakMap<HuskTemplate, Map<string, Float32Array>>();
 
 export class Husk extends EnemyBase {
@@ -101,9 +114,36 @@ export class Husk extends EnemyBase {
   private crawlAtk = 0;     // 0 rest → 1 raised → 2 slammed
   private crawlBob = 0;
   private flat = 0;
+  // revision 2: tutorial flag, dormant behaviours, mutter, puppet
+  private readonly gentle: boolean;
+  private readonly idleKind: 'still' | 'watch' | 'work' | 'twitch';
+  private watchYaw = 0; private watchRate = 0; private watchT = 0; private watchDirty = true;
+  private readonly watchTgt = new THREE.Vector3();
+  private myRoom: string | null | undefined = undefined;
+  private roomDoors: THREE.Vector3[] | null = null;
+  private roomBox: THREE.Box3 | null = null;
+  private fingerT = 0; private fingerTimer: number;
+  private twKind = 0; private twT = -1; private twDur = 0;
+  private workT = 0; private workFrozen = false; private workDur: number;
+  private headTurn = 0;
+  private whisperTimer: number;
+  private readonly mouth = new THREE.Vector3();
+  private lookPt: THREE.Vector3 | null = null;
+  private readonly lookBuf = new THREE.Vector3();
+  private pPose = 'idle';
+  private pMoving = false; private pSpeed = WALK; private pDone: (() => void) | null = null;
+  private readonly pTarget = new THREE.Vector3();
+  private pStuck = 0; private pLastD = 0;
 
-  constructor(world: EnemyWorld, private tpl: HuskTemplate, group: string, position: THREE.Vector3, yaw: number, dormant: boolean, pose?: string) {
+  constructor(world: EnemyWorld, private tpl: HuskTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, 0.35, 1.8);
+    this.isActor = !!o.actor;
+    const dormant = o.dormant && !this.isActor, pose = o.pose;
+    this.gentle = group === GENTLE_GROUP;
+    this.idleKind = o.idle === 'watch' || o.idle === 'work' || o.idle === 'twitch' ? o.idle : 'still';
+    this.fingerTimer = 14 + world.rand() * 22;
+    this.workDur = 6 + world.rand() * 2;
+    this.whisperTimer = 3 + world.rand() * 6;
     this.health = HP;
     this.eyeHeight = 1.6;
     this.boundCenterY = 0.9; this.boundRadius = 1.35;
@@ -165,11 +205,24 @@ export class Husk extends EnemyBase {
     this.hands = [mh(), mh()];
 
     this.pose = dormant ? (pose === 'rack' || pose === 'slumped' || pose === 'standing' ? pose : 'standing') : '';
-    if (dormant) {
+    if (this.isActor) {
+      this.mode = 'puppet'; this.state = 'idle';
+      this.pPose = pose && (POSE_KEY[pose] || HUSK_POSES[pose]) ? pose : 'idle';
+      if (this.pPose === 'slumped') this.snapToWall();
+      this.rig.apply(this.keys.get(this.puppetKey())!);
+      this.setEye(false);
+    } else if (dormant) {
       if (this.pose === 'slumped') this.snapToWall();
       this.mode = 'dormant'; this.state = 'dormant';
       this.rig.apply(this.keys.get(this.poseKey())!);
       this.setEye(false);
+      if (this.idleKind === 'work' && this.pose === 'standing') {
+        // working: the sensor is lit, but dim (only the main lens, half size); status LEDs dark
+        this.setEye(true);
+        this.B.eye.scale.setScalar(0.5); this.B.eye2.scale.setScalar(1e-4); this.B.led.scale.setScalar(1e-4);
+        this.workT = world.rand() * this.workDur;
+        this.workPose();
+      }
     } else {
       this.mode = 'idle'; this.state = 'idle';
       this.awake = true;
@@ -195,17 +248,19 @@ export class Husk extends EnemyBase {
   }
 
   private poseKey(): string { return this.pose === 'rack' ? 'hang' : this.pose === 'slumped' ? 'slumped' : 'bent'; }
+  private puppetKey(): string { return POSE_KEY[this.pPose] ?? (HUSK_POSES[this.pPose] ? this.pPose : 'stand'); }
 
   private setEye(on: boolean): void {
     this.eyeOn = on;
     this.B.eye.scale.setScalar(on ? 1 : 1e-4);
+    this.B.eye2.scale.setScalar(on ? 1 : 1e-4);
     this.B.led.scale.setScalar(on ? 1 : 1e-4);
     this.rig.setKeysVisible(EYE_KEYS, on);
   }
 
   private setMode(m: Mode): void {
     this.mode = m; this.modeTime = 0; this.phase = 0;
-    this.setState(m === 'dormant' ? 'dormant' : m === 'idle' ? 'idle' : m === 'wake' || m === 'react' ? 'alert' : m === 'chase' ? 'chase'
+    this.setState(m === 'dormant' ? 'dormant' : m === 'idle' || m === 'puppet' ? 'idle' : m === 'wake' || m === 'react' ? 'alert' : m === 'chase' ? 'chase'
       : m === 'windup' || m === 'strike' || m === 'recover' || m === 'cwindup' || m === 'cstrike' || m === 'crecover' ? 'attack'
       : m === 'crawl' || m === 'writhe' ? 'chase'
       : m === 'stagger' || m === 'flail' || m === 'topple' ? 'stagger' : 'dead');
@@ -239,12 +294,18 @@ export class Husk extends EnemyBase {
     this.setMode('wake');
     this.eyeFlicker = 0.45;
     this.setEye(true);
-    this.rage = 4;
+    if (this.gentle && this.pose === 'slumped') {
+      // the tutorial machine lights its sensors one at a time (see tickWake)
+      this.eyeFlicker = 0;
+      this.B.eye.scale.setScalar(1e-4); this.B.eye2.scale.setScalar(1e-4); this.B.led.scale.setScalar(1e-4);
+    }
+    this.rage = this.gentle ? 0 : 4;
     this.startLoop('husk_loop', 0.8);
     this.world.ctx.events.emit('enemy:woke', { id: this.id, type: this.type, position: this.body.position });
     if (!this.light) {
       try {
         this.light = this.world.ctx.render.lights.add({ type: 'point', position: new THREE.Vector3().copy(this.body.position).setY(this.body.position.y + 1.6), color: 0xff2412, intensity: 0.5, distance: 2.6, priority: 0.2 });
+        if (this.gentle && this.pose === 'slumped') this.light.intensityScale = 0;
       } catch { this.light = null; }
     }
   }
@@ -266,6 +327,7 @@ export class Husk extends EnemyBase {
 
   update(dt: number): void {
     this.stateTime += dt; this.modeTime += dt;
+    if (this.mode === 'puppet') { this.tickPuppet(dt); return; }
     if (this.mode === 'dormant') {
       if (this.wakeDelay >= 0) {
         this.wakeDelay -= dt;
@@ -304,9 +366,27 @@ export class Husk extends EnemyBase {
     }
     this.finishPose(dt);
     this.tickLoop(dt);
+    this.tickWhisper(dt);
+  }
+
+  /** Broken polite-phrase mutter: awake, near, not attacking; one husk at a time across the level. */
+  private tickWhisper(dt: number): void {
+    if (!this.alive || this.headGone) return;
+    this.whisperTimer -= dt;
+    if (this.whisperTimer > 0) return;
+    const w = this.world, m = this.mode;
+    const busy = m === 'windup' || m === 'strike' || m === 'recover' || m === 'cwindup' || m === 'cstrike' || m === 'crecover' || m === 'wake' || m === 'dying' || m === 'dead';
+    if (busy || this.dist > WHISPER_RANGE || !w.playerAlive || w.time < w.whisperUntil) { this.whisperTimer = 0.8 + w.rand() * 1.2; return; }
+    this.whisperTimer = WHISPER_MIN + w.rand() * WHISPER_RAND;
+    w.whisperUntil = w.time + WHISPER_LEN;
+    this.mouth.setFromMatrixPosition(this.B.head.matrixWorld);
+    try { w.ctx.audio.play('husk_whisper', { position: this.mouth }); } catch { /* audio optional */ }
   }
 
   private dormantTick(dt: number): void {
+    if (this.idleKind === 'watch') { this.watchTick(dt); return; }
+    if (this.idleKind === 'work' && this.pose === 'standing') { this.workTick(dt); return; }
+    if (this.idleKind === 'twitch') { this.spasmTick(dt); return; }
     // inert prop; very rarely a servo twitches
     this.dormantTwitch -= dt;
     if (this.twitching > 0) {
@@ -333,10 +413,13 @@ export class Husk extends EnemyBase {
   private tickWake(dt: number): void {
     const t = this.modeTime * this.wakeRate, w = this.world, keys = this.keys;
     const face = () => this.faceToward(w.playerPos.x, w.playerPos.z, 2.2 * dt);
-    if (this.pose === 'slumped') {
+    if (this.pose === 'slumped' && this.gentle) {
+      this.tickGentleWake(dt, t);
+    } else if (this.pose === 'slumped') {
       // eyes ignite → head lifts → pushes up onto a knee → stands
       if (t < 0.75) {
         this.rig.apply(keys.get('slumped')!);
+        this.applyWatchHead();
         this.lookW = smooth((t - 0.22) / 0.3);
       } else if (t < 1.55) {
         if (this.phase === 0) { this.phase = 1; this.startBlend(0.75 / this.wakeRate); }
@@ -375,6 +458,26 @@ export class Husk extends EnemyBase {
         this.locomote(dt);
         if (this.modeTime > 0.8) this.finishWake();
       }
+    } else if (this.idleKind === 'work') {
+      // interrupted at the bench: straightens while the head swivels round (up to 180°) to the player, then the
+      // body turns after it
+      const want = this.rigYawTo(w.playerPos);
+      if (t < 1.0) {
+        if (this.phase === 0) { this.phase = 1; this.startBlend(0.8 / this.wakeRate); }
+        this.rig.apply(keys.get('stand')!);
+        this.headTurn = want * smooth((t - 0.1) / 0.65);
+        this.lookW = 0;
+      } else {
+        if (this.phase === 1) { this.phase = 2; this.startBlend(0.3 / this.wakeRate); this.resetFeet(); }
+        const k = smooth((t - 1.0) / 0.75);
+        this.B.neck.quaternion.identity(); this.B.head.quaternion.identity();
+        face();
+        this.moveGround(dt, 0, 0, 0, 10);
+        this.locomote(dt);
+        this.headTurn = this.rigYawTo(w.playerPos) * (1 - k);
+        this.lookW = k;
+        if (t > 1.95) { this.headTurn = 0; this.finishWake(); }
+      }
     } else {
       // 'standing' (bent over a task): head turns first, then the body unfolds
       if (t < 0.6) {
@@ -390,6 +493,291 @@ export class Husk extends EnemyBase {
     }
   }
 
+  /**
+   * Tutorial wake (g_junction), ≈3.5 s: fingers flex → head lifts → sensors ignite one at a time → pushes itself
+   * up the wall onto a knee → stands.
+   */
+  private tickGentleWake(dt: number, t: number): void {
+    const w = this.world, keys = this.keys, B = this.B;
+    if (t < 2.0) {
+      this.rig.apply(keys.get('slumped')!);
+      this.applyWatchHead();
+      // fingers scrape the floor twice, the tool hand turns over
+      const f = t < 1.15 ? Math.max(0, Math.sin(t * Math.PI * 1.9)) * smooth(t / 0.15) : 0;
+      B.fing_l.quaternion.multiply(_q.setFromAxisAngle(X, -0.9 * f));
+      B.fing2_l.quaternion.multiply(_q.setFromAxisAngle(X, -0.8 * f));
+      B.hand_r.quaternion.multiply(_q.setFromAxisAngle(Y, 0.5 * smooth((t - 0.4) / 0.5) * (1 - smooth((t - 1.3) / 0.5))));
+      this.lookW = smooth((t - 0.85) / 0.95) * 0.9;
+      if (t > 1.2 && this.B.eye.scale.x < 0.5 && this.eyeFlicker <= 0) { this.eyeFlicker = 0.4; this.B.eye.scale.setScalar(1); }
+      if (t > 1.65) this.B.eye2.scale.setScalar(1);
+      if (t > 1.9) this.B.led.scale.setScalar(1);
+      if (this.light) this.light.intensityScale = smooth((t - 1.2) / 0.6);
+    } else if (t < 2.85) {
+      if (this.phase === 0) { this.phase = 1; this.startBlend(0.85 / this.wakeRate); this.emit('enemy:step'); }
+      this.rig.apply(keys.get('kneel')!);
+      this.lookW = 1;
+      if (this.light) this.light.intensityScale = 1;
+    } else {
+      if (this.phase === 1) { this.phase = 2; this.startBlend(0.75 / this.wakeRate); this.resetFeet(); this.emit('enemy:step'); }
+      this.faceToward(w.playerPos.x, w.playerPos.z, 1.8 * dt);
+      this.moveGround(dt, 0, 0, 0, 10);
+      this.locomote(dt);
+      if (t > 3.55) this.finishWake();
+    }
+  }
+
+  /** Rig-space yaw (full ±π) from the body's facing to a world point. */
+  private rigYawTo(pt: THREE.Vector3): number {
+    const p = this.body.position, ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    const dx = pt.x - p.x, dz = pt.z - p.z;
+    return Math.atan2(dx * c - dz * s, dx * s + dz * c);
+  }
+
+  /** The slumped watcher's head offset (on top of a freshly applied key pose). */
+  private applyWatchHead(): void {
+    const y = this.watchYaw;
+    if (Math.abs(y) < 1e-5) return;
+    const B = this.B;
+    B.neck.quaternion.premultiply(_q.setFromAxisAngle(Y, y * 0.45));
+    B.head.quaternion.premultiply(_q.setFromAxisAngle(Y, y * 0.55));
+    // turning far round lifts the chin a little
+    B.head.quaternion.multiply(_q.setFromAxisAngle(X, -Math.abs(y) * 0.12));
+  }
+
+  /** Room id + doorway positions of the room this machine sits in (once). */
+  private initRoom(): void {
+    const lvl = this.world.ctx.level;
+    const r = lvl?.roomAt?.(this.body.position) ?? null;
+    this.myRoom = r ? r.id : null;
+    this.roomDoors = [];
+    if (!r) return;
+    this.roomBox = r.bounds.clone();
+    const box = r.bounds.clone().expandByScalar(0.8);
+    for (const d of lvl.doors ?? []) {
+      _v.copy(d.position); _v.y = THREE.MathUtils.clamp(_v.y, r.bounds.min.y + 0.1, r.bounds.max.y - 0.1);
+      if (box.containsPoint(_v)) this.roomDoors.push(d.position.clone());
+    }
+  }
+
+  /**
+   * Dormant 'watch': slumped, head down, the head creeps after the player a few degrees a second in small servo
+   * ticks; holds dead still while the player stares at it from close; catches up (fast) whenever unobserved;
+   * while the player is out of the room it turns toward the doorway nearest to them. Eyes stay off.
+   */
+  private watchTick(dt: number): void {
+    const w = this.world, p = this.body.position, ctx = w.ctx, B = this.B;
+    this.watchT -= dt;
+    if (this.watchT <= 0) {
+      this.watchT = 0.2 + w.rand() * 0.05;
+      if (this.myRoom === undefined) this.initRoom();
+      const pr = this.myRoom ? ctx.level?.roomAt?.(w.playerPos) : null;
+      const inRoom = !this.myRoom || (pr !== null && pr !== undefined && pr.id === this.myRoom);
+      const doors = this.roomDoors, box = this.roomBox;
+      if (inRoom || !box) this.watchTgt.copy(w.playerEye);
+      else {
+        // the way they will come back in: the point of this room's outline nearest to them, snapped to a doorway
+        // when one is close (open archways have no door object — the outline point covers those)
+        box.clampPoint(w.playerPos, this.watchTgt);
+        let bd = 2.5 * 2.5;
+        if (doors) for (let i = 0; i < doors.length; i++) {
+          const dx = doors[i].x - this.watchTgt.x, dz = doors[i].z - this.watchTgt.z, d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; this.watchTgt.copy(doors[i]); }
+        }
+        this.watchTgt.y = p.y + 1.6;
+      }
+      // is the player looking at it?
+      _v.setFromMatrixPosition(B.head.matrixWorld);
+      _v2.copy(_v).sub(w.playerEye);
+      const d = _v2.length();
+      const f = ctx.player?.forward;
+      const dot = f && d > 1e-3 ? f.dot(_v2) / d : -1;
+      const seen = inRoom && w.playerAlive && dot > 0.8 && ctx.physics.lineOfSight(w.playerEye, _v);
+      const stared = seen && d < WATCH_STARE && dot > 0.96;
+      this.watchRate = stared ? 0 : seen ? WATCH_CREEP : WATCH_CATCHUP;
+    }
+    const want = THREE.MathUtils.clamp(this.rigYawTo(this.watchTgt), -WATCH_MAX, WATCH_MAX);
+    const err = want - this.watchYaw;
+    let step = 0;
+    if (this.watchRate >= WATCH_CATCHUP) step = Math.sign(err) * Math.min(Math.abs(err), this.watchRate * dt * Math.min(1, Math.abs(err) * 3 + 0.2));
+    else if (this.watchRate > 0) {
+      // creeping: discrete servo ticks (~0.7° each) rather than a glide
+      this.workT += this.watchRate * dt;
+      if (this.workT >= 0.7 * D2R && Math.abs(err) > 0.5 * D2R) { step = Math.sign(err) * Math.min(Math.abs(err), this.workT); this.workT = 0; }
+    }
+    this.watchYaw += step;
+    // rare finger twitch
+    this.fingerTimer -= dt;
+    if (this.fingerTimer <= 0) { this.fingerTimer = 25 + w.rand() * 30; this.fingerT = 0.5; }
+    let fk = 0;
+    if (this.fingerT > 0) { this.fingerT -= dt; fk = this.fingerT > 0 ? Math.sin(Math.PI * (1 - this.fingerT / 0.5)) : 0; }
+    if (step === 0 && fk === 0 && this.fingerT <= 0 && !this.watchDirty) return;
+    this.watchDirty = this.fingerT > 0;
+    this.rig.apply(this.keys.get('slumped')!);
+    this.applyWatchHead();
+    if (fk > 0) {
+      B.fing_l.quaternion.multiply(_q.setFromAxisAngle(X, -1.0 * fk));
+      B.fing2_l.quaternion.multiply(_q.setFromAxisAngle(X, -0.7 * fk));
+    }
+    this.finishPose();
+  }
+
+  /** Dormant 'work': slow, precise, slightly wrong assembly loop at a bench; freezes while the player is near. */
+  private workTick(dt: number): void {
+    const w = this.world, p = this.body.position;
+    const d = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z, (w.playerPos.y - p.y) * 0.5);
+    if (!this.workFrozen && d < WORK_FREEZE && w.playerAlive) this.workFrozen = true;
+    else if (this.workFrozen && (d > WORK_RESUME || !w.playerAlive)) this.workFrozen = false;
+    if (this.workFrozen) return; // stopped dead, mid-motion
+    this.workT += dt;
+    if (this.workT >= this.workDur) { this.workT -= this.workDur; this.twKind++; }
+    this.workPose();
+    this.finishPose();
+  }
+
+  private workPose(): void {
+    const B = this.B, u = this.workT / this.workDur, cyc = this.twKind;
+    const seg = (a: number, b: number) => smooth((u - a) / (b - a));
+    this.rig.apply(this.keys.get('bent')!);
+    const reach = seg(0, 0.17) * (1 - seg(0.22, 0.34));
+    const place = seg(0.22, 0.34) * (1 - seg(0.62, 0.8));
+    const press = seg(0.4, 0.49) * (1 - seg(0.57, 0.68));
+    // the wrong bit: after every press the tool hand taps again, twice, a little short (a loop that does not end)
+    const tap = u > 0.69 && u < 0.79 ? Math.max(0, Math.sin((u - 0.69) / 0.1 * Math.PI * 4)) * 0.35 : 0;
+    // each cycle the part goes down a few millimetres somewhere else
+    const jit = noise1(cyc * 1.37, this.seed) * 0.5;
+    const dpL = (-40 * reach - 12 * place - jit * 4 * place) * D2R, rollL = (9 * reach - 8 * place) * D2R;
+    B.uarm_l.quaternion.multiply(_q.setFromEuler(_e.set(dpL, 0, rollL)));
+    B.larm_l.quaternion.setFromAxisAngle(X, -(38 - 22 * reach + 14 * place) * D2R);
+    B.hand_l.quaternion.multiply(_q.setFromAxisAngle(X, (-22 * place + 10 * reach) * D2R));
+    const g = place * (1 - seg(0.5, 0.62));
+    B.fing_l.quaternion.multiply(_q.setFromAxisAngle(X, -0.6 * reach + 0.5 * g));
+    const pr = press + tap;
+    B.uarm_r.quaternion.multiply(_q.setFromEuler(_e.set(7 * pr * D2R, 0, 0)));
+    B.larm_r.quaternion.setFromAxisAngle(X, -(62 - 24 * pr) * D2R);
+    // the tool hand screws round while pressing
+    const spin = seg(0.42, 0.6) * Math.PI * 3 + tap * 0.8;
+    B.hand_r.quaternion.multiply(_q.setFromAxisAngle(Y, spin));
+    B.spine1.quaternion.multiply(_q.setFromEuler(_e.set(4 * press * D2R, 7 * reach * D2R, 0)));
+    // head follows the left hand, then the press; in the pause it cocks sideways with a snap
+    const cock = seg(0.81, 0.83) * (1 - seg(0.96, 1.0));
+    B.head.quaternion.multiply(_q.setFromEuler(_e.set((5 * press - 4 * reach) * D2R, (14 * reach - 5 * press) * D2R, 9 * cock * D2R)));
+  }
+
+  /** Dormant 'twitch': rare small spasms (rack: a foot kicks / the head rolls; floor: a hand closes / head jerk). */
+  private spasmTick(dt: number): void {
+    const w = this.world, B = this.B;
+    if (this.twT < 0) {
+      this.dormantTwitch -= dt;
+      if (this.dormantTwitch > 0) return;
+      this.twT = 0;
+      this.twKind = w.rand() < 0.55 ? 0 : 1;
+      this.twDur = this.pose === 'rack' ? (this.twKind === 0 ? 0.8 : 1.7) : (this.twKind === 0 ? 2.2 : 0.6);
+    }
+    this.twT += dt;
+    const u = Math.min(1, this.twT / this.twDur);
+    this.rig.apply(this.keys.get(this.poseKey())!);
+    if (this.pose === 'rack') {
+      if (this.twKind === 0) {
+        const k = u < 0.14 ? smooth(u / 0.14) : 1 - smooth((u - 0.14) / 0.86);
+        const sfx = this.id % 2 === 0 ? 'l' : 'r';
+        B['thigh_' + sfx].quaternion.multiply(_q.setFromAxisAngle(X, -0.75 * k));
+        B['shin_' + sfx].quaternion.multiply(_q.setFromAxisAngle(X, 0.9 * k));
+        B['foot_' + sfx].quaternion.multiply(_q.setFromAxisAngle(X, -0.4 * k));
+      } else {
+        const k = Math.sin(Math.PI * u);
+        B.head.quaternion.multiply(_q.setFromEuler(_e.set(-0.2 * k, 0.15 * k, 0.55 * k)));
+        B.neck.quaternion.multiply(_q.setFromEuler(_e.set(0, 0, 0.2 * k)));
+      }
+    } else if (this.twKind === 0) {
+      const k = u < 0.2 ? smooth(u / 0.2) : u < 0.6 ? 1 : 1 - smooth((u - 0.6) / 0.4);
+      B.fing_l.quaternion.multiply(_q.setFromAxisAngle(X, -1.15 * k));
+      B.fing2_l.quaternion.multiply(_q.setFromAxisAngle(X, -0.9 * k));
+      B.hand_l.quaternion.multiply(_q.setFromAxisAngle(X, 0.25 * k));
+    } else {
+      const k = Math.sin(u * Math.PI * 5) * (1 - u);
+      B.head.quaternion.multiply(_q.setFromEuler(_e.set(0.08 * k, 0.22 * k, 0)));
+    }
+    if (u >= 1) { this.twT = -1; this.dormantTwitch = 8 + w.rand() * 12; this.rig.apply(this.keys.get(this.poseKey())!); }
+    this.finishPose();
+  }
+
+  // ───────────────────────────────────────────────────────── puppet (EnemyManager.actor)
+
+  private tickPuppet(dt: number): void {
+    const w = this.world, p = this.body.position, v = this.body.velocity, B = this.B;
+    const loco = this.pMoving || this.pPose === 'idle';
+    if (this.pMoving) {
+      const dx = this.pTarget.x - p.x, dz = this.pTarget.z - p.z, d = Math.hypot(dx, dz);
+      this.pStuck += dt;
+      if (this.pStuck > 1.5) { const prog = this.pLastD - d; this.pStuck = 0; this.pLastD = d; if (prog < 0.08) { this.arrive(); } }
+      if (this.pMoving && (d < 0.18 || (d < 0.6 && v.x * dx + v.z * dz < 0))) this.arrive();
+      if (this.pMoving) {
+        let speed = this.pSpeed;
+        if (speed < 2.5) {
+          // the walk has the same stiff micro-freezes as the real thing
+          this.hitchTimer -= dt;
+          if (this.hitchTimer <= 0) { this.hitchTimer = 1.8 + w.rand() * 3.5; this.hitch = 0.1 + w.rand() * 0.16; this.headRoll.v += (w.rand() - 0.5) * 16; }
+          if (this.hitch > 0) { this.hitch -= dt; speed = 0; }
+        }
+        const rem = this.faceToward(this.pTarget.x, this.pTarget.z, (speed > 2.5 ? 5.5 : 3.2) * dt);
+        const al = Math.max(0, Math.cos(rem));
+        speed = Math.min(speed * al * al, d * 2.2 + 0.2);
+        const ry = this.yaw + Math.PI, k = Math.min(1, (this.pSpeed > 2.5 ? 9 : 6) * dt);
+        v.x += (Math.sin(ry) * speed - v.x) * k; v.z += (Math.cos(ry) * speed - v.z) * k;
+      }
+    }
+    if (!this.pMoving) { const k = Math.exp(-8 * dt); v.x *= k; v.z *= k; }
+    v.y = 0;
+    if (loco) {
+      p.x += v.x * dt; p.z += v.z * dt;
+      if (v.x * v.x + v.z * v.z > 1e-4) { const g = this.groundAt(p.x, p.y + 0.6, p.z, 1.6); if (g !== null) p.y = g; }
+      if (!this.lookPt) {
+        const k = 1 - Math.exp(-2.5 * dt);
+        B.neck.quaternion.slerp(_qi, k); B.head.quaternion.slerp(_qi, k);
+      }
+      this.locomote(dt);
+    } else {
+      this.rig.apply(this.keys.get(this.puppetKey())!);
+    }
+    this.lookW = damp(this.lookW, this.lookPt ? 1 : 0, 5, dt);
+    this.finishPose(dt);
+  }
+
+  private arrive(): void {
+    this.pMoving = false;
+    const d = this.pDone; this.pDone = null;
+    if (d) d();
+  }
+
+  override puppetMove(point: THREE.Vector3, speed: number | undefined, done: () => void): void {
+    if (this.pDone) this.arrive();
+    this.pTarget.copy(point);
+    this.pSpeed = THREE.MathUtils.clamp(speed ?? WALK, 0.3, RUN);
+    this.pMoving = true; this.pDone = done;
+    this.pStuck = 0; this.pLastD = 1e9;
+    if (this.pPose !== 'idle') { this.startBlend(0.5); this.pPose = 'idle'; this.resetFeet(); this.hipsY = this.B.hips.position.y; }
+  }
+
+  override puppetPose(pose: string): void {
+    const n = pose === 'idle' || POSE_KEY[pose] || HUSK_POSES[pose] ? pose : 'idle';
+    if (this.pMoving && n !== 'idle') this.arrive();
+    if (n === this.pPose) return;
+    this.startBlend(0.5);
+    this.pPose = n;
+    if (n === 'idle') { this.resetFeet(); this.hipsY = this.B.hips.position.y; }
+  }
+
+  override puppetLook(point: THREE.Vector3 | null): void {
+    if (point) { this.lookBuf.copy(point); this.lookPt = this.lookBuf; } else this.lookPt = null;
+  }
+
+  override puppetEyes(on: boolean): void {
+    this.setEye(on);
+    if (on) this.eyeFlicker = 0.3;
+  }
+
+  override puppetStop(): void { if (this.pDone) this.arrive(); this.pMoving = false; }
+
   private finishWake(): void {
     this.pose = '';
     this.thrash = 0;
@@ -404,7 +792,7 @@ export class Husk extends EnemyBase {
     this.navigate(dt);
     const hd = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z);
     // walk → lurching run
-    const wantRun = this.rage > 0 || this.health < HP * 0.6 || (this.dist < 7.5 && this.seesPlayer);
+    const wantRun = !this.gentle && (this.rage > 0 || this.health < HP * 0.6 || (this.dist < 7.5 && this.seesPlayer));
     if (wantRun && !this.running) { this.running = true; this.lurch = 0.24; this.headYaw.v += 14 * (w.rand() - 0.5); this.headRoll.v += 8; }
     else if (!wantRun && this.running && this.dist > 11) this.running = false;
     // stiff micro-freezes while walking
@@ -440,11 +828,12 @@ export class Husk extends EnemyBase {
     const ry = this.yaw + Math.PI;
     this.lookW = 1;
     if (this.mode === 'windup') {
-      this.atkWind = smooth(this.modeTime / 0.38);
+      const wind = this.gentle ? GENTLE_WINDUP : WINDUP;
+      this.atkWind = smooth(this.modeTime / (wind - 0.12));
       this.atkStrike = 0;
       this.faceToward(w.playerPos.x, w.playerPos.z, 2.6 * dt);
       this.moveGround(dt, 0, 0, 0, 12);
-      if (this.modeTime >= 0.5) { this.setMode('strike'); this.body.velocity.x += Math.sin(ry) * 3.2; this.body.velocity.z += Math.cos(ry) * 3.2; }
+      if (this.modeTime >= wind) { this.setMode('strike'); this.body.velocity.x += Math.sin(ry) * 3.2; this.body.velocity.z += Math.cos(ry) * 3.2; }
     } else if (this.mode === 'strike') {
       this.atkStrike = Math.min(1, this.modeTime / 0.11);
       this.moveGround(dt, 0, 0, 0, 5);
@@ -454,7 +843,7 @@ export class Husk extends EnemyBase {
         const hd = Math.hypot(dx, dz);
         const ang = Math.abs(angleDiff(Math.atan2(-dx, -dz), this.yaw));
         if (w.playerAlive && hd < 1.95 && ang < 1.0 && Math.abs(w.playerPos.y - p.y) < 1.5) {
-          w.ctx.player.damage(this.atkArm === 0 ? 10 : MELEE, p);
+          w.ctx.player.damage(this.atkArm === 0 ? 10 : this.gentle ? GENTLE_MELEE : MELEE, p);
         }
       }
       if (this.modeTime >= 0.2) this.setMode('recover');
@@ -462,7 +851,7 @@ export class Husk extends EnemyBase {
       this.atkWind = 1 - smooth(this.modeTime / 0.5);
       this.atkStrike = 1 - smooth(this.modeTime / 0.45);
       this.moveGround(dt, 0, 0, 0, 8);
-      if (this.modeTime >= 0.55) { this.atkWind = 0; this.atkStrike = 0; this.goChase(); }
+      if (this.modeTime >= (this.gentle ? GENTLE_RECOVER : 0.55)) { this.atkWind = 0; this.atkStrike = 0; this.goChase(); }
     }
     this.locomote(dt);
   }
@@ -901,9 +1290,10 @@ export class Husk extends EnemyBase {
       if (this.lookW > 0.001 && !this.headGone) {
         // chest orientation in rig space
         _q.copy(B.hips.quaternion).multiply(B.spine1.quaternion).multiply(B.spine2.quaternion);
-        const dx = w.playerEye.x - p.x, dz = w.playerEye.z - p.z;
+        const tgt = this.lookPt ?? w.playerEye;
+        const dx = tgt.x - p.x, dz = tgt.z - p.z;
         const c = Math.cos(ry), s = Math.sin(ry);
-        _v.set(dx * c - dz * s, w.playerEye.y - (p.y + B.hips.position.y + 0.68), dx * s + dz * c);
+        _v.set(dx * c - dz * s, tgt.y - (p.y + B.hips.position.y + 0.68), dx * s + dz * c);
         _v.applyQuaternion(_q2.copy(_q).invert());
         const wantYaw = THREE.MathUtils.clamp(Math.atan2(_v.x, _v.z), -1.35, 1.35);
         const wantPitch = THREE.MathUtils.clamp(-Math.atan2(_v.y, Math.hypot(_v.x, _v.z)), -0.9, 0.8);
@@ -922,6 +1312,11 @@ export class Husk extends EnemyBase {
         B.neck.quaternion.slerp(_q3, this.lookW);
         _q3.setFromEuler(_e.set(this.headPitch.x * 0.6, this.headYaw.x * 0.6, this.headRoll.x * 0.7, 'YXZ'));
         B.head.quaternion.slerp(_q3, this.lookW);
+      }
+      // scripted swivel past the tracking limits (work wake: the head comes round first)
+      if (Math.abs(this.headTurn) > 1e-4 && !this.headGone) {
+        B.neck.quaternion.premultiply(_q.setFromAxisAngle(Y, this.headTurn * 0.35));
+        B.head.quaternion.premultiply(_q.setFromAxisAngle(Y, this.headTurn * 0.65));
       }
       // tools
       const winding = this.mode === 'windup' || this.mode === 'strike' || this.mode === 'cwindup' || this.mode === 'cstrike';

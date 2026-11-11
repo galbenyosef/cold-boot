@@ -26,6 +26,8 @@ export interface EnemyWorld {
   onDeath(e: EnemyBase): void;
   /** Debug: force a visible LOD (-1 = by distance). */
   forceLod: number;
+  /** World time until which a husk mutter is playing (max one at a time, globally). */
+  whisperUntil: number;
 }
 
 const _from = new THREE.Vector3(), _to = new THREE.Vector3();
@@ -78,6 +80,11 @@ export abstract class EnemyBase implements Enemy {
   roomTagAt = -1;
   /** Keep the object hidden regardless of distance (e.g. a skitter still inside its vent). */
   holdHidden = false;
+  /**
+   * Scripted puppet (EnemyManager.actor): never perceives / attacks / takes damage, plays no audio loop and emits
+   * only enemy:step. Set by subclasses first thing in their constructor.
+   */
+  isActor = false;
 
   // perception
   seesPlayer = false;
@@ -152,6 +159,15 @@ export abstract class EnemyBase implements Enemy {
   }
   protected abstract enterAlert(): void;
   abstract applyDamage(volume: HitVolume, amount: number, point: THREE.Vector3, dir: THREE.Vector3): void;
+  // ── scripted puppet API (EnemyManager.actor) — implemented per type
+  /** Walk / crawl / fly in a straight line to `point`; call `done` on arrival (or when abandoned). */
+  puppetMove(_point: THREE.Vector3, _speed: number | undefined, done: () => void): void { done(); }
+  puppetPose(_pose: string): void { /* per type */ }
+  puppetLook(_point: THREE.Vector3 | null): void { /* per type */ }
+  puppetEyes(_on: boolean): void { /* per type */ }
+  /** Abort a pending move (resolves it). */
+  puppetStop(): void { /* per type */ }
+
   /** Free per-instance GPU resources and leave the scene. */
   dispose(): void {
     this.stopLoop(0);
@@ -204,15 +220,17 @@ export abstract class EnemyBase implements Enemy {
   }
 
   protected emit(type: 'enemy:spawned' | 'enemy:woke' | 'enemy:alerted' | 'enemy:step'): void {
+    if (this.isActor && type !== 'enemy:step') return;
     this.world.ctx.events.emit(type, { id: this.id, type: this.type, position: this.body.position });
   }
   protected emitAttack(kind: 'melee' | 'ranged'): void {
+    if (this.isActor) return;
     this.world.ctx.events.emit('enemy:attack', { id: this.id, type: this.type, position: this.body.position, kind });
   }
 
   // ── audio loop ─────────────────────────────────────────────────────────
   protected startLoop(id: string, volume = 1): void {
-    if (this.loop) return;
+    if (this.loop || this.isActor) return;
     try { this.loop = this.world.ctx.audio.loop(id, { position: this.body.position, volume }); } catch { this.loop = null; }
   }
   protected stopLoop(fade = 0.3): void {

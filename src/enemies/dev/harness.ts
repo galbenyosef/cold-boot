@@ -5,6 +5,11 @@
  *   &cam=front|side|back|q|close|top|high  &dist=3 &h=1.1 &follow=1
  *   &light=studio|dark  &real=1 (use the real render/materials/fx modules instead of harness stand-ins)
  *   &t=<seconds to pre-simulate> &slow=<time scale> &dmg=part
+ * Revision 2:
+ *   &idle=watch|work|twitch   dormant behaviour for the spawned machine(s)      &group=<id> (e.g. g_junction)
+ *   &pwalk=x0,z0,x1,z1,sec    scripted player walking back and forth between two points (faces travel direction)
+ *   &pface=1                  …but always facing the machine (stare)          &pnear=<s> (state=dormant: approach)
+ *   &actor=1 [&pose=..] &to=x,y,z [&speed=] [&at=<s>] [&apose=name&aposeat=<s>] [&alook=x,y,z] [&eyes=0|1]
  */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -114,15 +119,17 @@ async function main() {
   const dormant = pose !== 'none' || state === 'dormant';
   const enemySpawns: any[] = [];
   const yaw0 = Number(P('yaw', '180')) * Math.PI / 180; // default: face +Z (toward the default camera)
-  if (state !== 'bind' && !state.startsWith('key:')) {
+  const isActor = q.get('actor') === '1';
+  if (state !== 'bind' && !state.startsWith('key:') && !isActor) {
     for (let i = 0; i < count; i++) {
       enemySpawns.push({
-        id: 'h' + i, type, position: spawnPos.clone().add(new THREE.Vector3((i - (count - 1) / 2) * 1.3, 0, 0)), yaw: yaw0, group: 'g',
-        mode: state === 'emerge' ? 'spawn' : dormant ? 'dormant' : 'spawn', pose: pose === 'none' ? undefined : pose,
+        id: 'h' + i, type, position: spawnPos.clone().add(new THREE.Vector3((i - (count - 1) / 2) * 1.3, 0, 0)), yaw: yaw0, group: P('group', 'g'),
+        mode: state === 'emerge' ? 'spawn' : dormant ? 'dormant' : 'spawn', pose: pose === 'none' ? undefined : pose, idle: q.get('idle') ?? undefined,
       });
     }
   }
   ctx.level = { root: new THREE.Group(), nav: [], doors: [], enemySpawns, rooms: [], colliders, roomAt: () => null, update() {} } as any;
+  for (const sp of enemySpawns) sp.group = P('group', 'g');
   const player = {
     position: new THREE.Vector3(0, 0, 9), eye: new THREE.Vector3(0, 1.65, 9), velocity: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, -1),
     alive: true, health: 100, maxHealth: 100,
@@ -153,13 +160,21 @@ async function main() {
       applySpec(rig, HUSK_POSES[state.slice(4)]);
     }
   } else if (state === 'emerge') {
-    enemies.spawnGroup('g');
+    enemies.spawnGroup(P('group', 'g'));
   } else if (state === 'idle') {
     for (const sp of enemySpawns) enemies.spawn(sp.type, sp.position, sp.yaw, 'g');
   } else if (!dormant) {
-    enemies.spawnGroup('g');
+    enemies.spawnGroup(P('group', 'g'));
   }
-  const first = () => enemies.all[0];
+  let actor: import('../../core/types').EnemyActor | null = null;
+  const v3 = (k: string) => { const a = q.get(k)!.split(',').map(Number); return new THREE.Vector3(a[0], a[1], a[2]); };
+  let actorArrived = -1;
+  if (isActor) {
+    actor = enemies.actor(type, spawnPos, yaw0, pose === 'none' ? undefined : pose);
+    if (q.get('eyes')) actor.setEyes(q.get('eyes') === '1');
+    if (q.get('alook')) actor.lookAt(v3('alook'));
+  }
+  const first = () => (actor ? { position: actor.position, object: actor.object, state: 'actor', health: 0, yaw: 0 } as any : enemies.all[0]);
   tuneSkitters();
 
   // scripted player per state
@@ -178,7 +193,19 @@ async function main() {
     time += dt; ctx.time = time;
     const e = first();
     const ep = e ? e.position : spawnPos;
-    if (state === 'idle' || state === 'dormant') { player.position.set(0, 0, -40); }
+    if (q.get('pwalk')) {
+      const a = q.get('pwalk')!.split(',').map(Number), T = a[4] || 8;
+      const ph = (time % (2 * T)) / T, k = ph < 1 ? ph : 2 - ph, sm = k * k * (3 - 2 * k);
+      player.position.set(a[0] + (a[2] - a[0]) * sm, 0, a[1] + (a[3] - a[1]) * sm);
+      const dir = ph < 1 ? 1 : -1;
+      player.forward.set((a[2] - a[0]) * dir, 0, (a[3] - a[1]) * dir).normalize();
+      if (q.get('pface') === '1') player.forward.copy(ep).setY(ep.y + 0.9).sub(player.eye).normalize();
+    } else if (q.get('pnear')) {
+      // approach to 4 m at pnear seconds, back off to 12 m at 2*pnear
+      const t1 = Number(q.get('pnear'));
+      const r = time < t1 ? 12 : time < 2 * t1 ? 4 : 12;
+      player.position.set(ep.x, 0, ep.z + r);
+    } else if (state === 'idle' || state === 'dormant') { player.position.set(0, 0, -40); }
     else if (state === 'walk') {
       // keep far ahead so it walks; circle slowly
       const a = time * 0.12;
@@ -194,7 +221,7 @@ async function main() {
       if (!q.get('ppos')) player.position.set(1.5, 0, 9);
     }
     player.eye.copy(player.position).setY(player.position.y + 1.65);
-    if (state === 'wake' && !woke && time > Number(P('wakeat', '0.5'))) { woke = true; enemies.wakeGroup('g', 0.6); }
+    if (state === 'wake' && !woke && time > Number(P('wakeat', '0.5'))) { woke = true; enemies.wakeGroup(P('group', 'g'), 0.6); }
     if ((state === 'dead' || state === 'hit') && e && e.alive && nHits < maxHits) {
       hitT -= dt;
       if (time > Number(P('hitat', '0.6')) && hitT <= 0) {
@@ -221,6 +248,11 @@ async function main() {
       (e as any).severArm(0, d); (e as any).severArm(1, d);
     }
     if (['walk', 'run', 'attack', 'chase'].includes(state) && time < 0.1) enemies.alertNoise(spawnPos, 100);
+    if (actor && q.get('to') && actorArrived === -1 && time >= Number(P('at', '0.2'))) {
+      actorArrived = -2;
+      actor.moveTo(v3('to'), q.get('speed') ? Number(q.get('speed')) : undefined).then(() => { actorArrived = time; console.log('[harness] actor arrived at t=' + time.toFixed(2)); });
+    }
+    if (actor && q.get('apose') && time >= Number(P('aposeat', '1')) && (actor as any)._posed !== true) { (actor as any)._posed = true; actor.setPose(q.get('apose')!); }
     enemies.update(dt);
     ctx.fx.update(dt);
   };
@@ -277,7 +309,7 @@ async function main() {
     ctx.render.render(dt);
     const e = first() as any;
     hud.textContent = `${type} state=${state} pose=${pose} t=${time.toFixed(2)} fps=${debug.fps}\n` +
-      (e ? `enemy: ${e.state}/${e.mode ?? ''} hp=${e.health.toFixed(0)} dist=${e.dist?.toFixed(1)} active=${enemies.activeCount}\n` : '') +
+      (e ? `enemy: ${e.state}/${e.mode ?? ''} hp=${e.health.toFixed(0)} dist=${e.dist?.toFixed(1)} active=${enemies.activeCount} watch=${((e.watchYaw ?? 0) * 57.3).toFixed(1)} work=${e.workFrozen ? 'FROZEN' : (e.workT ?? 0).toFixed(2)}\n` : '') +
       `player hp=${player.health} steps=${steps}\nevents: ${events_.slice(-8).join(' ')}\n${audioLog.slice(-4).join(' ')}\n${info.join('\n')}`;
   };
   const strip = Number(P('strip', '0'));
@@ -297,7 +329,7 @@ async function main() {
       for (let k = 0; k < Math.round(interval * 120); k++) sim(1 / 120);
     }
     const e = first() as any;
-    hud.textContent = `${type} ${state} strip ${strip} × ${interval}s  t=${time.toFixed(2)} ${e ? e.state + '/' + (e.mode ?? '') + ' hp=' + e.health.toFixed(0) : ''} player hp=${player.health} steps=${steps}\nevents: ${events_.join(' ')}\nfx: ${JSON.stringify((ctx.fx as any).counts ?? {})} ${audioLog.join(' ')}`;
+    hud.textContent = `${type} ${state} strip ${strip} × ${interval}s  t=${time.toFixed(2)} ${e ? e.state + '/' + (e.mode ?? '') + ' hp=' + e.health.toFixed(0) : ''} ${actor ? 'actor arrived=' + actorArrived.toFixed(2) : ''} player hp=${player.health} steps=${steps}\nevents: ${events_.join(' ')}\nfx: ${JSON.stringify((ctx.fx as any).counts ?? {})} ${audioLog.join(' ')}`;
     ctx.ready = true;
     return;
   }
