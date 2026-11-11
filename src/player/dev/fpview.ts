@@ -43,6 +43,10 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
   }
   if (q.get('empty') === '1' && weapon === 'pistol') vm.pistol.slideLocked = true;
   (window as any).__h.vm = vm;
+  const hide = q.get('hide') ?? '';
+  if (hide.includes('lh')) { rig.lh.root.visible = false; rig.lf.root.visible = false; }
+  if (hide.includes('rh')) { rig.rh.root.visible = false; rig.rf.root.visible = false; }
+  if (hide.includes('gun')) rig.gun.traverse((o) => { if ((o as THREE.Mesh).isMesh && !rig.rh.root.getObjectById(o.id)) o.visible = false; });
 
   const grid = q.get('orbit') === 'grid';
   const orbit = grid ? [0, 0, Number(q.get('dist') ?? 0.42)] : q.get('orbit')?.split(',').map(Number);

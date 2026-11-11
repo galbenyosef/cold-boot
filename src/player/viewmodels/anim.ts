@@ -9,6 +9,21 @@ export interface Clip {
   dur: number;
   tracks: Record<string, Track>;
   events?: [number, string][];
+  /** Finger pose keys per hand: [time, poseName] — blended smoothly between consecutive keys. */
+  poses?: { lh?: PoseKeys; rh?: PoseKeys };
+}
+export type PoseKeys = [number, string][];
+
+/** Blend the named poses around time `t` into `out` (smoothstep between keys, clamped at the ends). */
+export function samplePoseKeys(keys: PoseKeys, t: number, table: Record<string, number[]>, out: number[]) {
+  let k = 0;
+  while (k < keys.length - 1 && t > keys[k + 1][0]) k++;
+  const a = table[keys[k][1]];
+  if (k >= keys.length - 1 || t <= keys[k][0]) { for (let i = 0; i < out.length; i++) out[i] = a[i]; return; }
+  const b = table[keys[k + 1][1]];
+  let u = (t - keys[k][0]) / (keys[k + 1][0] - keys[k][0]);
+  u = u * u * (3 - 2 * u);
+  for (let i = 0; i < out.length; i++) out[i] = a[i] + (b[i] - a[i]) * u;
 }
 
 export function sampleTrack(tr: Track, t: number, out: number[]): number[] {

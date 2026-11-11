@@ -150,7 +150,7 @@ After the breaker: story enables `fab` fully for 3 s, then kills it and enables 
 - **Pistol** — 12-round, semi-auto, 20 dmg, accurate. **Shotgun** — 6-shell tube, 9 pellets × 9 dmg, pump.
 - Detailed first-person viewmodels (procedural meshes), recoil, muzzle flash light, shell ejection,
   reload animations, sway/bob, sprint lowering. Controls: WASD, mouse, Shift sprint, Space jump,
-  Ctrl/C crouch, LMB fire, R reload, 1/2/wheel switch, F flashlight, E use, Esc pause.
+  C crouch, LMB fire, R reload, 1/2/wheel switch, F flashlight, E use, Esc pause.
 
 ## Story beats (ids for `story:beat`)
 

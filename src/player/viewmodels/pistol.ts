@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { M, Parts, rbox, cylZ, cylX, latheZ, tubeZ, shape, hole, profileX, sectionZ, inPoly, sphere, type G } from '../geom';
 import type { VmMats } from './mats';
+import { prismX, boxSdf, union, type Sdf } from './grip';
 
 export interface PistolModel {
   root: THREE.Group;
@@ -30,6 +31,30 @@ const CH = 0.0048;  // slide top chamfer
 
 function slideOutline(w: number, h = H, ch = CH): number[][] {
   return [[-w / 2, 0.0005, 0.0006], [w / 2, 0.0005, 0.0006], [w / 2, h - ch, 0.0012], [w / 2 - ch, h, 0.0015], [-w / 2 + ch, h, 0.0015], [-w / 2, h - ch, 0.0012]];
+}
+
+const GRIP_PTS = [[0.017, -0.009], [0.0145, -0.028, 0.008], [0.004, -0.062, 0.03], [-0.004, -0.097, 0.02], [-0.0115, -0.1135, 0.004], [-0.0595, -0.1075, 0.004], [-0.0535, -0.068, 0.04], [-0.0375, -0.021, 0.008], [-0.0405, -0.0075, 0.004], [-0.0545, -0.0018, 0.0035], [-0.047, 0.0042, 0.003], [-0.03, -0.0008, 0.002], [0.0, -0.004]];
+const FRAME_PTS = [[-0.030, 0.0005], [0.161, 0.0005, 0.001], [0.1635, -0.005, 0.002], [0.159, -0.0168, 0.0025], [0.058, -0.0168], [0.05, -0.0142, 0.004], [0.012, -0.0142], [-0.031, -0.009, 0.003]];
+const GUARD_PTS = [[0.012, -0.0125], [0.0715, -0.0135, 0.002], [0.0755, -0.020, 0.004], [0.0745, -0.0405, 0.009], [0.0605, -0.0468, 0.005], [0.0185, -0.0452, 0.008], [0.0075, -0.0405, 0.004]];
+const GUARD_HOLE = [[0.0175, -0.016], [0.0675, -0.0168, 0.003], [0.0695, -0.0215, 0.003], [0.0688, -0.0385, 0.008], [0.0585, -0.0418, 0.004], [0.0215, -0.0408, 0.008]];
+
+/** Collision proxy of the pistol in gun space (for the grip solver). */
+export function pistolProxy(): Sdf {
+  return union([
+    prismX(GRIP_PTS, 0.0164, [], 0.004),
+    prismX(FRAME_PTS, 0.0118, [], 0.001),
+    prismX(GUARD_PTS, 0.006, [GUARD_HOLE], 0.001),
+    boxSdf(0, 0.0158, -0.07, 0.01235, 0.0155, 0.099, 0.002), // slide
+    boxSdf(0, -0.0195, -0.119, 0.0103, 0.0035, 0.034, 0.001), // rail
+    boxSdf(0, -0.026, -0.0465, 0.003, 0.012, 0.0035, 0.001), // trigger
+    boxSdf(0, 0.016, 0.037, 0.0036, 0.013, 0.009, 0.002), // hammer
+    boxSdf(-0.0145, -0.003, 0.0275, 0.0012, 0.004, 0.008, 0.001), // safety lever
+  ]);
+}
+
+/** Collision proxy of a magazine in its own space (origin = top centre, body along -Y). */
+export function magProxy(): Sdf {
+  return union([boxSdf(0, -0.052, 0, 0.0103, 0.052, 0.0155, 0.002), boxSdf(0, -0.1075, 0.0015, 0.0131, 0.0055, 0.0205, 0.002)]);
 }
 
 export function buildMagazine(m: VmMats, withRound = true): THREE.Group {
@@ -144,17 +169,17 @@ export function buildPistol(m: VmMats, opts: { detail?: boolean } = {}): PistolM
   // ─────────────── frame
   const fp = new Parts();
   // upper frame + dust cover
-  fp.add(profileX(shape([[-0.030, 0.0005], [0.161, 0.0005, 0.001], [0.1635, -0.005, 0.002], [0.159, -0.0168, 0.0025], [0.058, -0.0168], [0.05, -0.0142, 0.004], [0.012, -0.0142], [-0.031, -0.009, 0.003]]), 0.0232, 0.0012), m.gunmetal);
+  fp.add(profileX(shape(FRAME_PTS), 0.0232, 0.0012), m.gunmetal);
   // frame-to-slide rail line (dark gap)
   fp.add(box3(0.0236, 0.0009, 0.188), m.interior, M(0, 0.0004, -0.065));
   // grip
-  const gripPts = [[0.017, -0.009], [0.0145, -0.028, 0.008], [0.004, -0.062, 0.03], [-0.004, -0.097, 0.02], [-0.0115, -0.1135, 0.004], [-0.0595, -0.1075, 0.004], [-0.0535, -0.068, 0.04], [-0.0375, -0.021, 0.008], [-0.0405, -0.0075, 0.004], [-0.0545, -0.0018, 0.0035], [-0.047, 0.0042, 0.003], [-0.03, -0.0008, 0.002], [0.0, -0.004]];
+  const gripPts = GRIP_PTS;
   fp.add(profileX(shape(gripPts), 0.0292, 0.0028, 0, 14, 3), m.gunmetal);
   // mag well flare
   fp.add(profileX(shape([[-0.0105, -0.104, 0.002], [-0.0118, -0.1135, 0.001], [-0.0598, -0.1078, 0.001], [-0.058, -0.0985, 0.002]]), 0.0318, 0.0014), m.gunmetal);
   // trigger guard (with hole), squared front with a hook
-  const tg = shape([[0.012, -0.0125], [0.0715, -0.0135, 0.002], [0.0755, -0.020, 0.004], [0.0745, -0.0405, 0.009], [0.0605, -0.0468, 0.005], [0.0185, -0.0452, 0.008], [0.0075, -0.0405, 0.004]]);
-  tg.holes.push(hole([[0.0175, -0.016], [0.0675, -0.0168, 0.003], [0.0695, -0.0215, 0.003], [0.0688, -0.0385, 0.008], [0.0585, -0.0418, 0.004], [0.0215, -0.0408, 0.008]]));
+  const tg = shape(GUARD_PTS);
+  tg.holes.push(hole(GUARD_HOLE));
   fp.add(profileX(tg, 0.0118, 0.0016, 0, 12, 2), m.gunmetal);
   // trigger guard front serrations
   for (let i = 0; i < 6; i++) fp.add(rbox(0.0098, 0.0011, 0.0018, 0.0004), m.gunmetal, M(0, -0.0225 - i * 0.0028, -0.0756, 0, 0, 0));

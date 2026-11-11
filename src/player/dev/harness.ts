@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { GameContext, MaterialLibrary } from '../../core/types';
 import { resolveMats, type VmMats } from '../viewmodels/mats';
+import { setVmLight } from '../viewmodels/vmlight';
 import { buildPistol, buildMagazine } from '../viewmodels/pistol';
 import { Hand, Forearm, POSES } from '../viewmodels/hands';
 
@@ -84,7 +85,9 @@ export function registerModel(name: string, b: Builder) { MODELS[name] = b; }
 
 async function main() {
   const lib = await loadLib();
-  const mats = resolveMats(lib);
+  const view0 = q.get('view') ?? 'grid';
+  setVmLight(Number(q.get('lamp') ?? 0), Number(q.get('vml') ?? 1));
+  const mats = resolveMats(lib, view0 === 'fp');
   (window as any).__h = { THREE, scene, renderer, mats, lib };
   const view = q.get('view') ?? 'grid';
   if (view === 'fp') {

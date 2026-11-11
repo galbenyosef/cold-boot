@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { M, Parts, rbox, cylZ, cylX, latheZ, tubeZ, shape, hole, profileX, sweep, inPoly, sphere, prep, flipWinding, type Station } from '../geom';
 import type { VmMats } from './mats';
 import { buildShell } from './props';
+import { prismX, boxSdf, cylSdf, union, type Sdf } from './grip';
 
 export interface ShotgunModel {
   root: THREE.Group;
@@ -29,6 +30,31 @@ export const S_MUZZLE = 0.662;
 export const PUMP_TRAVEL = 0.088;
 const RW = 0.0355; // receiver width
 
+const RECV_PTS = [[-0.016, 0.0, 0.002], [0.198, 0.0, 0.002], [0.2015, 0.004, 0.002], [0.2015, 0.056, 0.003], [0.196, 0.0595, 0.003], [0.02, 0.0595, 0.004], [-0.006, 0.055, 0.006], [-0.018, 0.044, 0.004]];
+const SG_GUARD = [[0.012, -0.008], [0.076, -0.008], [0.078, -0.022, 0.006], [0.072, -0.044, 0.01], [0.055, -0.049, 0.006], [0.018, -0.046, 0.01], [0.006, -0.03, 0.006]];
+const SG_GUARD_HOLE = [[0.017, -0.0125], [0.0715, -0.0125, 0.003], [0.072, -0.023, 0.006], [0.067, -0.040, 0.008], [0.055, -0.0435, 0.004], [0.022, -0.041, 0.008], [0.0135, -0.03, 0.004]];
+const SG_GRIP = [[0.008, -0.006], [0.002, -0.03, 0.01], [-0.012, -0.07, 0.02], [-0.022, -0.103, 0.006], [-0.064, -0.098, 0.008], [-0.058, -0.07, 0.03], [-0.046, -0.03, 0.02], [-0.04, -0.004]];
+// stock: skeleton butt with a cheek comb; the underside is relieved behind the grip for the firing wrist
+const SG_STOCK = [[-0.012, 0.047], [-0.12, 0.05, 0.03], [-0.36, 0.044, 0.01], [-0.372, 0.04, 0.004], [-0.372, -0.105, 0.004], [-0.36, -0.108, 0.01], [-0.275, -0.088, 0.03], [-0.155, -0.012, 0.035], [-0.045, -0.006, 0.006], [-0.012, -0.002]];
+const SG_STOCK_HOLE = [[-0.2, 0.02], [-0.32, 0.024, 0.02], [-0.335, 0.0, 0.01], [-0.335, -0.075, 0.012], [-0.305, -0.076, 0.012], [-0.205, -0.018, 0.012]];
+
+/** Collision proxy of the shotgun in gun space (pump at rest) for the grip solver. */
+export function shotgunProxy(): Sdf {
+  return union([
+    prismX(SG_GRIP, 0.0158, [], 0.005),
+    prismX(RECV_PTS, RW / 2 + 0.0006, [], 0.002),
+    prismX(SG_STOCK, 0.017, [], 0.004),
+    prismX([[-0.014, 0.001], [0.082, 0.001], [0.08, -0.009], [0.06, -0.012], [-0.012, -0.012]], 0.013, [], 0.001),
+    prismX(SG_GUARD, 0.0063, [SG_GUARD_HOLE], 0.001),
+    boxSdf(0, -0.021, -0.0505, 0.003, 0.0125, 0.0035, 0.001), // trigger
+    boxSdf(0, S_TUBE + 0.002, -0.3, 0.0222, 0.0206, 0.082, 0.0125), // pump
+    cylSdf(0, S_BORE, -S_MUZZLE, -0.19, 0.0118),
+    cylSdf(0, S_BORE, -0.475, -0.225, 0.0168),
+    cylSdf(0, S_TUBE, -0.585, -0.198, 0.0115),
+    boxSdf(-RW / 2 - 0.011, 0.026, -0.125, 0.011, 0.03, 0.052, 0.003), // side saddle + shells
+  ]);
+}
+
 export function buildShotgun(m: VmMats, opts: { detail?: boolean } = {}): ShotgunModel {
   const detail = opts.detail !== false;
   const root = new THREE.Group();
@@ -36,7 +62,7 @@ export function buildShotgun(m: VmMats, opts: { detail?: boolean } = {}): Shotgu
   const p = new Parts();
 
   // ─────────────── receiver
-  const recv = [[-0.016, 0.0, 0.002], [0.198, 0.0, 0.002], [0.2015, 0.004, 0.002], [0.2015, 0.056, 0.003], [0.196, 0.0595, 0.003], [0.02, 0.0595, 0.004], [-0.006, 0.055, 0.006], [-0.018, 0.044, 0.004]];
+  const recv = RECV_PTS;
   p.add(profileX(shape(recv), RW, 0.0022, 0, 10, 3), m.gunmetal);
   // machined side flats (subtle raised panels) and engraving lines on the left
   p.add(profileX(shape([[0.03, 0.012, 0.003], [0.19, 0.012, 0.003], [0.19, 0.047, 0.003], [0.03, 0.047, 0.003]]), RW + 0.0012, 0.0006), m.gunmetal);
@@ -65,8 +91,8 @@ export function buildShotgun(m: VmMats, opts: { detail?: boolean } = {}): Shotgu
 
   // ─────────────── trigger group + guard
   p.add(profileX(shape([[-0.014, 0.001], [0.082, 0.001], [0.08, -0.009, 0.004], [0.06, -0.012, 0.004], [-0.012, -0.012, 0.004]]), 0.026, 0.0016), m.polymer);
-  const tg = shape([[0.012, -0.008], [0.076, -0.008], [0.078, -0.022, 0.006], [0.072, -0.044, 0.01], [0.055, -0.049, 0.006], [0.018, -0.046, 0.01], [0.006, -0.03, 0.006]]);
-  tg.holes.push(hole([[0.017, -0.0125], [0.0715, -0.0125, 0.003], [0.072, -0.023, 0.006], [0.067, -0.040, 0.008], [0.055, -0.0435, 0.004], [0.022, -0.041, 0.008], [0.0135, -0.03, 0.004]]));
+  const tg = shape(SG_GUARD);
+  tg.holes.push(hole(SG_GUARD_HOLE));
   p.add(profileX(tg, 0.0125, 0.0018, 0, 12, 2), m.polymer);
   // slide release (left, front of guard)
   p.add(profileX(shape([[0.08, -0.002, 0.002], [0.097, -0.003, 0.002], [0.099, -0.012, 0.003], [0.091, -0.013, 0.002]]), 0.003, 0.0008, -0.0145), m.steel);
@@ -75,7 +101,7 @@ export function buildShotgun(m: VmMats, opts: { detail?: boolean } = {}): Shotgu
   p.add(cylX(0.0018, 0.0306, 8), m.emRed, M(0, -0.004, -0.012, 0, 0, 0, 0.3, 1, 1));
 
   // ─────────────── pistol grip + stock (polymer)
-  const grip = [[0.008, -0.006], [0.002, -0.03, 0.01], [-0.012, -0.07, 0.02], [-0.022, -0.103, 0.006], [-0.064, -0.098, 0.008], [-0.058, -0.07, 0.03], [-0.046, -0.03, 0.02], [-0.04, -0.004]];
+  const grip = SG_GRIP;
   p.add(profileX(shape(grip), 0.031, 0.0035, 0, 14, 3), m.polymer);
   // grip stippling panels
   if (detail) {
@@ -91,9 +117,8 @@ export function buildShotgun(m: VmMats, opts: { detail?: boolean } = {}): Shotgu
     }
   }
   // stock: hollow-look skeleton with cheek comb, from receiver rear to the butt
-  const stock = [[-0.012, 0.047], [-0.12, 0.05, 0.03], [-0.36, 0.044, 0.01], [-0.372, 0.04, 0.004], [-0.372, -0.105, 0.004], [-0.36, -0.108, 0.01], [-0.25, -0.07, 0.03], [-0.07, -0.034, 0.02], [-0.045, -0.012, 0.01], [-0.012, -0.002]];
-  const stockShape = shape(stock);
-  stockShape.holes.push(hole([[-0.085, 0.02], [-0.32, 0.024, 0.02], [-0.335, -0.0, 0.01], [-0.335, -0.075, 0.012], [-0.29, -0.068, 0.02], [-0.11, -0.022, 0.02], [-0.085, -0.008, 0.01]], 0.008));
+  const stockShape = shape(SG_STOCK);
+  stockShape.holes.push(hole(SG_STOCK_HOLE, 0.008));
   p.add(profileX(stockShape, 0.034, 0.005, 0, 16, 3), m.polymer);
   // recoil pad
   p.add(profileX(shape([[-0.371, 0.044, 0.006], [-0.392, 0.046, 0.006], [-0.394, -0.111, 0.006], [-0.371, -0.11, 0.004]]), 0.04, 0.006, 0, 8, 3), m.rubber);

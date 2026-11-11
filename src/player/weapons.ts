@@ -12,6 +12,7 @@ import { buildCasingGeo, buildSpentShellParts } from './viewmodels/props';
 import { buildMagazine } from './viewmodels/pistol';
 import type { VmMats } from './viewmodels/mats';
 import { clamp } from './math';
+import { Tracers } from './tracers';
 
 export const WEAPON_STATS = {
   pistol: { clipSize: 12, damage: 20, interval: 0.14, range: 90, baseSpread: 0.0025, bloom: 0.011, noise: 30, maxReserve: 96, light: 70 },
@@ -40,6 +41,8 @@ export interface Aim {
 const _d = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _imp = new THREE.Vector3();
+const _muz = new THREE.Vector3();
+const _end = new THREE.Vector3();
 // fixed 9-pellet pattern (unit disc) — jittered per shot
 const PATTERN: [number, number][] = [[0, 0], [0.55, 0], [-0.55, 0], [0, 0.55], [0, -0.55], [0.75, 0.62], [-0.75, 0.62], [0.72, -0.66], [-0.72, -0.66]];
 
@@ -69,6 +72,7 @@ export class Weapons {
   private hullI = 0;
   private mags: THREE.Object3D[] = [];
   private magI = 0;
+  readonly tracers: Tracers;
 
   constructor(private ctx: GameContext, private vm: Viewmodel, private cam: CameraRig, m: VmMats) {
     const cg = buildCasingGeo();
@@ -89,6 +93,7 @@ export class Weapons {
       g.traverse((o) => { o.castShadow = true; });
       this.mags.push(g);
     }
+    this.tracers = new Tracers(ctx.scene);
     vm.pistol.onEvent = (id) => this.pistolEvent(id);
     vm.shotgun.onEvent = (id) => this.shotgunEvent(id);
   }
@@ -247,6 +252,7 @@ export class Weapons {
     this.fireQueued = Math.max(0, this.fireQueued - dt);
     this.firedRecently = Math.max(0, this.firedRecently - dt);
     this.bloom *= Math.exp(-dt * 5);
+    this.tracers.update(dt, this.ctx.camera.position);
 
     // switching animation
     if (this.phase === 'lowering') {
@@ -314,7 +320,9 @@ export class Weapons {
       const spread = (st.baseSpread + aim.moving * 0.018 + (aim.airborne ? 0.03 : 0) + this.bloom) * (aim.crouched ? 0.7 : 1);
       this.bloom = Math.min(0.05, this.bloom + st.bloom);
       this.spreadDir(aim, spread, Math.random() * 2 - 1, Math.random() * 2 - 1, _d);
-      this.ray(origin, _d, st.range, st.damage);
+      this.vm.pistol.muzzleWorld(_muz);
+      _end.copy(origin).addScaledVector(_d, this.ray(origin, _d, st.range, st.damage));
+      this.tracers.spawn(_muz, _end, 0.016, 9, 5.2, 2.1);
       this.vm.pistol.fire(s.clip === 0);
       this.cam.kick(1.1 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5);
       this.cam.shake(0.08);
@@ -326,11 +334,13 @@ export class Weapons {
       const cone = st.cone * (aim.crouched ? 0.9 : 1) + aim.moving * 0.01;
       const rot = Math.random() * Math.PI * 2;
       const cr = Math.cos(rot), sr = Math.sin(rot);
+      this.vm.shotgun.muzzleWorld(_muz);
       for (let i = 0; i < st.pellets; i++) {
         const [px, py] = PATTERN[i];
         const jx = px + (Math.random() - 0.5) * 0.35, jy = py + (Math.random() - 0.5) * 0.35;
         this.spreadDir(aim, cone, jx * cr - jy * sr, jx * sr + jy * cr, _d, true);
-        this.ray(origin, _d, st.range, st.damage);
+        _end.copy(origin).addScaledVector(_d, this.ray(origin, _d, st.range, st.damage));
+        this.tracers.spawn(_muz, _end, 0.009, 2.6, 1.6, 0.75);
       }
       this.vm.shotgun.fire(() => {});
       this.cam.kick(3.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2);
@@ -353,16 +363,20 @@ export class Weapons {
     return out;
   }
 
-  private ray(origin: THREE.Vector3, dir: THREE.Vector3, range: number, dmg: number) {
+  /** Hitscan one projectile; returns the distance it travelled (to the hit, or the full range). */
+  private ray(origin: THREE.Vector3, dir: THREE.Vector3, range: number, dmg: number): number {
     const ctx = this.ctx;
     const eh = ctx.enemies ? ctx.enemies.hitscan(origin, dir, range) : null;
     const wh = ctx.physics.raycast(origin, dir, range);
     if (eh && (!wh || eh.distance <= wh.distance)) {
       ctx.enemies.damage(eh, dmg, dir.clone());
       this.onHit(dmg);
+      return eh.distance;
     } else if (wh) {
       ctx.events.emit('bullet:impact', { point: wh.point, normal: wh.normal, surface: wh.surface });
+      return wh.distance;
     }
+    return range;
   }
 
   /** Debug helpers. */

@@ -11,6 +11,7 @@ import { Weapons, WEAPON_STATS, type WeaponInput, type Aim } from './weapons';
 import { Pickups } from './pickups';
 import { Viewmodel, type RigMotion } from './viewmodels/rig';
 import { resolveMats } from './viewmodels/mats';
+import { setVmLight } from './viewmodels/vmlight';
 import { clamp, damp, wrapAngle } from './math';
 
 const SENSITIVITY = 0.0022;
@@ -27,13 +28,14 @@ export interface PlayerExtras {
 
 export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExtras> {
   const spawn = ctx.debug.spawn ?? { position: ctx.level.spawn.position, yaw: ctx.level.spawn.yaw, pitch: 0 };
-  const mats = resolveMats(ctx.materials);
+  const mats = resolveMats(ctx.materials, true); // first-person set (private clones with the viewmodel light)
+  const worldMats = resolveMats(ctx.materials);   // same models out in the world: pickups, brass, dropped mags
   const ctrl = new Controller(ctx.physics, spawn.position);
   const camRig = new CameraRig(ctx.camera);
   const flash = new Flashlight(ctx.render.lights, ctx.physics);
   const vm = new Viewmodel(mats, ctx.render.viewmodelLayer);
   ctx.camera.add(vm.root);
-  const weapons = new Weapons(ctx, vm, camRig, mats);
+  const weapons = new Weapons(ctx, vm, camRig, worldMats);
   const keys = new Set<string>();
 
   // state
@@ -116,7 +118,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   const _q = new THREE.Quaternion();
   const _e = new THREE.Euler();
 
-  const pickups = new Pickups(ctx, mats, {
+  const pickups = new Pickups(ctx, worldMats, {
     wants(kind: PickupKind) {
       switch (kind) {
         case 'medkit': return alive && health < maxHealth;
@@ -265,7 +267,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         moveIn.sprint = inp.down('ShiftLeft') || inp.down('ShiftRight') || dbgMove.sprint;
         moveIn.jump = inp.pressed('Space') || dbgMove.jump;
         moveIn.crouchToggle = inp.pressed('KeyC');
-        moveIn.crouchHold = inp.down('ControlLeft') || inp.down('ControlRight') || dbgMove.crouch;
+        moveIn.crouchHold = dbgMove.crouch; // crouch is C only: Ctrl+W would close the tab mid-fight
         moveIn.noSprint = noSprintT > 0 || weapons.reloading || weapons.firedRecently > 0;
         dbgMove.jump = false;
       }
@@ -331,6 +333,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       const sway = ctrl.grounded ? Math.min(1, ctrl.speed / MOVE.walk) : 0;
       flash.update(dt, ctx.camera.position, ctx.camera.quaternion, forward,
         Math.sin(ctrl.bobPhase) * 0.012 * sway, -Math.abs(Math.cos(ctrl.bobPhase)) * 0.008 * sway);
+      setVmLight(flash.level);
 
       // ── interaction
       focus = alive ? ctx.interactables.pick(eye, forward) : null;
@@ -363,6 +366,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     setPose: (id: 'pistol' | 'shotgun', x: number, y: number, z: number, rx: number, ry: number, rz: number) =>
       (id === 'pistol' ? vm.pistol : vm.shotgun).setBase(x, y, z, rx, ry, rz),
     stats: () => WEAPON_STATS,
+    /** Slow tracers down for inspection (default 190 m/s). */
+    tracerSpeed: (v = 190) => { weapons.tracers.speed = v; return v; },
+    tracers: () => ({ visible: weapons.tracers.mesh.visible, count: weapons.tracers.mesh.geometry.drawRange.count / 6, layer: weapons.tracers.mesh.layers.mask }),
+    grips: () => ({ pistol: vm.pistol.report, shotgun: vm.shotgun.report }),
   };
 
   if (ctx.debug.giveAll) {

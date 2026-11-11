@@ -1,6 +1,6 @@
 /**
  * Capsule movement: grounded acceleration/friction, limited air control, sprint (forward only),
- * jump with coyote time + buffering, crouch (toggle C / hold Ctrl) with head-clearance raycasts,
+ * jump with coyote time + buffering, crouch (toggle C) with head-clearance raycasts,
  * smooth eye height, footstep cadence + landing detection.
  */
 import * as THREE from 'three';
