@@ -8,6 +8,16 @@
  * every lock has a guaranteed unlock path, and everything the level / enemies modules add in revision 2
  * (`level.vignette`, `enemies.actor`, new rooms, triggers, interactables) is optional at runtime.
  *
+ * REVISION 3 (checkpoints): everything that must survive a reload lives in ONE serialisable record,
+ * `prog` (beats / cue markers done, fragments read, flags, enemy groups triggered and cleared). Each beat
+ * has (a) its trigger + scene — the thread, as before — and (b) an idempotent entry in `CONSEQUENCES`:
+ * the lasting state it leaves behind (door locks, light groups, machines, screens, interactables). The
+ * scene applies it through `beat()` / `once()`; loading a checkpoint applies the same entries for every
+ * recorded marker (`fastForward`) with no scene at all — so the two can never drift apart. After a load
+ * every thread is started as usual: its trigger is re-evaluated from `prog`, and every scene / scare / PA
+ * line is guarded by its marker, so what happened before the checkpoint never fires again while what had
+ * not happened yet still does.
+ *
  * Pacing rules implemented by `cue()`:
  *   - one event at a time: after each scare a quiet window (10–30 s) must pass before the next;
  *   - never while a note is open, never during (or right after) combat;
@@ -24,8 +34,18 @@ import {
   CHOIR, ELEVATOR_VOICE, FRAGMENTS, OBJECTIVES, PROMPTS, SCREENS, TAG_ID, TOASTS, UNIT_LINES, WAKE_PUMP,
   type Fragment, type Line,
 } from './text';
+import { CHECKPOINT_IDS, emptyProgress, type CheckpointId, type Progress } from './save';
 
-interface Hooks { setObjective(text: string): void }
+interface Hooks {
+  setObjective(text: string): void;
+  /** A checkpoint is due and the moment is calm: write the save (story/index.ts owns the storage). */
+  checkpoint(id: CheckpointId): void;
+  /** The ending was reached: the save is no longer wanted. */
+  finished(): void;
+}
+
+/** One-shot level vignettes that leave the room visibly changed (re-applied silently on load). */
+const LASTING_VIGNETTES = ['med_arm_drop', 'quarters_locker_bang', 'quarters_curtain', 'sec_vent_drop', 'storage_canister', 'airlock_cycle'];
 
 const EMERGENCY_GROUPS = ['corr_a_emergency', 'fab_emergency', 'gen_emergency', 'lobby_emergency'];
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -45,31 +65,36 @@ export const ACTOR_SCARES = ['corr_silhouette', 'quarters_figure', 'fab_skitter'
 
 export class Script {
   // ── facts (set by persistent listeners; scripts poll them) ──
+  /** THE progress record: plain JSON, the only story state a checkpoint stores (see ./save.ts). */
+  private prog: Progress = emptyProgress();
+  /** Fast lookup mirror of `prog.beats`. */
+  private done = new Set<string>();
+  /** True while a checkpoint's consequences are being applied (no scenes, no sound, no events). */
+  private ff = false;
+  /** Checkpoint this session was restored from (null: fresh run). */
+  private restoredFrom: CheckpointId | null = null;
+
+  // ── session-only facts (set by persistent listeners; scripts poll them) ──
   private woke = false;
   private started = false;
   private triggerAt = new Map<string, number>();
   private insideTrig = new Set<string>();
   private lastInElevator = -1e9;
-  private cleared = new Map<string, number>();
+  private triggeredAt = new Map<string, number>();
   private pickedUp = new Set<PickupKind>();
   private closedAt = new Map<string, number>();
   private roomTime = new Map<string, number>();
-  private visited = new Set<string>();
-  private sawFabHold = false;
-  private consoleUsed = false;
-  private armed = false;
-  private huskWoke = false;
-  private fabRevealed = false;
-  private lockoutFound = false;
-  private keyTaken = false;
-  private power = false;
-  private elevatorReady = false;
   private descending = false;
   private armsWatching = false;
   private toastCooldown = new Map<string, number>();
   private objectiveTimer = 0;
-  private beats = new Set<string>();
   private alarm: LoopHandle | null = null;
+
+  // ── checkpoints ──
+  private calmFor = 0;
+  private lastCheckpoint: CheckpointId | null = null;
+  /** Checkpoint that is due but waiting for a calm moment (debug / tests). */
+  private pendingCheckpoint: CheckpointId | null = null;
   private elevLoop: LoopHandle | null = null;
 
   // ── pacing ──
@@ -98,7 +123,7 @@ export class Script {
     const ev = ctx.events;
     ev.on('trigger:enter', (e) => { this.triggerAt.set(e.id, this.seq.time); this.insideTrig.add(e.id); });
     ev.on('trigger:exit', (e) => { this.insideTrig.delete(e.id); });
-    ev.on('enemy:group-cleared', (e) => { if (!this.cleared.has(e.group)) this.cleared.set(e.group, this.seq.time); });
+    ev.on('enemy:group-cleared', (e) => { if (!this.prog.cleared.includes(e.group)) this.prog.cleared.push(e.group); });
     ev.on('pickup', (e) => { this.pickedUp.add(e.kind); });
     ev.on('interact', (e) => this.onInteract(e.id));
     ev.on('door:denied', (e) => this.onDenied(e.id));
@@ -113,6 +138,9 @@ export class Script {
 
   private get ui(): UIInternal { return this.ctx.ui as UIInternal; }
   private get now(): number { return this.seq.time; }
+  private get f(): Progress['flags'] { return this.prog.flags; }
+  /** Has this beat / '#cue' marker happened (in this session or before the loaded checkpoint)? */
+  private has(id: string): boolean { return this.done.has(id); }
   private loop(id: string, volume: number): LoopHandle | null {
     try { return this.ctx.audio.loop(id, { volume }); } catch { return null; }
   }
@@ -126,20 +154,198 @@ export class Script {
     return ok;
   }
 
+  /** Record a marker in the progress record and apply its lasting consequences (idempotent). */
+  private mark(id: string): boolean {
+    if (this.done.has(id)) return false;
+    this.done.add(id);
+    this.prog.beats.push(id);
+    this.consequence(id);
+    return true;
+  }
+
+  /**
+   * A DESIGN.md beat happens now: recorded, its lasting consequences applied, `story:beat` emitted.
+   * False when it already happened (also: before the loaded checkpoint) — the caller skips the scene.
+   */
   private beat(id: string): boolean {
-    if (this.beats.has(id)) return false;
-    this.beats.add(id);
+    if (!this.mark(id)) return false;
     if (this.ctx.debug.verbose) console.log(`[story] beat ${id} @${this.now.toFixed(1)}s`);
     this.ctx.events.emit('story:beat', { id });
     return true;
   }
 
-  /** Internal run-once marker (not a DESIGN.md beat, so nothing is emitted). */
+  /** Internal run-once cue marker ('#id' in the record; not a DESIGN.md beat, so nothing is emitted). */
   private once(id: string): boolean {
-    if (this.beats.has('#' + id)) return false;
-    this.beats.add('#' + id);
+    if (!this.mark('#' + id)) return false;
     if (this.ctx.debug.verbose) console.log(`[story] cue ${id} @${this.now.toFixed(1)}s`);
     return true;
+  }
+
+  /** Wake / spawn a level enemy group and remember that the fight was started. */
+  private engage(group: string, how: 'wake' | 'spawn', stagger?: number): void {
+    if (!this.prog.triggered.includes(group)) this.prog.triggered.push(group);
+    this.triggeredAt.set(group, this.now);
+    if (how === 'wake') this.w.wakeGroup(group, stagger); else this.w.spawnGroup(group);
+  }
+
+  // ───────────────────────────────────────────────────────────── lasting consequences
+
+  /**
+   * What each beat / cue leaves behind for good. Idempotent, silent, instant — no waits, no sound, no
+   * text, no events: the scene around it lives in the beat's thread. Used by `mark()` when the beat
+   * happens and by `fastForward()` when a checkpoint is loaded.
+   */
+  private readonly CONSEQUENCES: Record<string, () => void> = {
+    // Security console: the fab access hold is released.
+    hold_released: () => {
+      this.f.holdReleased = true;
+      this.w.unlock('d_fab_outer');
+      this.w.screen('sec_console', 'terminal_idle', SCREENS.secConsoleDone);
+    },
+    armed: () => {
+      this.f.armed = true;
+      this.ui.setTorchHint?.(false);
+    },
+    // Security monitors after the vent dropped: one in static, one reporting motion in the junction.
+    '#sec_motion': () => {
+      this.w.screen('sec_monitor_2', 'static');
+      this.w.screen('sec_monitor_3', 'terminal_alert', SCREENS.secMotion);
+    },
+    husk_wakes: () => { this.f.huskWoke = true; },
+    fab_reveal: () => {
+      this.f.fabRevealed = true;
+      this.w.screen('fab_bigscreen', 'choir');
+    },
+    // Lock-out tag read: the pump room opens.
+    lockout_found: () => {
+      this.f.tagRead = true;
+      this.w.unlock('d_pump');
+    },
+    key_taken: () => {
+      this.f.keyTaken = true;
+      this.f.tagRead = true;
+      this.w.unlock('d_pump');
+    },
+    // Crossing back with the key: the arms follow the player until the breaker is closed.
+    fab_return: () => { this.armsWatch(true); },
+    // The breaker is closed: lever thrown for good, generator room lit, turbine running.
+    power_restored: () => {
+      this.f.power = true;
+      this.w.setInteractable('gen_lever', false);
+      this.armsWatch(false);
+      this.w.vignette('gen_lever_throw'); // the level animates the lever only on this call
+      this.w.lights('gen', { enabled: true, flicker: 'none', intensityScale: 1 });
+      this.w.machine('gen_turbine', 'active');
+    },
+    // 1.3 s later the bus reaches the hall, the lobby, the lift — and Hale's terminal.
+    '#power_hall': () => {
+      const w = this.w;
+      w.lights('fab', { enabled: true, flicker: 'none', intensityScale: 1 });
+      w.lights('lobby', { enabled: true, flicker: 'fluorescent' });
+      w.lights('elevator', { enabled: true, flicker: 'none' });
+      w.screen('fab_bigscreen', 'terminal_idle', SCREENS.fabResume);
+      w.screen('lobby_screen', 'terminal_idle', SCREENS.lobby);
+      w.screen('elev_panel', 'terminal_idle', SCREENS.elevUp);
+      w.screen('gen_terminal', 'terminal_idle', SCREENS.genBoot);
+      w.setInteractable('log_gen', true);
+    },
+    choir_speaks: () => {
+      for (const s of ALL_SCREENS) if (s !== 'gen_terminal') this.w.screen(s, 'choir');
+    },
+    // Hall lights die, beacons spin, the line runs — and the way out is open from this moment.
+    elevator_ready: () => {
+      const w = this.w;
+      w.lights('fab', { enabled: false });
+      for (const g of EMERGENCY_GROUPS) w.lights(g, { enabled: true, flicker: 'alarm' });
+      w.machine('fab_arms', 'frenzy');
+      w.machine('fab_conveyor', 'active');
+      w.unlock('d_lobby');
+      w.unlock('d_elev');
+      w.setInteractable('elev_button', true);
+      this.f.elevatorReady = true;
+    },
+    // The alarm runs from the ambush until the lift leaves (started once the world is audible).
+    fab_ambush: () => { if (!this.ff) this.startAlarm(); },
+  };
+
+  private consequence(id: string): void {
+    const fn = this.CONSEQUENCES[id];
+    if (fn) { try { fn(); } catch (e) { console.warn(`[story] consequence ${id} failed`, e); } return; }
+    // Cue markers named after a one-shot vignette with a lasting pose: the level owns the end state.
+    if (this.ff && id.startsWith('#') && LASTING_VIGNETTES.includes(id.slice(1))) this.w.vignette(id.slice(1));
+  }
+
+  /** The state every run starts from (before any beat). */
+  private baseline(): void {
+    const w = this.w;
+    w.unlock('d_storage');
+    w.lock('d_fab_outer');
+    w.lock('d_lobby');
+    w.lock('d_elev');
+    if (w.hasDoor('d_pump')) w.lock('d_pump');
+    w.setInteractable('elev_button', false);
+    w.setInteractable('log_gen', false);
+  }
+
+  /** The music mood the recorded progress implies (momentary silences before scares aside). */
+  private baselineMood(): 'silence' | 'ambient' | 'tension' {
+    if (this.f.power || this.has('fab_return')) return 'tension';
+    if (this.has('pump_enter')) return 'ambient';
+    if (this.f.fabRevealed) return 'tension';
+    return this.has('#pa_wake') || this.f.armed ? 'ambient' : 'silence';
+  }
+
+  private startAlarm(): void {
+    if (!this.alarm && !this.descending) this.alarm = this.loop('alarm_loop', 0.55);
+  }
+
+  /**
+   * Load a checkpoint: adopt its progress record and apply the consequences of every recorded beat, in
+   * the order they happened — no scenes, no CHOIR, no scares, no toasts, no `story:beat` events. Enemy
+   * groups that were fought are deleted. Call before `start()` and before `player.restore()`.
+   */
+  fastForward(saved: Progress, from: CheckpointId, cleared: readonly string[]): void {
+    const p = emptyProgress();
+    p.beats = [...saved.beats];
+    p.read = [...saved.read];
+    p.visited = [...saved.visited];
+    p.flags = { ...p.flags, ...saved.flags };
+    p.triggered = [...new Set([...saved.triggered, ...cleared])];
+    p.cleared = [...new Set([...saved.cleared, ...cleared])];
+    p.checkpoints = [...saved.checkpoints];
+    this.prog = p;
+    this.done = new Set();
+    this.restoredFrom = from;
+    this.lastCheckpoint = from;
+    this.ff = true;
+    const lv = this.ctx.level as unknown as { settle?: (seconds?: number) => void; setSilent?: (on: boolean) => void };
+    try {
+      try { lv.setSilent?.(true); } catch { /* ignore */ }
+      this.baseline();
+      for (const id of p.beats) {
+        if (this.done.has(id)) continue;
+        this.done.add(id);
+        this.consequence(id);
+      }
+      // Every fight that was started before the checkpoint is over (a checkpoint needs them dead).
+      for (const g of p.triggered) {
+        try { this.ctx.enemies.removeGroup(g); } catch (e) { console.warn(`[story] removeGroup ${g} failed`, e); }
+        this.triggeredAt.set(g, -1e9);
+      }
+      // Set-pieces fired above (lever, vent grille, ...) jump straight to their end pose, silently.
+      try { lv.settle?.(14); } catch (e) { console.warn('[story] level.settle failed', e); }
+    } finally {
+      this.ff = false;
+      try { lv.setSilent?.(false); } catch { /* ignore */ }
+    }
+    // Fragments read before the checkpoint stay readable; their follow-ups are guarded by cue markers.
+    for (const id of p.read) this.closedAt.set(id, -1e9);
+    this.director.setMood(this.baselineMood());
+  }
+
+  /** A copy of the progress record for the save file. */
+  snapshot(): Progress {
+    return JSON.parse(JSON.stringify(this.prog)) as Progress;
   }
 
   private toast(text: string, cooldown = 0): void {
@@ -216,8 +422,14 @@ export class Script {
   private get pos(): THREE.Vector3 { return this.ctx.player.position; }
 
   private groupDone(g: string, since: number, minDelay = 4): boolean {
-    if (this.cleared.has(g)) return true;
+    if (this.prog.cleared.includes(g)) return true;
     return this.now - since > minDelay && this.w.alive(g) === 0;
+  }
+
+  /** A fight the story started is over (false for a group that was never started). */
+  private fought(g: string, minDelay = 5): boolean {
+    if (!this.prog.triggered.includes(g)) return false;
+    return this.groupDone(g, this.triggeredAt.get(g) ?? -1e9, minDelay);
   }
 
   private ownsPistol(): boolean {
@@ -339,57 +551,127 @@ export class Script {
     this.objectiveTimer = 0.2;
     const room = this.w.room();
     if (room) {
-      this.visited.add(room);
+      this.visit(room);
       if (this.ctx.state === 'playing') this.roomTime.set(room, (this.roomTime.get(room) ?? 0) + step);
     }
-    if (this.entered('t_gen')) this.visited.add('gen');
+    if (this.entered('t_gen')) this.visit('gen');
     if (room === 'elevator' || this.insideTrig.has('t_elevator')) this.lastInElevator = this.now;
 
     // Music 'silence' overrides the audio module's automatic combat switch — never let it outlast a fight.
     if (this.director.mood === 'silence' && this.w.active() > 0 && this.now > this.silenceHold && !this.descending) {
-      this.director.setMood(this.fabRevealed ? 'tension' : 'ambient');
+      this.director.setMood(this.f.fabRevealed ? 'tension' : 'ambient');
     }
 
     // The breaker lever: prompt follows what the player knows; it stays usable until power is back.
-    if (!this.power) {
+    if (!this.f.power) {
       const key = this.hasKey();
-      this.w.setPrompt('gen_lever', key ? PROMPTS.leverKey : this.lockoutFound ? PROMPTS.leverLocked : PROMPTS.leverTag);
+      this.w.setPrompt('gen_lever', key ? PROMPTS.leverKey : this.f.tagRead ? PROMPTS.leverLocked : PROMPTS.leverTag);
       this.w.setInteractable('gen_lever', true);
       this.w.setInteractable('log_gen', false);
     }
     this.hooks.setObjective(this.computeObjective());
+    this.checkpoints(step);
+  }
+
+  private visit(room: string): void {
+    if (!this.prog.visited.includes(room)) this.prog.visited.push(room);
+  }
+
+  // ───────────────────────────────────────────────────────────── checkpoints
+
+  /**
+   * The six auto-saves. `when` — the story moment has been reached; `valid` — the fight it must come
+   * BEFORE has not started. Evaluated from state every tick (5 Hz), so a save that cannot be taken yet
+   * (not calm) is simply deferred, and dropped for good once `valid` fails.
+   */
+  private readonly CHECKPOINTS: Record<CheckpointId, { when: () => boolean; valid: () => boolean }> = {
+    // Pistol taken — before the android in the junction stands up.
+    cp_armed: { when: () => this.f.armed, valid: () => !this.f.huskWoke && !this.f.fabRevealed },
+    // In the airlock, about to enter the hall for the first time.
+    cp_fab: { when: () => this.inRoom('airlock'), valid: () => !this.f.fabRevealed },
+    // Lock-out tag read — before the pump room's first skitter.
+    cp_lockout: { when: () => this.f.tagRead, valid: () => !this.has('pump_first_skitter') && !this.hasKey() && !this.f.power },
+    // Key taken and the sump grate pair dead — before crossing the hall again.
+    cp_key: { when: () => this.f.keyTaken && this.has('#pump_b_over'), valid: () => !this.has('fab_return') && !this.f.power },
+    // Standing at the breaker with the key — before closing it.
+    cp_breaker: {
+      when: () => this.hasKey() && this.inRoom('gen') && this.distTo(this.w.interactablePos('gen_lever') ?? V(19.4, 0, -38)) < 5,
+      valid: () => !this.f.power,
+    },
+    // The hall ambush (rack + sentry) is survived — before the lobby wakes.
+    cp_lobby: { when: () => this.has('#fab_sentry'), valid: () => !this.has('#lobby_ambush') && !this.descending },
+  };
+
+  /**
+   * Calm: in play, alive, on the ground, no note open, nothing hunting, no shots exchanged for a few
+   * seconds, and every fight the story has started so far is over — never a save during a fight.
+   */
+  private calm(): boolean {
+    const ctx = this.ctx, p = ctx.player;
+    if (ctx.state !== 'playing' || !this.woke || this.descending || this.noteOpen) return false;
+    if (!p.alive || p.health <= 0 || !p.controlsEnabled) return false;
+    if (Math.abs(p.velocity.y) > 0.4) return false;
+    if (this.w.active() > 0 || this.now - this.lastCombat < 3) return false;
+    for (const g of this.prog.triggered) if (!this.fought(g, 8)) return false;
+    return true;
+  }
+
+  private checkpoints(step: number): void {
+    if (this.ctx.debug.noStory) return;
+    const taken = this.prog.checkpoints;
+    const lastIdx = this.lastCheckpoint ? CHECKPOINT_IDS.indexOf(this.lastCheckpoint) : -1;
+    // The latest checkpoint whose moment has come (never an earlier one than the last save).
+    let due: CheckpointId | null = null;
+    for (let i = CHECKPOINT_IDS.length - 1; i > lastIdx; i--) {
+      const id = CHECKPOINT_IDS[i];
+      if (taken.includes(id)) continue;
+      const c = this.CHECKPOINTS[id];
+      if (c.when() && c.valid()) { due = id; break; }
+    }
+    this.pendingCheckpoint = due;
+    if (!due || !this.calm()) { this.calmFor = 0; return; }
+    this.calmFor += step;
+    if (this.calmFor < 0.6) return;
+    this.calmFor = 0;
+    this.pendingCheckpoint = null;
+    taken.push(due);
+    this.lastCheckpoint = due;
+    if (this.ctx.debug.verbose) console.log(`[story] checkpoint ${due} @${this.now.toFixed(1)}s`);
+    try { this.hooks.checkpoint(due); } catch (e) { console.error('[story] checkpoint failed', e); }
   }
 
   /** The objective is always recomputed from state, never pushed by a beat. */
   private computeObjective(): string {
     if (!this.woke || this.descending) return OBJECTIVES.none;
-    if (this.power) {
-      if (this.elevatorReady && this.now - this.lastInElevator < 1.5) return OBJECTIVES.callElevator;
+    if (this.f.power) {
+      if (this.f.elevatorReady && this.now - this.lastInElevator < 1.5) return OBJECTIVES.callElevator;
       return OBJECTIVES.reachElevator;
     }
     if (this.hasKey()) return this.inRoom('gen') ? OBJECTIVES.closeBreaker : OBJECTIVES.returnKey;
-    if (this.lockoutFound) return this.inRoom('pump') ? OBJECTIVES.findHale : OBJECTIVES.findKey;
-    if (this.fabRevealed) return this.visited.has('gen') ? OBJECTIVES.throwBreaker : OBJECTIVES.findPower;
-    if (this.consoleUsed) return this.armed ? OBJECTIVES.enterFab : OBJECTIVES.takePistol;
-    if (this.sawFabHold) return this.inRoom('sec') ? OBJECTIVES.useConsole : OBJECTIVES.checkSecurity;
+    if (this.f.tagRead) return this.inRoom('pump') ? OBJECTIVES.findHale : OBJECTIVES.findKey;
+    if (this.f.fabRevealed) return this.prog.visited.includes('gen') ? OBJECTIVES.throwBreaker : OBJECTIVES.findPower;
+    if (this.f.holdReleased) return this.f.armed ? OBJECTIVES.enterFab : OBJECTIVES.takePistol;
+    if (this.f.sawFabHold) return this.inRoom('sec') ? OBJECTIVES.useConsole : OBJECTIVES.checkSecurity;
     return OBJECTIVES.findSomeone;
   }
 
   // ───────────────────────────────────────────────────────────── flow
 
-  /** Enforce initial lock states and start every beat thread. Idempotent. */
+  /**
+   * Enforce the starting state and start every beat thread. Idempotent. After `fastForward()` the world
+   * already holds the checkpoint's state: the same threads start, and each one finds in `prog` what is
+   * behind it (its scene is skipped) and what is still ahead.
+   */
   start(): void {
     if (this.started) return;
     this.started = true;
-    const w = this.w;
-    w.unlock('d_storage');
-    w.lock('d_fab_outer');
-    w.lock('d_lobby');
-    w.lock('d_elev');
-    if (w.hasDoor('d_pump')) w.lock('d_pump');
-    w.setInteractable('elev_button', false);
-    w.setInteractable('log_gen', false);
-    this.director.setMood('silence');
+    if (this.restoredFrom) {
+      // Loops that belong to the restored state (the world is audible from here on).
+      if (this.has('fab_ambush')) this.startAlarm();
+    } else {
+      this.baseline();
+      this.director.setMood('silence');
+    }
 
     const S = (n: string, f: () => Promise<unknown>) => this.seq.spawn(n, f);
     S('med', () => this.medScares());
@@ -406,11 +688,14 @@ export class Script {
     S('fab_figure', () => this.fabFigure());
     S('fab_first', () => this.fabFirstFight());
     S('gen', () => this.genRipple());
+    S('lockout', () => this.lockoutFollowUp());
     S('fab_cross', () => this.fabCross());
     S('pump', () => this.pumpEnter());
     S('pump_skitter', () => this.pumpFirstSkitter());
     S('key', () => this.keyTakenBeat());
     S('fab_return', () => this.fabReturn());
+    // Only after a load: a power-up sequence the checkpoint cut short picks up where it was.
+    if (this.f.power && !this.has('#fab_sentry')) S('power', () => this.powerSequence(null));
     S('lobby', () => this.lobby());
     S('elev_gate', () => this.elevatorGate());
     S('elevator_fallback', () => this.elevatorFallback());
@@ -483,7 +768,7 @@ export class Script {
   afterWake(skipHints: boolean): void {
     this.woke = true;
     this.ctx.ui.setHudVisible(true);
-    this.director.setMood('silence');
+    if (!this.restoredFrom) this.director.setMood('silence');
     this.quiet(6);
     this.hooks.setObjective(this.computeObjective());
     if (skipHints) return;
@@ -505,7 +790,7 @@ export class Script {
   /** Medical: the flat monitor shows two heartbeats; the arm slides off the gurney as you pass it. */
   private async medScares(): Promise<void> {
     await this.until(() => this.woke);
-    const left = () => this.visited.has('junction') || (this.inRoom('corr_a') && this.pos.z < -3);
+    const left = () => this.prog.visited.includes('junction') || (this.inRoom('corr_a') && this.pos.z < -3);
     await this.wait(5);
     if (await this.cue(() => this.inRoom('med'), left)) {
       if (this.once('med_monitor_spike')) { this.w.vignette('med_monitor_spike'); this.quiet(14); }
@@ -526,14 +811,15 @@ export class Script {
     await this.pa(CHOIR.paWake);
     this.quiet(7);
     await this.wait(2);
-    this.director.setMood('ambient');
+    if (this.director.mood === 'silence') this.director.setMood('ambient');
   }
 
   /** Corridor: the lights die one by one toward you; something walks across the far end. */
   private async corridorFirstDark(): Promise<void> {
+    if (this.has('corr_first_dark')) return;
     await this.until(() => this.woke && this.inRoom('corr_a'));
-    this.ui.setTorchHint?.(true);
-    const gone = () => this.huskWoke || this.fabRevealed;
+    if (!this.f.armed) this.ui.setTorchHint?.(true);
+    const gone = () => this.f.huskWoke || this.f.fabRevealed;
     // Facing the junction end from more than 8 m away.
     const ok = await this.cue(
       () => this.inRoom('corr_a') && this.pos.z > -7.2 && this.pos.z < -0.8 && this.isLookingAt(JUNCTION_END, 26),
@@ -588,7 +874,7 @@ export class Script {
   private async quarters(): Promise<void> {
     await this.until(() => this.woke && (this.inRoom('quarters') || this.entered('t_quarters')));
     this.beat('quarters');
-    const gone = () => this.fabRevealed;
+    const gone = () => this.f.fabRevealed;
     const inQ = () => this.inRoom('quarters');
 
     this.seq.spawn('q_locker', async () => {
@@ -614,7 +900,7 @@ export class Script {
     });
 
     await this.wait(3);
-    if (await this.cue(inQ, gone)) {
+    if ((await this.cue(inQ, gone)) && this.once('quarters_breath')) {
       this.w.play('breath_far', this.quartersFigureSpot().setY(1.4), 0.5);
       this.quiet(8);
     }
@@ -636,9 +922,9 @@ export class Script {
    * really seen it, it is removed the moment it is off-screen. Come too close and the light blinks.
    */
   private async quartersFigure(): Promise<void> {
-    if (!this.w.hasRoom('quarters')) return;
+    if (!this.w.hasRoom('quarters') || this.has('#quarters_figure')) return;
     await this.until(() => this.woke && (this.inRoom('corr_a') || this.inRoom('quarters')));
-    const gone = () => this.fabRevealed || this.huskWoke;
+    const gone = () => this.f.fabRevealed || this.f.huskWoke;
     const spot = this.quartersFigureSpot();
     const head = spot.clone().setY(1.55);
     // Face the nearer wall pair's corner.
@@ -670,9 +956,9 @@ export class Script {
 
   /** The fab door refuses: CHOIR, helpfully, says where the hold can be lifted. */
   private async junctionHold(): Promise<void> {
-    await this.until(() => this.woke && this.sawFabHold);
+    await this.until(() => this.woke && this.f.sawFabHold);
     await this.wait(1.6);
-    if (!(await this.cue(() => this.inRoom('junction') || this.inRoom('corr_a'), () => this.consoleUsed))) return;
+    if (!(await this.cue(() => this.inRoom('junction') || this.inRoom('corr_a'), () => this.f.holdReleased))) return;
     if (!this.once('pa_hold')) return;
     this.quiet(12);
     await this.pa(CHOIR.paHold);
@@ -683,13 +969,8 @@ export class Script {
   private onSecConsole(): void {
     const f = FRAGMENTS.term_sec_unlock;
     this.openNote('term_sec_unlock', f, false);
-    if (this.consoleUsed) return;
-    this.consoleUsed = true;
-    this.beat('hold_released');
-    const w = this.w;
-    w.unlock('d_fab_outer');
-    w.screen('sec_console', 'terminal_idle', SCREENS.secConsoleDone);
-    w.play('door_unlock', V(0, 1.4, -20), 0.6);
+    if (!this.beat('hold_released')) return;
+    this.w.play('door_unlock', V(0, 1.4, -20), 0.6);
     this.seq.spawn('hold_toast', async () => {
       await this.until(() => !this.noteOpen);
       await this.wait(0.5);
@@ -700,15 +981,14 @@ export class Script {
   /** The pistol — then the vent grille drops, and nothing comes out. */
   private async armedAndVent(): Promise<void> {
     // Pistol taken from the locker — or (debug give=all) already owned when walking into Security.
-    await this.until(() => this.woke && (this.pickedUp.has('pistol') || (this.ownsPistol() && (this.inRoom('sec') || this.entered('t_sec')))));
-    this.armed = true;
+    await this.until(() => this.woke && (this.f.armed || this.pickedUp.has('pistol') || (this.ownsPistol() && (this.inRoom('sec') || this.entered('t_sec')))));
     this.beat('armed');
-    this.ui.setTorchHint?.(false);
+    if (this.has('#sec_vent_drop')) return; // the grille already hangs open (before the loaded checkpoint)
     const w = this.w;
     const inSec = () => this.inRoom('sec');
-    if (!this.huskWoke) this.director.setMood('silence');
+    if (!this.f.huskWoke) this.director.setMood('silence');
     await this.wait(4.5);
-    if (await this.cue(inSec, () => !inSec() || this.huskWoke)) {
+    if (await this.cue(inSec, () => !inSec() || this.f.huskWoke)) {
       if (this.once('sec_vent_drop')) {
         if (!w.vignette('sec_vent_drop')) {
           const vent = w.objectPos('sec_vent', V(-7, 3.1, -17));
@@ -718,65 +998,65 @@ export class Script {
         this.quiet(16);
         // Nothing comes out. Let that sit.
         await this.wait(8);
-        if (inSec() && !this.huskWoke) {
+        if (inSec() && !this.f.huskWoke) {
           w.screen('sec_monitor_2', 'static');
           await this.wait(0.6);
-          w.screen('sec_monitor_3', 'terminal_alert', SCREENS.secMotion);
-          w.play('terminal_beep', w.objectPos('sec_console', V(-9.9, 1.2, -17)), 0.5);
+          if (this.once('sec_motion')) w.play('terminal_beep', w.objectPos('sec_console', V(-9.9, 1.2, -17)), 0.5);
         }
       }
     }
     await this.wait(2);
-    if (this.director.mood === 'silence' && !this.huskWoke) this.director.setMood('ambient');
+    if (this.director.mood === 'silence' && !this.f.huskWoke) this.director.setMood('ambient');
   }
 
   /** FIRST ENEMY: armed, back in the junction — the slumped android stands up. */
   private async huskWakes(): Promise<void> {
-    await this.until(() => this.armed);
+    await this.until(() => this.f.armed);
     const t0 = this.now;
-    await this.until(() =>
-      (this.now - t0 > 5 && this.inRoom('junction') && !this.noteOpen && this.ctx.state === 'playing')
-      || this.inRoom('airlock') || this.fabRevealed);
-    this.huskWoke = true;
-    if (!this.beat('husk_wakes')) return;
-    const w = this.w;
-    const spawn = w.spawns('g_junction')[0]?.position ?? null;
-    // Music stays down until it is on its feet.
-    this.director.setMood('silence');
-    this.silenceHold = this.now + 7;
-    w.wakeGroup('g_junction');
-    const since = this.now;
-    await this.wait(1.4);
-    this.unitLine(UNIT_LINES.junction, spawn);
-    await this.untilOr(() => {
-      try { return this.ctx.enemies.all.some((e) => e.group === 'g_junction' && (e.state === 'chase' || e.state === 'attack')); } catch { return true; }
-    }, 5);
-    this.silenceHold = -1e9;
-    this.director.setMood(this.fabRevealed ? 'tension' : 'ambient');
-
-    await this.until(() => this.groupDone('g_junction', since, 6));
+    await this.until(() => this.f.huskWoke
+      || (this.now - t0 > 5 && this.inRoom('junction') && !this.noteOpen && this.ctx.state === 'playing')
+      || this.inRoom('airlock') || this.f.fabRevealed);
+    if (this.beat('husk_wakes')) {
+      const w = this.w;
+      const spawn = w.spawns('g_junction')[0]?.position ?? null;
+      // Music stays down until it is on its feet.
+      this.director.setMood('silence');
+      this.silenceHold = this.now + 7;
+      this.engage('g_junction', 'wake');
+      await this.wait(1.4);
+      this.unitLine(UNIT_LINES.junction, spawn);
+      await this.untilOr(() => {
+        try { return this.ctx.enemies.all.some((e) => e.group === 'g_junction' && (e.state === 'chase' || e.state === 'attack')); } catch { return true; }
+      }, 5);
+      this.silenceHold = -1e9;
+      this.director.setMood(this.f.fabRevealed ? 'tension' : 'ambient');
+    }
+    if (this.has('#pa_husk')) return;
+    await this.until(() => this.fought('g_junction', 6));
     this.quiet(8);
     await this.wait(6);
-    if (!(await this.cue(() => true, () => this.fabRevealed)) || !this.once('pa_husk')) return;
+    if (!(await this.cue(() => true, () => this.f.fabRevealed)) || !this.once('pa_husk')) return;
     this.quiet(12);
     await this.pa(CHOIR.paHusk);
   }
 
   /** Storage (optional): Hale's plan on a clipboard; a canister tips off a shelf. */
   private async storage(): Promise<void> {
+    if (this.has('#storage_canister')) return;
     await this.until(() => this.woke && (this.inRoom('storage') || this.entered('t_storage')));
     const inS = () => this.inRoom('storage');
     await this.wait(5);
-    if (!(await this.cue(inS, () => this.power)) || !this.once('storage_canister')) return;
+    if (!(await this.cue(inS, () => this.f.power)) || !this.once('storage_canister')) return;
     this.w.vignette('storage_canister');
     this.quiet(20);
   }
 
   /** The decon lock cycles around you; a wet hand slaps the inner glass. */
   private async airlock(): Promise<void> {
+    if (this.has('#airlock_cycle')) return;
     await this.until(() => this.woke && (this.inRoom('airlock') || this.entered('t_airlock')));
     await this.wait(0.9);
-    if (!(await this.cue(() => this.inRoom('airlock'), () => this.fabRevealed)) || !this.once('airlock_cycle')) return;
+    if (!(await this.cue(() => this.inRoom('airlock'), () => this.f.fabRevealed)) || !this.once('airlock_cycle')) return;
     this.w.vignette('airlock_cycle');
     this.quiet(14);
   }
@@ -784,13 +1064,12 @@ export class Script {
   // ───────────────────────────────────────────────────────────── act 3 — the hall
 
   private async fabReveal(): Promise<void> {
+    if (this.has('fab_reveal')) return;
     await this.until(() => this.woke && (this.entered('t_fab_enter') || this.inRoom('fab')));
-    this.fabRevealed = true;
     if (!this.beat('fab_reveal')) return;
     const w = this.w;
     this.director.setMood('tension');
     this.quiet(30);
-    w.screen('fab_bigscreen', 'choir');
     await this.wait(1.6);
     // Far away, something small runs along the ceiling — only once the player is facing the hall.
     await this.untilOr(() => this.isLookingAt(V(0, 6, -40), 50), 5);
@@ -833,8 +1112,8 @@ export class Script {
 
   /** A unit stands motionless under a far work light. The lights blink. It is gone. */
   private async fabFigure(): Promise<void> {
-    await this.until(() => this.fabRevealed);
-    const gone = () => this.lockoutFound || this.power;
+    await this.until(() => this.f.fabRevealed);
+    const gone = () => this.f.tagRead || this.f.power;
     let spot = V(0, 0, 0);
     const placed = await this.cue(() => {
       if (!this.inRoom('fab')) return false;
@@ -877,18 +1156,19 @@ export class Script {
   /** The android at the bench stops working. */
   private async fabFirstFight(): Promise<void> {
     const bench = this.w.spawns('g_fab_first').find((s) => s.type === 'husk')?.position ?? V(-4.1, 0, -37.2);
-    await this.until(() => this.fabRevealed && (
-      this.entered('t_fab_mid') || (this.inRoom('fab') && (this.pos.z < -36 || this.distTo(bench) < 5.5)) || this.power));
+    await this.until(() => this.f.fabRevealed && (
+      this.entered('t_fab_mid') || (this.inRoom('fab') && (this.pos.z < -36 || this.distTo(bench) < 5.5)) || this.f.power));
     if (!this.beat('fab_first_fight')) return;
-    this.w.wakeGroup('g_fab_first', 0.5);
+    this.engage('g_fab_first', 'wake', 0.5);
     await this.wait(1.2);
     if (this.w.alive('g_fab_first') > 0) this.unitLine(UNIT_LINES.bench, bench);
   }
 
   private async genRipple(): Promise<void> {
+    if (this.has('#gen_ripple')) return;
     await this.until(() => this.woke && (this.inRoom('gen') || this.entered('t_gen')));
     await this.wait(2);
-    if (!(await this.cue(() => this.inRoom('gen'), () => this.power)) || !this.once('gen_ripple')) return;
+    if (!(await this.cue(() => this.inRoom('gen'), () => this.f.power)) || !this.once('gen_ripple')) return;
     this.w.vignette('gen_ripple');
     this.quiet(10);
   }
@@ -898,50 +1178,53 @@ export class Script {
   /** The lever without the key: read the tag. Never throws it. */
   private onLeverLocked(): void {
     this.openNote(TAG_ID, FRAGMENTS[TAG_ID], true);
-    if (this.lockoutFound) { this.toast(TOASTS.leverLocked, 6); return; }
-    this.lockoutFound = true;
+    if (this.f.tagRead) { this.toast(TOASTS.leverLocked, 6); return; }
     this.beat('lockout_found');
+  }
+
+  /** After the tag: CHOIR, helpfully, says where Hale went. */
+  private async lockoutFollowUp(): Promise<void> {
+    if (this.has('#pa_lockout')) return;
     const w = this.w;
-    w.unlock('d_pump');
-    this.seq.spawn('lockout', async () => {
-      await this.until(() => !this.noteOpen);
-      // Guaranteed path: a level without the pump room / key pickup hands the key over here.
-      if (!w.hasRoom('pump') || !w.pickupSpawn('keycard')) {
-        await this.wait(2);
-        try { this.ctx.player.addKey('keycard'); } catch { /* ignore */ }
-        return;
-      }
-      await this.wait(2.2);
-      if (!(await this.cue(() => true, () => this.hasKey())) || !this.once('pa_lockout')) return;
-      this.quiet(12);
-      await this.pa(CHOIR.paLockout);
-    });
+    await this.until(() => this.f.tagRead && !this.noteOpen);
+    if (this.hasKey()) return;
+    // Guaranteed path: a level without the pump room / key pickup hands the key over here.
+    if (!w.hasRoom('pump') || !w.pickupSpawn('keycard')) {
+      await this.wait(2);
+      try { this.ctx.player.addKey('keycard'); } catch { /* ignore */ }
+      return;
+    }
+    await this.wait(2.2);
+    if (!(await this.cue(() => true, () => this.hasKey())) || !this.once('pa_lockout')) return;
+    this.quiet(12);
+    await this.pa(CHOIR.paLockout);
   }
 
   /** Crossing the hall to the pump room: the arms follow you; the conveyor steps when your back is turned. */
   private async fabCross(): Promise<void> {
-    await this.until(() => this.lockoutFound && this.inRoom('fab'));
-    if (this.power) return;
+    if (this.f.keyTaken || this.f.power) return;
+    await this.until(() => this.f.tagRead && this.inRoom('fab'));
+    if (this.f.keyTaken || this.f.power) return;
     this.armsWatch(true);
     const rack = this.w.spawns('g_fab_rack');
     const mid = V(0, 4.5, -38);
     if (rack.length) { mid.set(0, 0, 0); for (const s of rack) mid.add(s.position); mid.multiplyScalar(1 / rack.length); mid.y = 4.2; }
-    const done = () => this.keyTaken || this.power;
+    const done = () => this.f.keyTaken || this.f.power;
     const ok = await this.cue(() => this.inRoom('fab') && this.pos.x < 4 && this.distTo(mid) > 3.5 && this.angleTo(mid) > 80 * DEG, done);
     if (ok && this.once('fab_conveyor_step')) {
       this.w.vignette('fab_conveyor_step');
       this.quiet(20);
     }
-    await this.until(() => this.inRoom('pump') || this.power);
-    this.armsWatch(false);
+    await this.until(() => this.inRoom('pump') || this.f.power || this.has('fab_return'));
+    if (!this.has('fab_return')) this.armsWatch(false);
   }
 
   private async pumpEnter(): Promise<void> {
+    if (this.has('#pump_knock')) return;
     await this.until(() => this.woke && (this.inRoom('pump') || this.entered('t_pump')));
-    this.beat('pump_enter');
     // Wet, dark, quiet. Music drops back; combat switches itself.
-    if (!this.power) this.director.setMood('ambient');
-    const deep = () => this.beats.has('pump_first_skitter');
+    if (this.beat('pump_enter') && !this.f.power) this.director.setMood('ambient');
+    const deep = () => this.has('pump_first_skitter');
     await this.wait(3);
     if (!(await this.cue(() => this.inRoom('pump'), deep)) || !this.once('pump_knock')) return;
     this.w.vignette('pump_knock');
@@ -950,53 +1233,63 @@ export class Script {
 
   /** First skitter — late, alone, and telegraphed. */
   private async pumpFirstSkitter(): Promise<void> {
-    await this.until(() => this.woke && (this.entered('t_pump_deep') || (this.inRoom('pump') && this.pos.x < -17)));
-    if (!this.beat('pump_first_skitter')) return;
-    this.w.spawnGroup('g_pump_a');
-    const since = this.now;
-    await this.until(() => this.groupDone('g_pump_a', since, 5));
+    if (this.has('#pump_bubbles')) return;
+    await this.until(() => this.woke && (this.has('pump_first_skitter') || this.entered('t_pump_deep') || (this.inRoom('pump') && this.pos.x < -17)));
+    if (this.beat('pump_first_skitter')) this.engage('g_pump_a', 'spawn');
+    await this.until(() => this.fought('g_pump_a', 5));
     await this.wait(5);
     // Something large moves under the water while you stand over Hale.
-    if (!(await this.cue(() => this.inRoom('pump'), () => this.beats.has('fab_return'))) || !this.once('pump_bubbles')) return;
+    if (!(await this.cue(() => this.inRoom('pump'), () => this.has('fab_return'))) || !this.once('pump_bubbles')) return;
     this.w.vignette('pump_bubbles');
     this.quiet(8);
   }
 
   /** Hale's key comes out of her fist — and the sump grate by the door lifts. */
   private async keyTakenBeat(): Promise<void> {
-    await this.until(() => this.woke && this.hasKey());
-    this.keyTaken = true;
-    this.lockoutFound = true;
-    this.w.unlock('d_pump');
-    if (!this.beat('key_taken')) return;
+    await this.until(() => this.woke && (this.f.keyTaken || this.hasKey()));
     const w = this.w;
-    if (!w.hasRoom('pump') || !this.visited.has('pump')) return;
-    await this.wait(1.8);
-    const grate = w.spawns('g_pump_b')[0]?.position ?? V(-13.5, 0, -38);
-    w.play('water_slosh', grate, 0.9);
-    await this.wait(0.7);
-    w.spawnGroup('g_pump_b');
-    const since = this.now;
-    await this.until(() => this.groupDone('g_pump_b', since, 5) || this.now - since > 150);
+    if (this.beat('key_taken')) {
+      if (w.hasRoom('pump') && this.prog.visited.includes('pump') && w.spawns('g_pump_b').length) {
+        // Marked as started right away: no checkpoint in the breath before the grate lifts.
+        if (!this.prog.triggered.includes('g_pump_b')) this.prog.triggered.push('g_pump_b');
+        this.triggeredAt.set('g_pump_b', this.now + 2.5);
+        await this.wait(1.8);
+        const grate = w.spawns('g_pump_b')[0]?.position ?? V(-13.5, 0, -38);
+        w.play('water_slosh', grate, 0.9);
+        await this.wait(0.7);
+        this.engage('g_pump_b', 'spawn');
+      }
+    }
+    if (!this.has('#pump_b_over')) {
+      const since = this.now;
+      await this.until(() => !this.prog.triggered.includes('g_pump_b') || this.fought('g_pump_b', 5) || this.now - since > 150);
+      this.once('pump_b_over'); // → checkpoint cp_key
+    }
+    if (this.has('#fab_conveyor_step_2')) return;
     await this.wait(4);
-    if (this.power) return;
-    if ((await this.cue(() => true, () => this.power || this.beats.has('fab_return'))) && this.once('pa_key')) {
+    if (this.f.power) return;
+    if ((await this.cue(() => true, () => this.f.power || this.has('fab_return'))) && this.once('pa_key')) {
       this.quiet(10);
       await this.pa(CHOIR.paKey);
     }
     // Far off, through the wall: the line has moved one place while you were away.
     await this.wait(3);
-    if (!this.power && !this.inRoom('fab')) { w.vignette('fab_conveyor_step'); this.once('fab_conveyor_step_2'); }
+    if (!this.f.power && !this.inRoom('fab') && this.once('fab_conveyor_step_2')) w.vignette('fab_conveyor_step');
   }
 
   /** Back across the hall with the key. */
   private async fabReturn(): Promise<void> {
+    if (this.has('fab_return')) return;
     await this.until(() => this.woke && this.hasKey() && this.inRoom('fab') && (this.pos.x > -9.5 || !this.w.hasRoom('pump')));
-    if (this.power || !this.beat('fab_return')) return;
+    if (this.f.power || !this.beat('fab_return')) return;
     const w = this.w;
     this.director.setMood('tension');
-    this.armsWatch(true);
-    if (!this.beats.has('#fab_conveyor_step_2')) { w.vignette('fab_conveyor_step'); this.once('fab_conveyor_step_2'); }
+    if (this.once('fab_conveyor_step_2')) w.vignette('fab_conveyor_step');
+    // Started now (the skitter drops a few seconds after the husk stirs): no checkpoint in between.
+    if (w.spawns('g_fab_return').length) {
+      this.prog.triggered.push('g_fab_return');
+      this.triggeredAt.set('g_fab_return', this.now + 4.5);
+    }
     await this.wait(1.2);
     const husk = w.spawns('g_fab_return').find((s) => s.type === 'husk')?.position ?? null;
     w.wakeGroup('g_fab_return', 0.6);
@@ -1008,90 +1301,85 @@ export class Script {
 
   // ───────────────────────────────────────────────────────────── act 5 — required
 
+  /** The lever with the key: the breaker closes. There is no other way forward. */
   private async powerRestored(): Promise<void> {
-    if (this.power) return;
-    this.power = true;
+    if (this.f.power) return;
     const w = this.w;
     this.ui.closeNote?.();
-    w.setInteractable('gen_lever', false);
-    this.armsWatch(false);
-    // The level animates the lever only on this call.
-    w.vignette('gen_lever_throw');
     this.beat('power_restored');
     // Anything still dormant in the hall comes alive with the bus.
-    if (!this.beats.has('fab_first_fight')) { this.beat('fab_first_fight'); w.wakeGroup('g_fab_first', 0.8); }
+    if (this.beat('fab_first_fight')) this.engage('g_fab_first', 'wake', 0.8);
     w.shake(0.35);
-    w.lights('gen', { enabled: true, flicker: 'none', intensityScale: 1 });
-    w.machine('gen_turbine', 'active');
     this.toast(TOASTS.busLive);
-    await this.wait(1.3);
+    await this.powerSequence(null);
+  }
 
-    // The whole hall lights up: the hanging line in full view, for a moment.
-    w.lights('fab', { enabled: true, flicker: 'none', intensityScale: 1 });
-    w.lights('lobby', { enabled: true, flicker: 'fluorescent' });
-    w.lights('elevator', { enabled: true, flicker: 'none' });
-    w.screen('fab_bigscreen', 'terminal_idle', SCREENS.fabResume);
-    w.screen('lobby_screen', 'terminal_idle', SCREENS.lobby);
-    w.screen('elev_panel', 'terminal_idle', SCREENS.elevUp);
-    w.play('metal_groan', V(0, 6, -38), 0.7);
-    // Hale's terminal only wakes when the bus is live.
-    w.screen('gen_terminal', 'terminal_idle', SCREENS.genBoot);
-    const genHas = w.setInteractable('log_gen', true);
-    w.play('terminal_beep', w.interactablePos('log_gen') ?? V(12.4, 1.4, -35), 0.8);
-    await this.wait(3.0);
-
-    this.beat('choir_speaks');
-    for (const s of ALL_SCREENS) if (s !== 'gen_terminal') w.screen(s, 'choir');
-    w.glitch(1, 0.8);
-    const speaking = this.choir(CHOIR.powerRestored, 0.5);
-    await this.wait(2.2);
-
-    // Lights die, beacons spin, the line starts moving.
-    w.play('power_down', undefined, 0.9);
-    w.lights('fab', { enabled: false });
-    await this.wait(0.6);
-    for (const g of EMERGENCY_GROUPS) w.lights(g, { enabled: true, flicker: 'alarm' });
-    w.machine('fab_arms', 'frenzy');
-    w.machine('fab_conveyor', 'active');
-    // The way out is open from this moment, whatever happens next.
-    w.unlock('d_lobby');
-    w.unlock('d_elev');
-    w.setInteractable('elev_button', true);
-    this.elevatorReady = true;
-    this.beat('elevator_ready');
-
-    // Hold the ambush until Hale's last entry has been read — or ~12 s have gone by.
-    const t0 = this.now;
-    const readingGen = () => this.noteOpen && this.noteId === 'log_gen';
-    await this.until(() => {
-      const t = this.now - t0;
-      if (t > 26) return true;
-      if (readingGen()) return false;
-      if (this.closedAt.has('log_gen')) return this.now - (this.closedAt.get('log_gen') ?? 0) > 1.2;
-      return t > (genHas ? 12 : 3) || !this.inRoom('gen');
-    });
-    await speaking;
-
-    this.beat('fab_ambush');
-    w.wakeGroup('g_fab_rack', 1.2);
-    this.alarm = this.loop('alarm_loop', 0.55);
-    this.seq.spawn('rack_line', async () => { await this.wait(2.5); if (this.inRoom('fab')) this.unitLine(UNIT_LINES.rack, null); });
-    this.seq.spawn('sentry', async () => { await this.wait(8); w.spawnGroup('g_fab_sentry'); });
-    this.director.setMood('tension');
+  /**
+   * Everything that follows the lever, as guarded steps: each one is skipped when its marker is already
+   * in the progress record, so the sequence can also be resumed after a load.
+   */
+  private async powerSequence(speaking: Promise<void> | null): Promise<void> {
+    const w = this.w;
+    if (!this.has('#power_hall')) {
+      await this.wait(1.3);
+      // The whole hall lights up: the hanging line in full view, for a moment. Hale's terminal wakes.
+      this.once('power_hall');
+      w.play('metal_groan', V(0, 6, -38), 0.7);
+      w.play('terminal_beep', w.interactablePos('log_gen') ?? V(12.4, 1.4, -35), 0.8);
+    }
+    if (!this.has('choir_speaks')) {
+      await this.wait(3.0);
+      this.beat('choir_speaks');
+      w.glitch(1, 0.8);
+      speaking = this.choir(CHOIR.powerRestored, 0.5);
+      await this.wait(2.2);
+    }
+    if (!this.has('elevator_ready')) {
+      // Lights die, beacons spin, the line starts moving.
+      w.play('power_down', undefined, 0.9);
+      w.lights('fab', { enabled: false });
+      await this.wait(0.6);
+      // The way out is open from this moment, whatever happens next.
+      this.beat('elevator_ready');
+    }
+    if (!this.has('fab_ambush')) {
+      // Hold the ambush until Hale's last entry has been read — or ~12 s have gone by.
+      const genHas = !!this.ctx.interactables.get('log_gen');
+      const t0 = this.now;
+      const readingGen = () => this.noteOpen && this.noteId === 'log_gen';
+      await this.until(() => {
+        const t = this.now - t0;
+        if (t > 26) return true;
+        if (readingGen()) return false;
+        if (this.closedAt.has('log_gen')) return this.now - (this.closedAt.get('log_gen') ?? 0) > 1.2;
+        return t > (genHas ? 12 : 3) || !this.inRoom('gen');
+      });
+      if (speaking) await speaking;
+      this.beat('fab_ambush');
+      this.engage('g_fab_rack', 'wake', 1.2);
+      this.seq.spawn('rack_line', async () => { await this.wait(2.5); if (this.inRoom('fab')) this.unitLine(UNIT_LINES.rack, null); });
+      this.director.setMood('tension');
+    }
+    if (!this.has('#fab_sentry')) {
+      await this.wait(8);
+      if (this.once('fab_sentry')) this.engage('g_fab_sentry', 'spawn');
+    }
   }
 
   /** The lobby: one of the tarps shifts. Then it gets up. */
   private async lobby(): Promise<void> {
-    await this.until(() => this.power && (this.entered('t_lobby') || this.inRoom('lobby')));
+    if (this.has('#lobby_ambush')) return;
+    await this.until(() => this.f.power && (this.entered('t_lobby') || this.inRoom('lobby')));
     if (!this.once('lobby_ambush')) return;
     this.w.vignette('lobby_tarp');
     await this.wait(2.2);
-    this.w.wakeGroup('g_lobby', 0.7);
+    this.engage('g_lobby', 'wake', 0.7);
   }
 
   /** Something hits the cage gate from the shaft side, once, before you touch the button. */
   private async elevatorGate(): Promise<void> {
-    await this.until(() => this.elevatorReady && (this.inRoom('elevator') || this.insideTrig.has('t_elevator') || (this.inRoom('lobby') && this.pos.z < -56.2)));
+    if (this.has('#elev_gate_rattle')) return;
+    await this.until(() => this.f.elevatorReady && (this.inRoom('elevator') || this.insideTrig.has('t_elevator') || (this.inRoom('lobby') && this.pos.z < -56.2)));
     await this.wait(0.8);
     if (this.descending || this.noteOpen || !this.once('elev_gate_rattle')) return;
     this.w.vignette('elev_gate_rattle');
@@ -1100,7 +1388,7 @@ export class Script {
 
   /** If the level never registers `elev_button`, entering the cab after power still ends the level. */
   private async elevatorFallback(): Promise<void> {
-    await this.until(() => this.power && !this.ctx.interactables.get('elev_button') && (this.entered('t_elevator') || this.inRoom('elevator')));
+    await this.until(() => this.f.power && !this.ctx.interactables.get('elev_button') && (this.entered('t_elevator') || this.inRoom('elevator')));
     await this.wait(2.5);
     this.seq.spawn('descent', () => this.descent());
   }
@@ -1108,7 +1396,7 @@ export class Script {
   // ───────────────────────────────────────────────────────────── act 6 — down
 
   private async descent(): Promise<void> {
-    if (this.descending || !this.power) return;
+    if (this.descending || !this.f.power) return;
     this.descending = true;
     const ctx = this.ctx, p = ctx.player, w = this.w;
     this.ui.closeNote?.();
@@ -1149,6 +1437,7 @@ export class Script {
     this.elevLoop?.stop(3.2);
     await this.wait(3.6);
     this.beat('end');
+    try { this.hooks.finished(); } catch { /* ignore */ }
     ctx.setState('ended');
     this.ui.setHudVisible(false);
     await ctx.ui.showEnding();
@@ -1160,13 +1449,13 @@ export class Script {
     if (!this.started || this.descending) return;
     if (id === 'term_sec_unlock') { this.onSecConsole(); return; }
     if (id === 'gen_lever') {
-      if (this.power) return;
+      if (this.f.power) return;
       if (this.hasKey()) this.seq.spawn('power', () => this.powerRestored());
       else this.onLeverLocked();
       return;
     }
     if (id === 'elev_button') { this.seq.spawn('descent', () => this.descent()); return; }
-    if (id === 'log_gen' && !this.power) return;
+    if (id === 'log_gen' && !this.f.power) return;
     const f = FRAGMENTS[id];
     if (f) this.openNote(id, f, true);
   }
@@ -1177,6 +1466,7 @@ export class Script {
     if (this.noteId === id) return;
     if (this.lastNoteId === id && performance.now() - this.noteClosedReal < 350) return;
     if (isRecord) this.logs.add(id);
+    if (!this.prog.read.includes(id)) this.prog.read.push(id);
     this.ctx.events.emit('story:log', { id, title: f.header, body: f.body });
     const done = () => {
       if (this.noteId !== id) return;
@@ -1207,17 +1497,17 @@ export class Script {
     if (!this.started) return;
     switch (id) {
       case 'd_fab_outer':
-        this.sawFabHold = true;
+        this.f.sawFabHold = true;
         this.toast(TOASTS.fabHold, 4);
         break;
       case 'd_pump':
         this.toast(TOASTS.pumpLocked, 4);
         break;
       case 'd_lobby':
-        if (!this.power) this.toast(TOASTS.noPower, 4);
+        if (!this.f.power) this.toast(TOASTS.noPower, 4);
         break;
       case 'd_elev':
-        if (!this.power) this.toast(TOASTS.noPowerElev, 4);
+        if (!this.f.power) this.toast(TOASTS.noPowerElev, 4);
         break;
     }
   }
@@ -1281,9 +1571,13 @@ export class Script {
   /** Snapshot for the playthrough assertions. */
   get debugState() {
     return {
-      beats: [...this.beats], quietFor: Math.max(0, this.quietUntil - this.now), note: this.noteId,
-      armed: this.armed, consoleUsed: this.consoleUsed, lockoutFound: this.lockoutFound, keyTaken: this.keyTaken,
-      power: this.power, actors: this.actors.size, mood: this.director.mood,
+      beats: [...this.prog.beats], quietFor: Math.max(0, this.quietUntil - this.now), note: this.noteId,
+      armed: this.f.armed, consoleUsed: this.f.holdReleased, lockoutFound: this.f.tagRead, keyTaken: this.f.keyTaken,
+      power: this.f.power, actors: this.actors.size, mood: this.director.mood,
+      // checkpoints
+      restoredFrom: this.restoredFrom, checkpoint: this.lastCheckpoint, pendingCheckpoint: this.pendingCheckpoint,
+      checkpoints: [...this.prog.checkpoints], calm: this.started && this.calm(),
+      triggered: [...this.prog.triggered], cleared: [...this.prog.cleared], flags: { ...this.f },
     };
   }
 }

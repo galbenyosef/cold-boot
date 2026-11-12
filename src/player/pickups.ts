@@ -193,10 +193,26 @@ export class Pickups {
     this.spawn({ id: id ?? `pk_${kind}_${this.seq++}`, kind, position: position.clone(), amount, yaw });
   }
 
+  /** Checkpoints: ids of every pickup collected so far (level spawns and runtime ones alike). */
+  readonly collected: string[] = [];
+
+  /** Checkpoints: silently remove already-collected pickups (no give, no events). */
+  restoreCollected(ids: readonly string[]) {
+    const want = new Set(ids);
+    for (const it of this.items) {
+      if (it.taken || !want.has(it.spawn.id)) continue;
+      it.taken = true;
+      this.root.remove(it.obj, it.glint);
+      if (!it.auto) this.ctx.interactables.remove(it.spawn.id);
+    }
+    for (const id of ids) if (!this.collected.includes(id)) this.collected.push(id);
+  }
+
   private collect(it: Item) {
     if (it.taken) return;
     it.taken = true;
     const sp = it.spawn;
+    this.collected.push(sp.id);
     if (sp.kind === 'keycard') this.host.addKey(sp.id);
     this.host.give(sp.kind, sp.amount);
     this.ctx.events.emit('pickup', { kind: sp.kind, amount: sp.amount, position: it.center.clone() });

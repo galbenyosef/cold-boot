@@ -46,6 +46,8 @@ export class Hud {
   private locName: HTMLSpanElement;
   private locSub: HTMLElement;
   private toastEl: HTMLDivElement;
+  private cpEl: HTMLDivElement;
+  private cpLeft = 0;
   private pickups: HTMLDivElement;
   private dmgEls: { svg: SVGSVGElement; from: THREE.Vector3 | null; angle: number; life: number }[] = [];
 
@@ -129,6 +131,10 @@ export class Hud {
     this.locSub = h('small', '', this.location, 'SUBLEVEL 3');
     this.toastEl = h('div', 'toast', root, '');
     this.pickups = h('div', 'pickups', root);
+    // checkpoint indicator (top right): a small turning diamond + label
+    this.cpEl = h('div', 'cp', root);
+    h('span', 'lbl', this.cpEl, 'CHECKPOINT');
+    h('i', '', this.cpEl);
 
     // damage direction arcs
     const dmg = h('div', 'dmg', root);
@@ -174,6 +180,14 @@ export class Hud {
     // Don't stack the same line twice.
     if (this.toastQueue.some((t) => t.text === text) || (this.toastLeft > 0 && this.toastEl.textContent === text)) return;
     this.toastQueue.push({ text, alert });
+  }
+
+  /** A checkpoint was just saved: show the indicator for ~2 s. */
+  checkpoint(): void {
+    this.cpEl.classList.remove('show');
+    void this.cpEl.offsetWidth; // restart the glyph animation
+    this.cpEl.classList.add('show');
+    this.cpLeft = 2.2;
   }
 
   private addPickup(kind: PickupKind, amount: number): void {
@@ -313,6 +327,8 @@ export class Hud {
       this.hitm.style.opacity = String(hit);
       this.hitm.style.transform = `scale(${1 + (1 - hit) * 0.35})`;
     }
+
+    if (this.cpLeft > 0 && (this.cpLeft -= dt) <= 0) this.cpEl.classList.remove('show');
 
     // ── objective freshness
     this.objScr.update(dt);

@@ -4,6 +4,20 @@ import type { StoryInternal } from './types';
 import { SKIP_INTRO_KEY } from './types';
 import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings } from './dom';
 import { settingsPanel, controlsPanel, GlitchTitle } from './menu';
+import { clearSave, loadSave, requestContinue } from '../story/save';
+
+/** Reload into the stored checkpoint (the story resumes behind the one-click gate). */
+function loadCheckpoint(): void {
+  requestContinue();
+  location.reload();
+}
+
+/** Start the level over from the wake-up: the checkpoint is discarded. */
+function restartLevel(): void {
+  clearSave();
+  try { sessionStorage.setItem(SKIP_INTRO_KEY, '1'); } catch { /* ignore */ }
+  location.reload();
+}
 
 // ───────────────────────────────────────────────────────────── log reader
 
@@ -172,7 +186,9 @@ export class PauseMenu {
   private side: HTMLDivElement;
   private hint: HTMLDivElement;
   private restartBtn: HTMLButtonElement;
+  private loadBtn: HTMLButtonElement;
   private confirmRestart = false;
+  private confirmLoad = false;
   private prev: GameState = 'playing';
   open_ = false;
   /** Seconds the pointer-lock watchdog should hold off (lock requests are async). */
@@ -187,7 +203,8 @@ export class PauseMenu {
     this.obj = h('div', 'obj', col, '');
     const items = h('div', 'items', col);
     button(ctx, items, 'Resume', '01', () => this.resume(), 'primary');
-    this.restartBtn = button(ctx, items, 'Restart', '02', () => this.restart(), 'danger');
+    this.loadBtn = button(ctx, items, 'Load checkpoint', '02', () => this.load());
+    this.restartBtn = button(ctx, items, 'Restart level', '03', () => this.restart(), 'danger');
     this.side = h('div', 'side', root);
     settingsPanel(ctx, settings, this.side);
     h('div', '', this.side).style.height = '18px';
@@ -210,7 +227,10 @@ export class PauseMenu {
     const t = (this.ctx.story as StoryInternal | undefined)?.stats?.time ?? this.ctx.time;
     this.meta.textContent = ['SUBLEVEL 3', this.roomName(), fmtTime(t)].filter(Boolean).join('  ·  ');
     this.confirmRestart = false;
-    (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart';
+    this.confirmLoad = false;
+    (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart level';
+    (this.loadBtn.lastChild as HTMLElement).textContent = 'Load checkpoint';
+    toggle(this.loadBtn, 'hidden', !loadSave());
     this.hint.textContent = 'Click Resume or press Esc to continue';
     this.root.classList.remove('hidden');
     void this.root.offsetWidth;
@@ -235,14 +255,22 @@ export class PauseMenu {
     this.hint.textContent = 'Pointer capture refused by the browser — click Resume again';
   }
 
+  private load(): void {
+    if (!this.confirmLoad) {
+      this.confirmLoad = true;
+      (this.loadBtn.lastChild as HTMLElement).textContent = 'Load checkpoint — click to confirm';
+      return;
+    }
+    loadCheckpoint();
+  }
+
   private restart(): void {
     if (!this.confirmRestart) {
       this.confirmRestart = true;
-      (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart — click to confirm';
+      (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart level — click to confirm';
       return;
     }
-    try { sessionStorage.setItem(SKIP_INTRO_KEY, '1'); } catch { /* ignore */ }
-    location.reload();
+    restartLevel();
   }
 }
 
@@ -270,11 +298,15 @@ export class DeathScreen {
     const line = h('div', 'line', taunt);
     this.tw = new Typewriter(line, 30);
     const acts = h('div', 'acts', st);
-    button(ctx, acts, 'Restart', '01', () => {
-      try { sessionStorage.setItem(SKIP_INTRO_KEY, '1'); } catch { /* ignore */ }
-      location.reload();
-    }, 'primary');
-    button(ctx, acts, 'Title screen', '02', () => location.reload());
+    // With a checkpoint: LOAD CHECKPOINT is the primary action; RESTART LEVEL throws the checkpoint away.
+    const save = loadSave();
+    let n = 1;
+    if (save) {
+      const b = button(ctx, acts, 'Load checkpoint', `0${n++}`, loadCheckpoint, 'primary');
+      if (save.place) h('span', 'where', b, `—  ${save.place}`);
+    }
+    button(ctx, acts, 'Restart level', `0${n++}`, restartLevel, save ? 'danger' : 'primary');
+    button(ctx, acts, 'Title screen', `0${n++}`, () => location.reload());
     void root.offsetWidth;
     root.classList.add('show');
     await sleep(1.4);
@@ -328,11 +360,11 @@ export class EndingScreen {
 
 // ───────────────────────────────────────────────────────────── resume gate (after death restart)
 
-export function resumeGate(ctx: GameContext, parent: HTMLElement): Promise<void> {
+export function resumeGate(ctx: GameContext, parent: HTMLElement, place = ''): Promise<void> {
   const root = h('div', 'layer ov gate interactive grain scan', parent);
   const st = h('div', 'stage', root);
   h('h2', 'glow', st, 'SIGNAL REACQUIRED');
-  h('div', 'lbl', st, 'Click to resume  ·  Sublevel 3');
+  h('div', 'lbl', st, ['Click to resume', 'Sublevel 3', place].filter(Boolean).join('  ·  '));
   void root.offsetWidth;
   root.classList.add('show');
   return new Promise((resolve) => {

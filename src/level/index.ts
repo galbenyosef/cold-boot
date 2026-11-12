@@ -170,7 +170,11 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
   }
   (L.root.userData as any).stats = { ms: performance.now() - t0, tris: Math.round(tris), lights: L.lightCount, nav: nav.length };
 
-  return {
+  const level: Level & { settle(seconds?: number): void; setSilent(on: boolean): void } = {
+    /** Checkpoint restore (story): finish every running vignette animation instantly and silently. */
+    settle(seconds = 6) { L.settle(seconds); },
+    /** Checkpoint restore (story): suppress the level's own positional one-shots while state is re-applied. */
+    setSilent(on: boolean) { L.silent = on; },
     root: L.root,
     colliders,
     spawn: { position: new THREE.Vector3(0, 0, 7), yaw: 0 },
@@ -212,4 +216,5 @@ export async function createLevel(ctx: GameContext): Promise<Level> {
       for (let i = 0; i < updaters.length; i++) updaters[i](dt, time);
     },
   };
+  return level;
 }

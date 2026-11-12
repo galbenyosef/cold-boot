@@ -204,6 +204,7 @@ export const TOASTS = {
   noPowerElev: 'FREIGHT ELEVATOR — NO POWER',
   leverLocked: 'LOCKED OUT — PADLOCK',
   busLive: 'MAIN BUS LIVE',
+  restored: 'CHECKPOINT RESTORED',
 };
 
 /** Screen texts the script puts on level monitors. */

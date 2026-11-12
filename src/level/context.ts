@@ -306,12 +306,21 @@ export class LevelBuild {
     const sm = this.sims;
     for (let i = sm.length - 1; i >= 0; i--) if (sm[i](dt) === false) sm.splice(i, 1);
   }
+  /** Checkpoint restore: while true, `sfx()` is skipped (vignettes are re-applied without their sounds). */
+  silent = false;
+  /** Checkpoint restore: run the pending vignette tweens / sims to their end state, silently, right now. */
+  settle(seconds: number) {
+    const was = this.silent;
+    this.silent = true;
+    try { for (let t = 0; t < seconds; t += 1 / 30) this.updateTasks(1 / 30); } finally { this.silent = was; }
+  }
   /** Always-on motion that only runs while `room` is being drawn. */
   ambient(room: string, fn: (dt: number, t: number) => void) {
     this.updaters.push((dt, t) => { if (this.isVisible(room)) fn(dt, t); });
   }
   /** Positional one-shot (never throws; unknown ids are the audio module's problem). */
   sfx(id: string, x: number, y: number, z: number, volume = 1, pitch = 1) {
+    if (this.silent) return;
     try { this.ctx.audio?.play(id, { position: new THREE.Vector3(x, y, z), volume, pitch }); } catch { /* audio not ready */ }
   }
 

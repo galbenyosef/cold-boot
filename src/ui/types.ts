@@ -22,7 +22,7 @@ export interface UIInternal extends UISystem {
   /** Full-screen backdrop blur in px, animated over `seconds`. */
   blur(px: number, seconds: number): void;
   /** Minimal "click to resume" gate after a death restart (needs a user gesture for audio + pointer lock). */
-  showResumeGate(): Promise<void>;
+  showResumeGate(place?: string): Promise<void>;
   /** Solid black cover above the canvas (between cards and the first frame of a scene). */
   blackout(on: boolean, seconds?: number): void;
   /**
@@ -34,6 +34,10 @@ export interface UIInternal extends UISystem {
   readonly noteOpen: boolean;
   /** Pulse the "[F]" flashlight hint next to the vitals (story shows it only in the dark corridor). */
   setTorchHint(on: boolean): void;
+  /** HUD: small glyph + "CHECKPOINT" for ~2 s (a checkpoint was just written). */
+  showCheckpoint(): void;
+  /** What the main menu was left with: BEGIN (new run) or CONTINUE (resume the stored checkpoint). */
+  readonly menuChoice: 'begin' | 'continue';
 }
 
 export interface StoryInternal extends StorySystem {

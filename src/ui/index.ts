@@ -111,11 +111,13 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
       black.style.transitionDuration = `${seconds}s`;
       toggle(black, 'on', on);
     },
-    showResumeGate() { return resumeGate(ctx, root).then(() => { pause.grace = 1.5; }); },
+    showResumeGate(place) { return resumeGate(ctx, root, place).then(() => { pause.grace = 1.5; }); },
     showNote(header, body, style) { return note.open(header, body, style); },
     closeNote() { note.close(); },
     get noteOpen() { return note.isOpen; },
     setTorchHint(on) { hud.torchHintWanted = on; },
+    showCheckpoint() { hud.checkpoint(); },
+    get menuChoice() { return menu.choice; },
 
     update(dt) {
       const s = ctx.state;

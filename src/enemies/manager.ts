@@ -247,6 +247,17 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       }
     },
     aliveInGroup,
+    removeGroup(group) {
+      // Checkpoints: silent — no events, fx or sound. dispose() frees the audio loop, light and wreck box.
+      for (let i = pending.length - 1; i >= 0; i--) if (pending[i].group === group) pending.splice(i, 1);
+      for (let i = corpses.length - 1; i >= 0; i--) if (corpses[i].group === group) corpses.splice(i, 1);
+      for (let i = all.length - 1; i >= 0; i--) {
+        const e = all[i];
+        if (e.group !== group) continue;
+        all.splice(i, 1);
+        try { e.dispose(); } catch (err) { console.warn('[enemies] removeGroup dispose failed', err); }
+      }
+    },
     actor(type, position, yaw = 0, pose) {
       const e = (factories[type] ?? factories.husk)(world, '', position, yaw, { dormant: false, pose, actor: true });
       actors.push(e);

@@ -103,6 +103,12 @@ export function buildCss(noise: string): string {
 .cb .toast.alert { color: var(--amber); }
 .cb .toast.alert::before, .cb .toast.alert::after { background: var(--amber); }
 
+.cb .cp { position: absolute; right: 44px; top: 40px; display: flex; align-items: center; gap: 12px; opacity: 0; transition: opacity .6s ease; }
+.cb .cp.show { opacity: .85; transition: opacity .25s ease; }
+.cb .cp .lbl { color: var(--fg-2); letter-spacing: .34em; text-shadow: 0 0 8px rgba(0,0,0,.9); }
+.cb .cp i { width: 7px; height: 7px; border: 1px solid var(--cyan); box-shadow: 0 0 8px var(--cyan-2); transform: rotate(45deg); }
+.cb .cp.show i { animation: cb-cp 2.2s cubic-bezier(.3,.6,.3,1) both; }
+
 .cb .xhair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transition: opacity .15s; }
 .cb .xhair.off { opacity: 0; }
 .cb .xhair .dot { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: rgba(235,248,255,.92); box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 0 6px rgba(140,225,255,.5); }
@@ -208,6 +214,7 @@ export function buildCss(noise: string): string {
 .cb .btn:hover::after, .cb .btn.sel::after { transform: scaleX(1); }
 .cb .btn.primary { color: var(--fg); font-size: 16px; }
 .cb .btn.danger:hover { color: var(--red); }
+.cb .btn .where { margin-left: 4px; font: 500 9px/1 var(--f-mono); letter-spacing: .28em; text-transform: uppercase; color: var(--dim); }
 .cb .btn.danger::before { background: var(--red); box-shadow: 0 0 10px var(--red); }
 
 /* settings */
@@ -350,6 +357,7 @@ export function buildCss(noise: string): string {
 .cb .gate h2 { margin: 0 0 22px; font: 100 44px/1 var(--f-thin); letter-spacing: .5em; margin-right: -.5em; }
 .cb .gate .lbl { animation: cb-breathe 2.4s ease-in-out infinite; }
 
+@keyframes cb-cp { 0% { transform: rotate(45deg) scale(.4); background: var(--cyan); } 45% { transform: rotate(225deg) scale(1); background: var(--cyan); } 70% { transform: rotate(405deg) scale(1); background: transparent; } 100% { transform: rotate(405deg) scale(1); background: transparent; } }
 @keyframes cb-pulse { 0%,100% { opacity: .95; } 50% { opacity: .35; } }
 @keyframes cb-hit { 0% { transform: translateX(-3px); color: var(--red); } 100% { transform: none; } }
 @keyframes cb-breathe { 0%,100% { opacity: .35; } 50% { opacity: 1; } }

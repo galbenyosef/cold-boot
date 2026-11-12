@@ -1,6 +1,7 @@
 /** Main menu, settings panel and controls list (settings + controls are reused by the pause screen). */
 import type { GameContext, Quality } from '../core/types';
 import { h, button, sfx, saveSettings, type Settings, glyph, toggle } from './dom';
+import { loadSave } from '../story/save';
 
 const QUALITIES: Quality[] = ['low', 'medium', 'high', 'ultra'];
 
@@ -153,8 +154,15 @@ export class MainMenu {
   private sideMode: 'settings' | 'controls' | null = null;
   private sys: HTMLDivElement;
   private items: HTMLButtonElement[] = [];
+  private continueBtn: HTMLButtonElement;
+  private continueWhere: HTMLSpanElement;
+  /** How the menu was left (read by the story after `open()` resolves). */
+  choice: 'begin' | 'continue' = 'begin';
   private resolve: (() => void) | null = null;
-  private keyHandler = (e: KeyboardEvent) => { if (e.code === 'Enter' && this.resolve) this.begin(); };
+  // Enter takes the first entry: CONTINUE when there is a checkpoint, otherwise BEGIN.
+  private keyHandler = (e: KeyboardEvent) => {
+    if (e.code === 'Enter' && this.resolve) this.begin(this.continueBtn.classList.contains('hidden') ? 'begin' : 'continue');
+  };
   private sysT = 61 * 3600 + 2 * 60 + 17;
   private sysAcc = 0;
 
@@ -168,7 +176,10 @@ export class MainMenu {
     h('div', 'subtitle', col, 'The machines kept working.');
     h('div', 'rule2', col);
     const items = h('div', 'items', col);
-    this.items.push(button(ctx, items, 'Begin', '01', () => this.begin(), 'primary'));
+    // CONTINUE sits above BEGIN and only exists while a checkpoint is stored (see open()).
+    this.continueBtn = button(ctx, items, 'Continue', '00', () => this.begin('continue'), 'primary hidden');
+    this.continueWhere = h('span', 'where', this.continueBtn, '');
+    this.items.push(button(ctx, items, 'Begin', '01', () => this.begin('begin'), 'primary'));
     this.items.push(button(ctx, items, 'Settings', '02', () => this.showSide('settings')));
     this.items.push(button(ctx, items, 'Controls', '03', () => this.showSide('controls')));
 
@@ -203,6 +214,10 @@ export class MainMenu {
   }
 
   open(): Promise<void> {
+    const save = loadSave();
+    toggle(this.continueBtn, 'hidden', !save);
+    this.continueWhere.textContent = save ? `—  ${save.place || 'Sublevel 3'}` : '';
+    this.choice = 'begin';
     this.root.classList.remove('hidden', 'leaving');
     void this.root.offsetWidth;
     this.root.classList.add('show');
@@ -210,9 +225,10 @@ export class MainMenu {
     return new Promise((r) => { this.resolve = r; });
   }
 
-  private begin(): void {
+  private begin(choice: 'begin' | 'continue'): void {
     const r = this.resolve;
     if (!r) return;
+    this.choice = choice;
     this.resolve = null;
     removeEventListener('keydown', this.keyHandler);
     // Must happen inside the click gesture.

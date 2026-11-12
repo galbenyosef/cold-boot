@@ -3,7 +3,7 @@
  * Public surface = `Player` from core/types plus a few extras (`revive`, `debug`, `viewmodel`).
  */
 import * as THREE from 'three';
-import type { GameContext, Interactable, PickupKind, Player, Surface, WeaponId, WeaponState } from '../core/types';
+import type { GameContext, Interactable, PickupKind, Player, PlayerSave, Surface, WeaponId, WeaponState } from '../core/types';
 import { Controller, MOVE, type MoveInput } from './controller';
 import { CameraRig } from './camera';
 import { Flashlight } from './flashlight';
@@ -222,6 +222,46 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       look.y1 = yaw + wrapAngle(Math.atan2(-dx, -dz) - yaw);
       look.p1 = clamp(Math.atan2(dy, Math.hypot(dx, dz)), -PITCH_LIMIT, PITCH_LIMIT);
       look.t = 0; look.dur = Math.max(0.001, seconds); look.active = true;
+    },
+    // ── checkpoints (REVISION 3) ──
+    snapshot(): PlayerSave {
+      const r = (v: number) => Math.round(v * 1000) / 1000;
+      const p = ctrl.body.position, ws = weapons.states;
+      return {
+        position: [r(p.x), r(p.y), r(p.z)],
+        yaw: r(yaw),
+        health: Math.round(health),
+        weapons: {
+          pistol: { owned: ws.pistol.owned, clip: ws.pistol.clip, reserve: ws.pistol.reserve },
+          shotgun: { owned: ws.shotgun.owned, clip: ws.shotgun.clip, reserve: ws.shotgun.reserve },
+        },
+        current: weapons.current,
+        keys: [...keys],
+        flashlight: flash.on,
+        pickups: [...pickups.collected],
+      };
+    },
+    restore(save: PlayerSave) {
+      player.teleport(new THREE.Vector3(save.position[0], save.position[1], save.position[2]), save.yaw, 0);
+      ctrl.body.velocity.set(0, 0, 0);
+      player.health = Math.max(1, save.health);
+      weapons.cancelReload();
+      for (const id of ['pistol', 'shotgun'] as const) {
+        const w = save.weapons?.[id], s = weapons.states[id];
+        if (!w) continue;
+        s.owned = !!w.owned;
+        s.clip = clamp(w.clip | 0, 0, s.clipSize);
+        s.reserve = clamp(w.reserve | 0, 0, WEAPON_STATS[id].maxReserve);
+        s.reloading = false;
+      }
+      weapons.addAmmo('shotgun', 0); // refreshes the shell saddle on the viewmodel
+      const cur = save.current && weapons.states[save.current].owned ? save.current
+        : (['shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
+      if (cur) weapons.switchTo(cur, true);
+      keys.clear();
+      for (const k of save.keys ?? []) keys.add(k);
+      flash.set(!!save.flashlight);
+      pickups.restoreCollected(save.pickups ?? []);
     },
     revive(h = maxHealth) {
       alive = true; health = h; camRig.revive();
