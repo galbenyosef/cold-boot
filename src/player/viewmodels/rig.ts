@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import type { VmMats } from './mats';
 import { Hand, Forearm, POSES, POSE_LEN, THUMB, type HandPose } from './hands';
 import { buildPistol, buildMagazine, pistolProxy, magProxy, type PistolModel } from './pistol';
-import { buildShotgun, shotgunProxy, PUMP_TRAVEL, type ShotgunModel } from './shotgun';
+import { buildShotgun, shotgunProxy, PUMP_TRAVEL, S_TUBE, type ShotgunModel } from './shotgun';
 import { buildShell } from './props';
 import { ClipPlayer, samplePoseKeys, type Clip } from './anim';
 import { MuzzleFlash } from './muzzle';
@@ -72,7 +72,11 @@ const GUN = [0, 0, 0, 0, 0, 0];
 const ONE = [0];
 const FREE = [0];
 const LP = [0, 0, 0], LF = [0, 1, 0], LD = [0, 0, 1];
-const POSE_TMP: HandPose = new Array(POSE_LEN).fill(0);
+const CAM = [0, 0];
+const XFADE = 0.13;
+/** 0→1→0 bump over x ∈ [0, 1] (soft at both ends). */
+const bump01 = (x: number) => { if (x <= 0 || x >= 1) return 0; const s = Math.sin(Math.PI * x); return s * s; };
+const smooth = (x: number) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 
 export abstract class GunRig {
   readonly container = new THREE.Group();
@@ -95,8 +99,24 @@ export abstract class GunRig {
   readonly lhRestQuat = new THREE.Quaternion();
   /** LH live socket position in gun space (e.g. moves with the pump). */
   readonly lhLivePos = new THREE.Vector3();
-  readonly recoilPos = new Spring3(7.5, 0.62);
-  readonly recoilRot = new Spring3(6.5, 0.55);
+  /**
+   * Motion layers on the gun (all offsets in the base frame):
+   *  follow  — the authored clip / sprint offset is a *target*; the gun chases it with mass (overshoot + settle)
+   *  recoil  — fast wrist snap (muzzle flip)
+   *  arm     — slower push through the elbows / shoulder that arrives after the wrist and settles later
+   *  impact  — knocks from the choreography (magazine seated, slide dropped, shell thumbed in, pump stroke)
+   */
+  readonly followPos = new Spring3(6.2, 0.74);
+  readonly followRot = new Spring3(5.4, 0.62);
+  readonly recoilPos = new Spring3(6.5, 0.6);
+  readonly recoilRot = new Spring3(5.6, 0.5);
+  readonly armPos = new Spring3(3.1, 0.58);
+  readonly armRot = new Spring3(2.9, 0.55);
+  readonly impactPos = new Spring3(7.5, 0.42);
+  readonly impactRot = new Spring3(6.5, 0.38);
+  /** Elbows trail the wrists (sleeve / forearm lag). */
+  private readonly rElbS = new Spring3(3.4, 0.7);
+  private readonly lElbS = new Spring3(3.4, 0.7);
   readonly flash: MuzzleFlash;
   /** Squeeze amount 0..1 for trigger + index finger. */
   trigger = 0;
@@ -113,6 +133,26 @@ export abstract class GunRig {
   readonly rhPoses: Record<string, HandPose> = {};
   /** Solver diagnostics: clearance in mm per finger [index, middle, ring, pinky, thumb] for each solved grip. */
   readonly report: Record<string, number[]> = {};
+  /** Camera glance requested by the playing clip (radians: pitch, yaw) — smoothed; the weapon logic feeds it to the camera. */
+  readonly glance = new THREE.Vector2();
+  /** Support hand hanging off the gun while it is holstered / drawn (free pose in the gun's frame). */
+  protected readonly drawP = new THREE.Vector3(-0.1, -0.2, 0.1);
+  protected readonly drawF = new THREE.Vector3(0.25, 0.3, -0.92);
+  protected readonly drawD = new THREE.Vector3(-0.75, 0.6, -0.1);
+  protected time = Math.random() * 40;
+  // idle life: periodic re-grip (one hand at a time), per-play variation, clip cross-fade of the support hand
+  private regripT = -1;
+  private regripHand = 0;
+  private regripIn = 5 + Math.random() * 4;
+  private quiet = 0;
+  protected readonly vary = new THREE.Vector3();
+  private xfade = 0;
+  private readonly lhFromP = new THREE.Vector3();
+  private readonly lhFromQ = new THREE.Quaternion();
+  private readonly lhLastP = new THREE.Vector3();
+  private readonly lhLastQ = new THREE.Quaternion();
+  private lhInit = false;
+  private drawW = 0;
 
   constructor(readonly m: VmMats, gun: THREE.Object3D, muzzle: THREE.Object3D, eject: THREE.Object3D, flash: MuzzleFlash) {
     this.gun = gun;
@@ -138,14 +178,34 @@ export abstract class GunRig {
 
   play(clip: Clip, onDone?: () => void, startAt = 0) {
     this.player.play(clip, (id) => this.handleEvent(id), onDone, startAt);
+    this.player.speed = 1;
+    this.startXfade();
+    this.vary.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+    this.quiet = 0;
+  }
+
+  /** Blend the support hand from wherever it is now into whatever drives it next. */
+  protected startXfade() {
+    this.lhFromP.copy(this.lhLastP); this.lhFromQ.copy(this.lhLastQ);
+    this.xfade = XFADE;
   }
 
   protected handleEvent(id: string) { this.onEvent(id); }
 
-  /** Procedural recoil kick. */
+  /** Procedural recoil: wrist snap now, arm push that lands a few frames later. */
   kick(back: number, up: number, side: number) {
-    this.recoilPos.impulse(side * 0.2 * (Math.random() - 0.5), up * 0.15, back);
-    this.recoilRot.impulse(up, side * (Math.random() - 0.5), side * (Math.random() - 0.5) * 1.6);
+    const r1 = Math.random() - 0.5, r2 = Math.random() - 0.5, r3 = Math.random() - 0.5;
+    this.recoilPos.impulse(side * 0.2 * r1, up * 0.12, back);
+    this.recoilRot.impulse(up, side * r2, side * r3 * 1.6);
+    this.armPos.impulse(side * 0.05 * r2, up * 0.03, back * 0.8);
+    this.armRot.impulse(up * 0.3, side * 0.12 * r2, side * 0.25 * r3);
+    this.quiet = 0;
+  }
+
+  /** Knock the gun (m/s in the base frame, rad/s). */
+  knock(px: number, py: number, pz: number, rx: number, ry: number, rz: number) {
+    this.impactPos.impulse(px, py, pz);
+    this.impactRot.impulse(rx, ry, rz);
   }
 
   pullTrigger() { this.triggerT = 0.07; this.triggerHold = 1.4; this.onTrigger = Math.max(this.onTrigger, 0.85); }
@@ -206,79 +266,170 @@ export abstract class GunRig {
     return g;
   }
 
-  update(dt: number, sprint: number) {
+  /** `lower` 0..1 = how far the weapon is holstered (the support hand comes off the gun while it is down). */
+  update(dt: number, sprint: number, lower = 0) {
+    this.time += dt;
+    this.quiet += dt;
     this.player.update(dt);
-    this.recoilPos.update(dt);
-    this.recoilRot.update(dt);
     this.flash.update(dt);
     this.triggerT -= dt;
     this.triggerHold -= dt;
     this.trigger = damp(this.trigger, this.triggerT > 0 ? 1 : 0, this.triggerT > 0 ? 60 : 18, dt);
     this.onTrigger = damp(this.onTrigger, this.triggerHold > 0 ? 1 : 0, this.triggerHold > 0 ? 40 : 7, dt);
+    const playing = this.player.playing;
+    const t = this.time;
 
-    // gun transform
+    // gun: authored target (clip + sprint + a living wrist) chased with mass, plus recoil / arm / impact layers
     GUN.fill(0);
     this.player.get('gun', GUN);
     const g = this.gun;
-    const sp = this.player.playing ? sprint * 0.3 : sprint;
-    _v.set(GUN[0] + this.sprintPos.x * sp, GUN[1] + this.sprintPos.y * sp, GUN[2] + this.sprintPos.z * sp).add(this.recoilPos.x);
+    const sp = playing ? sprint * 0.3 : sprint;
+    const calm = 1 - sp;
+    const fp = this.followPos, fr = this.followRot;
+    fp.target.set(GUN[0] + this.sprintPos.x * sp, GUN[1] + this.sprintPos.y * sp, GUN[2] + this.sprintPos.z * sp);
+    fr.target.set(
+      GUN[3] + this.sprintRot.x * sp + noise1(t * 0.31, 51) * 0.007 * calm,
+      GUN[4] + this.sprintRot.y * sp + noise1(t * 0.27, 52) * 0.006 * calm,
+      GUN[5] + this.sprintRot.z * sp + noise1(t * 0.19, 53) * 0.014 * calm,
+    );
+    fp.update(dt); fr.update(dt);
+    this.recoilPos.update(dt); this.recoilRot.update(dt);
+    this.armPos.update(dt); this.armRot.update(dt);
+    this.impactPos.update(dt); this.impactRot.update(dt);
+    _v.copy(fp.x).add(this.recoilPos.x).add(this.armPos.x).add(this.impactPos.x);
     g.position.copy(_v.applyQuaternion(this.baseQuat)).add(this.basePos);
-    _e.set(GUN[3] + this.sprintRot.x * sp + this.recoilRot.x.x, GUN[4] + this.sprintRot.y * sp + this.recoilRot.x.y, GUN[5] + this.sprintRot.z * sp + this.recoilRot.x.z);
-    g.quaternion.copy(this.baseQuat).multiply(_q.setFromEuler(_e));
+    _v.copy(fr.x).add(this.recoilRot.x).add(this.armRot.x).add(this.impactRot.x);
+    g.quaternion.copy(this.baseQuat).multiply(_q.setFromEuler(_e.set(_v.x, _v.y, _v.z)));
+
+    // camera glance (clip channel, degrees) — eased so clip changes never snap the view
+    CAM[0] = 0; CAM[1] = 0;
+    this.player.get('cam', CAM);
+    this.glance.x = damp(this.glance.x, CAM[0] * DEG, 9, dt);
+    this.glance.y = damp(this.glance.y, CAM[1] * DEG, 9, dt);
 
     this.updateParts(dt);
 
-    // left hand: socket (rest ↔ live pump) blended toward an authored free pose (all gun space)
+    // support hand (container space): socket on the gun (rest ↔ live pump) → authored free pose → draw pose
     ONE[0] = 1;
     this.player.get('lhAttach', ONE);
-    _v2.copy(this.lhRestPos).lerp(this.lhLivePos, clamp(ONE[0], 0, 1));
-    _q2.copy(this.lhRestQuat);
+    _v2.copy(this.lhRestPos).lerp(this.lhLivePos, clamp(ONE[0], 0, 1)).applyQuaternion(g.quaternion).add(g.position);
+    _q2.copy(g.quaternion).multiply(this.lhRestQuat);
     FREE[0] = 0;
     if (this.player.get('lhFree', FREE) && FREE[0] > 0.0005) {
       const fw = clamp(FREE[0], 0, 1);
       this.player.get('lhP', LP); this.player.get('lhF', LF); this.player.get('lhD', LD);
-      _v.set(LP[0], LP[1], LP[2]);
-      _v2.lerp(_v, fw);
+      ONE[0] = 0;
+      this.player.get('lhBase', ONE);
+      const bw = clamp(ONE[0], 0, 1);
       orientFD(_q, _fv.set(LF[0], LF[1], LF[2]), _dv.set(LD[0], LD[1], LD[2]));
-      _q2.slerp(_q, fw);
+      // the free pose is authored in the gun's frame (bw = 0) or in the un-canted base frame (bw = 1)
+      _v.set(LP[0], LP[1], LP[2]).addScaledVector(this.vary, 0.014).applyQuaternion(g.quaternion).add(g.position);
+      _v3.set(LP[0], LP[1], LP[2]).addScaledVector(this.vary, 0.014).applyQuaternion(this.baseQuat).add(this.basePos);
+      _v.lerp(_v3, bw);
+      _q3.copy(g.quaternion).multiply(_q);
+      _q.premultiply(this.baseQuat);
+      _q3.slerp(_q, bw);
+      _v2.lerp(_v, fw);
+      _q2.slerp(_q3, fw);
+    }
+    // holstered / drawing: the hand hangs off the gun and comes back on as the weapon arrives
+    this.drawW = damp(this.drawW, lower > 0.12 ? 1 : 0, lower > 0.12 ? 16 : 7.5, dt);
+    const dw = smooth(this.drawW);
+    if (dw > 0.001) {
+      _v.copy(this.drawP).applyQuaternion(g.quaternion).add(g.position);
+      orientFD(_q, this.drawF, this.drawD).premultiply(g.quaternion);
+      _v2.lerp(_v, dw);
+      _q2.slerp(_q, dw);
     }
     this.steerSupport(_v2, _q2);
-    this.lh.root.position.copy(_v2.applyQuaternion(g.quaternion)).add(g.position);
-    this.lh.root.quaternion.copy(g.quaternion).multiply(_q2);
+    if (this.xfade > 0 && this.lhInit) {
+      const k = smooth(1 - this.xfade / XFADE);
+      _v2.lerpVectors(this.lhFromP, _v2, k);
+      _q2.copy(_q.copy(this.lhFromQ).slerp(_q2, k));
+      this.xfade -= dt;
+    }
+    this.lhLastP.copy(_v2); this.lhLastQ.copy(_q2);
+    this.lhInit = true;
+    this.lh.root.position.copy(_v2);
+    this.lh.root.quaternion.copy(_q2);
 
     // fingers: clip pose keys (continuous blend) or the idle holds; trigger finger indexes when not shooting
-    const c = this.player.clip, t = this.player.t;
-    if (c?.poses?.lh) samplePoseKeys(c.poses.lh, t, this.lhPoses, this.lh.target);
+    const c = this.player.clip, ct = this.player.t;
+    if (c?.poses?.lh) samplePoseKeys(c.poses.lh, ct, this.lhPoses, this.lh.target);
     else this.lh.setPose(this.lhPoses.rest);
-    if (c?.poses?.rh) samplePoseKeys(c.poses.rh, t, this.rhPoses, this.rh.target);
+    if (c?.poses?.rh) samplePoseKeys(c.poses.rh, ct, this.rhPoses, this.rh.target);
     else this.rh.setPose(this.rhPoses.grip);
+    if (dw > 0.001) { const lt = this.lh.target, rl = POSES.relaxed; for (let i = 0; i < POSE_LEN; i++) lt[i] += (rl[i] - lt[i]) * dw; }
     const tr = this.rhPoses.trigger, rt = this.rh.target, k = this.onTrigger;
     for (let i = 0; i < 4; i++) rt[i] += (tr[i] - rt[i]) * k;
+    this.fingerLife(dt, playing || sp > 0.3 || lower > 0.05);
     const io = this.rh.offset;
-    io[2] = this.trigger * 0.16; io[3] = this.trigger * 0.14;
+    io[2] += this.trigger * 0.16; io[3] += this.trigger * 0.14;
     this.rh.update(dt);
     this.lh.update(dt);
 
-    // forearms aim from the wrist to an elbow that follows the gun loosely
+    // forearms aim from the wrist to an elbow that trails the wrist with a soft lag
     this.container.updateMatrix();
-    _v.copy(g.position).sub(this.basePos).multiplyScalar(0.55);
-    this.orientArm(this.rf, this.rh.root, _v);
-    this.orientArm(this.lf, this.lh.root, _v);
+    this.orientArm(this.rf, this.rh.root, this.rElbow, this.rElbS, dt, _v.copy(this.rh.root.position).applyQuaternion(this.baseQuat).add(this.basePos));
+    this.orientArm(this.lf, this.lh.root, this.lElbow, this.lElbS, dt, _v.copy(this.lhRestPos).applyQuaternion(this.baseQuat).add(this.basePos));
     this.afterHands();
+  }
+
+  /**
+   * Hands are never still: fingers ease and re-seat on their own (only ever opening from the solved contact, so
+   * nothing sinks in), the index finger shifts along the frame, and every 6–12 s one hand re-grips with a
+   * finger roll (pinky → index) that also nudges the gun.
+   */
+  private fingerLife(dt: number, busy: boolean) {
+    const lo = this.lh.offset, ro = this.rh.offset, t = this.time;
+    for (let i = 0; i < POSE_LEN; i++) { lo[i] = 0; ro[i] = 0; }
+    for (let f = 0; f < 4; f++) {
+      const b = f * 4;
+      lo[b + 1] -= (0.5 + 0.5 * noise1(t * 0.43 + f * 2.7, 31)) * 0.035;
+      lo[b + 2] -= (0.5 + 0.5 * noise1(t * 0.37 + f * 1.9, 32)) * 0.03;
+      if (f > 0) ro[b + 2] -= (0.5 + 0.5 * noise1(t * 0.33 + f * 2.3, 33)) * 0.02;
+    }
+    // index finger resting along the frame: slides and lifts a little
+    const idle = 1 - this.onTrigger;
+    ro[0] += noise1(t * 0.29, 34) * 0.035 * idle;
+    ro[1] -= (0.5 + 0.5 * noise1(t * 0.23, 35)) * 0.05 * idle;
+    if (busy) { this.regripT = -1; this.regripIn = Math.max(this.regripIn, 2.5); return; }
+    if (this.regripT < 0) {
+      this.regripIn -= dt;
+      if (this.regripIn <= 0 && this.quiet > 2) {
+        this.regripT = 0;
+        this.regripHand = Math.random() < 0.6 ? 0 : 1;
+        this.regripIn = 6 + Math.random() * 6;
+        const s = this.regripHand ? 1 : -1;
+        this.knock(s * 0.012, -0.01, 0.006, -0.12, s * 0.1, s * 0.35);
+      }
+      return;
+    }
+    this.regripT += dt;
+    const rt = this.regripT, o = this.regripHand ? ro : lo;
+    for (let f = this.regripHand ? 1 : 0; f < 4; f++) {
+      const w = bump01((rt - (3 - f) * 0.075) / 0.42), b = f * 4;
+      o[b + 1] -= 0.2 * w; o[b + 2] -= 0.13 * w; o[b + 3] -= 0.05 * w;
+    }
+    if (rt > 0.75) this.regripT = -1;
   }
 
   /** Point given in the support hand's rotation frame → container space. */
   protected lhPoint(local: THREE.Vector3, out: THREE.Vector3) {
     return out.copy(local).applyQuaternion(this.lh.root.quaternion).add(this.lh.root.position);
   }
-  /** Hook: adjust the support hand's gun-space transform (e.g. steer it to seat a magazine). */
+  /** Gun-space transform → container space (in place). */
+  protected gunToContainer(pos: THREE.Vector3, quat: THREE.Quaternion) {
+    pos.applyQuaternion(this.gun.quaternion).add(this.gun.position);
+    quat.premultiply(this.gun.quaternion);
+  }
+  /** Hook: adjust the support hand's container-space transform (e.g. steer it to seat a magazine). */
   protected steerSupport(_pos: THREE.Vector3, _quat: THREE.Quaternion) {}
   protected afterHands() {}
 
   private readonly _wrist = new THREE.Vector3();
   private readonly _dors = new THREE.Vector3();
-  private readonly _elb = new THREE.Vector3();
-  private orientArm(arm: Forearm, hand: THREE.Object3D, follow: THREE.Vector3) {
+  private orientArm(arm: Forearm, hand: THREE.Object3D, elbow: THREE.Vector3, lag: Spring3, dt: number, restWrist: THREE.Vector3) {
     // hand root world → container space
     hand.updateWorldMatrix(true, false);
     this.container.updateWorldMatrix(true, false);
@@ -286,10 +437,11 @@ export abstract class GunRig {
     this._wrist.setFromMatrixPosition(_m);
     _m.extractRotation(_m);
     this._dors.set(0, 0, 1).transformDirection(_m);
-    // mirrored hands have det<0; transformDirection keeps +Z mapping (mirror is on X)
-    const elbow = arm === this.rf ? this.rElbow : this.lElbow;
-    this._elb.copy(elbow).add(follow);
-    arm.orient(this._wrist, this._elb, this._dors);
+    // the elbow follows the wrist by about half its travel (the upper arm takes the rest), a beat late
+    lag.target.copy(this._wrist).sub(restWrist).multiplyScalar(0.55).add(elbow);
+    if (lag.x.lengthSq() === 0) lag.x.copy(lag.target);
+    lag.update(dt);
+    arm.orient(this._wrist, lag.x, this._dors);
   }
 
   /** Weapon-specific moving parts. */
@@ -299,10 +451,17 @@ export abstract class GunRig {
 
 // ───────────────────────────────────────────── pistol
 
-/** Spare magazine in the support hand (hand rotation frame): flat against the palm, feed lips toward the fingertips. */
-const MAG_P = V(0.004, 0.168, -0.0255);
+/**
+ * Spare magazine in the support hand (hand rotation frame): pinched low — baseplate at the finger bases, the top
+ * half standing clear of the fingertips so it can enter the well before the fingers reach the grip.
+ */
+const MAG_P = V(0.004, 0.222, -0.0255);
 const MAG_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0));
 const MAG_Q_INV = MAG_Q.clone().invert();
+/** Heel of the palm (hand rotation frame) — what strikes the baseplate home. */
+const HEEL = V(0.002, 0.022, -0.0165);
+/** Baseplate underside below the magazine origin (magazine frame). */
+const MAG_BASE = 0.1135;
 
 export class PistolRig extends GunRig {
   readonly model: PistolModel;
@@ -312,19 +471,24 @@ export class PistolRig extends GunRig {
   private hammerRot = 0;
   readonly spareMag: THREE.Group;
   readonly magRest = new THREE.Vector3();
+  private magWiggle = 0;
   private SLIDE = [0];
   private MAG = [0];
   private ALIGN = [0];
+  private STRIKE = [0, 0];
 
   constructor(m: VmMats) {
     const model = buildPistol(m);
     super(m, model.root, model.muzzle, model.ejectPort, new MuzzleFlash(0.1, 0.12));
     this.model = model;
-    this.setBase(0.1, -0.066, -0.365, 0.03, 0.16, 0.05);
+    // compressed ready: gun low-right, yawed in toward the eye line and canted a little (relaxed wrists) so the
+    // support hand's knuckle guard and strap face the eye; both forearms converge on it from below
+    this.setBase(0.105, -0.062, -0.39, 0.02, 0.26, 0.19);
     this.sprintPos.set(-0.03, -0.03, 0.03);
-    this.sprintRot.set(-0.42, 0.5, 0.3);
-    this.rElbow.set(0.27, -0.4, 0.0);
-    this.lElbow.set(-0.02, -0.45, -0.06);
+    this.sprintRot.set(-0.42, 0.4, 0.16);
+    this.rElbow.set(0.32, -0.36, 0.02);
+    this.lElbow.set(-0.14, -0.38, 0.0);
+    this.drawP.set(-0.085, -0.17, 0.1);
 
     // firing hand: web high under the beavertail, middle finger under the trigger guard, thumb forward
     const proxy = pistolProxy();
@@ -348,9 +512,13 @@ export class PistolRig extends GunRig {
     this.lh.setPose(s, true);
 
     // support hand carrying the spare magazine
-    this.solveHeld('mag', placed(magProxy(), MAG_P, MAG_Q), [2, 0, -2, -4], V(0.004, 0.09, -0.045), V(0.017, 0.066, -0.042));
-    // palm heel pushing the baseplate home; thumb flick for the slide stop
-    this.lhPoses.push = POSES.open;
+    this.solveHeld('mag', placed(magProxy(), MAG_P, MAG_Q), [2, 0, -2, -4], V(0.002, 0.135, -0.046), V(0.016, 0.108, -0.043));
+    // letting go of it / palm heel driving the baseplate home (fingers loose, slightly cupped)
+    const push = POSES.open.slice();
+    for (let i = 0; i < POSE_LEN; i++) push[i] = POSES.relaxed[i] * 0.52 + POSES.fist[i] * 0.48;
+    push[THUMB] = POSES.relaxed[THUMB]; push[THUMB + 1] = POSES.relaxed[THUMB + 1];
+    this.lhPoses.push = push;
+    // thumb flick for the magazine catch / slide stop
     const rel = grip.slice();
     rel[THUMB + 1] += 0.22; rel[THUMB + 3] += 0.25;
     this.rhPoses.release = rel;
@@ -368,17 +536,20 @@ export class PistolRig extends GunRig {
     this.slideKick = 1;
     this.flash.fire();
     this.pullTrigger();
-    this.kick(0.75, 7.0, 3.0);
+    this.kick(0.55, 6.2, 3.0);
     if (lastRound) this.slideLocked = true;
   }
 
   /** Called by the clip events. */
   protected handleEvent(id: string) {
     switch (id) {
+      case 'magRelease': this.knock(0, 0, 0, 0.25, 0, -0.5); break; // wrist flick that helps the old one out
       case 'magDrop': this.model.mag.visible = false; break;
       case 'magGrab': this.spareMag.visible = true; break;
       case 'magAttach': this.spareMag.visible = false; this.model.mag.visible = true; break;
-      case 'slideRelease': this.slideLocked = false; break;
+      // the palm strike travels up through the frame; the magazine rattles once in the well
+      case 'magIn': this.knock(0.02, 0.2, -0.03, 1.5, 0.25, 0.9); this.magWiggle = 1; break;
+      case 'slideRelease': this.slideLocked = false; this.knock(0, -0.05, -0.16, -1.9, 0, 0.3); break;
     }
     super.handleEvent(id);
   }
@@ -391,6 +562,7 @@ export class PistolRig extends GunRig {
   }
 
   cancel() {
+    if (this.player.playing) this.startXfade();
     this.player.stop();
     this.model.mag.visible = true; this.spareMag.visible = false;
   }
@@ -398,9 +570,9 @@ export class PistolRig extends GunRig {
   protected updateParts(dt: number) {
     const md = this.model;
     // slide: firing kick (fast back, spring forward), locked back on empty, or clip-driven
-    if (this.slideKick > 0) this.slideKick = Math.max(0, this.slideKick - dt / 0.075);
+    if (this.slideKick > 0) this.slideKick = Math.max(0, this.slideKick - dt / 0.085);
     const k = this.slideKick;
-    const kickPos = k > 0 ? (k > 0.8 ? (1 - k) / 0.2 : Math.pow(k / 0.8, 1.6)) * 0.031 : 0;
+    const kickPos = k > 0 ? (k > 0.78 ? (1 - k) / 0.22 : Math.pow(k / 0.78, 1.6)) * 0.031 : 0;
     let slide = Math.max(kickPos, this.slideLocked ? 0.029 : 0);
     if (this.player.get('slide', this.SLIDE)) slide = this.slideLocked ? Math.max(0.029, this.SLIDE[0]) : this.SLIDE[0];
     md.slide.position.z = slide;
@@ -410,24 +582,39 @@ export class PistolRig extends GunRig {
     this.hammerRot = Math.max(0.42, slide / 0.031 * 0.75);
     md.hammer.rotation.x = this.hammerRot;
     md.trigger.rotation.x = -this.trigger * 0.22;
-    // magazine slide in/out of the well
+    // magazine slide in/out of the well (+ a decaying rattle right after it is seated)
     this.MAG[0] = 0;
     this.player.get('magSlide', this.MAG);
-    md.mag.position.y = this.magRest.y - this.MAG[0];
+    this.magWiggle = Math.max(0, this.magWiggle - dt * 5.5);
+    const w = this.magWiggle * this.magWiggle;
+    md.mag.position.y = this.magRest.y - this.MAG[0] - Math.abs(Math.sin(this.magWiggle * 16)) * 0.0016 * w;
+    md.mag.rotation.x = Math.sin(this.magWiggle * 21) * 0.02 * w;
   }
 
-  /** While seating the magazine the hand is steered so the magazine it holds lines up with the well. */
+  /** The hand is steered so the magazine it holds lines up with the well, then so its heel meets the baseplate. */
   protected steerSupport(pos: THREE.Vector3, quat: THREE.Quaternion) {
     this.ALIGN[0] = 0;
     this.player.get('magAlign', this.ALIGN);
     const a = clamp(this.ALIGN[0], 0, 1);
-    if (a <= 0) return;
     const well = this.model.magWell;
-    _q3.copy(well.quaternion).multiply(MAG_Q_INV);
-    _v3.set(0, this.magRest.y - this.MAG[0], 0).applyQuaternion(well.quaternion).add(well.position);
-    _v3.sub(_v.copy(MAG_P).applyQuaternion(_q3));
-    pos.lerp(_v3, a);
-    quat.slerp(_q3, a);
+    if (a > 0) {
+      _q3.copy(well.quaternion).multiply(MAG_Q_INV);
+      _v3.set(0, this.magRest.y - this.MAG[0], 0).applyQuaternion(well.quaternion).add(well.position);
+      _v3.sub(_v.copy(MAG_P).applyQuaternion(_q3));
+      this.gunToContainer(_v3, _q3);
+      pos.lerp(_v3, a);
+      quat.slerp(_q3, a);
+    }
+    this.STRIKE[0] = 0; this.STRIKE[1] = 0;
+    this.player.get('strike', this.STRIKE);
+    const sw = clamp(this.STRIKE[0], 0, 1);
+    if (sw > 0) {
+      // position only: heel under the baseplate, `gap` metres short of it along the well axis
+      _v3.set(0, this.magRest.y - this.MAG[0] - MAG_BASE - this.STRIKE[1], 0.003).applyQuaternion(well.quaternion).add(well.position);
+      _v3.applyQuaternion(this.gun.quaternion).add(this.gun.position);
+      _v3.sub(_v.copy(HEEL).applyQuaternion(quat));
+      pos.lerp(_v3, sw);
+    }
   }
 
   protected afterHands() {
@@ -459,16 +646,30 @@ export class ShotgunRig extends GunRig {
   private SA = [0];
   private SS = [0];
   private SG = [0];
+  private pumpPrev = 0;
+  /** Dev: override the support-hand roll around the pump (degrees). */
+  static GRIP_ROLL: number | undefined;
 
   constructor(m: VmMats) {
     const model = buildShotgun(m);
     super(m, model.root, model.muzzle, model.ejectPort, new MuzzleFlash(0.24, 0.3));
     this.model = model;
-    this.setBase(0.112, -0.112, -0.25, 0.012, 0.085, 0.03);
-    this.sprintPos.set(-0.04, -0.02, 0.03);
-    this.sprintRot.set(-0.2, 0.55, 0.28);
-    this.rElbow.set(0.32, -0.38, 0.12);
-    this.lElbow.set(-0.17, -0.37, -0.33);
+    // shouldered low: the eye looks down the length of the gun at the pump hand; the support forearm rises to it
+    // from below-left (elbow under the gun, as when it is pulled into the shoulder)
+    this.setBase(0.11, -0.15, -0.27, 0.11, 0.17, 0.22);
+    // running: port arms — butt down by the hip, muzzle up across the body
+    this.sprintPos.set(-0.055, -0.005, 0.06);
+    this.sprintRot.set(0.1, 0.62, 0.3);
+    this.rElbow.set(0.34, -0.36, 0.14);
+    this.lElbow.set(-0.3, -0.52, -0.4);
+    this.drawP.set(-0.1, -0.16, -0.16);
+    this.drawF.set(0.5, 0.35, -0.8);
+    this.drawD.set(-0.6, -0.75, -0.2);
+    // heavier gun: slower, deeper follow-through
+    this.followPos.freq = 5.2; this.followRot.freq = 4.6; this.followRot.zeta = 0.6;
+    this.recoilPos.freq = 5.2; this.recoilRot.freq = 4.4; this.recoilRot.zeta = 0.55;
+    this.armPos.freq = 2.5; this.armRot.freq = 2.4;
+    this.impactPos.freq = 6; this.impactRot.freq = 5.2;
 
     const proxy = shotgunProxy();
     this.solveFiringHand(proxy, {
@@ -480,9 +681,12 @@ export class ShotgunRig extends GunRig {
     });
 
     // support hand cups the pump from below: fingers up the far side, thumb along the near side
-    const s = this.placeSupport(V(-0.0185, -0.015, -0.336), V(0.0051, -0.0192, -0.2848), V(-0.571, -0.813, 0.0), [4, 0, -3, -6]);
+    // (rolled a little up the near side so the back of the hand and the thumb show from the eye)
+    const roll = (ShotgunRig.GRIP_ROLL ?? -50) * DEG, cr = Math.cos(roll), sr = Math.sin(roll);
+    const R = (x: number, y: number, z: number, dir = false) => { const cy = dir ? 0 : S_TUBE + 0.002, dy = y - cy; return V(x * cr - dy * sr, cy + x * sr + dy * cr, z); };
+    const s = this.placeSupport(R(-0.0185, -0.015, -0.336), R(0.0051, -0.0192, -0.2848), R(-0.571, -0.813, 0.0, true), [4, 0, -3, -6]);
     for (let f = 0; f < 4; f++) wrapFinger(this.lh, s, f, proxy);
-    reachThumb(this.lh, s, V(-0.03, 0.026, -0.353), V(-0.034, 0.013, -0.326), proxy);
+    reachThumb(this.lh, s, R(-0.03, 0.026, -0.353), R(-0.034, 0.013, -0.326), proxy);
     this.lhPoses.rest = s;
     this.report.lh = gripReport(this.lh, s, proxy);
     this.lh.setPose(s, true);
@@ -491,7 +695,7 @@ export class ShotgunRig extends GunRig {
     const shell = capsuleSdf(V(SHELL_P.x + 0.006, SHELL_P.y, SHELL_P.z), V(SHELL_P.x + 0.058, SHELL_P.y, SHELL_P.z), 0.0108);
     this.solveHeld('shell', shell, [3, 0, -2, -5], V(0.012, 0.1, -0.04), V(0.022, 0.076, -0.036));
     const reach = this.lhPoses.shell.slice();
-    for (let i = 0; i < POSE_LEN; i++) reach[i] = reach[i] * 0.55 + POSES.open[i] * 0.45;
+    for (let i = 0; i < POSE_LEN; i++) reach[i] = reach[i] * 0.74 + POSES.open[i] * 0.26;
     this.lhPoses.reach = reach;
 
     this.heldShell = buildShell(m);
@@ -504,28 +708,42 @@ export class ShotgunRig extends GunRig {
   fire(onPumped: () => void) {
     this.flash.fire();
     this.pullTrigger();
-    this.kick(1.5, 11, 4.5);
+    this.kick(1.25, 8.5, 4.5);
     this.play(SHOTGUN_CLIPS.pump, onPumped);
   }
 
   protected handleEvent(id: string) {
     switch (id) {
       case 'shellGrab': this.heldShell.visible = true; this.holding = true; break;
-      case 'shellIn': this.heldShell.visible = false; this.holding = false; break;
+      // the thumb drives the shell past the latch: the push goes up into the receiver (never twice the same)
+      case 'shellIn': {
+        this.heldShell.visible = false; this.holding = false;
+        const k = 0.8 + Math.random() * 0.5;
+        this.knock(0.01 * this.vary.x, 0.07 * k, -0.1 * k, 0.5 * k, 0.2 * this.vary.y, -0.5 * k);
+        break;
+      }
     }
     super.handleEvent(id);
   }
 
   cancel() {
+    if (this.player.playing) this.startXfade();
     this.player.stop();
     this.heldShell.visible = false; this.holding = false;
   }
 
-  protected updateParts(_dt: number) {
+  protected updateParts(dt: number) {
     const md = this.model;
     this.PUMP[0] = 0;
     this.player.get('pump', this.PUMP);
-    const p = clamp(this.PUMP[0], 0, 1) * PUMP_TRAVEL;
+    const pn = clamp(this.PUMP[0], 0, 1);
+    const p = pn * PUMP_TRAVEL;
+    // the slide stops dead at both ends of its stroke: the gun (and the shoulder behind it) rocks against it
+    if (dt > 0) {
+      if (pn >= 0.995 && this.pumpPrev < 0.995) this.knock(0, -0.02, 0.22, -0.9, 0.15, -0.7);
+      else if (pn <= 0.005 && this.pumpPrev > 0.005) this.knock(0, 0.015, -0.2, 0.7, -0.1, 0.5);
+      this.pumpPrev = pn;
+    }
     md.pump.position.z = p;
     md.bolt.position.z = p * 0.85;
     md.trigger.rotation.x = -this.trigger * 0.25;
@@ -544,15 +762,18 @@ export class ShotgunRig extends GunRig {
     const gw = clamp(this.SG[0], 0, 1), a = clamp(this.SA[0], 0, 1), sl = clamp(this.SS[0], 0, 1);
     if (gw > 0) {
       const slot = this.model.saddle[clamp(this.saddleCount - 1, 0, this.model.saddle.length - 1)];
-      _v3.copy(slot.position).sub(_v.copy(SHELL_P).applyQuaternion(SADDLE_HAND_Q));
+      _q3.copy(SADDLE_HAND_Q);
+      _v3.copy(slot.position).sub(_v.copy(SHELL_P).applyQuaternion(_q3));
+      this.gunToContainer(_v3, _q3);
       pos.lerp(_v3, gw);
-      quat.slerp(SADDLE_HAND_Q, gw);
+      quat.slerp(_q3, gw);
     }
     if (a > 0) {
       const port = this.model.loadPort.position;
       _q3.copy(SHELL_PORT_Q).multiply(SHELL_Q_INV);
       _v3.set(port.x, port.y - 0.027 + sl * 0.034, port.z + 0.03 - sl * 0.054);
       _v3.sub(_v.copy(SHELL_P).applyQuaternion(_q3));
+      this.gunToContainer(_v3, _q3);
       pos.lerp(_v3, a);
       quat.slerp(_q3, a);
     }
@@ -579,7 +800,11 @@ export class Viewmodel {
   private readonly lookSpring = new Spring3(3.2, 0.42);
   private readonly lookPos = new Spring3(4.5, 0.6);
   private readonly vert = new Spring(4.2, 0.45);
-  private readonly sprintS = new Spring(3.0, 0.9);
+  private readonly sprintS = new Spring(2.6, 0.72);
+  /** Holster amount the eye sees: drops with the input, comes back up on a spring (overshoots, settles). */
+  private readonly lowS = new Spring(4.4, 0.6);
+  /** Bob the gun actually shows: chases the footstep bob a beat late (mass). */
+  private readonly bobS = new Spring3(5.5, 0.6);
   private bobAmp = 0;
   private crouch = 0;
   private wall = 0;
@@ -594,6 +819,7 @@ export class Viewmodel {
     this.sway.add(this.pistol.container, this.shotgun.container);
     this.pistol.container.visible = false;
     this.shotgun.container.visible = false;
+    this.lowS.reset(1);
     setViewmodel(this.root, layer);
   }
 
@@ -609,7 +835,7 @@ export class Viewmodel {
 
   update(dt: number, mo: RigMotion) {
     const rig = this.active;
-    if (dt <= 0) { rig?.update(0, this.sprintS.x); return; }
+    if (dt <= 0) { rig?.update(0, this.sprintS.x, mo.lower); return; }
     // look lag: rotate opposite to view rotation, spring back
     const lx = clamp(mo.lookX, -0.08, 0.08), ly = clamp(mo.lookY, -0.08, 0.08);
     this.lookSpring.impulse(-ly * 9, -lx * 9, 0);
@@ -625,35 +851,43 @@ export class Viewmodel {
     this.crouch = damp(this.crouch, mo.crouch, 8, dt);
     this.wall = damp(this.wall, mo.wall, 10, dt);
     this.strafeLean = damp(this.strafeLean, mo.strafe, 6, dt);
+    const spr = clamp(this.sprintS.x, 0, 1.15);
 
     const t = mo.time;
     const ph = mo.bobPhase;
-    const A = this.bobAmp * (1 + this.sprintS.x * 0.8);
-    // figure-8 bob
-    const bx = Math.sin(ph) * 0.011 * A;
-    const by = -Math.abs(Math.cos(ph)) * 0.010 * A + 0.005 * A;
-    const broll = Math.sin(ph) * 0.02 * A;
-    // breathing / idle drift
+    const A = this.bobAmp * (1 + spr * 1.5);
+    // figure-8 bob as a target; the gun lags it and swings through (arms are not bolted to the head)
+    this.bobS.target.set(Math.sin(ph) * 0.011 * A, -Math.abs(Math.cos(ph)) * 0.010 * A + 0.005 * A, Math.sin(ph) * 0.02 * A);
+    this.bobS.update(dt);
+    const bx = this.bobS.x.x, by = this.bobS.x.y, broll = this.bobS.x.z;
+    // running: the arms pump — the muzzle rocks a quarter step behind the body
+    const pump = Math.sin(ph - 0.9) * 0.035 * A * spr;
+    // breathing: same rhythm as the camera's, arriving late through the arms; slow drift on top
     const br = 1 - Math.min(1, this.bobAmp * 1.5);
     const ix = (noise1(t * 0.35, 1) * 0.0022 + Math.sin(t * 0.9) * 0.0008) * br;
-    const iy = (Math.sin(t * 1.55) * 0.0016 + noise1(t * 0.3, 2) * 0.0012) * br;
-    const ipitch = Math.sin(t * 1.55 + 0.6) * 0.004 * br + noise1(t * 0.25, 3) * 0.004;
+    const iy = (Math.sin(t * 1.35 - 0.95) * 0.0019 + noise1(t * 0.3, 2) * 0.0012) * br;
+    const ipitch = (Math.sin(t * 1.35 - 0.6) - Math.sin(t * 1.35)) * 0.0045 * br + noise1(t * 0.25, 3) * 0.004;
     const iyaw = noise1(t * 0.22, 4) * 0.005;
 
-    const low = mo.lower;
-    const lowE = low * low * (3 - 2 * low);
+    // holster: follows the input on the way down (must be gone before the swap), springs back up
+    const low = clamp(mo.lower, 0, 1);
+    const ls = this.lowS;
+    ls.target = low * low * (3 - 2 * low);
+    ls.update(dt);
+    if (ls.x < ls.target) { ls.x = ls.target; if (ls.v < 0) ls.v = 0; }
+    const lowE = ls.x;
     const s = this.sway;
     s.position.set(
-      bx + ix + this.lookPos.x.x * 0.06 - this.crouch * 0.008 - this.strafeLean * 0.006,
-      by + iy + this.vert.x + this.lookPos.x.y * 0.06 - this.crouch * 0.006 - lowE * 0.24,
-      this.wall * 0.11 + this.crouch * 0.006 + lowE * 0.05,
+      bx + ix + this.lookPos.x.x * 0.06 - this.crouch * 0.008 - this.strafeLean * 0.006 + lowE * 0.05,
+      by + iy + this.vert.x + this.lookPos.x.y * 0.06 - this.crouch * 0.006 - lowE * 0.21,
+      this.wall * 0.11 + this.crouch * 0.006 + lowE * 0.07,
     );
     s.rotation.set(
-      ipitch + this.lookSpring.x.x * 0.05 - this.vert.x * 1.4 - lowE * 0.7 + this.wall * 0.35,
-      iyaw + this.lookSpring.x.y * 0.05 + this.wall * 0.3,
-      broll + this.lookSpring.x.y * 0.06 + this.strafeLean * 0.03 + this.crouch * 0.025 + lowE * 0.25,
+      ipitch + pump + this.lookSpring.x.x * 0.05 - this.vert.x * 1.4 - lowE * 0.75 + this.wall * 0.35,
+      iyaw + this.lookSpring.x.y * 0.05 + this.wall * 0.3 - lowE * 0.25 + pump * 0.4,
+      broll + this.lookSpring.x.y * 0.06 + this.strafeLean * 0.03 + this.crouch * 0.025 + lowE * 0.4,
       'YXZ',
     );
-    rig?.update(dt, this.sprintS.x);
+    rig?.update(dt, spr, low);
   }
 }

@@ -134,16 +134,54 @@ function tinted(g: G, col: RGB): G {
   return g;
 }
 
-/** Merge (position, normal, color) geometries into one UV-mapped mesh. */
-function meshOf(mat: THREE.Material, list: G[], into: THREE.Object3D, uvOffset = 0): THREE.Mesh {
-  const g = list.length === 1 ? list[0] : mergeGeometries(list, false)!;
-  if (g !== list[0]) for (const l of list) l.dispose();
-  boxUV(g, uvOffset, 5);
-  g.computeBoundingSphere();
-  const mesh = new THREE.Mesh(g, mat);
-  into.add(mesh);
-  return mesh;
+/**
+ * Hand geometry sink. Every part (palm, 14 phalanges, web roll) is authored in the space of the joint it rides on,
+ * UV-mapped there, then moved into the hand's bind space and tagged with that joint's bone index — so a whole
+ * hand is one rigidly-skinned mesh per material (3 draw calls instead of 29).
+ */
+class Skin {
+  readonly bones: THREE.Bone[] = [];
+  private readonly parts = new Map<THREE.Material, G[]>();
+  bone(parent: THREE.Object3D, x = 0, y = 0, z = 0): THREE.Bone {
+    const b = new THREE.Bone();
+    b.position.set(x, y, z);
+    parent.add(b);
+    this.bones.push(b);
+    return b;
+  }
+  /** Merge (position, normal, color) geometries given in `bone` space into this material's skinned mesh. */
+  add(mat: THREE.Material, list: G[], bone: THREE.Bone, root: THREE.Object3D, uvOffset = 0) {
+    const g = list.length === 1 ? list[0] : mergeGeometries(list, false)!;
+    if (g !== list[0]) for (const l of list) l.dispose();
+    boxUV(g, uvOffset, 5);
+    // bind pose: bone → hand root
+    root.updateMatrixWorld(true);
+    g.applyMatrix4(_bm.copy(root.matrixWorld).invert().multiply(bone.matrixWorld));
+    const n = g.getAttribute('position').count, bi = this.bones.indexOf(bone);
+    const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) { si[i * 4] = bi; sw[i * 4] = 1; }
+    g.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
+    g.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
+    let arr = this.parts.get(mat);
+    if (!arr) this.parts.set(mat, (arr = []));
+    arr.push(g);
+  }
+  build(root: THREE.Object3D) {
+    root.updateMatrixWorld(true);
+    const skeleton = new THREE.Skeleton(this.bones);
+    for (const [mat, list] of this.parts) {
+      const g = list.length === 1 ? list[0] : mergeGeometries(list, false)!;
+      if (g !== list[0]) for (const l of list) l.dispose();
+      g.computeBoundingSphere();
+      const mesh = new THREE.SkinnedMesh(g, mat);
+      mesh.frustumCulled = false;
+      root.add(mesh);
+      mesh.bind(skeleton, _bm.identity());
+    }
+    this.parts.clear();
+  }
 }
+const _bm = new THREE.Matrix4();
 
 // ───────────────────────────────────────────── palm
 
@@ -225,7 +263,7 @@ function phalanxFn(len: number, r0: number, r1: number, tip: boolean) {
 }
 
 /** One finger segment: textile back, suede pad side, optional rubber pad on the back. */
-function buildPhalanx(m: VmMats, into: THREE.Object3D, len: number, r0: number, r1: number, tip: boolean, pad: boolean, seed: number, thumb = false) {
+function buildPhalanx(m: VmMats, skin: Skin, root: THREE.Object3D, into: THREE.Bone, len: number, r0: number, r1: number, tip: boolean, pad: boolean, seed: number, thumb = false) {
   const { fn, va, vb } = phalanxFn(len, r0, r1, tip);
   const nu = thumb ? 16 : 14, nv = tip ? 15 : 13;
   const s = 0.42; // seam angle below the horizontal
@@ -237,12 +275,12 @@ function buildPhalanx(m: VmMats, into: THREE.Object3D, len: number, r0: number, 
   for (const sg of [-s, Math.PI + s]) {
     list.push(surf(lifted(fn, (_u, v) => 0.0002 + 0.0005 * plateau(v, va * 0.6, vb + (1 - vb) * 0.5, 0.05)), sg - 0.07, sg + 0.07, 2, va * 0.6, vb + (1 - vb) * 0.5, nv, C_TRIM));
   }
-  meshOf(m.gloveVC, list, into, seed * 0.137);
+  skin.add(m.gloveVC, list, into, root, seed * 0.137);
   if (pad) {
     const u0 = Math.PI / 2 - 0.82, u1 = Math.PI / 2 + 0.82;
     const v0 = va + (vb - va) * 0.2, v1 = va + (vb - va) * 0.84;
     const pfn = lifted(fn, (u, v) => 0.00025 + 0.0013 * Math.pow(plateau(u, u0, u1, 0.3) * plateau(v, v0, v1, (v1 - v0) * 0.3), 0.7));
-    meshOf(m.gloveArmor, [surf(pfn, u0, u1, 6, v0, v1, 6)], into, seed * 0.071);
+    skin.add(m.gloveArmor, [surf(pfn, u0, u1, 6, v0, v1, 6)], into, root, seed * 0.071);
   }
 }
 
@@ -260,17 +298,19 @@ export class Hand {
   readonly offset: HandPose = new Array(POSE_LEN).fill(0);
   blendSpeed = 26;
 
+  private readonly skin = new Skin();
+  private readonly palmBone: THREE.Bone;
+
   constructor(m: VmMats, readonly left: boolean) {
+    const skin = this.skin;
+    this.palmBone = skin.bone(this.root);
     this.buildPalm(m);
     FINGERS.forEach((f, fi) => {
       const chain: THREE.Object3D[] = [];
       let parent: THREE.Object3D = this.root;
       for (let s = 0; s < 3; s++) {
-        const j = new THREE.Object3D();
-        if (s === 0) j.position.set(f.x, f.y, f.z);
-        else j.position.set(0, f.len[s - 1], 0);
-        parent.add(j);
-        buildPhalanx(m, j, f.len[s], f.r[s], f.r[s + 1], s === 2, s < 2, fi * 7 + s);
+        const j = s === 0 ? skin.bone(parent, f.x, f.y, f.z) : skin.bone(parent, 0, f.len[s - 1], 0);
+        buildPhalanx(m, skin, this.root, j, f.len[s], f.r[s], f.r[s + 1], s === 2, s < 2, fi * 7 + s);
         chain.push(j);
         parent = j;
       }
@@ -280,21 +320,19 @@ export class Hand {
     // Thumb: CMC near the wrist on the -X / palm side.
     let parent: THREE.Object3D = this.root;
     for (let s = 0; s < 3; s++) {
-      const j = new THREE.Object3D();
-      if (s === 0) j.position.set(THUMB_POS.x, THUMB_POS.y, THUMB_POS.z);
-      else j.position.set(0, THUMB_LEN[s - 1], 0);
-      parent.add(j);
-      buildPhalanx(m, j, THUMB_LEN[s], THUMB_R[s], THUMB_R[s + 1], s === 2, s < 2, 40 + s, true);
+      const j = s === 0 ? skin.bone(parent, THUMB_POS.x, THUMB_POS.y, THUMB_POS.z) : skin.bone(parent, 0, THUMB_LEN[s - 1], 0);
+      buildPhalanx(m, skin, this.root, j, THUMB_LEN[s], THUMB_R[s], THUMB_R[s + 1], s === 2, s < 2, 40 + s, true);
       this.thumb.push(j);
       parent = j;
     }
     this.buildWeb(m);
+    skin.build(this.root);
     if (left) this.root.scale.x = -1;
     this.apply();
   }
 
   // ── thumb web: the skin between the thumb and the index metacarpal, re-spanned from the live thumb pose
-  private webEdge!: THREE.Mesh;
+  private webEdge!: THREE.Bone;
   private webPos!: THREE.BufferAttribute;
   private webNor!: THREE.BufferAttribute;
   private static readonly WEB_L0 = 0.05;
@@ -307,7 +345,8 @@ export class Hand {
     // free edge of the web: a tapered roll from the thumb knuckle to the side of the palm (stretched per frame)
     const L0 = Hand.WEB_L0;
     const { fn } = phalanxFn(L0, 0.0098, 0.0078, false);
-    this.webEdge = meshOf(m.gloveVC, [surf(fn, 0, Math.PI * 2, 12, 0, 1, 12, C_BACK)], this.root, 0.6);
+    this.webEdge = this.skin.bone(this.root);
+    this.skin.add(m.gloveVC, [surf(fn, 0, Math.PI * 2, 12, 0, 1, 12, C_BACK)], this.webEdge, this.root, 0.6);
     // membrane: a soft pillow lofted between the thumb metacarpal and the edge of the palm (re-spanned per frame)
     const R = Hand.WEB_ROWS, S = Hand.WEB_SEG;
     const g = new THREE.BufferGeometry();
@@ -331,7 +370,6 @@ export class Hand {
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     const fill = new THREE.Mesh(g, m.gloveVC);
     fill.frustumCulled = false;
-    this.webEdge.frustumCulled = false;
     this.root.add(fill);
   }
 
@@ -391,7 +429,7 @@ export class Hand {
     const hu0 = Math.PI + 0.42, hu1 = TAU - 0.42, hv0 = palmV(0.006), hv1 = palmV(0.05);
     back.push(surf(lifted(palmFn, (u, v) => 0.0002 + 0.001 * Math.pow(plateau(u, hu0, hu1, 0.18) * plateau(v, hv0, hv1, 0.05), 0.6)), hu0, hu1, 14, hv0, hv1, 10, C_PALM2));
 
-    meshOf(m.gloveVC, back, this.root, 0.11);
+    this.skin.add(m.gloveVC, back, this.palmBone, this.root, 0.11);
 
     // moulded rubber: knuckle guard with four raised caps, three ribs along the metacarpals
     const armor: G[] = [];
@@ -407,14 +445,14 @@ export class Hand {
       for (const x of [-0.021, -0.002, 0.017]) ribs = Math.max(ribs, plateau(p.x, x - 0.0062, x + 0.0062, 0.003));
       return 0.0002 + 0.0017 * ribs * plateau(v, rv0, rv1, 0.06) * plateau(u, ru0, ru1, 0.1);
     }), ru0, ru1, 40, rv0, rv1, 10));
-    meshOf(m.gloveArmor, armor, this.root, 0.4);
+    this.skin.add(m.gloveArmor, armor, this.palmBone, this.root, 0.4);
 
     // velcro wrist strap across the back with a pull tab, and the cuff ball that seats in the sleeve
     const strap: G[] = [];
     const su0 = -0.05, su1 = Math.PI + 0.05, sv0 = palmV(0.007), sv1 = palmV(0.0245);
     strap.push(surf(lifted(palmFn, (u, v) => 0.0003 + 0.0015 * Math.pow(plateau(u, su0, su1, 0.1) * plateau(v, sv0, sv1, 0.025), 0.5)), su0, su1, 24, sv0, sv1, 6));
     strap.push(tinted(rboxG(0.017, 0.0135, 0.0032, 0.0012, M(0.0215, 0.0158, 0.0162, 0.03, 0.32, 0)), C_ONE));
-    meshOf(m.gloveStrap, strap, this.root, 0.5);
+    this.skin.add(m.gloveStrap, strap, this.palmBone, this.root, 0.5);
   }
 
   /** Copy a pose into the blend target. `instant` also snaps the current pose. */

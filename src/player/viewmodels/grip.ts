@@ -179,9 +179,9 @@ export function reachFinger(hand: Hand, pose: HandPose, f: number, tip: THREE.Ve
   });
 }
 
-function thumbGap(hand: Hand, sdf: Sdf): number {
+function thumbGap(hand: Hand, sdf: Sdf, from = 0): number {
   let g = Infinity;
-  for (let s = 0; s < 3; s++) {
+  for (let s = from; s < 3; s++) {
     for (let k = 0; k < 3; k++) {
       const t = 0.35 + k * 0.35;
       hand.thumbPoint(s, t, _v);
@@ -201,6 +201,9 @@ export function reachThumb(hand: Hand, pose: HandPose, tip: THREE.Vector3Like, m
     if (mid) { hand.thumbPoint(2, 0, _w); c += 0.7 * (sq(_w.x - mid.x) + sq(_w.y - mid.y) + sq(_w.z - mid.z)); }
     const g = thumbGap(hand, sdf);
     if (g < -0.001) c += 6 * sq(g + 0.001);
+    // the two visible phalanges must rest ON the surface: sinking costs far more than missing the target
+    const gv = thumbGap(hand, sdf, 1);
+    if (gv < 0.0002) c += 300 * sq(gv - 0.0002);
     return c;
   });
 }
@@ -232,7 +235,7 @@ export function gripReport(hand: Hand, pose: HandPose, sdf: Sdf): number[] {
   hand.apply(pose, null, false);
   const out: number[] = [];
   for (let f = 0; f < 4; f++) out.push(+(fingerGap(hand, f, 0, sdf) * 1000).toFixed(1));
-  out.push(+(thumbGap(hand, sdf) * 1000).toFixed(1));
+  out.push(+(thumbGap(hand, sdf, 1) * 1000).toFixed(1));
   return out;
 }
 

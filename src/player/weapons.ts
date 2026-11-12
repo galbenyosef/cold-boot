@@ -13,6 +13,7 @@ import { buildMagazine } from './viewmodels/pistol';
 import type { VmMats } from './viewmodels/mats';
 import { clamp } from './math';
 import { Tracers } from './tracers';
+import { setVmRoom } from './viewmodels/vmlight';
 
 export const WEAPON_STATS = {
   pistol: { clipSize: 12, damage: 20, interval: 0.14, range: 90, baseSpread: 0.0025, bloom: 0.011, noise: 30, maxReserve: 96, light: 70 },
@@ -180,18 +181,46 @@ export class Weapons {
   private shotgunInsertLoop() {
     const s = this.states.shotgun;
     if (!s.reloading) return;
+    const rig = this.vm.shotgun;
     if (this.shotgunInterrupt || s.clip >= s.clipSize || s.reserve <= 0) {
-      this.vm.shotgun.play(SHOTGUN_CLIPS.reloadExit, () => {
+      const hurry = this.shotgunInterrupt;
+      const finish = () => {
+        s.reloading = false;
+        // the shot that interrupted the reload goes off as soon as the gun is back up
+        if (this.shotgunInterrupt && s.clip > 0) this.fireQueued = 0.2;
+      };
+      rig.play(SHOTGUN_CLIPS.reloadExit, () => {
         if (this.shotgunRack && s.clip > 0) {
           this.shotgunRack = false;
-          this.vm.shotgun.play(SHOTGUN_CLIPS.rack, () => { s.reloading = false; });
-        } else s.reloading = false;
+          rig.play(SHOTGUN_CLIPS.rack, finish);
+        } else finish();
       });
+      if (hurry) rig.player.speed = 1.45;
       return;
     }
     // one insert per event (< 0.8 s) — audio plays one shell per weapon:reload
     this.ctx.events.emit('weapon:reload', { weapon: 'shotgun', duration: SHOTGUN_CLIPS.reloadInsert.dur });
-    this.vm.shotgun.play(SHOTGUN_CLIPS.reloadInsert, () => this.shotgunInsertLoop());
+    rig.play(SHOTGUN_CLIPS.reloadInsert, () => this.shotgunInsertLoop());
+    // hands are not a metronome: each shell takes a slightly different beat
+    rig.player.speed = 0.95 + Math.random() * 0.12;
+  }
+
+  /**
+   * Fire pressed mid-reload: break off from wherever the hands are. A shell already in the fingers is pushed home
+   * (fast); otherwise the insert is abandoned right away. The rig cross-fades the support hand, the gun is on
+   * springs, so there is no pop from any point.
+   */
+  private interruptShotgunReload() {
+    if (this.shotgunInterrupt) return;
+    this.shotgunInterrupt = true;
+    const rig = this.vm.shotgun;
+    const name = rig.player.name;
+    if (name === 'reloadInsert') {
+      if (rig.holding) rig.player.speed = 1.7;
+      else if (rig.player.t < 0.145 || rig.player.t > 0.42) this.shotgunInsertLoop();
+    } else if (name === 'reloadEnter') {
+      this.shotgunInsertLoop();
+    }
   }
 
   private pistolEvent(id: string) {
@@ -253,6 +282,11 @@ export class Weapons {
     this.firedRecently = Math.max(0, this.firedRecently - dt);
     this.bloom *= Math.exp(-dt * 5);
     this.tracers.update(dt, this.ctx.camera.position);
+    this.sampleRoomLight(dt);
+    // eyes follow the hands: the playing clip's glance rides on the camera's kick springs (aim moves with it)
+    const gl = this.vm.active?.glance;
+    this.cam.kickPitch.target = gl ? gl.x : 0;
+    this.cam.kickYaw.target = gl ? gl.y : 0;
 
     // switching animation
     if (this.phase === 'lowering') {
@@ -291,7 +325,7 @@ export class Weapons {
     if (this.phase === 'lowering') return;
 
     if (id === 'shotgun' && s.reloading) {
-      this.shotgunInterrupt = true;
+      this.interruptShotgunReload();
       return;
     }
     if (s.reloading || this.cooldown > 0) return;
@@ -322,7 +356,7 @@ export class Weapons {
       this.spreadDir(aim, spread, Math.random() * 2 - 1, Math.random() * 2 - 1, _d);
       this.vm.pistol.muzzleWorld(_muz);
       _end.copy(origin).addScaledVector(_d, this.ray(origin, _d, st.range, st.damage));
-      this.tracers.spawn(_muz, _end, 0.016, 9, 5.2, 2.1);
+      this.tracers.spawn(_muz, _end, 0.014, 7, 4.2, 1.8);
       this.vm.pistol.fire(s.clip === 0);
       this.cam.kick(1.1 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5);
       this.cam.shake(0.08);
@@ -340,7 +374,7 @@ export class Weapons {
         const jx = px + (Math.random() - 0.5) * 0.35, jy = py + (Math.random() - 0.5) * 0.35;
         this.spreadDir(aim, cone, jx * cr - jy * sr, jx * sr + jy * cr, _d, true);
         _end.copy(origin).addScaledVector(_d, this.ray(origin, _d, st.range, st.damage));
-        this.tracers.spawn(_muz, _end, 0.009, 2.6, 1.6, 0.75);
+        this.tracers.spawn(_muz, _end, 0.011, 3.6, 2.3, 1.1);
       }
       this.vm.shotgun.fire(() => {});
       this.cam.kick(3.6 + Math.random() * 0.8, (Math.random() - 0.5) * 1.2);
@@ -379,6 +413,72 @@ export class Weapons {
     return range;
   }
 
+  // ── room light on the viewmodel (5 Hz, smoothed): what the pooled lights do to the surfaces around the player
+  // (probe points on the floor ahead, to both sides and overhead → the bounce the hands would pick up) and what
+  // reaches the hands directly.
+  private poolLights: (THREE.PointLight | THREE.SpotLight)[] | null = null;
+  private roomT = 0;
+  private readonly roomRGB = new THREE.Color(0, 0, 0);
+  private roomDirect = 0;
+  private readonly probes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  /** three's punctual falloff (+ spot cone) of light `l` at `p`, per unit colour. */
+  private lightAt(l: THREE.PointLight | THREE.SpotLight, lp: THREE.Vector3, p: THREE.Vector3): number {
+    const d = lp.distanceTo(p);
+    if (l.distance > 0 && d >= l.distance) return 0;
+    let e = l.intensity / Math.max(d * d, 0.25);
+    if (l.distance > 0) { const w = 1 - Math.pow(d / l.distance, 4); e *= w * w; }
+    const sp = l as THREE.SpotLight;
+    if (sp.isSpotLight) {
+      _p.setFromMatrixPosition(sp.target.matrixWorld).sub(lp).normalize();
+      const c = (_p.x * (p.x - lp.x) + _p.y * (p.y - lp.y) + _p.z * (p.z - lp.z)) / Math.max(d, 1e-4);
+      const c0 = Math.cos(sp.angle), c1 = Math.cos(sp.angle * (1 - sp.penumbra));
+      e *= clamp((c - c0) / Math.max(1e-4, c1 - c0), 0, 1);
+    }
+    return e;
+  }
+  private sampleRoomLight(dt: number) {
+    this.roomT -= dt;
+    if (this.roomT <= 0) {
+      this.roomT = 0.2;
+      if (!this.poolLights || this.poolLights.length === 0) {
+        const list: (THREE.PointLight | THREE.SpotLight)[] = [];
+        this.ctx.scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight || (o as THREE.SpotLight).isSpotLight) list.push(o as THREE.PointLight); });
+        this.poolLights = list;
+      }
+      const eye = this.ctx.camera.position, a = this.aimCache, P = this.probes;
+      const fl = Math.hypot(a.forward.x, a.forward.z) || 1, fx = a.forward.x / fl, fz = a.forward.z / fl;
+      P[0].set(eye.x + fx * 1.2, eye.y - 1.55, eye.z + fz * 1.2);
+      P[1].set(eye.x + fx * 3.6, eye.y - 1.55, eye.z + fz * 3.6);
+      P[2].set(eye.x - fz * 2 + fx, eye.y - 0.6, eye.z + fx * 2 + fz);
+      P[3].set(eye.x + fz * 2 + fx, eye.y - 0.6, eye.z - fx * 2 + fz);
+      P[4].set(eye.x + fx * 1.5, eye.y + 1.1, eye.z + fz * 1.5);
+      P[5].set(eye.x - fx * 1.5, eye.y - 1.55, eye.z - fz * 1.5);
+      let r = 0, g = 0, b = 0, direct = 0;
+      for (const l of this.poolLights) {
+        if (!l.visible || l.intensity <= 0) continue;
+        _end.setFromMatrixPosition(l.matrixWorld);
+        const d = _end.distanceTo(eye);
+        // the player's own lamp and muzzle flashes light the gun for real; they are not "the room"
+        if (d < 0.9 || d > 40) continue;
+        let env = 0;
+        for (let i = 0; i < P.length; i++) env += this.lightAt(l, _end, P[i]);
+        env *= 0.5 / P.length;
+        let e = this.lightAt(l, _end, eye);
+        if (e > 0.03) {
+          // behind a wall: nothing direct
+          _d.copy(_end).sub(eye).multiplyScalar(1 / d);
+          if (this.ctx.physics.raycast(eye, _d, d - 0.25)) e = 0;
+        }
+        // (direct light already colours the hands through the real BRDF — only the bounce feeds the fill's hue)
+        r += l.color.r * env; g += l.color.g * env; b += l.color.b * env;
+        direct += e;
+      }
+      this.roomRGB.setRGB(r, g, b);
+      this.roomDirect = direct;
+    }
+    setVmRoom(this.roomRGB.r, this.roomRGB.g, this.roomRGB.b, this.roomDirect, 1 - Math.exp(-dt * 3.5));
+  }
+
   /** Debug helpers. */
   debugFire(): boolean {
     const id = this.current;
@@ -388,4 +488,3 @@ export class Weapons {
   }
 }
 
-void clamp;
