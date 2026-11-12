@@ -8,6 +8,7 @@ import type { GameContext, GameState } from './core/types';
 import { createEvents } from './core/events';
 import { createInput } from './core/input';
 import { parseDebug } from './core/debug';
+import { resolveLevel } from './core/progress';
 import { createInteractables } from './core/interactables';
 import { createPhysics } from './physics/physics';
 import { createRender } from './render';
@@ -42,6 +43,7 @@ async function boot() {
     physics: createPhysics(),
     interactables: createInteractables(events),
     debug,
+    levelId: resolveLevel(debug),
     time: 0,
     state: 'loading' as GameState,
     ready: false,
@@ -63,7 +65,7 @@ async function boot() {
   ctx.fx = await createFx(ctx);
   await status('audio');
   ctx.audio = await createAudio(ctx);
-  await status('sublevel 3');
+  await status(ctx.levelId === 2 ? 'line two' : 'sublevel 3');
   ctx.level = await createLevel(ctx);
   ctx.physics.build(ctx.level.colliders);
   await status('operator');

@@ -16,6 +16,9 @@ export type GameState = 'loading' | 'menu' | 'playing' | 'cutscene' | 'paused' |
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra';
 
+/** Which level this page load is running (REVISION 4). One level per page load; changing level reloads. */
+export type LevelId = 1 | 2;
+
 export interface DebugFlags {
   /** ?autostart=1 — skip the menu/intro and go straight to 'playing' (no pointer lock required). */
   autostart: boolean;
@@ -33,6 +36,8 @@ export interface DebugFlags {
   quality: Quality | null;
   /** ?debug=1 — modules may draw helpers / verbose logs. */
   verbose: boolean;
+  /** ?level=1|2 — force a level (REVISION 4); null = use saved progress. */
+  level: LevelId | null;
   /** Smoothed frames per second, written by main loop. */
   fps: number;
 }
@@ -61,6 +66,8 @@ export interface GameContext {
   story: StorySystem;
 
   debug: DebugFlags;
+  /** The level this page load runs. Set by main.ts before any system is created; never changes. */
+  levelId: LevelId;
   /** Seconds of simulated (unpaused) game time. */
   time: number;
   state: GameState;
@@ -78,7 +85,9 @@ export interface Updatable {
 
 export type Surface = 'metal' | 'concrete' | 'glass' | 'rubber' | 'robot' | 'flesh';
 export type WeaponId = 'pistol' | 'shotgun';
-export type EnemyType = 'skitter' | 'husk' | 'sentry';
+export type EnemyType = 'skitter' | 'husk' | 'sentry' | 'foreman';
+/** Scripted puppets (enemies.actor) may also be a human (REVISION 4: Tomas). */
+export type ActorType = EnemyType | 'human';
 export type PickupKind = 'pistol' | 'shotgun' | 'ammo_pistol' | 'ammo_shotgun' | 'medkit' | 'keycard';
 export type MusicState = 'silence' | 'ambient' | 'tension' | 'combat' | 'aftermath';
 
@@ -380,6 +389,10 @@ export type MaterialName =
   | 'plastic_dark'
   | 'plastic_white'       // medical / robot shell plastic
   | 'fabric'              // mattress, chair cloth
+  | 'cloth_coverall'      // REVISION 4: worn grey-blue work coverall cloth (staff clothing, folded uniforms)
+  | 'skin'                // REVISION 4: human skin (Tomas — face/hands), matte, subtle variation
+  | 'conveyor_belt'       // REVISION 4: black segmented rubber belt, scuffed, with slat seams
+  | 'glass_thick'         // REVISION 4: thick greenish safety glass, scratched, slightly frosted at edges
   | 'glass'               // transparent, slightly dirty
   | 'screen_off'          // dead black monitor glass
   // robots
@@ -467,6 +480,15 @@ export interface LoopHandle {
   stop(fadeSeconds?: number): void;
 }
 
+export interface VoiceHandle {
+  /** Seconds. Known immediately (from the manifest), before the audio starts. */
+  readonly duration: number;
+  /** Resolves when the line finished or was stopped. */
+  readonly done: Promise<void>;
+  setPosition(p: THREE.Vector3): void;
+  stop(fadeSeconds?: number): void;
+}
+
 export interface AudioSystem extends Updatable {
   /** Must be called from a user gesture (UI start button) — resumes the AudioContext. */
   unlock(): Promise<void>;
@@ -477,6 +499,15 @@ export interface AudioSystem extends Updatable {
   setRoom(room: string): void;
   /** Synthesised voice line for the machine intelligence CHOIR (processed, inhuman). `text` drives rhythm/length. */
   choirVoice(text: string, duration: number): void;
+  /**
+   * REVISION 4: play a recorded voice line by id (ids + text + durations: `voice/lines.*.json`, see
+   * docs/DESIGN.md → Voices). The character's processing (CHOIR layering, intercom band-pass, unit
+   * vocoder…) is chosen by audio from the line's speaker/fx in the manifest. Never throws: an unknown or
+   * not-yet-generated id warns once and returns a silent handle whose duration is estimated from the text.
+   */
+  say(id: string, opts?: PlayOpts): VoiceHandle;
+  /** Fetch + decode lines ahead of time (ids or id prefixes, e.g. 'l2_tomas_'). Resolves when ready; never rejects. */
+  preloadVoice(idsOrPrefixes: string[]): Promise<void>;
   setMasterVolume(v: number): void;
   /** Duck / muffle everything (pause menu, death). 0 = normal, 1 = fully muffled. */
   setMuffle(amount: number): void;
@@ -519,8 +550,11 @@ export interface EnemySpawn {
    * 'watch' — head slowly, almost imperceptibly tracks the player (stops dead if stared at from close).
    * 'work'  — repeats a slow mechanical task loop (husk at a bench); freezes when the player comes within ~6 m.
    * 'twitch' — rare small spasms.
+   * 'worker' (REVISION 4) — like 'work' but does NOT freeze: keeps doing its task and ignores the player
+   *            (stealth). It — and its whole group — turns hostile if the player comes within 2.2 m, fires
+   *            a weapon within 14 m, damages any of them, or keeps the flashlight on its head for 1.5 s.
    */
-  idle?: 'still' | 'watch' | 'work' | 'twitch';
+  idle?: 'still' | 'watch' | 'work' | 'twitch' | 'worker';
 }
 
 export interface PickupSpawn {
@@ -624,6 +658,11 @@ export interface Player extends Updatable {
   shake(amount: number): void;
   /** Scripted camera: smoothly look toward a world point over `seconds` (only when controlsEnabled=false). */
   lookAt(point: THREE.Vector3, seconds: number): void;
+  /**
+   * REVISION 4: external carrying velocity (m/s, world space) added to the player's movement while they
+   * are on the ground — conveyor belts. null = none. The level sets/clears it every frame it applies.
+   */
+  setCarry(velocity: THREE.Vector3 | null): void;
   /** Checkpoints: plain-JSON snapshot of everything the player module owns (incl. collected pickups). */
   snapshot(): PlayerSave;
   /** Restore a snapshot: teleport, health, weapons/ammo, keys, flashlight; remove already-collected pickups. Emits no pickup events. */
@@ -688,7 +727,7 @@ export interface EnemyManager extends Updatable {
    * for scripted scares (a silhouette crossing a doorway, a figure that is gone after a flicker).
    * Not listed in `all`, never perceives or attacks, emits no enemy:* events except `enemy:step`.
    */
-  actor(type: EnemyType, position: THREE.Vector3, yaw?: number, pose?: string): EnemyActor;
+  actor(type: ActorType, position: THREE.Vector3, yaw?: number, pose?: string): EnemyActor;
   /**
    * Checkpoints: silently delete a whole spawn group — living, dormant, dead wrecks and not-yet-spawned
    * members — with no events, fx or sound. Afterwards spawnGroup/wakeGroup for it are no-ops and
@@ -708,6 +747,10 @@ export interface EnemyActor {
   lookAt(point: THREE.Vector3 | null): void;
   /** Eye / sensor glow on or off. */
   setEyes(on: boolean): void;
+  /** REVISION 4: animate speech (jaw / head bob / small gestures) for this many seconds. No-op for types that cannot. */
+  speak?(seconds: number): void;
+  /** REVISION 4: gait variant for moveTo, e.g. 'limp' (Unit 14), 'carry' (walking someone by the arm). */
+  setGait?(gait: string): void;
   remove(): void;
 }
 

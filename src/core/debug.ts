@@ -25,6 +25,7 @@ export function parseDebug(): DebugFlags {
     giveAll: q.get('give') === 'all',
     quality: (['low', 'medium', 'high', 'ultra'] as const).includes(quality as Quality) ? (quality as Quality) : null,
     verbose: on('debug'),
+    level: q.get('level') === '1' ? 1 : q.get('level') === '2' ? 2 : null,
     fps: 0,
   };
 }

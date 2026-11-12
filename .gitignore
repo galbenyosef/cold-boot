@@ -4,3 +4,9 @@ dist
 *.log
 shots/
 .vite
+
+# voice tooling
+voice/auditions/
+voice/report.html
+tools/voice/.venv/
+__pycache__/
