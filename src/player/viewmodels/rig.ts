@@ -13,7 +13,7 @@
  */
 import * as THREE from 'three';
 import type { VmMats } from './mats';
-import { Hand, Forearm, POSES, POSE_LEN, THUMB, type HandPose } from './hands';
+import { Hand, Forearm, POSES, POSE_LEN, THUMB, FINGERS, type HandPose } from './hands';
 import { buildPistol, buildMagazine, pistolProxy, magProxy, type PistolModel } from './pistol';
 import { buildShotgun, shotgunProxy, PUMP_TRAVEL, S_TUBE, type ShotgunModel } from './shotgun';
 import { buildShell } from './props';
@@ -247,6 +247,37 @@ export abstract class GunRig {
     this.lhLivePos.copy(this.lhRestPos);
     this.lh.root.position.copy(this.lhRestPos);
     this.lh.root.quaternion.copy(this.lhRestQuat);
+    const g = POSES.relaxed.slice();
+    for (let f = 0; f < 4; f++) g[f * 4] = splay[f] * DEG;
+    return g;
+  }
+
+  /**
+   * Place the support hand by its axis: fingers along `F`, back of the hand `D`, palm centre on `c`, then backed
+   * off along `out` (default `D`) until the palm (metacarpal pads) just rests on `proxy`.
+   */
+  protected placeSupportFD(proxy: Sdf, F: THREE.Vector3, D: THREE.Vector3, c: THREE.Vector3, splay: number[], out: THREE.Vector3 = D): HandPose {
+    const q = orientFD(new THREE.Quaternion(), F, D);
+    const dn = out.clone().normalize();
+    // palm pads (hand frame, mirrored for the left hand): knuckle bases and the heel
+    const pads: THREE.Vector3[] = [];
+    for (const f of FINGERS) for (const k of [0.25, 0.6, 0.95]) pads.push(V(-f.x * (0.72 + 0.28 * k), 0.012 + (f.y - 0.012) * k, 0));
+    const R = 0.0135;
+    const palmC = V(0, 0.058, 0).applyQuaternion(q);
+    const pos = c.clone().sub(palmC);
+    const clear = () => {
+      let m = Infinity;
+      for (const p of pads) { _v.copy(p).applyQuaternion(q).add(pos); m = Math.min(m, proxy(_v.x, _v.y, _v.z) - R); }
+      return m;
+    };
+    // march out from inside the gun, then refine
+    for (let i = 0; i < 400 && clear() < 0; i++) pos.addScaledVector(dn, 0.0005);
+    for (let i = 0; i < 20; i++) { const g = clear(); if (Math.abs(g) < 2e-5) break; pos.addScaledVector(dn, -g * 0.8); }
+    pos.addScaledVector(dn, -0.0006); // let the glove padding compress a touch
+    this.lhRestPos.copy(pos); this.lhRestQuat.copy(q);
+    this.lhLivePos.copy(pos);
+    this.lh.root.position.copy(pos);
+    this.lh.root.quaternion.copy(q);
     const g = POSES.relaxed.slice();
     for (let f = 0; f < 4; f++) g[f * 4] = splay[f] * DEG;
     return g;
@@ -647,8 +678,13 @@ export class ShotgunRig extends GunRig {
   private SS = [0];
   private SG = [0];
   private pumpPrev = 0;
-  /** Dev: override the support-hand roll around the pump (degrees). */
-  static GRIP_ROLL: number | undefined;
+  /**
+   * Support-hand grip on the pump (gun space): hand axis `yaw` degrees right of the barrel and rising `rise` degrees,
+   * palm normal rolled `roll` degrees right of straight up; palm centre line through (cx, z); thumb tip height /
+   * reach ahead of the thumb's base; forearm along (armYaw, armRise) — a slight natural wrist bend off the hand axis —
+   * `arm` m back to the elbow, pushed `elbowOut` m outboard. Dev-overridable.
+   */
+  static SUPPORT = { yaw: 35, rise: 4, roll: 8, armYaw: 22, armRise: 18, cx: -0.004, z: -0.29, thumbY: 0.002, thumbZ: 0.092, arm: 0.3, elbowOut: 0.02 };
 
   constructor(m: VmMats) {
     const model = buildShotgun(m);
@@ -661,7 +697,6 @@ export class ShotgunRig extends GunRig {
     this.sprintPos.set(-0.055, -0.005, 0.06);
     this.sprintRot.set(0.1, 0.62, 0.3);
     this.rElbow.set(0.34, -0.36, 0.14);
-    this.lElbow.set(-0.3, -0.52, -0.4);
     this.drawP.set(-0.1, -0.16, -0.16);
     this.drawF.set(0.5, 0.35, -0.8);
     this.drawD.set(-0.6, -0.75, -0.2);
@@ -680,16 +715,28 @@ export class ShotgunRig extends GunRig {
       trigTip: V(-0.003, -0.024, -0.0615), trigMid: V(0.0165, -0.024, -0.056),
     });
 
-    // support hand cups the pump from below: fingers up the far side, thumb along the near side
-    // (rolled a little up the near side so the back of the hand and the thumb show from the eye)
-    const roll = (ShotgunRig.GRIP_ROLL ?? -50) * DEG, cr = Math.cos(roll), sr = Math.sin(roll);
-    const R = (x: number, y: number, z: number, dir = false) => { const cy = dir ? 0 : S_TUBE + 0.002, dy = y - cy; return V(x * cr - dy * sr, cy + x * sr + dy * cr, z); };
-    const s = this.placeSupport(R(-0.0185, -0.015, -0.336), R(0.0051, -0.0192, -0.2848), R(-0.571, -0.813, 0.0, true), [4, 0, -3, -6]);
+    // support hand cups the pump from below, mid-forend: the forend lies diagonally across the palm, palm up and
+    // a little to the right, thumb along the near (left) side, fingers curling up the far side. The hand (and the
+    // forearm, wrist straight) rises to it from below-behind, angled only slightly across the gun.
+    const G = ShotgunRig.SUPPORT;
+    const fy = G.yaw * DEG, fr = G.rise * DEG, nr = G.roll * DEG;
+    const F = V(Math.sin(fy) * Math.cos(fr), Math.sin(fr), -Math.cos(fy) * Math.cos(fr));
+    const N = V(-Math.sin(nr), -Math.cos(nr), 0);
+    const D = N.clone().addScaledVector(F, -N.dot(F)).normalize();
+    const s = this.placeSupportFD(proxy, F, D, V(G.cx, S_TUBE + 0.002, G.z), [4, 1, -2, -5], N);
     for (let f = 0; f < 4; f++) wrapFinger(this.lh, s, f, proxy);
-    reachThumb(this.lh, s, R(-0.03, 0.026, -0.353), R(-0.034, 0.013, -0.326), proxy);
+    // thumb: straight-ish along the left flank of the forend, pointing forward
+    this.lh.apply(s, null, false);
+    const tz = this.lh.thumbPoint(0, 0, _v).z - G.thumbZ;
+    reachThumb(this.lh, s, V(-0.034, S_TUBE + G.thumbY, tz), V(-0.035, S_TUBE + G.thumbY - 0.005, tz + 0.026), proxy);
     this.lhPoses.rest = s;
     this.report.lh = gripReport(this.lh, s, proxy);
     this.lh.setPose(s, true);
+    // the forearm runs from the wrist back to the elbow (down, back, slightly out), close to the hand's own line
+    const ay = G.armYaw * DEG, ar = G.armRise * DEG;
+    _v.set(Math.sin(ay) * Math.cos(ar), Math.sin(ar), -Math.cos(ay) * Math.cos(ar)).applyQuaternion(this.baseQuat);
+    this.lElbow.copy(this.lhRestPos).applyQuaternion(this.baseQuat).add(this.basePos).addScaledVector(_v, -G.arm);
+    this.lElbow.x -= G.elbowOut;
 
     // shell pinched across the fingers under the thumb
     const shell = capsuleSdf(V(SHELL_P.x + 0.006, SHELL_P.y, SHELL_P.z), V(SHELL_P.x + 0.058, SHELL_P.y, SHELL_P.z), 0.0108);

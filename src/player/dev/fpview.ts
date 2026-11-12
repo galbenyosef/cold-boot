@@ -4,7 +4,7 @@
  *   &orbit=yaw,pitch,dist   third-person debug view of the same rig
  *   &sprint=1 &move=1 &lower=0.5 &fire=1 (fire every 0.6 s)
  *   &sheet=N ...            contact sheet: N time slices of one action in one image (see runSheet)
- *   &base=x,y,z,rx,ry,rz &lelb=x,y,z &relb=x,y,z &groll=deg   pose overrides for framing experiments
+ *   &base=x,y,z,rx,ry,rz &lelb=x,y,z &relb=x,y,z &sgrip=yaw:30,rise:24,…   pose overrides for framing experiments
  */
 import * as THREE from 'three';
 import type { MaterialLibrary } from '../../core/types';
@@ -25,7 +25,8 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
   wall.position.set(0, 0, -6);
   scene.add(wall);
 
-  if (q.get('groll')) ShotgunRig.GRIP_ROLL = Number(q.get('groll'));
+  // &sgrip=key:val,key:val… overrides ShotgunRig.SUPPORT (yaw, rise, roll, cx, z, thumbY, thumbZ, arm, elbowOut)
+  for (const kv of (q.get('sgrip') ?? '').split(',').filter(Boolean)) { const [k, v] = kv.split(':'); if (k in ShotgunRig.SUPPORT) (ShotgunRig.SUPPORT as any)[k] = Number(v); }
   const vm = new Viewmodel(mats, 0);
   cam.add(vm.root);
   const weapon = (q.get('weapon') ?? 'pistol') as 'pistol' | 'shotgun';
@@ -46,6 +47,7 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
   }
   if (q.get('empty') === '1' && weapon === 'pistol') vm.pistol.slideLocked = true;
   (window as any).__h.vm = vm;
+  if (q.get('report')) console.warn('[grip] ' + JSON.stringify(rig.report));
   const hide = q.get('hide') ?? '';
   if (hide.includes('lh')) { rig.lh.root.visible = false; rig.lf.root.visible = false; }
   if (hide.includes('rh')) { rig.rh.root.visible = false; rig.rf.root.visible = false; }
@@ -56,8 +58,8 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
   if (q.get('sheet')) { runSheet(o, vm, cam); return; }
   const grid = q.get('orbit') === 'grid';
   const orbit = grid ? [0, 0, Number(q.get('dist') ?? 0.42)] : q.get('orbit')?.split(',').map(Number);
-  const GRID: [number, number][] = [[-90, 8], [-140, 30], [-30, -25], [90, 10]];
-  const ocam = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 50);
+  const GRID: [number, number][] = q.get('views') ? q.get('views')!.split(';').map((s) => s.split(',').map(Number) as [number, number]) : [[-90, 8], [-140, 30], [-30, -25], [90, 10]];
+  const ocam = new THREE.PerspectiveCamera(Number(q.get('ofov') ?? 35), innerWidth / innerHeight, 0.01, 50);
   const mo: RigMotion = { time: 0, lookX: 0, lookY: 0, speed: 0, bobPhase: 0, grounded: true, vy: 0, sprint: 0, crouch: 0, wall: 0, lower: Number(q.get('lower') ?? 0), strafe: 0 };
   let last = performance.now(), frames = 0, t0 = last, fireT = 0, loopT = 0;
   const center = new THREE.Vector3();
@@ -82,7 +84,8 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
     if (orbit) {
       vm.root.scale.set(1, 1, 1);
       rig.gun.getWorldPosition(center);
-      if (q.get('center')) { const c = q.get('center')!.split(',').map(Number); center.set(c[0], c[1], c[2]); }
+      if (q.get('center') === 'lh') rig.lh.root.localToWorld(center.set(0, 0.06, 0));
+      else if (q.get('center')) { const c = q.get('center')!.split(',').map(Number); center.set(c[0], c[1], c[2]); }
       const views = grid ? GRID : [[orbit[0], orbit[1]] as [number, number]];
       const W = innerWidth, H = innerHeight, n = views.length > 1 ? 2 : 1;
       renderer.setScissorTest(n > 1);
@@ -90,7 +93,11 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
         const vx = (i % n) * (W / n), vy = (n - 1 - Math.floor(i / n)) * (H / n);
         renderer.setViewport(vx, vy, W / n, H / n); renderer.setScissor(vx, vy, W / n, H / n);
         const yaw = THREE.MathUtils.degToRad(yd), pitch = THREE.MathUtils.degToRad(pd), d = orbit[2] ?? 0.6;
-        ocam.position.set(center.x + Math.sin(yaw) * Math.cos(pitch) * d, center.y + Math.sin(pitch) * d, center.z + Math.cos(yaw) * Math.cos(pitch) * d);
+        ocam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d);
+        ocam.up.set(0, 1, 0);
+        // &gframe=1: yaw/pitch measured in the gun's own frame (0 = from behind the stock, -90 = from its left)
+        if (q.get('gframe')) { rig.gun.getWorldQuaternion(_gq); ocam.position.applyQuaternion(_gq); ocam.up.applyQuaternion(_gq); }
+        ocam.position.add(center);
         ocam.lookAt(center);
         ocam.aspect = W / H; ocam.updateProjectionMatrix();
         renderer.render(scene, ocam);
@@ -203,3 +210,4 @@ function runSheet(o: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; q: URL
   setInterval(render, 700);
 }
 const _c = new THREE.Vector3();
+const _gq = new THREE.Quaternion();
