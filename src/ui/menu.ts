@@ -263,7 +263,8 @@ export class MainMenu {
     if (choice === 'begin') {
       // BEGIN always starts the whole game over: level 1, no checkpoints, no carried loadout.
       clearAllProgress();
-      if (here !== 1) {
+      // A page forced to a level by its URL (?level=2) begins THAT level; the story handles it.
+      if (here !== 1 && this.ctx.debug.level !== here) {
         this.resolve = null;
         // The story's own begin request (one-click gate + intro); our gate is the fallback for older builds.
         if (!requestBegin()) { try { sessionStorage.setItem(BEGIN_FRESH_KEY, '1'); } catch { /* ignore */ } }
