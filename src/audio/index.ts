@@ -3,16 +3,18 @@
  * (see sounds/*), loops/music/voice are generative. Subscribes to game events itself — see SOUNDS.md.
  */
 import * as THREE from 'three';
-import type { AudioSystem, GameContext, LoopHandle, MusicState, PlayOpts, Surface } from '../core/types';
+import type { AudioSystem, EnemyType, GameContext, LoopHandle, MusicState, PlayOpts, Surface, VoiceHandle } from '../core/types';
 import { AudioEngine, type LoopVoice } from './engine';
 import { Music, type MusicMode } from './music';
 import { Ambience } from './ambient';
 import { renderChoir } from './choir';
+import { VoiceBank } from './voice';
 
 export interface AudioDebug {
   engine: AudioEngine;
   music: Music;
   ambience: Ambience;
+  voice: VoiceBank;
   preRenderMs: number;
   /** Effective music mode (after auto-combat / menu logic). */
   readonly musicMode: MusicMode;
@@ -24,13 +26,18 @@ const STEP_ID: Record<Surface, string> = {
 const IMPACT_ID: Record<Surface, string> = {
   metal: 'impact_metal', concrete: 'impact_concrete', rubber: 'impact_rubber', glass: 'impact_glass', robot: 'impact_robot', flesh: 'impact_flesh',
 };
-const ENEMY_Y = { skitter: 0.35, husk: 1.4, sentry: 0 } as const;
+const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9 };
 const GRATE_ROOMS = new Set(['corr_a', 'elevator']);
+
+function silentVoice(duration: number): VoiceHandle {
+  return { duration, done: new Promise<void>((r) => setTimeout(r, duration * 1000)), setPosition() {}, stop() {} };
+}
 
 function stubAudio(): AudioSystem {
   const handle: LoopHandle = { setVolume() {}, setPosition() {}, stop() {} };
   return {
     async unlock() {}, play() {}, loop() { return handle; }, setMusic() {}, setRoom() {}, choirVoice() {},
+    say() { return silentVoice(2.5); }, async preloadVoice() {},
     setMasterVolume() {}, setMuffle() {}, update() {},
   };
 }
@@ -50,6 +57,11 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
 
   const music = new Music(eng.ctx, eng.buses.music, eng.plateIn, (id) => eng.buffers(id));
   const amb = new Ambience(eng);
+  const voice = new VoiceBank(eng);
+  // level 2 starts with the hall powered (held, not dead)
+  if (ctx.levelId === 2) amb.powerOn = true;
+  // this level's voice files: fetch the bytes in the background (decode stays lazy)
+  setTimeout(() => { try { voice.prefetchLevel(ctx.levelId ?? 1); } catch { /* ignore */ } }, 1500);
   const musicTimer = setInterval(() => { if (eng.running) music.tick(); }, 100);
   void musicTimer;
 
@@ -67,7 +79,6 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   let musicTimerAcc = 0;
   let nextBeat = 0;
   let tinnitus: LoopVoice | null = null;
-  let choirLines = 0;
   let bedStarted = false;
 
   const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
@@ -126,15 +137,19 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
         const g = c.createGain(); g.gain.value = 0.9;
         const send = c.createGain(); send.gain.value = 0.75;
         src.connect(g); g.connect(eng.buses.voice); g.connect(send); send.connect(eng.plateIn);
-        choirLines++;
-        eng.setDuck(1, 0.2);
+        const release = voice.duck(1);
         src.onended = () => {
           src.disconnect(); g.disconnect(); send.disconnect();
-          choirLines = Math.max(0, choirLines - 1);
-          if (choirLines === 0) eng.setDuck(0, 0.8);
+          release();
         };
         src.start();
       }).catch((e) => console.warn('[audio] choir render failed', e));
+    },
+    say(id: string, opts?: PlayOpts): VoiceHandle {
+      return voice.say(id, opts);
+    },
+    preloadVoice(idsOrPrefixes: string[]): Promise<void> {
+      try { return voice.preload(idsOrPrefixes); } catch { return Promise.resolve(); }
     },
     setMasterVolume(v: number) { eng.setMaster(v); },
     setMuffle(amount: number) { userMuffle = Math.max(0, Math.min(1, amount)); },
@@ -190,7 +205,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
       amb.update();
     },
     debug: {
-      engine: eng, music, ambience: amb,
+      engine: eng, music, ambience: amb, voice,
       get preRenderMs() { return eng.preRenderMs; },
       get musicMode() { return effective; },
     },
@@ -299,6 +314,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   ev.on('enemy:woke', ({ type, position }) => {
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'husk') eng.play('husk_wake', { position: p });
+    else if (type === 'foreman') { eng.play('husk_wake', { position: p, pitch: 0.7 }); eng.play('foreman_step', { position: lift(position, 0.05, tmpC), delay: 0.3 }); }
     else if (type === 'skitter') eng.play('skitter_chitter', { position: p });
     else eng.play('sentry_wake', { position: p });
   });
@@ -306,10 +322,16 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'skitter') eng.play('skitter_screech', { position: p });
     else if (type === 'husk') eng.play('husk_vocal', { position: p });
-    else eng.play('sentry_alert', { position: p });
+    else if (type === 'foreman') {
+      // three staff voices, out of sync
+      eng.play('husk_vocal', { position: p, pitch: 0.82 });
+      eng.play('husk_vocal', { position: p, pitch: 1.0, delay: 0.11 });
+      eng.play('husk_vocal', { position: p, pitch: 1.17, delay: 0.24 });
+    } else eng.play('sentry_alert', { position: p });
   });
-  ev.on('enemy:attack', ({ type, position }) => {
+  ev.on('enemy:attack', ({ type, position, kind }) => {
     const p = lift(position, ENEMY_Y[type]);
+    if (type === 'foreman') { eng.play(kind === 'melee' ? 'foreman_slam' : 'arm_reach', { position: p }); return; }
     if (type === 'skitter') eng.play('skitter_attack', { position: p });
     else if (type === 'husk') { eng.play('husk_attack', { position: p }); if (Math.random() < 0.35) eng.play('husk_vocal', { position: p, volume: 0.8 }); }
     else eng.play('sentry_fire', { position: p });
@@ -320,15 +342,22 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     if (type === 'skitter' && r < 0.6) eng.play('skitter_hurt', { position: point });
     else if (type === 'husk' && r < 0.4) eng.play('husk_hurt', { position: point });
     else if (type === 'sentry' && r < 0.6) eng.play('sentry_hurt', { position: point });
+    else if (type === 'foreman' && r < 0.4) eng.play('husk_hurt', { position: point, pitch: 0.8 });
   });
   ev.on('enemy:died', ({ type, position }) => {
     const p = lift(position, ENEMY_Y[type]);
+    if (type === 'foreman') {
+      for (let i = 0; i < 3; i++) eng.play('husk_death', { position: p, delay: i * 0.35, pitch: 0.8 + i * 0.15, variant: i % 2 });
+      eng.play('foreman_slam', { position: lift(position, 0.3, tmpC), delay: 1.1 });
+      return;
+    }
     eng.play(`${type}_death`, { position: p });
   });
   ev.on('enemy:step', ({ type, position }) => {
     if (type === 'sentry') return;
     const p = lift(position, 0.05);
     if (type === 'skitter') eng.play('skitter_step', { position: p });
+    else if (type === 'foreman') eng.play('foreman_step', { position: p });
     else { eng.play('husk_step', { position: p }); if (Math.random() < 0.2) eng.play('husk_joint', { position: lift(position, 1.2, tmpC) }); }
   });
 
@@ -390,5 +419,6 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     refreshMusic();
   });
 
+  voice.choirFallback = (text, duration) => sys.choirVoice(text, duration);
   return sys;
 }

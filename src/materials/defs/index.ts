@@ -7,7 +7,7 @@ import type { MaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
-import { PAINTED, METAL, POLY, RUST, FABRIC, GLASS } from './props';
+import { PAINTED, METAL, POLY, RUST, FABRIC, GLASS, BELT, GLASS_THICK, SKIN } from './props';
 import { ROBOT_SHELL } from './robot';
 
 export interface MatSpec {
@@ -45,6 +45,9 @@ const G_RUST = RUST;
 const G_FABRIC = 'uniform vec3 uCol;\n' + FABRIC;
 const G_GLASS = GLASS;
 const G_SHELL = U_WALL + ROBOT_SHELL;
+const G_BELT = BELT;
+const G_GLASS_THICK = GLASS_THICK;
+const G_SKIN = 'uniform vec3 uCol;\n' + SKIN;
 
 const wall = (base: number, grime: number) => ({ uBase: { value: srgb(base) }, uGrime: { value: grime } });
 const paint = (a: number, b: number, o: { stripe?: number; wear?: number; rough?: number; grime?: number; peel?: number } = {}) => ({
@@ -176,6 +179,23 @@ export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`>, MatSpec>
   fabric: {
     tex: { size: MINOR, tile: 0.25, depth: 0.0012, glsl: G_FABRIC, seed: 24, aoRadius: 0.003, uniforms: { uCol: { value: srgb(0x4a5662) } } },
     params: {}, env: 0.3, macro: [0.2, 0.0],
+  },
+  cloth_coverall: {
+    // same weave program as `fabric` (shares the compiled shader), work-wear grey-blue, coarser tile
+    tex: { size: MINOR, tile: 0.3, depth: 0.0014, glsl: G_FABRIC, seed: 31, aoRadius: 0.003, uniforms: { uCol: { value: srgb(0x56677a) } } },
+    params: {}, env: 0.3, macro: [0.18, 0.0],
+  },
+  skin: {
+    tex: { size: MINOR, tile: 0.2, depth: 0.0008, glsl: G_SKIN, seed: 32, aoRadius: 0.003, uniforms: { uCol: { value: srgb(0xc69c86) } } },
+    params: {}, env: 0.35,
+  },
+  conveyor_belt: {
+    tex: { size: MINOR, tile: 1, depth: 0.004, glsl: G_BELT, seed: 33, aoRadius: 0.008 },
+    params: {}, env: 0.6,
+  },
+  glass_thick: {
+    tex: { size: MINOR, tile: 1.5, depth: 0.0005, glsl: G_GLASS_THICK, seed: 34, aoRadius: 0.002 },
+    params: { transparent: true, depthWrite: false, side: THREE.DoubleSide }, env: 0.55, glass: true,
   },
   glass: {
     tex: { size: MINOR, tile: 1, depth: 0.0005, glsl: G_GLASS, seed: 25, aoRadius: 0.002 },

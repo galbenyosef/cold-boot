@@ -1057,7 +1057,7 @@ export class Skitter extends EnemyBase {
     const mult = vol.part === 'head' ? 1.5 : vol.part === 'limb' ? 0.6 : 1;
     const dmg = amount * mult;
     this.health -= dmg;
-    w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg });
+    w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg, part: vol.part });
     this.queueHit(vol, amount, point, dir);
     this.bob.v -= 1.5;
     if (this.health <= 0) { this.die(dir); return; }

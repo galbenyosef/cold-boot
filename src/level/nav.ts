@@ -27,7 +27,8 @@ function segHitsBox(ax: number, az: number, bx: number, bz: number, b: THREE.Box
   return true;
 }
 
-export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: { x: number; z: number }[], step: (room: string) => number): NavNode[] {
+export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: { x: number; z: number }[], step: (room: string) => number,
+  startAt: { x: number; z: number } = { x: 0, z: 7 }): NavNode[] {
   const obs = L.obstacles;
   const nodes: NavNode[] = [];
   const steps: number[] = [];
@@ -83,7 +84,7 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: { x: nu
   // prune nodes not reachable from the first node (keeps ids dense)
   const seen = new Uint8Array(nodes.length);
   let start = 0, sd = Infinity;
-  for (const n of nodes) { const d = n.position.x * n.position.x + (n.position.z - 7) * (n.position.z - 7); if (d < sd) { sd = d; start = n.id; } }
+  for (const n of nodes) { const d = (n.position.x - startAt.x) * (n.position.x - startAt.x) + (n.position.z - startAt.z) * (n.position.z - startAt.z); if (d < sd) { sd = d; start = n.id; } }
   const queue = [start];
   seen[start] = 1;
   while (queue.length) {

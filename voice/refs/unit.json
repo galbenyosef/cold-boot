@@ -1,0 +1,14 @@
+{
+  "describe": "female, young adult, moderate pitch",
+  "seed": 2,
+  "refText": "Good evening. Thank you for your patience. Please remain where you are. A member of staff will be with you shortly.",
+  "language": "en",
+  "source": "audition 2",
+  "sha": "873a9793cbcc69b8",
+  "duration": 6.58,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "good evening thank you for your patience please remain where you are a member of staff will be with you shortly"
+  }
+}

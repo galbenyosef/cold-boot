@@ -30,6 +30,9 @@ interface Item {
 
 const PROMPTS: Partial<Record<PickupKind, string>> = { pistol: 'Take pistol', shotgun: 'Take shotgun', keycard: 'Take keycard' };
 
+/** Key name carried by a keycard pickup id: the id without its `p_` / `p2_` prefix. */
+export function keyOf(id: string): string { return id.replace(/^p\d*_/, ''); }
+
 let glintTex: THREE.Texture | null = null;
 function makeGlintTexture(): THREE.Texture {
   const S = 64, c = document.createElement('canvas');
@@ -178,11 +181,14 @@ export class Pickups {
     glint.renderOrder = 5;
     this.root.add(glint);
     const auto = !(sp.kind in PROMPTS);
+    let prompt = PROMPTS[sp.kind] ?? 'Take';
+    // Level 2+: a keycard is named after its key ('p2_section_pass' → "Take section pass").
+    if (sp.kind === 'keycard' && this.ctx.levelId !== undefined && this.ctx.levelId !== 1) prompt = `Take ${keyOf(sp.id).replace(/_/g, ' ')}`;
     const item: Item = { spawn: sp, obj, glint, center, phase: Math.random() * 10, auto, taken: false };
     this.items.push(item);
     if (!auto) {
       this.ctx.interactables.add({
-        id: sp.id, kind: 'pickup', position: center, radius: 2.2, prompt: PROMPTS[sp.kind]!, enabled: true,
+        id: sp.id, kind: 'pickup', position: center, radius: 2.2, prompt, enabled: true,
         onUse: () => this.collect(item),
       });
     }
@@ -198,6 +204,10 @@ export class Pickups {
 
   /** Checkpoints: silently remove already-collected pickups (no give, no events). */
   restoreCollected(ids: readonly string[]) {
+    // Ids of another level's spawns (a save carried across levels) are dropped; runtime ids are kept.
+    const mine = new Set(this.ctx.level?.pickupSpawns?.map((p) => p.id) ?? []);
+    const other = this.ctx.levelId === 2 ? /^p_/ : /^p2_/;
+    ids = ids.filter((id) => typeof id === 'string' && (mine.has(id) || !other.test(id)));
     const want = new Set(ids);
     for (const it of this.items) {
       if (it.taken || !want.has(it.spawn.id)) continue;
@@ -213,7 +223,12 @@ export class Pickups {
     it.taken = true;
     const sp = it.spawn;
     this.collected.push(sp.id);
-    if (sp.kind === 'keycard') this.host.addKey(sp.id);
+    if (sp.kind === 'keycard') {
+      this.host.addKey(sp.id);
+      // the key a door / story asks for: 'p2_section_pass' → 'section_pass' (level 1: 'lockout_key', unused)
+      const k = keyOf(sp.id);
+      if (k && k !== sp.id) this.host.addKey(k);
+    }
     this.host.give(sp.kind, sp.amount);
     this.ctx.events.emit('pickup', { kind: sp.kind, amount: sp.amount, position: it.center.clone() });
     this.root.remove(it.obj, it.glint);

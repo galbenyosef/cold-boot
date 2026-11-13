@@ -6,6 +6,10 @@
  *   choir            — offline render of CHOIR lines.
  *   live             — real AudioContext: full createAudio() with a fake ctx, scripted scenario,
  *                      master bus captured and analysed over time.
+ *   voice            — recorded voice lines (public/voice) through the run-time fx chains, offline:
+ *                      level / peak / clipping / duration per line × chain, spectrograms, click a cell to
+ *                      hear it. &ids=a,b (ids or prefixes; default: a few per speaker) &fx=all|<name>
+ *                      &live=1 also runs say() through a real createAudio() and checks handles/ducking.
  * Results on window.__audioReport; window.__game = { ready: true } when done.
  */
 import * as THREE from 'three';
@@ -17,6 +21,8 @@ import { renderChoir } from '../choir';
 import { makeIR } from '../impulses';
 import { draw, stats, mono, type Stats } from './analyze';
 import { createAudio } from '../index';
+import { loadVoiceTable } from '../voice';
+import { FX_NAMES, FX_SR, renderVoiceFx, speechRms } from '../voicefx';
 import { createEvents } from '../../core/events';
 import type { GameContext } from '../../core/types';
 
@@ -381,9 +387,97 @@ async function modeAmbience() {
   head.textContent = 'ambience: ' + JSON.stringify(out).slice(0, 400);
 }
 
+// ───────────────────────────────────────────── voice
+
+async function modeVoice() {
+  const table = loadVoiceTable();
+  const gen = [...table.values()].filter((e) => e.generated);
+  const want = (q.get('ids') ?? '').split(',').filter(Boolean);
+  let pick = want.length ? gen.filter((e) => want.some((w) => e.id === w || e.id.startsWith(w))) : [];
+  if (!want.length) {
+    const seen = new Map<string, number>();
+    for (const e of gen) { const k = e.speaker + '|' + e.fx; const n = seen.get(k) ?? 0; if (n < 1) { pick.push(e); seen.set(k, n + 1); } }
+  }
+  const fxq = q.get('fx');
+  const dec = new OfflineAudioContext(1, 1, FX_SR);
+  const base = (import.meta as any).env?.BASE_URL ?? '/';
+  let live: AudioContext | null = null;
+  const out: Record<string, unknown> = {};
+  const W = 520, H = 110;
+  for (const e of pick) {
+    const raws = await Promise.all(e.files.map((f) => fetch(base + f).then((r) => r.arrayBuffer())));
+    const bufs = await Promise.all(raws.map((r) => dec.decodeAudioData(r)));
+    const clean = bufs[0];
+    const chains = fxq === 'all' ? [...FX_NAMES] : fxq ? fxq.split(',') : [e.fx];
+    const res: Record<string, unknown> = { manifestDuration: e.duration, cleanDuration: +clean.duration.toFixed(3), cleanSr: clean.sampleRate,
+      cleanRms: +speechRms([clean.getChannelData(0)]).toFixed(4) };
+    for (const fx of chains) {
+      const t0 = performance.now();
+      const b = await renderVoiceFx(fx, bufs, e.id);
+      const ms = performance.now() - t0;
+      const ch = chansOf(b);
+      const st = stats(ch, b.sampleRate);
+      const r = { renderMs: Math.round(ms), dur: st.dur, peak: st.peak, peakDb: st.peakDb, rmsDb: st.rmsDb, speechRms: +speechRms(ch).toFixed(4),
+        clip: st.clip, nan: st.nan, channels: b.numberOfChannels, centroid: st.centroid, bands: st.bands };
+      res[fx] = r;
+      if (q.get('dump')) {
+        // mono int16 PCM, base64 — for an external ASR check of the processed audio
+        const m = mono(ch); const pcm = new Int16Array(m.length);
+        for (let i = 0; i < m.length; i++) pcm[i] = Math.max(-32767, Math.min(32767, Math.round(m[i] * 32767)));
+        const u8 = new Uint8Array(pcm.buffer); let bin = '';
+        for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+        ((report.dump ??= {}) as Record<string, string>)[`${e.id}|${fx}`] = btoa(bin);
+      }
+      const label = e.text.length > 64 ? e.text.slice(0, 62) + '…' : e.text;
+      const cv = cell(`${e.id} [${e.speaker}] → ${fx}\n${st.dur}s pk ${st.peakDb}dB rms ${st.rmsDb}dB clip ${st.clip} ${r.renderMs}ms\n${label}`, W, H);
+      draw(cv, ch, b.sampleRate);
+      cv.style.cursor = 'pointer';
+      cv.onclick = () => {
+        live ??= new AudioContext();
+        void live.resume();
+        const s2 = live.createBufferSource(); s2.buffer = b; s2.connect(live.destination); s2.start();
+      };
+    }
+    out[e.id] = res;
+  }
+  report.lines = out;
+  // say() through the real audio system
+  if (q.get('live')) {
+    const ctx = fakeCtx();
+    const audio = await createAudio(ctx);
+    await audio.unlock();
+    const dbg = (audio as any).debug;
+    const eng = dbg.engine;
+    const ids = pick.slice(0, 3).map((e) => e.id);
+    const t0 = performance.now();
+    await audio.preloadVoice(ids);
+    const preloadMs = performance.now() - t0;
+    const results: unknown[] = [];
+    for (const id of ids) {
+      const t1 = performance.now();
+      const h = audio.say(id, id.includes('unit') ? { position: new THREE.Vector3(2, 1.5, 0) } : undefined);
+      await new Promise((r) => setTimeout(r, 300));
+      const duck = +eng.duck.music.gain.value.toFixed(3);
+      await h.done;
+      results.push({ id, duration: h.duration, wallSeconds: +((performance.now() - t1) / 1000).toFixed(2), musicDuckDuring: duck });
+    }
+    const unknown = audio.say('no_such_line');
+    const t2 = performance.now();
+    await unknown.done;
+    const h2 = audio.say(ids[0]);
+    setTimeout(() => h2.stop(0.1), 200);
+    const t3 = performance.now();
+    await h2.done;
+    report.live = { preloadMs: Math.round(preloadMs), results, unknown: { duration: unknown.duration, wall: +((performance.now() - t2) / 1000).toFixed(2) },
+      stopWall: +((performance.now() - t3) / 1000).toFixed(2), duckAfter: +eng.duck.music.gain.value.toFixed(3) };
+  }
+  head.textContent = `voice: ${pick.length} lines (click a spectrogram to listen)`;
+}
+
 (async () => {
   try {
-    if (mode === 'ambience') await modeAmbience();
+    if (mode === 'voice') await modeVoice();
+    else if (mode === 'ambience') await modeAmbience();
     else if (mode === 'music') await modeMusic();
     else if (mode === 'choir') await modeChoir();
     else if (mode === 'live') await modeLive();

@@ -3,7 +3,7 @@
  * land incrementally); the story must never throw because a door / screen / light group is absent.
  */
 import * as THREE from 'three';
-import type { EnemyActor, EnemySpawn, EnemyType, FlickerMode, GameContext, LightGroupPatch, PickupSpawn, ScreenKind } from '../core/types';
+import type { ActorType, EnemyActor, EnemySpawn, FlickerMode, GameContext, LightGroupPatch, PickupSpawn, ScreenKind } from '../core/types';
 
 export const ALL_SCREENS = [
   'med_terminal', 'sec_console', 'sec_monitor_1', 'sec_monitor_2', 'sec_monitor_3', 'sec_monitor_4',
@@ -87,8 +87,8 @@ export class World {
   }
 
   /** A scripted puppet, or null when `enemies.actor` is missing / throws. */
-  actor(type: EnemyType, position: THREE.Vector3, yaw = 0, pose?: string): EnemyActor | null {
-    const en = this.ctx.enemies as unknown as { actor?: (t: EnemyType, p: THREE.Vector3, y?: number, pose?: string) => EnemyActor };
+  actor(type: ActorType, position: THREE.Vector3, yaw = 0, pose?: string): EnemyActor | null {
+    const en = this.ctx.enemies as unknown as { actor?: (t: ActorType, p: THREE.Vector3, y?: number, pose?: string) => EnemyActor };
     if (typeof en?.actor !== 'function') return null;
     try { return en.actor(type, position, yaw, pose) ?? null; } catch (e) { console.warn('[story] actor failed', e); return null; }
   }
@@ -136,6 +136,15 @@ export class World {
   }
   active(): number {
     try { return this.ctx.enemies.activeCount; } catch { return 0; }
+  }
+
+  /** Unlock and open a door for a scripted walker (actors do not trip the auto-open). */
+  openDoor(id: string): void { this.safe(`open ${id}`, () => { const d = this.ctx.level.door(id); d?.unlock(); d?.open(); }); }
+  hasObject(name: string): boolean {
+    try { return !!this.ctx.level.object(name); } catch { return false; }
+  }
+  hasKeyNamed(key: string): boolean {
+    try { return this.ctx.player.hasKey(key); } catch { return false; }
   }
 
   glitch(amount: number, hold?: number): void { this.safe('glitch', () => this.ctx.render.post.glitch(amount, hold)); }

@@ -12,11 +12,17 @@ interface Shot { from: THREE.Vector3; to: THREE.Vector3; lookFrom: THREE.Vector3
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 /** Slow, low-energy dolly shots through the level (DESIGN.md coordinates). */
-const SHOTS: Shot[] = [
+const SHOTS_L1: Shot[] = [
   // Medical 3-A — high corner, drifting over the beds and the monitor glow.
   { from: v(-4.2, 2.6, 1.2), to: v(-3.3, 2.45, 1.7), lookFrom: v(1.5, 0.6, 6.5), lookTo: v(2.4, 0.7, 7.2), dur: 14, fov: 58 },
   // Service corridor A — failing lights; slow push, framed so the corridor sits right of the title.
   { from: v(0.45, 1.6, -0.9), to: v(0.3, 1.55, -4.2), lookFrom: v(-1.7, 1.3, -14), lookTo: v(-1.4, 1.25, -14), dur: 13, fov: 62 },
+];
+
+/** Level 2 (REVISION 4): the tidy dock, then the held hall with the booth's warm window. */
+const SHOTS_L2: Shot[] = [
+  { from: v(-3.2, 2.9, -0.9), to: v(-2.4, 2.75, -1.6), lookFrom: v(1.6, 0.5, -6.5), lookTo: v(2.3, 0.6, -7.2), dur: 14, fov: 58 },
+  { from: v(-2.5, 3.4, -24.5), to: v(-1.2, 3.2, -27.5), lookFrom: v(-9, 1.6, -45), lookTo: v(-8.5, 1.5, -46), dur: 15, fov: 60 },
 ];
 
 const BASE_FADE = 0.12;
@@ -33,7 +39,10 @@ export class CameraRig {
   /** Wake cutscene: 0 = lying on the bed, 1 = player's normal eye. null = rig inactive. */
   wake: { rise: number; roll: number; lying: THREE.Vector3 } | null = null;
 
+  private shots: Shot[];
+
   constructor(private ctx: GameContext) {
+    this.shots = ctx.levelId === 2 ? SHOTS_L2 : SHOTS_L1;
     this.baseFov = ctx.camera.fov;
   }
 
@@ -96,7 +105,7 @@ export class CameraRig {
 
   private menuShot(dt: number): void {
     const cam = this.ctx.camera;
-    const shot = SHOTS[this.shotIndex % SHOTS.length];
+    const shot = this.shots[this.shotIndex % this.shots.length];
     this.shotT += dt;
     const u = Math.min(1, this.shotT / shot.dur);
     const e = u * u * (3 - 2 * u) * 0.6 + u * 0.4; // gentle ease, never fully stops

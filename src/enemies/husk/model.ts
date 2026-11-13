@@ -607,7 +607,7 @@ export function syncShellEnv(ctx: GameContext): void {
   if (_shell.envMapIntensity !== want) _shell.envMapIntensity = want;
 }
 
-function shellGrime(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
+export function shellGrime(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
   // big blotches + fine mottling
   const big = vnoise(p.x * 7 + p.z * 3.1, p.y * 6.5 + p.z * 2.3);
   const fine = vnoise(p.x * 31 + 5.1, p.y * 29 + p.z * 17);

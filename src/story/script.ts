@@ -31,9 +31,11 @@ import type { MusicDirector } from './director';
 import type { CameraRig } from './camera';
 import { ALL_SCREENS, type World } from './world';
 import {
-  CHOIR, ELEVATOR_VOICE, FRAGMENTS, OBJECTIVES, PROMPTS, SCREENS, TAG_ID, TOASTS, UNIT_LINES, WAKE_PUMP,
+  CHOIR, ELEVATOR_VOICE, FRAGMENTS, HALE_RECORDER_ID, OBJECTIVES, PROMPTS, SCREENS, TAG_ID, TOASTS, UNIT_LINES, UNIT_LINE_IDS, WAKE_PUMP,
   type Fragment, type Line,
 } from './text';
+import { hasSay, speak } from './voice';
+import type { VoiceHandle } from '../core/types';
 import { CHECKPOINT_IDS, emptyProgress, type CheckpointId, type Progress } from './save';
 
 interface Hooks {
@@ -42,6 +44,8 @@ interface Hooks {
   checkpoint(id: CheckpointId): void;
   /** The ending was reached: the save is no longer wanted. */
   finished(): void;
+  /** REVISION 4: hand over to level 2 (store level + loadout, reload). False = stay and show the ending. */
+  handoff?(): boolean;
 }
 
 /** One-shot level vignettes that leave the room visibly changed (re-applied silently on load). */
@@ -359,18 +363,26 @@ export class Script {
     this.ctx.events.emit('story:subtitle', { speaker, text, duration });
   }
 
-  private voice(l: Line): void {
+  /**
+   * One spoken line: the recorded voice through `audio.say` (subtitle text from the lines JSON, length
+   * from the recording), or — line without an id — the old subtitle + synthesised voice.
+   * Returns the seconds it takes.
+   */
+  private say(l: Line, speaker: string, position?: THREE.Vector3): number {
+    if (l.id) return speak(this.ctx, l.id, { name: speaker, position, fallbackDuration: l.duration }).duration;
+    this.sub(speaker, l.text, l.duration);
     try { this.ctx.audio.choirVoice(l.text, l.duration); } catch { /* ignore */ }
+    return l.duration;
   }
+  private recorder: VoiceHandle | null = null;
 
   /** CHOIR in person — every speaker and screen at once: subtitle + voice + a digital shudder. */
   private async choir(lines: Line[], glitch = 0.4): Promise<void> {
     this.quiet(lines.reduce((t, l) => t + l.duration + 0.5, 6));
     for (const l of lines) {
-      this.sub('CHOIR', l.text, l.duration);
-      this.voice(l);
+      const d = this.say(l, 'CHOIR');
       if (glitch > 0) this.w.glitch(glitch, 0.25);
-      await this.wait(l.duration + 0.5);
+      await this.wait(d + 0.5);
     }
   }
 
@@ -379,18 +391,14 @@ export class Script {
     this.quiet(lines.reduce((t, l) => t + l.duration + 0.5, 7.5));
     this.w.play('pa_chime', undefined, 0.7);
     await this.wait(1.5);
-    for (const l of lines) {
-      this.sub('PA', l.text, l.duration);
-      this.voice(l);
-      await this.wait(l.duration + 0.5);
-    }
+    for (const l of lines) await this.wait(this.say(l, 'PA') + 0.5);
   }
 
   /** A service unit's broken, polite mutter. */
-  private unitLine(text: string, at: THREE.Vector3 | null): void {
-    // Subtitle only: the units mutter `husk_whisper` on their own (enemies module).
-    void at;
-    this.sub('SERVICE UNIT', text, 3.6);
+  private unitLine(key: keyof typeof UNIT_LINES, at: THREE.Vector3 | null): void {
+    // Recorded: the staff member's voice through the unit treatment, from where the unit stands.
+    // Without `audio.say` it is a subtitle only (the units mutter `husk_whisper` on their own).
+    speak(this.ctx, UNIT_LINE_IDS[key], { name: 'SERVICE UNIT', position: at ? at.clone().setY(at.y + 1.5) : undefined, fallbackDuration: 3.6 });
   }
 
   /** Scripted head turn (drives player yaw/pitch directly; player.update applies them to the camera). */
@@ -727,7 +735,7 @@ export class Script {
 
     if (!short) {
       await this.wait(1.4);
-      this.sub('INFUSION PUMP', WAKE_PUMP.text, WAKE_PUMP.duration);
+      this.say(WAKE_PUMP, 'INFUSION PUMP');
       w.fade(0.2, 1.8); ui.eyelids?.(0.28, 1.6);
       await this.wait(1.9);
       ui.eyelids?.(0, 0.22);
@@ -1024,7 +1032,7 @@ export class Script {
       this.silenceHold = this.now + 7;
       this.engage('g_junction', 'wake');
       await this.wait(1.4);
-      this.unitLine(UNIT_LINES.junction, spawn);
+      this.unitLine('junction', spawn);
       await this.untilOr(() => {
         try { return this.ctx.enemies.all.some((e) => e.group === 'g_junction' && (e.state === 'chase' || e.state === 'attack')); } catch { return true; }
       }, 5);
@@ -1161,7 +1169,7 @@ export class Script {
     if (!this.beat('fab_first_fight')) return;
     this.engage('g_fab_first', 'wake', 0.5);
     await this.wait(1.2);
-    if (this.w.alive('g_fab_first') > 0) this.unitLine(UNIT_LINES.bench, bench);
+    if (this.w.alive('g_fab_first') > 0) this.unitLine('bench', bench);
   }
 
   private async genRipple(): Promise<void> {
@@ -1294,7 +1302,7 @@ export class Script {
     const husk = w.spawns('g_fab_return').find((s) => s.type === 'husk')?.position ?? null;
     w.wakeGroup('g_fab_return', 0.6);
     await this.wait(1.4);
-    if (w.alive('g_fab_return') > 0) this.unitLine(UNIT_LINES.returnHusk, husk);
+    if (w.alive('g_fab_return') > 0) this.unitLine('returnHusk', husk);
     await this.wait(1.6);
     w.spawnGroup('g_fab_return');
   }
@@ -1357,7 +1365,7 @@ export class Script {
       if (speaking) await speaking;
       this.beat('fab_ambush');
       this.engage('g_fab_rack', 'wake', 1.2);
-      this.seq.spawn('rack_line', async () => { await this.wait(2.5); if (this.inRoom('fab')) this.unitLine(UNIT_LINES.rack, null); });
+      this.seq.spawn('rack_line', async () => { await this.wait(2.5); if (this.inRoom('fab')) this.unitLine('rack', null); });
       this.director.setMood('tension');
     }
     if (!this.has('#fab_sentry')) {
@@ -1427,8 +1435,7 @@ export class Script {
     w.play('alarm_blip', undefined, 0.9);
     w.glitch(0.6, 0.4);
     await this.wait(1.2);
-    this.sub('ELEVATOR', ELEVATOR_VOICE.text, ELEVATOR_VOICE.duration);
-    await this.wait(ELEVATOR_VOICE.duration + 0.6);
+    await this.wait(this.say(ELEVATOR_VOICE, 'ELEVATOR') + 0.6);
     await this.choir(CHOIR.descent, 0.5);
     w.play('power_down', undefined, 1);
     w.lights('elevator', { enabled: false });
@@ -1438,6 +1445,8 @@ export class Script {
     await this.wait(3.6);
     this.beat('end');
     try { this.hooks.finished(); } catch { /* ignore */ }
+    // REVISION 4: the lift arrives at Line Two — the next page load is level 2.
+    try { if (this.hooks.handoff?.()) return; } catch (e) { console.error('[story] handoff failed', e); }
     ctx.setState('ended');
     this.ui.setHudVisible(false);
     await ctx.ui.showEnding();
@@ -1468,6 +1477,11 @@ export class Script {
     if (isRecord) this.logs.add(id);
     if (!this.prog.read.includes(id)) this.prog.read.push(id);
     this.ctx.events.emit('story:log', { id, title: f.header, body: f.body });
+    // Hale's recorder plays while its transcript is open (recorded voice only — no synthesised stand-in).
+    if (f.style === 'voice' && id === 'log_pump' && hasSay(this.ctx)) {
+      try { this.recorder?.stop(0.1); } catch { /* ignore */ }
+      this.recorder = speak(this.ctx, HALE_RECORDER_ID, { subtitle: false, position: this.w.interactablePos(id) ?? undefined }).handle;
+    }
     const done = () => {
       if (this.noteId !== id) return;
       this.noteId = null;

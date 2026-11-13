@@ -12,6 +12,9 @@ import { Piston } from '../shared/piston';
 import type { Rig } from '../shared/rig';
 import { HUSK_DIM as K, type HuskTemplate } from './model';
 import { applySpec, HUSK_POSES } from './poses';
+import { sayMutter } from '../voice';
+import { armIK } from '../shared/ik';
+import { WorkerProps } from './worker';
 
 type Mode = 'puppet' | 'dormant' | 'wake' | 'idle' | 'react' | 'chase' | 'windup' | 'strike' | 'recover' | 'stagger' | 'flail'
   | 'topple' | 'crawl' | 'cwindup' | 'cstrike' | 'crecover' | 'writhe' | 'dying' | 'dead';
@@ -42,6 +45,24 @@ const WORK_FREEZE = 6, WORK_RESUME = 9;
 /** Mutter: range, per-husk interval, assumed clip length. */
 const WHISPER_RANGE = 8, WHISPER_MIN = 12, WHISPER_RAND = 13, WHISPER_LEN = 3.2;
 const D2R = Math.PI / 180;
+/** REVISION 4 worker: flashlight cone (cos) + seconds on the head that provoke; treadmill belt. */
+const WORKER_LIT_COS = Math.cos(11 * Math.PI / 180), WORKER_LIT_TIME = 1.5;
+const TREAD_SPEED = 1.05, TREAD_CYCLE = 1.16, TREAD_STANCE = 0.6;
+/** Fold loop keys: [u, Lx, Ly, Lz, Rx, Ry, Rz, sheet length (-1 = folded block)] in rig space (+x = its left). */
+const FOLD_KEYS: number[][] = [
+  [0.0, 0.2, 1.0, 0.26, -0.22, 1.0, 0.26, 0],
+  [0.06, 0.44, 1.05, 0.42, 0.24, 1.05, 0.44, 0],
+  [0.12, 0.44, 1.03, 0.44, 0.24, 1.03, 0.45, 0.05],
+  [0.24, 0.27, 1.34, 0.3, -0.27, 1.34, 0.3, 0.62],
+  [0.3, 0.27, 1.4, 0.3, -0.27, 1.4, 0.3, 0.62],
+  [0.35, 0.27, 1.31, 0.31, -0.27, 1.31, 0.31, 0.62],
+  [0.48, 0.15, 1.18, 0.36, -0.15, 1.18, 0.36, 0.32],
+  [0.56, 0.12, 1.07, 0.42, -0.12, 1.07, 0.42, -1],
+  [0.68, 0.1, 1.07, 0.42, -0.1, 1.07, 0.42, -1],
+  [0.78, -0.24, 1.09, 0.42, -0.46, 1.09, 0.43, -1],
+  [0.86, 0.18, 1.0, 0.24, -0.22, 1.0, 0.26, -1],
+  [1.0, 0.2, 1.0, 0.26, -0.22, 1.0, 0.26, -1],
+];
 const _qi = new THREE.Quaternion();
 /** Raw damage a leg takes before it snaps at the knee; crawler grab damage. */
 const LEG_BREAK = 42, CRAWL_MELEE = 9, CRAWL_SPEED = 0.8;
@@ -116,7 +137,18 @@ export class Husk extends EnemyBase {
   private flat = 0;
   // revision 2: tutorial flag, dormant behaviours, mutter, puppet
   private readonly gentle: boolean;
-  private readonly idleKind: 'still' | 'watch' | 'work' | 'twitch';
+  private readonly idleKind: 'still' | 'watch' | 'work' | 'twitch' | 'worker';
+  // REVISION 4: worker stealth task + puppet gaits + speech
+  private workKind: 'polish' | 'fold' | 'treadmill' = 'polish';
+  private props: WorkerProps | null = null;
+  private workerT = 0; private litT = 0; private provokeT = 0; private stillDur = 0.9;
+  private readonly home = new THREE.Vector3();
+  private frozen: Float32Array | null = null;
+  private tread = false; private treadSpeed = 0; private treadPhase = 0; private treadOff = 0; private treadOffNow = 0;
+  /** '' = the machine's own walk (level 1), 'limp' | 'carry' | 'carry_l' | 'carry_r' | 'human'. */
+  private gait = '';
+  private carrySide = 0;
+  private speakT = 0; private speakDur = 0;
   private watchYaw = 0; private watchRate = 0; private watchT = 0; private watchDirty = true;
   private readonly watchTgt = new THREE.Vector3();
   private myRoom: string | null | undefined = undefined;
@@ -140,7 +172,8 @@ export class Husk extends EnemyBase {
     this.isActor = !!o.actor;
     const dormant = o.dormant && !this.isActor, pose = o.pose;
     this.gentle = group === GENTLE_GROUP;
-    this.idleKind = o.idle === 'watch' || o.idle === 'work' || o.idle === 'twitch' ? o.idle : 'still';
+    this.idleKind = o.idle === 'watch' || o.idle === 'work' || o.idle === 'twitch' || o.idle === 'worker' ? o.idle : 'still';
+    this.isWorker = this.idleKind === 'worker' && dormant;
     this.fingerTimer = 14 + world.rand() * 22;
     this.workDur = 6 + world.rand() * 2;
     this.whisperTimer = 3 + world.rand() * 6;
@@ -205,6 +238,13 @@ export class Husk extends EnemyBase {
     this.hands = [mh(), mh()];
 
     this.pose = dormant ? (pose === 'rack' || pose === 'slumped' || pose === 'standing' ? pose : 'standing') : '';
+    if (this.isWorker) {
+      this.pose = 'worker';
+      this.workKind = pose === 'fold' || pose === 'treadmill' ? pose : 'polish';
+      this.home.copy(this.body.position);
+      this.limp = 0; // workers walk / fold like the people they were
+      this.gait = 'human';
+    }
     if (this.isActor) {
       this.mode = 'puppet'; this.state = 'idle';
       this.pPose = pose && (POSE_KEY[pose] || HUSK_POSES[pose]) ? pose : 'idle';
@@ -216,7 +256,15 @@ export class Husk extends EnemyBase {
       this.mode = 'dormant'; this.state = 'dormant';
       this.rig.apply(this.keys.get(this.poseKey())!);
       this.setEye(false);
-      if (this.idleKind === 'work' && this.pose === 'standing') {
+      if (this.isWorker) {
+        this.setEye(true);
+        this.B.eye.scale.setScalar(0.45); this.B.eye2.scale.setScalar(1e-4); this.B.led.scale.setScalar(1e-4);
+        this.rig.apply(this.keys.get('stand')!);
+        this.workerT = world.rand() * 20;
+        this.treadOff = world.rand() * 2;
+        this.treadOffNow = this.treadOff;
+        if (this.workKind !== 'treadmill') this.props = new WorkerProps(world.ctx, this.workKind);
+      } else if (this.idleKind === 'work' && this.pose === 'standing') {
         // working: the sensor is lit, but dim (only the main lens, half size); status LEDs dark
         this.setEye(true);
         this.B.eye.scale.setScalar(0.5); this.B.eye2.scale.setScalar(1e-4); this.B.led.scale.setScalar(1e-4);
@@ -300,12 +348,20 @@ export class Husk extends EnemyBase {
       this.B.eye.scale.setScalar(1e-4); this.B.eye2.scale.setScalar(1e-4); this.B.led.scale.setScalar(1e-4);
     }
     this.rage = this.gentle ? 0 : 4;
+    if (this.isWorker) {
+      // the beat of stillness: it stops dead mid-task (pose captured), the sensor stays dim until the head is round
+      this.frozen = this.rig.capture(this.frozen ?? this.rig.newPose());
+      this.eyeFlicker = 0;
+      this.B.eye.scale.setScalar(0.45); this.B.eye2.scale.setScalar(1e-4); this.B.led.scale.setScalar(1e-4);
+      this.props?.drop();
+      this.tread = false;
+    }
     this.startLoop('husk_loop', 0.8);
     this.world.ctx.events.emit('enemy:woke', { id: this.id, type: this.type, position: this.body.position });
     if (!this.light) {
       try {
         this.light = this.world.ctx.render.lights.add({ type: 'point', position: new THREE.Vector3().copy(this.body.position).setY(this.body.position.y + 1.6), color: 0xff2412, intensity: 0.5, distance: 2.6, priority: 0.2 });
-        if (this.gentle && this.pose === 'slumped') this.light.intensityScale = 0;
+        if ((this.gentle && this.pose === 'slumped') || this.isWorker) this.light.intensityScale = 0;
       } catch { this.light = null; }
     }
   }
@@ -380,10 +436,13 @@ export class Husk extends EnemyBase {
     this.whisperTimer = WHISPER_MIN + w.rand() * WHISPER_RAND;
     w.whisperUntil = w.time + WHISPER_LEN;
     this.mouth.setFromMatrixPosition(this.B.head.matrixWorld);
+    const h = sayMutter(w.ctx, this.mouth, w.rand);
+    if (h) { w.whisperUntil = w.time + Math.max(WHISPER_LEN, h.duration + 0.6); this.puppetSpeak(h.duration); return; }
     try { w.ctx.audio.play('husk_whisper', { position: this.mouth }); } catch { /* audio optional */ }
   }
 
   private dormantTick(dt: number): void {
+    if (this.isWorker) { this.workerTick(dt); return; }
     if (this.idleKind === 'watch') { this.watchTick(dt); return; }
     if (this.idleKind === 'work' && this.pose === 'standing') { this.workTick(dt); return; }
     if (this.idleKind === 'twitch') { this.spasmTick(dt); return; }
@@ -413,7 +472,9 @@ export class Husk extends EnemyBase {
   private tickWake(dt: number): void {
     const t = this.modeTime * this.wakeRate, w = this.world, keys = this.keys;
     const face = () => this.faceToward(w.playerPos.x, w.playerPos.z, 2.2 * dt);
-    if (this.pose === 'slumped' && this.gentle) {
+    if (this.isWorker) {
+      this.tickWorkerWake(dt, t);
+    } else if (this.pose === 'slumped' && this.gentle) {
       this.tickGentleWake(dt, t);
     } else if (this.pose === 'slumped') {
       // eyes ignite → head lifts → pushes up onto a knee → stands
@@ -701,6 +762,254 @@ export class Husk extends EnemyBase {
     this.finishPose();
   }
 
+  // ───────────────────────────────────────────────────────── REVISION 4: worker (stealth)
+
+  /** Dormant 'worker': keeps doing its task, ignores the player; provoked by proximity / flashlight (here), gunfire (manager), damage. */
+  private workerTick(dt: number): void {
+    const w = this.world, p = this.body.position;
+    this.workerT += dt;
+    this.dist = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z, (w.playerPos.y - p.y) * 0.6);
+    const hd = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z);
+    if (w.playerAlive && hd < 2.2 && Math.abs(w.playerPos.y - p.y) < 1.8) { w.provoke(this.group, this); return; }
+    this.provokeT -= dt;
+    if (this.provokeT <= 0) {
+      this.provokeT = 0.15;
+      const pl = w.ctx.player;
+      let lit = false;
+      if (w.playerAlive && pl && pl.flashlightOn && this.dist < 16) {
+        _v.setFromMatrixPosition(this.B.head.matrixWorld);
+        _v2.copy(_v).sub(w.playerEye);
+        const d = _v2.length();
+        if (d > 0.01 && pl.forward.dot(_v2) / d > WORKER_LIT_COS && w.ctx.physics.lineOfSight(w.playerEye, _v)) lit = true;
+      }
+      this.litT = lit ? this.litT + 0.15 : Math.max(0, this.litT - 0.075);
+      if (this.litT >= WORKER_LIT_TIME) { w.provoke(this.group, this); return; }
+    }
+    const show = this.object.visible;
+    this.props?.setVisible(show);
+    // locomote() drives hips/spine/arms/legs; the neck + head are layered on fresh each frame
+    this.B.neck.quaternion.identity(); this.B.head.quaternion.setFromAxisAngle(X, 4 * D2R);
+    if (this.workKind === 'polish') this.polishTick(dt, show);
+    else if (this.workKind === 'fold') this.foldTick(dt, show);
+    else this.treadTick(dt, show);
+    this.tickWhisper(dt);
+  }
+
+  /** Rig space → world. */
+  private toWorld(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+    const p = this.body.position, ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    return out.set(p.x + x * c + z * s, p.y + y, p.z - x * s + z * c);
+  }
+
+  /** Both hands to world targets (left / right) with world-space arm IK; `out` elbows pointing out + down. */
+  private handsTo(L: THREE.Vector3 | null, R: THREE.Vector3 | null, elbowDown = 0.6, elbowBack = 0.4): void {
+    const B = this.B, ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    this.object.position.copy(this.body.position);
+    this.object.rotation.y = ry;
+    this.object.updateMatrixWorld(true);
+    _fw.set(s, 0, c); _lf.set(c, 0, -s);
+    for (let i = 0; i < 2; i++) {
+      const T = i === 0 ? L : R;
+      if (!T) continue;
+      const side = i === 0 ? 1 : -1, sfx = i === 0 ? 'l' : 'r';
+      const uarm = B['uarm_' + sfx];
+      _S.setFromMatrixPosition(uarm.matrixWorld);
+      _q2.setFromRotationMatrix(uarm.parent!.matrixWorld);
+      _v3.copy(_lf).multiplyScalar(side * 0.7).addScaledVector(_fw, -elbowBack).addScaledVector(Y, -elbowDown);
+      const bend = armIK(_S, T, _v3, K.uarm, K.larm + 0.06, _q2, uarm);
+      B['larm_' + sfx].quaternion.setFromAxisAngle(X, -bend);
+    }
+  }
+
+  /** Pushes the rotary polisher up and down a short strip, swinging the disc side to side. */
+  private polishTick(dt: number, show: boolean): void {
+    const w = this.world, p = this.body.position, B = this.B, pr = this.props!;
+    const T = 12, u = (this.workerT % T) / T;
+    const s = u < 0.44 ? -0.75 + 1.5 * smooth(u / 0.44) : u < 0.5 ? 0.75 : u < 0.94 ? 0.75 - 1.5 * smooth((u - 0.5) / 0.44) : -0.75;
+    const ry = this.yaw + Math.PI, fx = Math.sin(ry), fz = Math.cos(ry);
+    const nx = this.home.x + fx * s, nz = this.home.z + fz * s;
+    const v = this.body.velocity;
+    if (dt > 0) { v.set((nx - p.x) / dt, 0, (nz - p.z) / dt); }
+    p.x = nx; p.z = nz;
+    const floorY = this.home.y;
+    const sweep = Math.sin(this.workerT * Math.PI * 2 / 2.7) * 0.34 + noise1(this.workerT * 0.3, this.seed) * 0.06;
+    const near = this.dist < 22;
+    pr.sound(near, near ? this.toWorld(0, 0.2, 0.9, _v) : null);
+    if (!show) { pr.placePolisher(this.toWorld(0, 0, 0.3, _v), ry, sweep, floorY, dt, true); return; }
+    this.locomote(dt);
+    // leans into the handle; head down watching the floor ahead
+    B.spine1.quaternion.multiply(_q.setFromEuler(_e.set(0.1, sweep * 0.25, 0)));
+    B.spine2.quaternion.multiply(_q.setFromEuler(_e.set(0.1, sweep * 0.35, 0)));
+    this.toWorld(0, floorY - p.y + 0.96, 0.31, _v);
+    _v.y = floorY + 0.96;
+    pr.placePolisher(_v, ry, sweep, floorY, dt, true);
+    pr.grip(1, _T); pr.grip(-1, _v2);
+    this.handsTo(_T, _v2, 0.7, 0.5);
+    B.neck.quaternion.multiply(_q.setFromEuler(_e.set(0.25, -sweep * 0.4, 0)));
+    B.head.quaternion.multiply(_q.setFromEuler(_e.set(0.32, -sweep * 0.3, noise1(this.workerT * 0.7, this.seed + 3) * 0.06)));
+    this.finishPose(dt);
+  }
+
+  /** Folding coveralls at a shelf in front (top ≈ 1.0 m): pick from the left pile, shake out, fold, fold, pat, place right. */
+  private foldTick(dt: number, show: boolean): void {
+    const B = this.B, pr = this.props!, w = this.world;
+    const T = 8.5, cyc = Math.floor(this.workerT / T), u = (this.workerT % T) / T;
+    if (!show) return;
+    this.body.velocity.set(0, 0, 0);
+    this.locomote(dt);
+    // keys: u, L (x,y,z), R (x,y,z), sheet length (-1 = block)
+    const KEYS = FOLD_KEYS;
+    let k = 0;
+    while (k < KEYS.length - 2 && u >= KEYS[k + 1][0]) k++;
+    const a = KEYS[k], b = KEYS[k + 1];
+    const f = smooth((u - a[0]) / (b[0] - a[0]));
+    const lerp = (i: number) => a[i] + (b[i] - a[i]) * f;
+    const jit = noise1(cyc * 1.7, this.seed) * 0.03;
+    let Ly = lerp(2), Ry = lerp(5);
+    // pats on the folded block
+    if (u > 0.58 && u < 0.68) { const pat = Math.max(0, Math.sin((u - 0.58) / 0.1 * Math.PI * 3)) * 0.05; Ly += pat; Ry += pat; }
+    // the wrong bit: the right hand straightens the pile edge twice, then once more
+    if (u > 0.88 && u < 0.98) Ry += Math.max(0, Math.sin((u - 0.88) / 0.1 * Math.PI * 3)) * 0.04;
+    this.toWorld(lerp(1) + jit, Ly, lerp(3), _T);
+    this.toWorld(lerp(4) + jit, Ry, lerp(6), _v2);
+    // torso turns toward the work, bends to reach low
+    const mx = (lerp(1) + lerp(4)) * 0.5, my = (Ly + Ry) * 0.5;
+    B.spine1.quaternion.multiply(_q.setFromEuler(_e.set(0.1 + (1.25 - my) * 0.35, mx * 0.55, 0)));
+    B.spine2.quaternion.multiply(_q.setFromEuler(_e.set(0.06 + (1.25 - my) * 0.25, mx * 0.45, 0)));
+    this.handsTo(_T, _v2, 0.8, 0.3);
+    // hands: palms in, fingers gripping while holding cloth
+    const holding = u > 0.08 && u < 0.8;
+    B.fing_l.quaternion.setFromEuler(_e.set(holding ? -1.0 : -0.3, 0, 0));
+    B.fing2_l.quaternion.setFromEuler(_e.set(holding ? -1.2 : -0.35, 0, 0));
+    B.neck.quaternion.multiply(_q.setFromEuler(_e.set(0.3, mx * 0.5, 0)));
+    B.head.quaternion.multiply(_q.setFromEuler(_e.set(0.28 + (1.2 - my) * 0.2, mx * 0.4, u > 0.9 ? 0.15 * smooth((u - 0.9) / 0.03) : 0)));
+    this.finishPose(dt);
+    // cloth
+    const len = lerp(7);
+    const ry = this.yaw + Math.PI;
+    if (len < -0.5) {
+      // folded block: between the hands while carried, left on the pile after release
+      if (u < 0.84) { _v.copy(_T).add(_v2).multiplyScalar(0.5); _v.y = Math.max(_v.y - 0.06, this.body.position.y + 1.0); pr.block(_v, ry); }
+    } else if (len > 0.01 || u < 0.1) {
+      if (u < 0.1) pr.hideCloth();
+      else {
+        _v.setFromMatrixPosition(B.hand_l.matrixWorld); _v.y -= 0.08;
+        _v3.setFromMatrixPosition(B.hand_r.matrixWorld); _v3.y -= 0.1;
+        pr.sheet(_v, _v3, len, u > 0.24 && u < 0.36 ? 1 : 0.25, w.time, _fw.set(Math.sin(ry), 0, Math.cos(ry)));
+      }
+    }
+  }
+
+  /** Walking a treadmill: the body stays put, the feet run the belt (see treadFoot), a clearly human gait. */
+  private treadTick(dt: number, show: boolean): void {
+    const w = this.world;
+    this.tread = true;
+    this.treadSpeed = TREAD_SPEED;
+    const sync = w.time < w.treadSyncUntil;
+    const target = sync ? Math.round(this.treadOffNow) : this.treadOff + Math.round(this.treadOffNow - this.treadOff);
+    this.treadOffNow = damp(this.treadOffNow, target, sync ? 4 : 0.6, dt);
+    const ph = w.time / TREAD_CYCLE + this.treadOffNow;
+    const prev = this.treadPhase;
+    this.treadPhase = ph;
+    // heel strikes
+    if (this.dist < 25 && (Math.floor(prev * 2) !== Math.floor(ph * 2))) this.emit('enemy:step');
+    if (!show) return;
+    this.body.velocity.set(0, 0, 0);
+    this.locomote(dt);
+    this.B.head.quaternion.multiply(_q.setFromEuler(_e.set(0.06 + noise1(w.time * 0.2, this.seed) * 0.05, noise1(w.time * 0.13, this.seed + 8) * 0.1, 0)));
+    this.finishPose(dt);
+  }
+
+  /** One foot on the treadmill belt: planted feet travel back at belt speed, the swing comes through forward. */
+  private treadFoot(f: Foot, i: number): void {
+    const ps = this.treadPhase + (i === 0 ? 0 : 0.5);
+    const psi = ps - Math.floor(ps);
+    const half = TREAD_SPEED * TREAD_CYCLE * TREAD_STANCE * 0.5;
+    let z: number, y = 0;
+    if (psi < TREAD_STANCE) { f.t = 1; z = half - (psi / TREAD_STANCE) * 2 * half; }
+    else {
+      const s = (psi - TREAD_STANCE) / (1 - TREAD_STANCE);
+      f.t = Math.min(0.999, s);
+      z = -half + 2 * half * smooth(s);
+      y = Math.sin(Math.PI * s) * 0.075;
+    }
+    f.yaw = this.yaw + Math.PI;
+    f.rig.set(f.side * 0.1, y, z + 0.03);
+  }
+
+  override provoked(delay: number): void {
+    if (!this.alive || this.awake) return;
+    this.wakeDelay = this.wakeDelay >= 0 ? Math.min(this.wakeDelay, delay) : Math.max(0, delay);
+  }
+
+  /** Provoked worker: frozen mid-motion → the head comes round in servo ticks → eyes flare → it turns and comes. */
+  private tickWorkerWake(dt: number, t: number): void {
+    const w = this.world, still = this.stillDur, turn = 0.95, hold = 0.35, t1 = still + turn + hold;
+    if (t < t1) {
+      if (this.frozen) this.rig.apply(this.frozen);
+      const want = this.rigYawTo(w.playerPos);
+      const k = smooth((t - still) / turn);
+      const step = 6 * D2R;
+      this.headTurn = Math.round((want * k) / step) * step;
+      this.lookW = 0;
+      if (t > still + turn && this.B.eye.scale.x < 0.9) {
+        this.eyeFlicker = 0.3; this.B.eye.scale.setScalar(1); this.B.eye2.scale.setScalar(1); this.B.led.scale.setScalar(1);
+        if (this.light) this.light.intensityScale = 1;
+      }
+      this.props?.tickDrop(dt, this.home.y);
+    } else {
+      if (this.phase === 0) { this.phase = 1; this.startBlend(0.55); this.resetFeet(); }
+      this.rig.apply(this.keys.get('stand')!);
+      this.faceToward(w.playerPos.x, w.playerPos.z, 2.6 * dt);
+      this.moveGround(dt, 0, 0, 0, 10);
+      this.locomote(dt);
+      const k = smooth((t - t1) / 0.6);
+      this.headTurn = this.rigYawTo(w.playerPos) * (1 - k);
+      this.lookW = k;
+      this.props?.tickDrop(dt, this.home.y);
+      if (t > t1 + 0.75) { this.headTurn = 0; this.gait = ''; this.finishWake(); }
+    }
+  }
+
+  // ───────────────────────────────────────────────────────── REVISION 4: puppet gait + speech
+
+  override puppetGait(gait: string): void {
+    const g = gait === 'limp' || gait === 'carry' || gait === 'carry_l' || gait === 'carry_r' || gait === 'human' ? gait : '';
+    this.gait = g;
+    this.carrySide = g === 'carry_l' ? 1 : g === 'carry_r' ? -1 : 0;
+  }
+
+  override puppetSpeak(seconds: number): void {
+    this.speakT = Math.max(this.speakT, seconds);
+    this.speakDur = this.speakT;
+  }
+
+  /** 'carry': one arm held out to the side at shoulder height, gently — leading someone by the arm. */
+  private carryArm(): void {
+    if (this.gait !== 'carry' && this.gait !== 'carry_l' && this.gait !== 'carry_r') return;
+    let side = this.carrySide;
+    if (side === 0) {
+      // toward the nearest human puppet, if one is close
+      side = 1;
+      const p = this.body.position, ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+      let bd = 3 * 3;
+      for (const a of this.world.actors) {
+        if ((a.type as string) !== 'human') continue;
+        const dx = a.position.x - p.x, dz = a.position.z - p.z, d = dx * dx + dz * dz;
+        if (d < bd) { bd = d; side = dx * c - dz * s >= 0 ? 1 : -1; }
+      }
+    }
+    const B = this.B, sfx = side > 0 ? 'l' : 'r', t = this.world.time;
+    const sway = noise1(t * 0.8, this.seed + 33) * 0.05;
+    B['uarm_' + sfx].quaternion.setFromEuler(_e.set(-0.42 + sway, 0.2 * side, (1.28 + sway) * side, 'XYZ'));
+    B['larm_' + sfx].quaternion.setFromEuler(_e.set(-0.32, 0, 0));
+    B['hand_' + sfx].quaternion.setFromEuler(_e.set(-0.1, 0.5 * side, 0));
+    if (side > 0) { B.fing_l.quaternion.setFromEuler(_e.set(-0.85, 0, 0)); B.fing2_l.quaternion.setFromEuler(_e.set(-1.0, 0, 0)); }
+    // the other arm hangs quiet
+    const o = side > 0 ? 'r' : 'l';
+    B['uarm_' + o].quaternion.slerp(_q.setFromEuler(_e.set(0.05, 0, 0.12 * -side, 'XYZ')), 0.6);
+  }
+
   // ───────────────────────────────────────────────────────── puppet (EnemyManager.actor)
 
   private tickPuppet(dt: number): void {
@@ -713,7 +1022,12 @@ export class Husk extends EnemyBase {
       if (this.pMoving && (d < 0.18 || (d < 0.6 && v.x * dx + v.z * dz < 0))) this.arrive();
       if (this.pMoving) {
         let speed = this.pSpeed;
-        if (speed < 2.5) {
+        if (this.gait === 'limp') {
+          // step (good leg hurries) – drag (the bad one scrapes through slowly) – step
+          const goodSw = this.feet[0].t < 1, badSw = this.feet[1].t < 1;
+          speed *= badSw ? 0.42 : goodSw ? 1.3 : 0.8;
+        }
+        if (speed < 2.5 && this.gait !== 'carry' && this.gait !== 'carry_l' && this.gait !== 'carry_r' && this.gait !== 'human') {
           // the walk has the same stiff micro-freezes as the real thing
           this.hitchTimer -= dt;
           if (this.hitchTimer <= 0) { this.hitchTimer = 1.8 + w.rand() * 3.5; this.hitch = 0.1 + w.rand() * 0.16; this.headRoll.v += (w.rand() - 0.5) * 16; }
@@ -736,6 +1050,7 @@ export class Husk extends EnemyBase {
         B.neck.quaternion.slerp(_qi, k); B.head.quaternion.slerp(_qi, k);
       }
       this.locomote(dt);
+      this.carryArm();
     } else {
       this.rig.apply(this.keys.get(this.puppetKey())!);
     }
@@ -1116,7 +1431,8 @@ export class Husk extends EnemyBase {
   private locomote(dt: number): void {
     const B = this.B, p = this.body.position, v = this.body.velocity, w = this.world;
     const ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
-    const speed = Math.hypot(v.x, v.z);
+    const speed = this.tread ? this.treadSpeed : Math.hypot(v.x, v.z);
+    const limpG = this.gait === 'limp';
     this.runBlend = damp(this.runBlend, smooth((speed - 1.8) / 1.6), 9, dt);
     const rb = this.runBlend;
     const moving = speed > 0.12;
@@ -1125,8 +1441,9 @@ export class Husk extends EnemyBase {
 
     for (let i = 0; i < 2; i++) {
       const f = feet[i], o = feet[1 - i];
-      const bad = f.side === this.limp;
-      const dur = (0.4 - 0.17 * rb) * (bad ? 1.22 : 1) / (1 + (this.mode === 'stagger' ? 0.6 : 0));
+      if (this.tread) { this.treadFoot(f, i); continue; }
+      const bad = limpG ? f.side === -1 : f.side === this.limp;
+      const dur = (0.4 - 0.17 * rb) * (bad ? (limpG ? 1.85 : 1.22) : (limpG ? 0.78 : 1)) / (1 + (this.mode === 'stagger' ? 0.6 : 0));
       const hx = p.x + f.side * (0.105 - 0.03 * rb) * c, hz = p.z - f.side * (0.105 - 0.03 * rb) * s;
       if (f.t >= 1) {
         const ex = hx - f.pos.x, ez = hz - f.pos.z;
@@ -1140,7 +1457,7 @@ export class Husk extends EnemyBase {
         // when both want to step, the one further off goes first
         if (need && otherOk && (o.t < 1 || err >= errO - 0.01 || !moving)) {
           f.t = 0; f.dur = dur; f.from.copy(f.pos);
-          f.lift = 0.05 + 0.1 * rb + (bad ? -0.02 : 0.015) + Math.min(0.05, err * 0.1);
+          f.lift = limpG && bad ? 0.004 : 0.05 + 0.1 * rb + (bad ? -0.02 : 0.015) + Math.min(0.05, err * 0.1);
           f.to.set(hx, p.y, hz);
           const g = this.groundAt(hx + v.x * dur * 1.4, p.y + 0.7, hz + v.z * dur * 1.4, 1.5);
           f.to.y = g !== null ? g : p.y;
@@ -1166,6 +1483,8 @@ export class Husk extends EnemyBase {
       // world → rig space
       const dx = f.pos.x - p.x, dz = f.pos.z - p.z;
       f.rig.set(dx * c - dz * s, f.pos.y - p.y, dx * s + dz * c);
+      // Okafor's drag: the stiff leg swings out round the side, toe scraping the floor
+      if (limpG && bad && f.t < 1) f.rig.x += f.side * 0.07 * Math.sin(Math.PI * f.t);
     }
 
     const L = feet[0], R = feet[1];
@@ -1174,13 +1493,15 @@ export class Husk extends EnemyBase {
     const t = w.time;
     const idle = 1 - Math.min(1, speed / 0.5);
     const breathe = Math.sin(t * 1.3 + this.seed) * 0.004 * idle;
-    const limpDip = (this.limp > 0 ? swR : swL) * 0.03 * (1 - rb); // body drops onto the bad leg
+    let limpDip = this.limp === 0 ? 0 : (this.limp > 0 ? swR : swL) * 0.03 * (1 - rb); // body drops onto the bad leg
+    // limp gait: drops hard onto the bad (right) leg while the good one hurries through, hip hikes to clear the drag
+    if (limpG) limpDip = swL * 0.075 - swR * 0.025;
     // hips
     let hy = 0.965 - 0.018 * (1 - idle) - 0.085 * rb + (swL + swR) * (0.018 + 0.02 * rb) - limpDip + breathe - this.atkWind * 0.03 - this.atkStrike * 0.05;
     const hxs = (swR - swL) * (0.03 - 0.012 * rb) + noise1(t * 0.4, this.seed) * 0.008 * idle;
     const hz = 0.01 + (L.rig.z + R.rig.z) * 0.32 - 0.02 * rb;
     const pelvisYaw = -stride * (0.32 + 0.1 * rb);
-    const pelvisRoll = (swR - swL) * 0.07;
+    const pelvisRoll = (swR - swL) * 0.07 + (limpG ? swR * 0.1 - swL * 0.05 : 0);
     const lean = 0.05 + 0.2 * rb + this.atkStrike * 0.25 - this.atkWind * 0.1;
     // keep legs reachable
     for (let i = 0; i < 2; i++) {
@@ -1197,7 +1518,8 @@ export class Husk extends EnemyBase {
     const sway = noise1(t * 0.5, this.seed + 3) * 0.02 * idle;
     const twistAtk = (this.atkWind * 0.5 - this.atkStrike * 1.0) * (this.atkArm >= 0 ? -1 : 1) * (this.atkArm === 0 ? 0 : 1);
     B.spine1.quaternion.setFromEuler(_e.set(lean * 0.3 + sway, -pelvisYaw * 0.55 + twistAtk * 0.4, -pelvisRoll * 0.6, 'YXZ'));
-    B.spine2.quaternion.setFromEuler(_e.set(lean * 0.35 + breathe * 3, -pelvisYaw * 0.75 + twistAtk * 0.6, -pelvisRoll * 0.5 + (this.limp > 0 ? swR : -swL) * 0.06 * (1 - rb), 'YXZ'));
+    B.spine2.quaternion.setFromEuler(_e.set(lean * 0.35 + breathe * 3 + (limpG ? swL * 0.08 : 0), -pelvisYaw * 0.75 + twistAtk * 0.6,
+      -pelvisRoll * 0.5 + (this.limp === 0 ? 0 : (this.limp > 0 ? swR : -swL) * 0.06 * (1 - rb)) + (limpG ? -swL * 0.16 : 0), 'YXZ'));
     B.clav_l.quaternion.identity(); B.clav_r.quaternion.identity();
 
     // arms (FK): counter-swing, reaching when close, melee on top
@@ -1240,7 +1562,8 @@ export class Husk extends EnemyBase {
       _v.set(f.side * K.hipX, K.hipY - K.hipsY, 0).applyQuaternion(hipsQ).add(B.hips.position);
       // foot pitch through the swing: heel peels off, toe comes up before the strike
       let pitch = 0;
-      if (f.t < 1) pitch = Math.sin(Math.PI * Math.min(1, f.t * 1.6)) * (0.5 + 0.35 * rb) - smooth((f.t - 0.6) / 0.4) * 0.3;
+      if (f.t < 1) pitch = limpG && f.side === -1 ? 0.32 * Math.sin(Math.PI * f.t) + 0.08
+        : Math.sin(Math.PI * Math.min(1, f.t * 1.6)) * (0.5 + 0.35 * rb) - smooth((f.t - 0.6) / 0.4) * 0.3;
       const yawRel = angleDiff(f.yaw, ry) + pelvisYaw * 0.3;
       _v2.set(f.rig.x, f.rig.y + K.ankle + Math.abs(Math.sin(pitch)) * 0.04, f.rig.z);
       _pole.set(f.side * 0.16 + Math.sin(yawRel), 0.0, 1).normalize();
@@ -1313,6 +1636,16 @@ export class Husk extends EnemyBase {
         _q3.setFromEuler(_e.set(this.headPitch.x * 0.6, this.headYaw.x * 0.6, this.headRoll.x * 0.7, 'YXZ'));
         B.head.quaternion.slerp(_q3, this.lookW);
       }
+      // speech (REVISION 4): the vocaliser jerks the head with each syllable, the sensor pulses
+      if (this.speakT > 0) {
+        this.speakT -= dt;
+        if (!this.headGone) {
+          const env = Math.max(0, noise1(t * 6.7, this.seed + 200)) * smooth(this.speakT / 0.2) * smooth((this.speakDur - this.speakT) / 0.12);
+          B.head.quaternion.multiply(_q.setFromEuler(_e.set(-env * 0.14, noise1(t * 3.1, this.seed + 201) * 0.09 * env, noise1(t * 13, this.seed + 202) * 0.12 * env)));
+          B.neck.quaternion.multiply(_q.setFromEuler(_e.set(env * 0.05, 0, 0)));
+          if (this.eyeOn && this.eyeFlicker <= 0) { const base = this.mode === 'dormant' && this.isWorker ? 0.45 : 1; B.eye.scale.setScalar(this.speakT > 0 ? base * (0.75 + env * 0.6) : base); }
+        }
+      }
       // scripted swivel past the tracking limits (work wake: the head comes round first)
       if (Math.abs(this.headTurn) > 1e-4 && !this.headGone) {
         B.neck.quaternion.premultiply(_q.setFromAxisAngle(Y, this.headTurn * 0.35));
@@ -1378,7 +1711,7 @@ export class Husk extends EnemyBase {
     const mult = vol.part === 'head' ? 2 : vol.part === 'limb' ? 0.7 : 1;
     const dmg = amount * mult;
     this.health -= dmg;
-    w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg });
+    w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg, part: vol.part });
     this.queueHit(vol, amount, point, dir);
 
     // flinch: push in rig space
@@ -1403,6 +1736,7 @@ export class Husk extends EnemyBase {
       this.die(dir);
       return;
     }
+    if (this.mode === 'dormant' && this.isWorker) { this.stillDur = 0.3; w.provoke(this.group, this); this.wakeDelay = -1; this.beginWake(1); return; }
     if (this.mode === 'dormant') { this.wakeDelay = -1; this.beginWake(1.7); return; }
     if (this.mode === 'idle') { this.enterAlert(); }
     if (this.crawler) return; // prone: flinches only
@@ -1523,37 +1857,9 @@ export class Husk extends EnemyBase {
 
   override dispose(): void {
     if (this.light) { this.light.remove(); this.light = null; }
+    if (this.props) { this.props.dispose(); this.props = null; }
     this.rig.skeleton.dispose();
     super.dispose();
   }
 }
 
-const _iq = new THREE.Quaternion();
-/**
- * Two-bone arm IK in world space for a limb hanging along local -Y whose elbow flexes about local X with a
- * NEGATIVE angle (forearm swings toward local +Z). Writes `upper.quaternion` (relative to its parent whose
- * world rotation is `parentQ`) and returns the elbow flex angle (>= 0; apply as rotation.x = -bend).
- */
-function armIK(S: THREE.Vector3, T: THREE.Vector3, elbowDir: THREE.Vector3, l1: number, l2: number, parentQ: THREE.Quaternion, upper: THREE.Object3D): number {
-  _dn.copy(T).sub(S);
-  let dist = _dn.length();
-  if (dist < 1e-5) { _dn.set(0, -1, 0); dist = 0.1; }
-  _dn.multiplyScalar(1 / (_dn.length() || 1));
-  dist = Math.min(Math.max(dist, Math.abs(l1 - l2) + 0.03), (l1 + l2) * 0.995);
-  const a = Math.acos(THREE.MathUtils.clamp((l1 * l1 + dist * dist - l2 * l2) / (2 * l1 * dist), -1, 1));
-  const bend = Math.PI - Math.acos(THREE.MathUtils.clamp((l1 * l1 + l2 * l2 - dist * dist) / (2 * l1 * l2), -1, 1));
-  _pp.copy(elbowDir).addScaledVector(_dn, -elbowDir.dot(_dn));
-  if (_pp.lengthSq() < 1e-8) _pp.set(0, 1, 0).addScaledVector(_dn, -_dn.y);
-  _pp.normalize();
-  _ud.copy(_dn).multiplyScalar(Math.cos(a)).addScaledVector(_pp, Math.sin(a)).normalize();
-  // basis: y = -upper direction, z = toward the target side of the bend plane, x = y × z
-  _by.copy(_ud).negate();
-  _bz.copy(_dn).addScaledVector(_ud, -_dn.dot(_ud));
-  if (_bz.lengthSq() < 1e-8) _bz.copy(_pp).negate();
-  _bz.normalize();
-  _bx.copy(_by).cross(_bz).normalize();
-  _mb.makeBasis(_bx, _by, _bz);
-  _iq.setFromRotationMatrix(_mb);
-  upper.quaternion.copy(parentQ).invert().multiply(_iq);
-  return bend;
-}

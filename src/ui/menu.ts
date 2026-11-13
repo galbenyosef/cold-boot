@@ -1,7 +1,10 @@
 /** Main menu, settings panel and controls list (settings + controls are reused by the pause screen). */
 import type { GameContext, Quality } from '../core/types';
 import { h, button, sfx, saveSettings, type Settings, glyph, toggle } from './dom';
-import { loadSave } from '../story/save';
+import { saveInfo, clearAllProgress, reloadInto, requestBegin, requestContinue, type SaveInfo } from './progress';
+
+/** sessionStorage: BEGIN on a level-2 page reloaded into level 1 — the next menu is a one-click "begin" gate. */
+const BEGIN_FRESH_KEY = 'coldboot.beginFresh';
 
 const QUALITIES: Quality[] = ['low', 'medium', 'high', 'ultra'];
 
@@ -156,6 +159,9 @@ export class MainMenu {
   private items: HTMLButtonElement[] = [];
   private continueBtn: HTMLButtonElement;
   private continueWhere: HTMLSpanElement;
+  private levelLine: HTMLDivElement;
+  private info: SaveInfo | null = null;
+  private freshGate: HTMLDivElement | null = null;
   /** How the menu was left (read by the story after `open()` resolves). */
   choice: 'begin' | 'continue' = 'begin';
   private resolve: (() => void) | null = null;
@@ -177,6 +183,9 @@ export class MainMenu {
     h('div', 'rule2', col);
     const items = h('div', 'items', col);
     // CONTINUE sits above BEGIN and only exists while a checkpoint is stored (see open()).
+    this.levelLine = h('div', 'lvlline lbl hidden', items);
+    h('i', '', this.levelLine);
+    h('span', '', this.levelLine, 'Level 2  —  Line Two');
     this.continueBtn = button(ctx, items, 'Continue', '00', () => this.begin('continue'), 'primary hidden');
     this.continueWhere = h('span', 'where', this.continueBtn, '');
     this.items.push(button(ctx, items, 'Begin', '01', () => this.begin('begin'), 'primary'));
@@ -214,10 +223,15 @@ export class MainMenu {
   }
 
   open(): Promise<void> {
-    const save = loadSave();
-    toggle(this.continueBtn, 'hidden', !save);
-    this.continueWhere.textContent = save ? `—  ${save.place || 'Sublevel 3'}` : '';
+    const info = this.info = saveInfo();
+    toggle(this.continueBtn, 'hidden', !info);
+    const where = info ? (info.place || (info.level === 2 ? '' : 'Sublevel 3')) : '';
+    this.continueWhere.textContent = where ? `—  ${where}` : '';
+    toggle(this.levelLine, 'hidden', info?.level !== 2);
     this.choice = 'begin';
+    let fresh = false;
+    try { fresh = sessionStorage.getItem(BEGIN_FRESH_KEY) === '1'; sessionStorage.removeItem(BEGIN_FRESH_KEY); } catch { /* ignore */ }
+    if (fresh && !info) return this.openFreshGate();
     this.root.classList.remove('hidden', 'leaving');
     void this.root.offsetWidth;
     this.root.classList.add('show');
@@ -225,9 +239,48 @@ export class MainMenu {
     return new Promise((r) => { this.resolve = r; });
   }
 
+  /** After BEGIN reloaded a level-2 page into level 1: one click (the audio / pointer-lock gesture) and go. */
+  private openFreshGate(): Promise<void> {
+    const g = this.freshGate = h('div', 'layer ov gate interactive grain scan', this.root.parentElement!);
+    const st = h('div', 'stage', g);
+    h('h2', 'glow', st, 'COLD BOOT');
+    h('div', 'lbl', st, 'Click to begin  ·  Sublevel 3');
+    void g.offsetWidth;
+    g.classList.add('show');
+    return new Promise((r) => {
+      this.resolve = r;
+      const go = () => { removeEventListener('keydown', onKey); this.begin('begin'); };
+      const onKey = (e: KeyboardEvent) => { if (e.code === 'Enter' || e.code === 'Space') go(); };
+      g.addEventListener('click', go, { once: true });
+      addEventListener('keydown', onKey);
+    });
+  }
+
   private begin(choice: 'begin' | 'continue'): void {
     const r = this.resolve;
     if (!r) return;
+    const here = this.ctx.levelId ?? 1;
+    if (choice === 'begin') {
+      // BEGIN always starts the whole game over: level 1, no checkpoints, no carried loadout.
+      clearAllProgress();
+      if (here !== 1) {
+        this.resolve = null;
+        // The story's own begin request (one-click gate + intro); our gate is the fallback for older builds.
+        if (!requestBegin()) { try { sessionStorage.setItem(BEGIN_FRESH_KEY, '1'); } catch { /* ignore */ } }
+        sfx(this.ctx, 'ui_open', 0.7);
+        this.root.classList.add('leaving');
+        setTimeout(() => reloadInto(1), 500);
+        return;
+      }
+    } else if (this.info && this.info.level !== here) {
+      // The stored run is on another level than this page (a forced ?level=): reload into it.
+      this.resolve = null;
+      if (this.info.place !== null) requestContinue();
+      sfx(this.ctx, 'ui_open', 0.7);
+      this.root.classList.add('leaving');
+      setTimeout(() => reloadInto(this.info!.level), 500);
+      return;
+    }
     this.choice = choice;
     this.resolve = null;
     removeEventListener('keydown', this.keyHandler);
@@ -237,6 +290,8 @@ export class MainMenu {
     sfx(this.ctx, 'ui_open', 0.7);
     this.root.classList.add('leaving');
     setTimeout(() => { this.root.classList.add('hidden'); this.root.classList.remove('show', 'leaving'); }, 950);
+    const fg = this.freshGate;
+    if (fg) { this.freshGate = null; fg.classList.remove('show'); setTimeout(() => fg.remove(), 600); }
     Promise.resolve(unlock).catch(() => {}).finally(() => r());
   }
 

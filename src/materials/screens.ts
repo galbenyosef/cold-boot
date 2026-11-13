@@ -100,7 +100,13 @@ export class ScreenManager {
   private cursor = 0;
   private seedCounter = 1;
 
-  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial) {}
+  /** Level-specific chrome (REVISION 4): header / camera labels, and terminal_idle shows its `text` on level 2. */
+  private header = 'HALCYON DYNAMICS // ERIDU DEEP FAB  —  SUBLEVEL 3';
+  private camLabel = 'SUBLVL-3';
+  private idleText = false;
+  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial, levelId: number = 1) {
+    if (levelId === 2) { this.header = 'HALCYON DYNAMICS // ERIDU DEEP FAB  —  LINE TWO / SECTION C'; this.camLabel = 'LINE-2'; this.idleText = true; }
+  }
 
   create(kind: ScreenKind, opts?: { text?: string; aspect?: number }): THREE.MeshStandardMaterial {
     const aspect = opts?.aspect ?? (kind.startsWith('door') ? 2 : 1.6);
@@ -201,18 +207,36 @@ export class ScreenManager {
     // header
     g.fillStyle = fg; g.fillRect(0, 0, W, fs * 1.5);
     g.fillStyle = amber ? '#0d0702' : '#020b05';
-    g.fillText('HALCYON DYNAMICS // ERIDU DEEP FAB  —  SUBLEVEL 3', fs * 0.5, fs * 0.25);
+    g.fillText(this.header, fs * 0.5, fs * 0.25);
     // advance log
     const step = 0.45;
     while (s.t - s.lineTimer > step) { s.lineTimer += step; s.lines.push(logLine(s.rand)); if (s.lines.length > 40) s.lines.shift(); }
     const frac = (s.t - s.lineTimer) / step;
-    const rows = Math.floor((H - fs * 3.5) / (fs * 1.18));
+    // level 2: a pinned message block (the screen's `text`) above the scrolling log
+    let top = fs * 1.8;
+    if (this.idleText && s.text) {
+      const msg = s.text.split('\n');
+      const big = Math.max(fs, Math.min(Math.round(H / (msg.length * 1.6 + 4)), Math.round(fs * 2.4)));
+      g.save();
+      g.shadowColor = fg; g.shadowBlur = big * 0.5;
+      g.fillStyle = '#f2f6ee';
+      msg.forEach((ln, i) => {
+        let sz = big; g.font = `700 ${sz}px ${MONO}`;
+        while (g.measureText(ln).width > W - fs && sz > 8) { sz -= 1; g.font = `700 ${sz}px ${MONO}`; }
+        g.fillText(ln, fs * 0.5, top + fs * 0.4 + i * big * 1.25);
+      });
+      g.restore();
+      top += fs * 0.8 + msg.length * big * 1.25;
+      g.fillStyle = dim; g.fillRect(fs * 0.5, top - fs * 0.3, W - fs, 1);
+      g.font = `${fs}px ${MONO}`;
+    }
+    const rows = Math.floor((H - top - fs * 1.7) / (fs * 1.18));
     const start = Math.max(0, s.lines.length - rows);
     g.save();
-    g.beginPath(); g.rect(0, fs * 1.8, W, H - fs * 3.6); g.clip();
+    g.beginPath(); g.rect(0, top, W, H - top - fs * 1.8); g.clip();
     g.shadowColor = fg; g.shadowBlur = fs * 0.6;
     for (let i = start; i < s.lines.length; i++) {
-      const y = fs * 2 + (i - start) * fs * 1.18 - frac * fs * 1.18 * 0.0;
+      const y = top + fs * 0.2 + (i - start) * fs * 1.18 - frac * fs * 1.18 * 0.0;
       const ln = s.lines[i];
       g.fillStyle = ln.startsWith('> CHOIR') ? '#e8f4ff' : (i === s.lines.length - 1 ? fg : dim);
       g.fillText(ln, fs * 0.5, y);
@@ -378,7 +402,7 @@ export class ScreenManager {
     g.font = `${fs}px ${MONO}`; g.textBaseline = 'top'; g.textAlign = 'left'; g.fillStyle = 'rgba(230,240,232,0.9)';
     const sec = Math.floor(t + 11647);
     const hh = String(Math.floor(sec / 3600) % 24).padStart(2, '0'), mm = String(Math.floor(sec / 60) % 60).padStart(2, '0'), ss = String(sec % 60).padStart(2, '0');
-    g.fillText(`CAM ${String((s.seed % 16) + 1).padStart(2, '0')}  SUBLVL-3`, fs * 0.6, fs * 0.5);
+    g.fillText(`CAM ${String((s.seed % 16) + 1).padStart(2, '0')}  ${this.camLabel}`, fs * 0.6, fs * 0.5);
     g.fillText(`2091-03-14  ${hh}:${mm}:${ss}`, fs * 0.6, H - fs * 1.6);
     if (Math.floor(t * 1.4) % 2 === 0) {
       g.fillStyle = '#ff2a20'; g.beginPath(); g.arc(W - fs * 3.6, fs * 1.05, fs * 0.38, 0, Math.PI * 2); g.fill();

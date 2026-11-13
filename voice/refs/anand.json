@@ -1,0 +1,14 @@
+{
+  "describe": "male, elderly, low pitch",
+  "seed": 5,
+  "refText": "Try to stay still for me. You took a bad shock, but your pulse is steady. Breathe slowly. Good. That's it.",
+  "language": "en",
+  "source": "audition 11",
+  "sha": "f631a87cdb3c3783",
+  "duration": 5.79,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "try to stay still for me you took a bad shock but your pulse is steady breathe slowly good thats it"
+  }
+}

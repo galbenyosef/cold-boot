@@ -73,6 +73,17 @@ export class Controller {
   strafeSpeed = 0;
   /** Vertical speed before collision this frame. */
   lastVy = 0;
+  /**
+   * External carrying velocity (conveyor belt), world space, horizontal. Kept OUT of `body.velocity`: it moves
+   * the capsule directly each frame, so the player's own velocity (bob, footsteps, sprint, acceleration) only
+   * ever describes walking relative to the belt, and clearing the carry leaves no slide behind.
+   */
+  readonly carryTarget = new THREE.Vector3();
+  carryOn = false;
+  /** Seconds since the carry was last set; the level refreshes it every frame, so a stale carry expires. */
+  carryAge = 0;
+  /** Smoothed carry actually applied this frame. */
+  readonly carryVel = new THREE.Vector3();
 
   constructor(private physics: Physics, position: THREE.Vector3) {
     this.body = { position: position.clone(), velocity: new THREE.Vector3(), radius: MOVE.radius, height: MOVE.height, onGround: false };
@@ -148,6 +159,19 @@ export class Controller {
     // physics only re-detects ground when the capsule presses into it: keep a small downward push
     if (b.onGround && v.y <= 0) v.y = -2.0;
     this.lastVy = this.airTime > 0 ? v.y : 0;
+    // conveyor carry: feet grip the belt quickly when grounded; momentum carries on through a jump; landing
+    // anywhere the belt no longer applies stops it dead (no slide).
+    this.carryAge += dt;
+    const carrying = this.carryOn && this.carryAge < 0.2;
+    const cv = this.carryVel;
+    if (b.onGround) {
+      if (carrying) cv.lerp(this.carryTarget, 1 - Math.exp(-14 * dt));
+      else cv.set(0, 0, 0);
+    } else cv.multiplyScalar(Math.exp(-0.6 * dt));
+    if (cv.x !== 0 || cv.z !== 0) {
+      b.position.x += cv.x * dt;
+      b.position.z += cv.z * dt;
+    }
     this.physics.moveBody(b, dt);
     if (b.onGround) {
       if (!this.wasGrounded && this.airTime > 0.12) ev.land(Math.max(0, -this.lastVy));
@@ -175,9 +199,21 @@ export class Controller {
     }
   }
 
+  setCarry(v: THREE.Vector3 | null) {
+    if (v && Number.isFinite(v.x) && Number.isFinite(v.z)) {
+      this.carryTarget.set(v.x, 0, v.z);
+      this.carryOn = true;
+      this.carryAge = 0;
+    } else {
+      this.carryOn = false;
+      this.carryTarget.set(0, 0, 0);
+    }
+  }
+
   teleport(p: THREE.Vector3) {
     this.body.position.copy(p);
     this.body.velocity.set(0, 0, 0);
+    this.carryVel.set(0, 0, 0);
     this.airTime = 0;
     this.wasGrounded = true;
   }

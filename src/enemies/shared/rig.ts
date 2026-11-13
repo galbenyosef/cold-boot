@@ -149,6 +149,36 @@ export class RigBuilder {
     return this;
   }
 
+  /**
+   * Smoothly skinned geometry in MODEL space (REVISION 4 — the human): `weigh` returns up to 4 [bone, weight] pairs
+   * per vertex (normalised here). Optional `m` transforms the geometry first.
+   */
+  addSkinned(geo: THREE.BufferGeometry, weigh: (p: THREE.Vector3) => [string, number][], m?: THREE.Matrix4): this {
+    if (m) { geo.applyMatrix4(m); if (m.determinant() < 0) flipWinding(geo); }
+    if (this.tooSmall(geo)) { geo.dispose(); return this; }
+    projectUV(geo);
+    const pos = geo.getAttribute('position');
+    const n = pos.count;
+    const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+    const memo = new Map<string, number>();
+    for (let i = 0; i < n; i++) {
+      _v.fromBufferAttribute(pos, i);
+      const ws = weigh(_v).filter((w) => w[1] > 1e-4).sort((x, y) => y[1] - x[1]).slice(0, 4);
+      let tot = 0;
+      for (const w of ws) tot += w[1];
+      if (ws.length === 0 || tot <= 0) { si[i * 4] = this.curBone; sw[i * 4] = 1; continue; }
+      for (let k = 0; k < ws.length; k++) {
+        let bi = memo.get(ws[k][0]);
+        if (bi === undefined) { bi = this.idx(ws[k][0]); memo.set(ws[k][0], bi); }
+        si[i * 4 + k] = bi; sw[i * 4 + k] = ws[k][1] / tot;
+      }
+    }
+    geo.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
+    geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
+    this.chunks.push({ geo, mat: this.curMat, bone: -1 });
+    return this;
+  }
+
   build(materials: Record<string, THREE.Material>, opts: { shadow: string[]; radius: number; center: THREE.Vector3 }): RigTemplate {
     const byMat = new Map<string, THREE.BufferGeometry[]>();
     for (const c of this.chunks) {

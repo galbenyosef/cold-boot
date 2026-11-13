@@ -1,0 +1,14 @@
+{
+  "describe": "female, middle-aged, very low pitch",
+  "seed": 2,
+  "refText": "This is Hale. It's late, I haven't slept, and the line is still running. Write this down, whoever finds it.",
+  "language": "en",
+  "source": "audition 5",
+  "sha": "262a95445ade2fc4",
+  "duration": 5.81,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "this is hail its late i havent slept and the line is still running write this down whoever finds it"
+  }
+}

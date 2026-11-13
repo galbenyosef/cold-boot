@@ -117,12 +117,14 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
     get noteOpen() { return note.isOpen; },
     setTorchHint(on) { hud.torchHintWanted = on; },
     showCheckpoint() { hud.checkpoint(); },
+    setIntercom(on) { subs.intercomForced = on; },
     get menuChoice() { return menu.choice; },
 
     update(dt) {
       const s = ctx.state;
       syncHud();
       hud.promptSuppressed = note.isOpen;
+      subs.compact = note.isOpen;
       hud.update(dt);
       subs.update(dt);
       log.update(dt);

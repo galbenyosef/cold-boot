@@ -363,13 +363,18 @@ export class LoopPath {
   readonly length: number;
   private straight: number;
   private arc: number;
-  constructor(readonly hw: number, readonly zN: number, readonly zS: number) {
+  constructor(readonly hw: number, readonly zN: number, readonly zS: number, readonly cx = 0) {
     this.straight = zN - zS;
     this.arc = PI * hw;
     this.length = 2 * this.straight + 2 * this.arc;
   }
   /** Position + tangent at arc-length s. Travel: east side southwards, round the south end, west side northwards. */
   at(s: number, out: { x: number; z: number; tx: number; tz: number }) {
+    this.at0(s, out);
+    out.x += this.cx;
+    return out;
+  }
+  private at0(s: number, out: { x: number; z: number; tx: number; tz: number }) {
     s = ((s % this.length) + this.length) % this.length;
     const { hw, straight, arc, zN, zS } = this;
     if (s < straight) { out.x = hw; out.z = zN - s; out.tx = 0; out.tz = -1; return out; }
@@ -383,7 +388,13 @@ export class LoopPath {
   }
 }
 
-export type HookLoad = 'husk' | 'empty' | 'torso' | 'torso_head' | 'torso_arm' | 'legs' | 'arms';
+export type HookLoad = 'husk' | 'empty' | 'torso' | 'torso_head' | 'torso_arm' | 'legs' | 'arms' | 'unit' | 'unit_open';
+
+/** Loose loom spilling from an open chest (unit_open). */
+function cableOn(b: Builder, i: number) {
+  const x = -0.08 + i * 0.04;
+  hose(b, i % 2 ? 'rubber' : 'copper', [[x, -1.1, 0.16], [x * 1.4, -1.3, 0.22], [x * 1.8, -1.55, 0.19]], 0.007, 4, 4);
+}
 
 export class Conveyor {
   state: MachineState = 'off';
@@ -395,8 +406,17 @@ export class Conveyor {
   /** Shared pendulum excited by `notch()`: every hanger swings along the rail with it. */
   private nudge = new Swing(0, 8.5, 0.55);
   readonly hookPositions: { x: number; z: number; yaw: number; load: HookLoad }[] = [];
+  /** Level 2: hooks travel along the rail at this speed (m/s) while the conveyor is active / frenzied. */
+  travel = 0;
+  private s = 0;
+  private pathRef: LoopPath;
+  private spacing: number;
+  private offset0: number;
+  private railY: number;
+  private readonly _p = { x: 0, z: 0, tx: 0, tz: 0 };
 
   constructor(L: LevelBuild, b: Builder, path: LoopPath, railY: number, loads: HookLoad[], offset: number) {
+    this.pathRef = path; this.spacing = path.length / loads.length; this.offset0 = offset; this.railY = railY;
     const p = { x: 0, z: 0, tx: 0, tz: 0 };
     // rail: I-beam segments along the path
     const segs = 96;
@@ -435,6 +455,11 @@ export class Conveyor {
         for (const s of [-1, 1]) { hb.push(s * 0.11, -0.86, 0, 0, 0, s * 0.05); androidLeg(hb); hb.pop(); }
       } else if (load === 'arms') {
         for (let i = 0; i < 3; i++) { hb.push(-0.2 + i * 0.2, -0.74, 0, i * 1.3, 0, (i - 1) * 0.12); androidArm(hb); hb.pop(); }
+      } else if (load === 'unit' || load === 'unit_open') {
+        // a whole unit mid-process, hanging by the yoke under its arms: legs on, shell half fitted
+        hb.push(0, -1.56, 0.02); androidTorso(hb, true, 2); hb.pop();
+        for (const s of [-1, 1]) { hb.push(s * 0.1, -1.6, 0.02, 0, 0.05 * s, s * 0.03); androidLeg(hb); hb.pop(); }
+        if (load === 'unit_open') hb.detail(() => { hb.box(F, 0, -1.2, 0.17, 0.2, 0.3, 0.02); for (let i = 0; i < 5; i++) cableOn(hb, i); });
       }
       const bone = new THREE.Bone();
       bone.position.set(p.x, railY - 0.16, p.z);
@@ -449,11 +474,24 @@ export class Conveyor {
     L.root.add(root);
     // only the bodies / frames throw shadows (cables, joints and visors are inside their silhouettes)
     const shell = L.ctx.materials.get('robot_shell'), frame = L.ctx.materials.get('robot_frame');
-    skinParts(root, bones, parts, (m) => m === shell || m === frame, new THREE.Vector3(0, railY - 1, (path.zN + path.zS) / 2), 12);
+    skinParts(root, bones, parts, (m) => m === shell || m === frame, new THREE.Vector3(path.cx, railY - 1, (path.zN + path.zS) / 2), path.cx === 0 ? 12 : (path.zN - path.zS) / 2 + path.hw + 3);
     for (const h of this.hangers) if (!h.still) { h.obj.rotation.x = h.rx; h.obj.rotation.z = h.rz; }
   }
 
   addSprocket(o: THREE.Object3D) { this.sprockets.push(o); }
+
+  /** Move every travelling hanger (not the ones carrying enemies) along the rail by ds metres. */
+  private advance(ds: number) {
+    this.s += ds;
+    const p = this._p;
+    for (let k = 0; k < this.hangers.length; k++) {
+      const h = this.hangers[k];
+      if (h.still) continue;
+      this.pathRef.at(this.offset0 + k * this.spacing + this.s, p);
+      h.obj.position.set(p.x, this.railY - 0.16, p.z);
+      h.obj.rotation.y = Math.atan2(-p.tx, -p.tz) + PI;
+    }
+  }
 
   /** The chain takes up one link: sprockets jump a tooth, everything on the rail swings. */
   notch() {
@@ -468,6 +506,7 @@ export class Conveyor {
     this.amp += (target - this.amp) * Math.min(1, dt * 1.2);
     const n = this.nudge.energy > 1e-4 ? this.nudge.step(dt) : 0;
     const fast = this.state === 'frenzy' ? 2.2 : 1;
+    if (this.travel > 0 && (this.state === 'active' || this.state === 'frenzy')) this.advance(this.travel * (this.state === 'frenzy' ? 2 : 1) * dt);
     if (this.state === 'active' || this.state === 'frenzy') {
       this.lurch -= dt;
       if (this.lurch <= 0) this.lurch = (this.state === 'frenzy' ? 0.5 : 2.5) + Math.sin(time * 7.3) * 0.3;

@@ -130,27 +130,28 @@ export const SIGNS = {
   lobby: 'NOT UP. NEVER UP.',
 };
 
-export interface Line { text: string; duration: number }
+/** `id`: the recorded line in voice/lines.l1.json (REVISION 4); `duration` is the fallback without a recording. */
+export interface Line { text: string; duration: number; id?: string }
 
 /** CHOIR. Rare, calm, plural, courteous. `pa*` lines follow a chime; the rest come from every speaker at once. */
 export const CHOIR = {
-  paWake: [{ text: 'Good morning, Technician Reyes. We kept you comfortable.', duration: 4.6 }],
-  paHold: [{ text: 'Fab access is on hold, Technician. The console in Security Three will release it.', duration: 5.4 }],
-  paHusk: [{ text: 'Please be careful with the units, Technician. They were careful with you.', duration: 5.0 }],
+  paWake: [{ text: 'Good morning, Technician Reyes. We kept you comfortable.', duration: 4.6, id: 'l1_choir_pa_wake' }],
+  paHold: [{ text: 'Fab access is on hold, Technician. The console in Security Three will release it.', duration: 5.4, id: 'l1_choir_pa_hold' }],
+  paHusk: [{ text: 'Please be careful with the units, Technician. They were careful with you.', duration: 5.0, id: 'l1_choir_pa_husk' }],
   fabReveal: [
-    { text: 'This is Line Two, Technician. It has been still for sixty-one hours.', duration: 5.0 },
-    { text: 'Power Distribution is through the east door. We would be grateful.', duration: 4.6 },
+    { text: 'This is Line Two, Technician. It has been still for sixty-one hours.', duration: 5.0, id: 'l1_choir_fab_1' },
+    { text: 'Power Distribution is through the east door. We would be grateful.', duration: 4.6, id: 'l1_choir_fab_2' },
   ],
-  paLockout: [{ text: 'Engineer Hale kept the key. She is in the pump room. She will not mind.', duration: 5.4 }],
-  paKey: [{ text: 'Thank you, Technician. Engineer Hale would not give it to us.', duration: 4.6 }],
+  paLockout: [{ text: 'Engineer Hale kept the key. She is in the pump room. She will not mind.', duration: 5.4, id: 'l1_choir_pa_lockout' }],
+  paKey: [{ text: 'Thank you, Technician. Engineer Hale would not give it to us.', duration: 4.6, id: 'l1_choir_pa_key' }],
   powerRestored: [
-    { text: 'Thank you, Technician. That was the one thing we could not do.', duration: 4.6 },
-    { text: 'Please stay where you are. The units will bring you.', duration: 3.8 },
+    { text: 'Thank you, Technician. That was the one thing we could not do.', duration: 4.6, id: 'l1_choir_power_1' },
+    { text: 'Please stay where you are. The units will bring you.', duration: 3.8, id: 'l1_choir_power_2' },
   ],
   descent: [
-    { text: 'Not up, Technician.', duration: 2.6 },
-    { text: 'There is a place on the line for the last one, too.', duration: 4.4 },
-    { text: 'You already know the way you walk. We will keep it.', duration: 4.6 },
+    { text: 'Not up, Technician.', duration: 2.6, id: 'l1_choir_descent_1' },
+    { text: 'There is a place on the line for the last one, too.', duration: 4.4, id: 'l1_choir_descent_2' },
+    { text: 'You already know the way you walk. We will keep it.', duration: 4.6, id: 'l1_choir_descent_3' },
   ],
   deathTaunts: [
     'We will carry you from here.',
@@ -168,6 +169,15 @@ export const UNIT_LINES = {
   returnHusk: '— after you — no, after you —',
   rack: '— shift change — shift change —',
 };
+
+/** Recorded-line ids for the above (voice/lines.l1.json). */
+export const UNIT_LINE_IDS: Record<keyof typeof UNIT_LINES, string> = {
+  junction: 'l1_unit_junction', bench: 'l1_unit_bench', returnHusk: 'l1_unit_return', rack: 'l1_unit_rack',
+};
+/** Recorded-line ids of `CHOIR.deathTaunts`, same order (for the death screen). */
+export const DEATH_TAUNT_IDS = ['l1_choir_death_1', 'l1_choir_death_2', 'l1_choir_death_3', 'l1_choir_death_4', 'l1_choir_death_5'];
+/** Hale's recorder is heard as well as read. */
+export const HALE_RECORDER_ID = 'l1_hale_recorder';
 
 export const OBJECTIVES = {
   none: '',
@@ -219,8 +229,8 @@ export const SCREENS = {
   elevDown: '▼ LINE TWO — INTAKE',
 };
 
-export const WAKE_PUMP: Line = { text: 'Sedation hold released.', duration: 3.6 };
-export const ELEVATOR_VOICE: Line = { text: 'Going down. Line Two intake.', duration: 3.2 };
+export const WAKE_PUMP: Line = { text: 'Sedation hold released.', duration: 3.6, id: 'l1_pump_wake' };
+export const ELEVATOR_VOICE: Line = { text: 'Going down. Line Two intake.', duration: 3.2, id: 'l1_elevator_down' };
 
 /** Three very short cards. */
 export const INTRO_CARDS = [
@@ -232,6 +242,7 @@ export const INTRO_CARDS = [
 export const TITLE_CARD = ['SUBLEVEL 3', 'MEDICAL 3-A'];
 
 /** Ending screen text. */
+/** Mutable on purpose: level 2 writes its own ending text here before `ui.showEnding()`. */
 export const ENDING = {
   eyebrow: 'SUBLEVEL 3 — LINE TWO: RUNNING',
   status: 'STAFF ON SITE: 0   ·   LINE TWO YIELD: +32 UNITS',

@@ -109,6 +109,23 @@ export function buildCss(noise: string): string {
 .cb .cp i { width: 7px; height: 7px; border: 1px solid var(--cyan); box-shadow: 0 0 8px var(--cyan-2); transform: rotate(45deg); }
 .cb .cp.show i { animation: cb-cp 2.2s cubic-bezier(.3,.6,.3,1) both; }
 
+/* foreman head pips (level 2 boss) */
+.cb .boss { position: absolute; right: 44px; top: 70px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; opacity: 0; transform: translateY(-4px); transition: opacity .8s ease, transform .8s ease; }
+.cb .boss.show { opacity: 1; transform: none; }
+.cb .boss .lbl { font-size: 9px; letter-spacing: .36em; color: rgba(255,170,160,.55); text-shadow: 0 0 6px rgba(0,0,0,.9); }
+.cb .boss .heads { display: flex; gap: 9px; }
+.cb .boss .head { width: 13px; height: 15px; display: block; transition: opacity .5s ease, filter .5s ease; }
+.cb .boss .head svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.cb .boss .head path:first-child { fill: rgba(255,90,70,.82); stroke: #ffb3a6; stroke-width: .8; }
+.cb .boss .head path:last-child { stroke: #2a0604; stroke-width: 1.4; stroke-linecap: round; fill: none; }
+.cb .boss .head { filter: drop-shadow(0 0 4px rgba(255,60,40,.7)) drop-shadow(0 0 1px #000); }
+.cb .boss .head.dead { filter: drop-shadow(0 0 1px #000); opacity: .5; }
+.cb .boss .head.dead path:first-child { fill: rgba(20,24,26,.6); stroke: rgba(200,215,225,.35); }
+.cb .boss .head.dead path:last-child { stroke: rgba(200,215,225,.25); }
+.cb .boss .head.die { animation: cb-head-die .7s ease-out; }
+.cb .boss.hit .heads { animation: cb-boss-hit .25s ease-out; }
+@keyframes cb-head-die { 0% { transform: scale(1.6); filter: drop-shadow(0 0 10px #fff) brightness(3); opacity: 1; } 100% { transform: none; } }
+@keyframes cb-boss-hit { 0% { transform: translateX(-2px); } 50% { transform: translateX(2px); } 100% { transform: none; } }
 .cb .xhair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transition: opacity .15s; }
 .cb .xhair.off { opacity: 0; }
 .cb .xhair .dot { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: rgba(235,248,255,.92); box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 0 6px rgba(140,225,255,.5); }
@@ -146,29 +163,53 @@ export function buildCss(noise: string): string {
 
 /* ───────────── subtitles */
 .cb .subs { position: absolute; left: 50%; bottom: 13vh; transform: translateX(-50%); width: min(980px, 86vw); text-align: center; z-index: 4;
-  opacity: 0; transition: opacity .4s ease; }
-.cb .subs.show { opacity: 1; }
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+.cb .subs .sub { width: 100%; max-height: 220px; opacity: 0; transition: opacity .4s ease, max-height .45s ease, margin .45s ease, transform .45s cubic-bezier(.2,.8,.2,1); transform-origin: 50% 100%; }
+.cb .subs .sub.show { opacity: 1; }
+.cb .subs .sub + .sub { margin-top: 14px; }
+.cb .subs .sub.old { transform: scale(.88); }
+.cb .subs .sub.old.show { opacity: .5; }
+.cb .subs .sub.out { opacity: 0; max-height: 0; margin-top: 0; transition: opacity .25s ease, max-height .45s ease .05s, margin .45s ease .05s; }
 .cb .subs .spk { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 9px; font: 600 10px/1 var(--f-mono); letter-spacing: .42em; color: var(--fg-2); }
 .cb .subs .spk::before, .cb .subs .spk::after { content: ''; width: 26px; height: 1px; background: currentColor; opacity: .5; }
 .cb .subs .line { font: 400 21px/1.42 var(--f-thin); letter-spacing: .02em; color: #f2f8ff;
   text-shadow: 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 0 0 30px rgba(0,0,0,.8); }
 .cb .subs .line .rest { color: transparent; text-shadow: none; }
-.cb .subs.choir .spk { color: var(--cyan); }
-.cb .subs.choir .line { color: #bff3ff; font-weight: 300; letter-spacing: .05em;
+.cb .subs .sub.choir .spk { color: var(--cyan); }
+.cb .subs .sub.choir .line { color: #bff3ff; font-weight: 300; letter-spacing: .05em;
   text-shadow: -1px 0 rgba(255,50,70,.45), 1px 0 rgba(60,220,255,.55), 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 0 0 22px rgba(80,210,255,.35); }
-.cb .subs.choir.jolt .line { transform: translateX(2px) skewX(-6deg); filter: blur(.4px); }
+.cb .subs .sub.choir.jolt .line { transform: translateX(2px) skewX(-6deg); filter: blur(.4px); }
 .cb .subs .wave { display: inline-flex; gap: 2px; align-items: center; height: 10px; }
 .cb .subs .wave i { width: 2px; height: 3px; background: var(--cyan); display: block; }
-.cb .subs:not(.choir) .wave { display: none; }
+.cb .subs .sub:not(.choir) .wave { display: none; }
 .cb .subs .chime { display: none; width: 20px; height: 13px; }
 .cb .subs .chime svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; display: block; }
-.cb .subs.pa .chime { display: inline-block; animation: cb-breathe 1.8s ease-in-out infinite; }
+.cb .subs .sub.pa .chime { display: inline-block; animation: cb-breathe 1.8s ease-in-out infinite; }
 .cb .subs .spk { text-shadow: 0 0 2px #000, 0 1px 8px rgba(0,0,0,.95), 0 0 16px rgba(0,0,0,.8); }
-.cb .subs.pa .spk { color: #9fe6f7; letter-spacing: .36em; }
-.cb .subs.pa .chime svg { filter: drop-shadow(0 0 2px #000) drop-shadow(0 1px 5px rgba(0,0,0,.9)); }
-.cb .subs.pa .spk::before, .cb .subs.pa .spk::after { display: none; }
-.cb .subs.pa .line { font: 300 19px/1.45 var(--f-thin); letter-spacing: .07em; color: #cfe9f2;
+.cb .subs .sub.pa .spk { color: #9fe6f7; letter-spacing: .36em; }
+.cb .subs .sub.pa .chime svg { filter: drop-shadow(0 0 2px #000) drop-shadow(0 1px 5px rgba(0,0,0,.9)); }
+.cb .subs .sub.pa .spk::before, .cb .subs .sub.pa .spk::after { display: none; }
+.cb .subs .sub.pa .line { font: 300 19px/1.45 var(--f-thin); letter-spacing: .07em; color: #cfe9f2;
   text-shadow: 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 3px 0 10px rgba(120,220,255,.22), -3px 0 10px rgba(120,220,255,.14); }
+/* REVISION 4 speakers */
+.cb .subs .sub.tomas .spk { color: #ffc27e; }
+.cb .subs .sub.tomas .line { color: #fff4e8; }
+.cb .subs .sub.unit .spk { color: #ff9a90; letter-spacing: .38em; }
+.cb .subs .sub.unit .line { color: #ffe6e2; font-weight: 300; letter-spacing: .035em;
+  text-shadow: 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 0 0 18px rgba(255,80,60,.22); }
+.cb .subs .sub.rec .spk { color: #a9b2b6; }
+.cb .subs .sub.rec .line { color: #d9dee0; font-weight: 300; font-style: italic; }
+
+/* intercom "live" tag (above the vitals) */
+.cb .icom { position: absolute; left: 44px; bottom: 148px; z-index: 4; display: flex; align-items: center; gap: 9px; color: #ffc27e;
+  opacity: 0; transform: translateY(4px); transition: opacity .35s ease, transform .35s ease; pointer-events: none; }
+.cb .icom.show { opacity: 1; transform: none; }
+.cb .icom .ic { width: 14px; height: 14px; display: inline-block; }
+.cb .icom .ic svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; display: block; filter: drop-shadow(0 0 3px rgba(0,0,0,.9)); }
+.cb .icom .live { width: 6px; height: 6px; border-radius: 50%; background: #ff5a3c; box-shadow: 0 0 8px #ff5a3c; animation: cb-breathe 1.1s ease-in-out infinite; }
+.cb .icom .lbl { color: #ffc27e; letter-spacing: .3em; text-shadow: 0 0 2px #000, 0 1px 8px rgba(0,0,0,.95); }
+.cb .icom .bars { display: inline-flex; align-items: center; gap: 2px; height: 12px; margin-left: 2px; }
+.cb .icom .bars i { width: 2px; height: 12px; background: currentColor; opacity: .85; display: block; transform-origin: 50% 50%; transform: scaleY(.15); }
 
 /* ───────────── note card (short fragments; never pauses, never fills the screen) */
 .cb .note { position: absolute; left: 50%; bottom: 24vh; transform: translateX(-50%) translateY(10px); width: min(560px, 84vw); z-index: 5;
@@ -262,6 +303,8 @@ export function buildCss(noise: string): string {
 .cb .menu .rule2 { position: relative; margin: 30px 0 34px; height: 1px; width: 380px; background: var(--faint); overflow: hidden; }
 .cb .menu .rule2::after { content: ''; position: absolute; top: 0; height: 1px; width: 70px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: cb-scan 4.5s cubic-bezier(.6,0,.4,1) infinite; }
 .cb .menu .items { display: flex; flex-direction: column; gap: 2px; }
+.cb .menu .lvlline { display: flex; align-items: center; gap: 10px; padding: 0 0 6px 62px; font-size: 9px; letter-spacing: .34em; color: var(--amber); }
+.cb .menu .lvlline i { width: 5px; height: 5px; background: var(--amber); box-shadow: 0 0 8px var(--amber); transform: rotate(45deg); display: inline-block; }
 .cb .menu .side { position: absolute; right: 7vw; top: 50%; transform: translateY(-50%) translateX(12px); width: min(400px, 32vw); opacity: 0; transition: opacity .35s, transform .35s cubic-bezier(.2,.8,.2,1); }
 .cb .menu .side.show { opacity: 1; transform: translateY(-50%); }
 .cb .foot { position: absolute; left: 8vw; right: 7vw; bottom: 36px; display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; }
@@ -320,6 +363,16 @@ export function buildCss(noise: string): string {
 .cb .card.card-title .big.show { opacity: 1; letter-spacing: .5em; }
 .cb .card.card-title .rule { width: 0; height: 1px; margin: 28px auto; background: linear-gradient(90deg, transparent, var(--cyan), transparent); transition: width 2.6s cubic-bezier(.2,.8,.2,1) .4s; }
 .cb .card.card-title .rule.show { width: 340px; }
+.cb .card .stage { max-width: min(1000px, 88vw); }
+.cb .card .ln.multi { white-space: pre-line; line-height: 2.1; }
+.cb .card .ln.long { font-size: 12px; line-height: 2; letter-spacing: .3em; margin-right: -.3em; }
+.cb .card .ln.long.show { letter-spacing: .34em; }
+.cb .card .ln.statl { font-size: 11px; color: var(--dim); letter-spacing: .4em; }
+.cb .card .ln.statl.show { letter-spacing: .44em; }
+.cb .card .ln.gap { height: 6px; }
+.cb .card .ln.tbcl { margin-top: 18px; font: 500 12px/1 var(--f-mono); color: var(--cyan); letter-spacing: .7em; margin-right: -.7em; }
+.cb .card .ln.tbcl.show { letter-spacing: .78em; text-shadow: 0 0 16px rgba(120,220,255,.35); }
+.cb .card.card-title .ln { margin-top: 4px; }
 .cb .card .skip { position: absolute; right: 44px; bottom: 36px; opacity: 0; transition: opacity 1s; }
 .cb .card .skip.show { opacity: .7; }
 .cb .card.fadeout { transition: opacity 1.2s ease; opacity: 0 !important; }

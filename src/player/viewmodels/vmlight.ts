@@ -61,7 +61,6 @@ export function setVmLight(level: number, scale = 1) {
   U.uVmRim.value.set(L.rimColor.r * r * (1 + (tr - 1) * rw), L.rimColor.g * r * (1 + (tg - 1) * rw), L.rimColor.b * r * (1 + (tb - 1) * rw));
 }
 setVmLight(0);
-if ((import.meta as any).env?.DEV) (globalThis as any).__vmRoom = vmRoom;
 
 const PARS = /* glsl */ `
 uniform vec3 uVmKey; uniform vec3 uVmKeyDir; uniform vec3 uVmRim; uniform vec3 uVmRimDir;

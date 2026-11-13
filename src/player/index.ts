@@ -21,6 +21,8 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 
 export interface PlayerExtras {
   revive(health?: number): void;
+  /** Level change: apply a carried loadout (weapons, ammo, health, lamp) — ignores position, keys and pickup ids. */
+  applyLoadout(save: Partial<PlayerSave>): void;
   readonly viewmodel: Viewmodel;
   readonly pickups: Pickups;
   debug: Record<string, (...a: any[]) => any>;
@@ -216,6 +218,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       look.active = false;
     },
     shake(a: number) { camRig.shake(a); },
+    setCarry(v: THREE.Vector3 | null) { ctrl.setCarry(v); },
     lookAt(point: THREE.Vector3, seconds: number) {
       const dx = point.x - eye.x, dy = point.y - eye.y, dz = point.z - eye.z;
       look.y0 = yaw; look.p0 = pitch;
@@ -261,7 +264,28 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       keys.clear();
       for (const k of save.keys ?? []) keys.add(k);
       flash.set(!!save.flashlight);
-      pickups.restoreCollected(save.pickups ?? []);
+      ctrl.setCarry(null);
+      pickups.restoreCollected(Array.isArray(save.pickups) ? save.pickups : []);
+    },
+    applyLoadout(save: Partial<PlayerSave>) {
+      // Level change (REVISION 4): weapons / ammo / health / lamp only — no position, keys or pickup ids.
+      if (save.weapons) {
+        weapons.cancelReload();
+        for (const id of ['pistol', 'shotgun'] as const) {
+          const w = save.weapons[id], s = weapons.states[id];
+          if (!w) continue;
+          s.owned = !!w.owned;
+          s.clip = clamp(w.clip | 0, 0, s.clipSize);
+          s.reserve = clamp(w.reserve | 0, 0, WEAPON_STATS[id].maxReserve);
+          s.reloading = false;
+        }
+        weapons.addAmmo('shotgun', 0);
+        const cur = save.current && weapons.states[save.current]?.owned ? save.current
+          : (['shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
+        if (cur) weapons.switchTo(cur, true);
+      }
+      if (typeof save.health === 'number' && Number.isFinite(save.health)) player.health = Math.max(1, save.health);
+      if (typeof save.flashlight === 'boolean') flash.set(save.flashlight);
     },
     revive(h = maxHealth) {
       alive = true; health = h; camRig.revive();
@@ -317,9 +341,11 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
       // ── camera
       const bobAmp = ctrl.grounded ? clamp(ctrl.speed / MOVE.walk, 0, 1.4) : 0;
+      const carrySpeed = Math.hypot(ctrl.carryVel.x, ctrl.carryVel.z);
       camRig.update(dt, {
         eye, yaw, pitch, bobPhase: ctrl.bobPhase, bobAmp, sprint: ctrl.sprintBlend, crouch: ctrl.crouchBlend,
         eyeHeight: ctrl.eyeHeight, strafe: ctrl.strafeSpeed, time,
+        shudder: ctrl.grounded && alive ? clamp(carrySpeed / 1.2, 0, 1) : 0, carrySpeed,
       });
       ctx.camera.updateMatrixWorld();
       computeBasis();
@@ -399,6 +425,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     spawnPickup: (kind: PickupKind, x: number, y: number, z: number, amount = 10) => pickups.add(kind, new THREE.Vector3(x, y, z), amount),
     state: () => ({
       pos: ctrl.body.position.toArray().map((v) => +v.toFixed(3)), vel: ctrl.body.velocity.toArray().map((v) => +v.toFixed(2)),
+      carry: ctrl.carryVel.toArray().map((v) => +v.toFixed(2)),
       grounded: ctrl.grounded, crouched: ctrl.crouched, eyeHeight: +ctrl.eyeHeight.toFixed(3), yaw: +yaw.toFixed(3), pitch: +pitch.toFixed(3),
       health, alive, weapon: weapons.current, weapons: JSON.parse(JSON.stringify(weapons.states)), flashlight: flash.on,
       focus: focus?.id ?? null, lower: +weapons.lower.toFixed(2), clip: vm.active?.player.name ?? '',

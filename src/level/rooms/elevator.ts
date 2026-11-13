@@ -11,11 +11,52 @@ import { cagePanel, floorSlab, grate, handrail, ibeam, panel } from '../kit';
 const PI = Math.PI;
 const PERIOD = 4;
 
+/**
+ * The cage cab is authored in level-1 world coordinates (gate at z = -58, cab to the south). Other levels
+ * reuse it through `place`: a rotation about Y + a move of the gate to `gateZ` (level 2: the cab sits
+ * north of its gate, so it is turned round).
+ */
+export interface CabOpts {
+  room: { id: string; name: string; x0: number; x1: number; z0: number; z1: number };
+  /** Light group of the cab + shaft. */
+  group: string;
+  /** Door (cage gate) the rattle vignette shakes. */
+  doorId: string;
+  screen: string;
+  machine: string;
+  /** 'descend' (level 1): active = going down. 'arrive' (level 2): active = decelerate to a stop at the gate. */
+  mode: 'descend' | 'arrive';
+  /** The cab lamp starts lit. */
+  lit: boolean;
+  /** Level 1 only: the call button + gate rattle vignette. */
+  extras: boolean;
+  place: { gateZ: number; ry: number } | null;
+  panelText: string;
+}
+
 export function buildElevator(L: LevelBuild) {
+  buildCab(L, {
+    room: { id: 'elevator', name: 'FREIGHT ELEVATOR', x0: -2.5, x1: 2.5, z0: -63, z1: -58 }, group: 'elevator', doorId: 'd_elev',
+    screen: 'elev_panel', machine: 'elevator', mode: 'descend', lit: false, extras: true, place: null, panelText: 'NO POWER',
+  });
+}
+
+export function buildCab(L: LevelBuild, o: CabOpts) {
   const R = rng(1010);
   const H = 3.2;
-  L.room('elevator', 'FREIGHT ELEVATOR', -2.5, 2.5, -63, -58, H);
-  const st = L.builder('elevator_static');
+  L.room(o.room.id, o.room.name, o.room.x0, o.room.x1, o.room.z0, o.room.z1, H);
+  const st = L.builder(`${o.room.id}_static`);
+  // level-1 world → this level's world
+  const pl = o.place;
+  const pivot = pl ? new THREE.Group() : null;
+  if (pivot && pl) { pivot.rotation.y = pl.ry; pivot.position.set(0, 0, pl.gateZ).add(new THREE.Vector3(0, 0, 58).applyAxisAngle(new THREE.Vector3(0, 1, 0), pl.ry)); pivot.updateMatrixWorld(true); pivot.name = `${o.room.id}_pivot`; L.root.add(pivot); }
+  const host: THREE.Object3D = pivot ?? L.root;
+  const W = (x: number, y: number, z: number) => (pivot ? pivot.localToWorld(new THREE.Vector3(x, y, z)) : new THREE.Vector3(x, y, z));
+  if (pl) { st.push(0, 0, 0, 0); st.m.copy(pivot!.matrixWorld); }
+  const P = (g: string, x: number, y: number, z: number, c: number, i: number, d: number, op: Parameters<LevelBuild['point']>[7] = {}) => { const w = W(x, y, z); return L.point(g, w.x, w.y, w.z, c, i, d, op); };
+  const S = (g: string, x: number, y: number, z: number, tx: number, ty: number, tz: number, c: number, i: number, d: number, a: number, op: Parameters<LevelBuild['spot']>[11] = {}) => {
+    const w = W(x, y, z), t = W(tx, ty, tz); return L.spot(g, w.x, w.y, w.z, t.x, t.y, t.z, c, i, d, a, op);
+  };
 
   // cab floor: plate with a central grated section over the open shaft
   floorSlab(st, 'floor_plate', -2.56, -63.06, 2.56, -58, [[-1.2, -62.0, 1.2, -59.4]], 'metal', 0.18);
@@ -60,13 +101,13 @@ export function buildElevator(L: LevelBuild) {
   const cab = cb.build(false);
   cab.name = 'elevator_cab';
   for (const m of cab.children as THREE.Mesh[]) m.castShadow = true;
-  L.root.add(cab);
+  host.add(cab);
   L.objects.set('elevator_cab', cab);
   // pedestal top: screen + button (children of the cab so they rattle with it)
   const ped = new THREE.Group();
   ped.position.set(1.85, 0, -62.35); ped.rotation.y = -0.5;
   cab.add(ped);
-  const scr = L.screen('elev_panel', 'terminal_alert', 0.3, 0.2, -0.07, 1.2, 0.13, '+z', { text: 'NO POWER', tilt: -(PI / 2 - 0.5), parent: ped });
+  const scr = L.screen(o.screen, 'terminal_alert', 0.3, 0.2, -0.07, 1.2, 0.13, '+z', { text: o.panelText, tilt: -(PI / 2 - 0.5), parent: ped });
   scr.position.set(-0.08, 1.185, 0.155);
   const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.03, 14), L.ctx.materials.get('emissive_red'));
   btn.position.set(0.16, 1.2, 0.17); btn.rotation.x = 0.5;
@@ -75,9 +116,11 @@ export function buildElevator(L: LevelBuild) {
   ped.add(btn, btnBase);
   const bw = ped.localToWorld(new THREE.Vector3(0.16, 1.2, 0.17));
   st.collide(1.55, 0, -62.65, 2.15, 1.2, -62.05);
-  L.interact('elev_button', 'button', 'Call elevator: SURFACE', 1.91, 1.2, -62.12, false, 2.2);
+  if (o.extras) {
+    L.interact('elev_button', 'button', 'Call elevator: SURFACE', 1.91, 1.2, -62.12, false, 2.2);
+    L.ctx.events.on('interact', (e) => { if (e.id === 'elev_button') btn.position.y = 1.19; });
+  }
   void bw;
-  L.ctx.events.on('interact', (e) => { if (e.id === 'elev_button') btn.position.y = 1.19; });
 
   // ── the shaft: periodic walls (wrap every PERIOD metres) ──
   const sh = L.part('elevator_shaft');
@@ -110,7 +153,7 @@ export function buildElevator(L: LevelBuild) {
   for (const x of [-2.9, -2.2]) sh.box('steel_raw', x, (Y0 + Y1) / 2, Z0 + 0.3, 0.06, Y1 - Y0, 0.06); // counterweight rails
   const shaft = sh.build(false);
   shaft.name = 'elevator_shaft';
-  L.root.add(shaft);
+  host.add(shaft);
 
   // light strips on the back wall, one per period, bound to real lights that wrap with the scroll
   const strip = new THREE.BoxGeometry(0.08, 1.2, 0.05);
@@ -118,7 +161,7 @@ export function buildElevator(L: LevelBuild) {
   let glow: THREE.MeshStandardMaterial | null = null;
   for (let k = -1; k <= 1; k++) {
     const base = k * PERIOD + 2;
-    const h = L.point('elevator', 0, base, Z0 + 0.5, 0xffb060, 26, 7.5, { enabled: false, priority: 2 });
+    const h = P(o.group, 0, base, Z0 + 0.5, 0xffb060, 26, 7.5, { enabled: false, priority: 2 });
     lights.push({ h, base });
     if (!glow) glow = L.glow(h, 'emissive_amber', 1.3);
   }
@@ -137,7 +180,7 @@ export function buildElevator(L: LevelBuild) {
   for (let y = -1; y > -SL; y -= 1) sb.box('trim_steel', 0, y, -57.975, 3.04, Math.round(-y) % PERIOD === 0 ? 0.22 : 0.1, 0.03);
   for (let y = -3; y > -SL; y -= 2 * PERIOD) sb.box('hazard_stripes', 0, y, -57.985, 2.4, 0.3, 0.012);
   const sill = sb.build(false);
-  L.root.add(sill);
+  host.add(sill);
 
   // counterweight (passes upward every so often during the descent)
   const wb = L.part('elevator_cw');
@@ -147,22 +190,55 @@ export function buildElevator(L: LevelBuild) {
   for (const dx of [-0.2, 0.2]) wb.rod('steel_raw', dx, 1.4, 0, dx, 30, 0, 0.012, 4);
   const cw = wb.build(false);
   cw.position.set(-2.55, 9.5, Z0 + 0.3);
-  L.root.add(cw);
+  host.add(cw);
 
   // cab lamp + panel glow
-  const lamp = L.spot('elevator', 0, H - 0.2, -60.4, 0, 0, -60.6, 0xffd6a0, 34, 6, 1.1, { enabled: false, cast: true, flicker: 'fluorescent' });
+  const lamp = S(o.group, 0, H - 0.2, -60.4, 0, 0, -60.6, 0xffd6a0, 34, 6, 1.1, { enabled: o.lit, cast: true, flicker: 'fluorescent' });
   const lampMat = L.glow(lamp, 'emissive_warm');
   const lampMesh = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.2), lampMat);
   lampMesh.position.set(0, H - 0.1, -60.4);
   cab.add(lampMesh);
-  L.point('elevator', 1.75, 1.35, -62.1, 0xff4020, 1.2, 2.6, { flicker: 'pulse' });
+  P(o.group, 1.75, 1.35, -62.1, o.lit ? 0xffa040 : 0xff4020, 1.2, 2.6, { flicker: 'pulse' });
   // shaft uplight so the void below reads when powered
-  L.spot('elevator', 0, -1.2, -60.6, 0, -12, -60.6, 0xff8a40, 30, 12, 0.8, { enabled: false, vol: true });
+  S(o.group, 0, -1.2, -60.6, 0, -12, -60.6, 0xff8a40, 30, 12, 0.8, { enabled: false, vol: true });
 
   // ── machine ──
   let state: MachineState = 'off', speed = 0, dist = 0, cwY = 9.5, cwTimer = 3;
-  L.machines.set('elevator', (s) => { state = s; });
+  // 'arrive': the sill (shaft wall across the gate) still has `remain` metres to come down past the gate
+  let remain = 0;
+  const DECEL = 0.85;
+  L.machines.set(o.machine, (s) => {
+    state = s;
+    if (o.mode !== 'arrive') return;
+    if (s === 'active') { speed = 6.5; remain = (speed * speed) / (2 * DECEL); sill.position.y = remain; }
+    if (s === 'frenzy') { speed = 6.5; sill.position.y = SL - 6; }
+    for (const l of lights) l.h.enabled = s === 'active' || s === 'frenzy';
+  });
   L.updaters.push((dt, t) => {
+    if (o.mode === 'arrive') {
+      if (state === 'active' || state === 'frenzy') {
+        // frenzy: in transit at full speed (sill parked over the gate); active: brake to a stop at the gate
+        if (state === 'active') speed = Math.max(0, Math.sqrt(Math.max(0, 2 * DECEL * remain)));
+        const step = speed * dt;
+        dist += step;
+        if (state === 'active') remain = Math.max(0, remain - step);
+        sill.position.y = state === 'active' ? remain : SL - 6;
+        shaft.position.y = dist % PERIOD;
+        for (let i = 0; i < lights.length; i++) lights[i].h.position.y = lights[i].base + (dist % PERIOD);
+        const k = Math.min(1, speed / 6.5);
+        cab.position.set(Math.sin(t * 61) * 0.0035 * k, Math.sin(t * 47) * 0.005 * k + Math.sin(t * 5.1) * 0.004 * k, Math.sin(t * 53) * 0.003 * k);
+        cab.rotation.z = Math.sin(t * 7.3) * 0.0015 * k;
+        if (state === 'active' && remain <= 1e-3 && speed < 0.05) {
+          // the brake catches: one heavy settle, then still
+          state = 'idle'; speed = 0; sill.position.y = 0;
+          L.after(1.2, () => { for (const l of lights) l.h.enabled = false; });
+          let tt = 0;
+          L.sim((d2) => { tt += d2; const e = Math.exp(-tt * 4); cab.position.set(0, -Math.sin(tt * 22) * 0.02 * e, 0); if (tt > 1.4) { cab.position.set(0, 0, 0); cab.rotation.z = 0; return false; } return true; });
+          L.sfx('metal_clang', 0, 0.5, W(0, 0, -60.5).z, 0.8, 0.6);
+        }
+      }
+      return;
+    }
     const target = state === 'active' ? 6.5 : state === 'frenzy' ? 11 : 0;
     if (speed === 0 && target === 0) {
       if (state === 'idle') { cab.position.y = Math.sin(t * 1.3) * 0.002; }
@@ -187,8 +263,8 @@ export function buildElevator(L: LevelBuild) {
   });
 
   // elev_gate_rattle: something heavy hits the cage gate from the shaft side — once
-  L.vignette('elev_gate_rattle', () => {
-    const d = L.doors.get('d_elev');
+  if (o.extras) L.vignette('elev_gate_rattle', () => {
+    const d = L.doors.get(o.doorId);
     L.sfx('gate_rattle', 0, 1.5, -58, 1, 1);
     d?.shake(0.04, 1.5);
     const p = new THREE.Vector3();

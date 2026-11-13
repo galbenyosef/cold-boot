@@ -17,6 +17,8 @@ export interface FactoryOpts {
   actor?: boolean;
 }
 export type EnemyFactory = (world: EnemyWorld, group: string, position: THREE.Vector3, yaw: number, opts: FactoryOpts) => EnemyBase;
+/** Actor-only types (never enemies): REVISION 4 `human` (Tomas). */
+export interface ActorFactories { human: EnemyFactory; }
 
 const MAX_CORPSES = 12;
 const HISTORY = 64;
@@ -27,7 +29,7 @@ const INERT_CULL = 45, AWAKE_CULL = 75;
 
 interface InternalHit extends EnemyHit { _volume: HitVolume; }
 
-export function createManager(ctx: GameContext, factories: Record<EnemyType, EnemyFactory>): EnemyManager {
+export function createManager(ctx: GameContext, factories: Record<EnemyType, EnemyFactory>, actorFactories?: ActorFactories): EnemyManager {
   const all: EnemyBase[] = [];
   const corpses: EnemyBase[] = [];
   const pending: EnemySpawn[] = [];
@@ -62,6 +64,18 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     rand,
     forceLod: -1,
     whisperUntil: 0,
+    actors,
+    treadSyncUntil: 0,
+    provoke(group, by) {
+      // REVISION 4 'worker' stealth: the whole group turns on the player (each member after its own beat of stillness)
+      let k = 0;
+      for (let i = 0; i < all.length; i++) {
+        const e = all[i];
+        if (!e.alive || e.awake || (group ? e.group !== group : e !== by)) continue;
+        e.provoked(e === by ? 0 : 0.35 + k * 0.4 + rand() * 0.3);
+        if (e !== by) k++;
+      }
+    },
     onDeath(e) {
       ctx.events.emit('enemy:died', { id: e.id, type: e.type, position: e.position, group: e.group });
       corpses.push(e);
@@ -89,6 +103,14 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     for (let i = 0; i < all.length; i++) if (all[i].alive && all[i].group === group) n++;
     return n;
   }
+
+  // Workers: a shot fired within 14 m provokes their group (gunfire noise never wakes ordinary dormant machines).
+  ctx.events.on('weapon:fired', ({ origin }) => {
+    for (let i = 0; i < all.length; i++) {
+      const e = all[i];
+      if (e.isWorker && e.alive && !e.awake && e.position.distanceToSquared(origin) < 14 * 14) world.provoke(e.group, e);
+    }
+  });
 
   if (!ctx.debug.noEnemies) {
     for (const s of ctx.level.enemySpawns ?? []) {
@@ -173,8 +195,10 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
   const _c = new THREE.Vector3(), _oc = new THREE.Vector3();
   let frame = 0;
 
-  const manager: EnemyManager & { world: EnemyWorld; actors: EnemyBase[] } = {
+  const manager: EnemyManager & { world: EnemyWorld; actors: EnemyBase[]; syncTreadmills(seconds: number): void } = {
     world, actors,
+    /** Extra (REVISION 4, for the `fitting_sync` vignette): all treadmill workers walk in exactly the same step. */
+    syncTreadmills(seconds) { world.treadSyncUntil = world.time + Math.max(0, seconds); },
     all: all as readonly Enemy[],
     get activeCount() {
       let n = 0;
@@ -191,7 +215,9 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         const s = pending[i];
         if (s.group !== group) continue;
         pending.splice(i, 1);
-        create(s.type, s.position, s.yaw, s.group, { dormant: false, pose: s.pose, emerge: true, delay: k * 0.45 });
+        // A spawn-mode entry with an `idle` hint arrives as an inert machine (story places it; it wakes only if provoked/woken).
+        if (s.idle) create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle });
+        else create(s.type, s.position, s.yaw, s.group, { dormant: false, pose: s.pose, emerge: true, delay: k * 0.45 });
         k++;
       }
     },
@@ -259,7 +285,8 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       }
     },
     actor(type, position, yaw = 0, pose) {
-      const e = (factories[type] ?? factories.husk)(world, '', position, yaw, { dormant: false, pose, actor: true });
+      const f = type === 'human' ? (actorFactories?.human ?? factories.husk) : (factories[type] ?? factories.husk);
+      const e = f(world, '', position, yaw, { dormant: false, pose, actor: true });
       actors.push(e);
       let removed = false;
       const handle: EnemyActor = {
@@ -272,6 +299,8 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         setPose(p) { if (!removed) e.puppetPose(p); },
         lookAt(p) { if (!removed) e.puppetLook(p); },
         setEyes(on) { if (!removed) e.puppetEyes(on); },
+        speak(seconds) { if (!removed) e.puppetSpeak(seconds); },
+        setGait(gait) { if (!removed) e.puppetGait(gait); },
         remove() {
           if (removed) return;
           removed = true;

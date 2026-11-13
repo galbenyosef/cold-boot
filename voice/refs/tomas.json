@@ -1,0 +1,14 @@
+{
+  "describe": "male, young adult, moderate pitch",
+  "seed": 1,
+  "refText": "Okay, okay, sorry, I'm talking too fast again. It's just been a really long night down here, you know?",
+  "language": "en",
+  "source": "audition 1",
+  "sha": "8aac2c06613aae2c",
+  "duration": 5.68,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "okay okay sorry im talking too fast again its just been a really long night down here you know"
+  }
+}

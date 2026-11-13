@@ -32,7 +32,8 @@ loops and music start when the context resumes.
 | `enemy:attack` | `skitter_attack`, `husk_attack` (+35% `husk_vocal`), sentry → `sentry_fire` (the laser shot itself) |
 | `enemy:damaged` | `impact_robot` at the hit point, plus sometimes `skitter_hurt` / `husk_hurt` / `sentry_hurt` |
 | `enemy:died` | `skitter_death`, `husk_death`, `sentry_death` |
-| `enemy:step` | `skitter_step`, `husk_step` (+20% `husk_joint`). Sentry steps are ignored |
+| `enemy:step` | `skitter_step`, `husk_step` (+20% `husk_joint`), `foreman_step`. Sentry steps are ignored |
+| foreman (`enemy:woke` / `alerted` / `attack` / `damaged` / `died`) | woke → `husk_wake` (low) + `foreman_step`; alerted → three `husk_vocal`s out of sync (three staff voices); attack → `foreman_slam` (melee) or `arm_reach` (ranged/throw); damaged → `impact_robot` + 40% `husk_hurt`; died → `husk_death` ×3 staggered + `foreman_slam`. `foreman_loop` (idle servos + three murmuring vocalisers) is **not** automatic: loop it on the foreman if wanted |
 | `story:beat` `wake` | two `heartbeat`s |
 | `story:beat` `corr_blackout` *(legacy, Rev 1)* | `power_down` + `vent_scuttle` moving through the ceiling from behind the player to ahead of them (starts +1.4 s) |
 | `story:beat` `sec_ambush` *(legacy)* | `metal_clang` at `level.object('sec_vent')` |
@@ -74,7 +75,9 @@ loops and music start when the context resumes.
   for more than 1.2 s, the music switches to `combat`. After 4 s with no active enemies it plays
   `aftermath` for about 22 s, then returns to the requested state. `setMusic('combat' | 'silence')`
   overrides it.
-- **CHOIR:** `choirVoice(text, duration)` renders the line offline (about 70–130 ms) and plays it on the
+- **Recorded voices (REVISION 4):** see *Voice lines* below. Speech ducks music/ambience slightly
+  (music −22 %, ambience −18 %; CHOIR −37 % / −30 %) while it plays.
+- **CHOIR (synthesised fallback):** `choirVoice(text, duration)` renders the line offline (about 70–130 ms) and plays it on the
   voice bus. It ducks music by 6 dB and ambience by 4 dB while it speaks. It includes the PA switch-on and
   switch-off sounds.
 
@@ -104,7 +107,19 @@ loops and music start when the context resumes.
   - `breath_far` — distant not-quite-human exhale ending in a valve click (very quiet).
   - also: `far_steps`, `drag_far`, `pipe_tick`, `lamp_creak` (used by the ambience layer, playable).
 
+- Revision 4 (level 2; one-shots render in the background, loops on first use; all 3D with `position`):
+  - line: `belt_start` (contactor, motor wind-up, chain snaps tight, ~3.4 s), `press_slam` (valve, slam,
+    exhaust, release), `arm_reach` (fast servo + hydraulic stop), `contactor_arc` (clang, arc, bus hum rises),
+    `bulkhead_grind` (≈ 4 s, ends with the seat clunk), `cell_pull` (ratchet, latch, the cell winds down).
+  - booth: `intercom_click` (button + speaker pop), `intercom_static` (1.6 s burst; `loop()` it for a bed),
+    `glass_bang` (fist on thick laminated glass; variant 3 is a double), `marker_squeak` (1–3 strokes).
+  - `shoe_slide` (a shoe pushed back into line), `foreman_step`, `foreman_slam`.
+
 **Loops**
+
+Revision 4: `belt_loop` (rollers + chain, put it on the belt), `treadmill_loop` (motor + human-rhythm
+footfalls), `polisher_loop`, `siren_loop` (motor siren, 4 s up/down), `core_hum` (stereo: 40 Hz + a faint
+high cluster), `lift_loop` (service lift ride, 2D), `foreman_loop`.
 
 `amb_room`, `amb_fab`, `amb_gen`, `steam_loop`, `spark_loop`, `machine_loop`, `arm_servo_loop`,
 `conveyor_loop`, `elevator_loop`, `alarm_loop`, `skitter_loop`, `husk_loop`, `sentry_loop`, `monitor_hum`,
@@ -145,9 +160,44 @@ Music instruments (music bus): `mus_kick`, `mus_snare`, `mus_hat`, `mus_metal`, 
   an E-phrygian saw bass riff and 8-bar riser/boom phrases.
 - **aftermath:** hollow beating drone, decaying bells and wind.
 
+## Voice lines (REVISION 4)
+
+`say(id, { position?, volume?, pitch? })` plays a recorded line; `preloadVoice(['l2_tomas_', 'l2_choir_core_1'])`
+fetches + decodes + processes ahead (ids or id prefixes). Data: `voice/manifest.json` (bundled: file, duration,
+speaker, subtitle text, fx) and `voice/lines.l*.json` (for lines not generated yet). Files: `voice/<id>.mp3`
+relative to the page (`import.meta.env.BASE_URL`), so it works under a GitHub Pages sub-path. The bytes of the
+current level's lines are fetched in the background ~1.5 s after `createAudio` (≈ 2–4 MB); decoding and the fx
+render (5–30 ms, CHOIR ≈ 80–200 ms) happen on first use and are cached (LRU, 24 MB of PCM).
+
+- **Handle:** `duration` is the manifest duration (clean take) and is known at once; `done` resolves when the
+  audio ends or `stop(fade)` finishes. Positional lines (`position`) use a panner + occlusion low-pass like
+  other 3D sounds; `setPosition` moves them. 2D lines go to the voice bus (CHOIR / PA also into the plate).
+- **Never throws.** Unknown id → warns once, silent handle (2.5 s). Not generated / file missing / decode
+  error → warns once; CHOIR lines fall back to the synthesised `choirVoice`, others are silent; `done`
+  still resolves after the (estimated) duration. Before `unlock()` lines are silent but keep their timing.
+  A line whose audio is ready > 1 s after `say()` is skipped (subtitle sync) — preload long scenes.
+- **Run-time fx** (`voicefx.ts`, chosen per line by the generator: `line.fx` › cast `fxRules` › character):
+  `clean`; `choir` (the take + copies at −5 / +4 / −12 semitones and a detuned double, small delays, wide,
+  "every speaker" slap copies, plate; `choir:N` keeps N layers — the shutdown lines thin out to one voice);
+  `intercom` (300–3600 Hz, light drive, hiss, squelch on/off); `headset`/`radio` (420–2900 Hz, more drive,
+  static crackle, 1–2 short dropouts); `unit` (comb resonance + ring modulation + light bit-crush, 1–3
+  dropouts, one stutter); `foreman` (each layer of a multi-voice line through `unit`, offsets 0 / 85 / 190 ms);
+  `recorder` (tape clunks, wow/flutter, hiss, small-speaker band); `pa` (ceiling speaker + small hard room).
+  Output speech RMS is the same for every chain (relative take level kept, so whispers stay quieter); peak ≤ 0.95.
+
+## Room presets (level 2)
+
+`cab` shaft · `dock` machine, quiet · `intake` padded, quiet · `line` hall, fab bed (+ mains hum layer: level 2
+starts powered) · `booth` dead, quarters bed, quiet · `fitting` machine · `relay` machine, gen bed, sparks ·
+`spine` corridor, quiet · `core` new bright `clean` IR, almost no bed, no distant events · `lift` dead.
+Level-2 quiet rooms use a dread palette without husk whispers.
+
 ## Dev harness
 
-`/dev/audio.html` (`?mode=sounds|music|choir|live|ambience`, `&filter=regex`) shows per-sound stats on
+`/dev/audio.html` (`?mode=sounds|music|choir|live|ambience|voice`, `&filter=regex`). `mode=voice&ids=l2_tomas_&fx=all`
+renders recorded lines through the fx chains (stats per line × chain, click a spectrogram to listen; `&live=1`
+runs `say()` through a real `createAudio()`; `&dump=1` adds the processed PCM to the report for an ASR check).
+The other modes: shows per-sound stats on
 `window.__audioReport` and draws spectrograms. `mode=ambience` (~2 min, real time) measures the dread layer:
 footstep reference peak vs every quiet-room event, the room-tone dropout depth, combat suppression, room-id
 mapping and per-room bed levels.

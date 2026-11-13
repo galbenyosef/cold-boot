@@ -44,6 +44,10 @@ export interface WallSpec {
   columns?: boolean;
   /** No decoration at all above this height (hidden above something). */
   decoTop?: number;
+  /** Panels starting above this height get no corner bolts (tall halls: bolts nobody can see). */
+  boltsBelow?: number;
+  /** Large viewing windows: no pilasters or dado rail across window openings (default: off, as level 1 was built). */
+  clearWindows?: boolean;
 }
 
 const STYLE: Record<WallStyle, { panel: Mat; slab: Mat; trim: Mat; kick: Mat }> = {
@@ -121,13 +125,24 @@ export function wallFace(b: Builder, s: WallSpec) {
     b.bx(st.kick, sp.a, 0, 0, sp.b, 0.22, 0.05);
     b.detail(() => {
       b.bx(st.kick, sp.a, 0.22, 0, sp.b, 0.245, 0.03);
-      b.bx(st.trim, sp.a, 1.05, 0, sp.b, 1.11, 0.045);
+      if (!s.clearWindows) b.bx(st.trim, sp.a, 1.05, 0, sp.b, 1.11, 0.045);
+      else {
+        // dado rail broken by every window it would cross
+        let ra = sp.a;
+        for (const w of windows) {
+          if (w.x1 <= sp.a || w.x0 >= sp.b || w.y0 > 1.11 || w.y1 < 1.05) continue;
+          if (w.x0 - 0.05 > ra) b.bx(st.trim, ra, 1.05, 0, w.x0 - 0.05, 1.11, 0.045);
+          ra = Math.max(ra, w.x1 + 0.05);
+        }
+        if (sp.b > ra) b.bx(st.trim, ra, 1.05, 0, sp.b, 1.11, 0.045);
+      }
       b.bx(st.trim, sp.a, h - 0.1, 0, sp.b, h, 0.05);
     });
     // pilasters
     for (let i = 0; i <= n; i++) {
       if ((i === 0 && !sp.pa) || (i === n && !sp.pb)) continue;
       const px = sp.a + i * bw;
+      if (s.clearWindows && windows.some((w) => px > w.x0 - pw && px < w.x1 + pw)) continue;
       if (s.columns) {
         ibeam(b, st.trim, 'y', px, h / 2, pd / 2, h, pw, pd, 0.02, 0.015);
         b.box(st.trim, px, 0.02, pd / 2, pw + 0.16, 0.04, pd + 0.1);
@@ -166,7 +181,7 @@ export function wallFace(b: Builder, s: WallSpec) {
             const ya = 1.15 + k * th + (k ? 0.04 : 0), yb = 1.15 + (k + 1) * th - 0.02;
             if (hitsWindow(x0, x1, ya, yb)) continue;
             panel(b, st.panel, x0, ya, x1, yb, 0, pd0);
-            if (x1 - x0 > 0.4) bolts4(b, x0, ya, x1, yb, pd0);
+            if (x1 - x0 > 0.4 && ya < (s.boltsBelow ?? Infinity)) bolts4(b, x0, ya, x1, yb, pd0);
             if (k) b.bx(st.trim, x0 - 0.02, ya - 0.06, 0, x1 + 0.02, ya - 0.02, 0.05);
           }
           const cx = (x0 + x1) / 2;
@@ -233,6 +248,8 @@ export interface FixtureOpts {
   glowMat?: THREE.Material;
   /** Aim point override. */
   target?: [number, number, number];
+  /** Explicit light bounds (see LightOpts.bounds); default = the room the fixture sits in. */
+  bounds?: THREE.Box3 | null;
 }
 
 /** Recessed / surface fluorescent troffer on a ceiling at height y, shining down. */
@@ -243,7 +260,7 @@ export function troffer(b: Builder, L: LevelBuild, o: FixtureOpts): LightHandle 
   if (!o.dead) {
     const t = o.target ?? [o.x, 0, o.z];
     h = L.spot(o.group, o.x, o.y - 0.14, o.z, t[0], t[1], t[2], o.color ?? 0xcfe6f2, o.intensity ?? 45, o.distance ?? 7, o.angle ?? 1.05,
-      { flicker: o.flicker, cast: o.cast, vol: o.vol, enabled: o.enabled, priority: o.priority, penumbra: 0.75 });
+      { flicker: o.flicker, cast: o.cast, vol: o.vol, enabled: o.enabled, priority: o.priority, penumbra: 0.75, bounds: o.bounds });
   }
   b.detail(() => {
     b.box('trim_steel', o.x, o.y - 0.045, o.z, sx + 0.12, 0.09, sz + 0.12);
@@ -266,7 +283,7 @@ export function troffer(b: Builder, L: LevelBuild, o: FixtureOpts): LightHandle 
 export function highbay(b: Builder, L: LevelBuild, o: FixtureOpts & { top: number }): LightHandle {
   const t = o.target ?? [o.x, 0, o.z];
   const h = L.spot(o.group, o.x, o.y - 0.05, o.z, t[0], t[1], t[2], o.color ?? 0xd8ecff, o.intensity ?? 300, o.distance ?? 14, o.angle ?? 0.75,
-    { flicker: o.flicker, cast: o.cast, vol: o.vol, enabled: o.enabled, priority: o.priority, penumbra: 0.5 });
+    { flicker: o.flicker, cast: o.cast, vol: o.vol, enabled: o.enabled, priority: o.priority, penumbra: 0.5, bounds: o.bounds });
   b.detail(() => {
     b.rod('trim_steel', o.x, o.y + 0.45, o.z, o.x, o.top, o.z, 0.02, 6);
     b.box('painted_dark', o.x, o.y + 0.4, o.z, 0.22, 0.14, 0.22);

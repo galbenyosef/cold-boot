@@ -1,0 +1,14 @@
+{
+  "describe": "male, middle-aged, very low pitch",
+  "seed": 1,
+  "refText": "Line two is running sweet tonight. Mind the step there, my knee's not what it was. The tea is on, if you want some.",
+  "language": "en",
+  "source": "audition 4",
+  "sha": "078ffef65504807b",
+  "duration": 6.34,
+  "asr": {
+    "ok": false,
+    "score": 0.8,
+    "transcript": "line two is running sweet tonight mind the step there my knees not what it was the t is on if you want some"
+  }
+}

@@ -4,7 +4,7 @@
  */
 import { mulberry } from './synth/core';
 
-export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate' | 'dead' | 'cistern';
+export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate' | 'dead' | 'cistern' | 'clean';
 
 interface IrSpec {
   len: number;
@@ -33,6 +33,8 @@ const SPECS: Record<IrName, IrSpec> = {
   dead: { len: 0.55, rt: [0.32, 0.2, 0.09], predelay: 0.002, early: 14, earlyWin: 0.012, earlyGain: 0.35, build: 0.004, gain: 0.7 },
   // flooded concrete sump with steel pipework: long, wet, hard metallic ringing
   cistern: { len: 5.0, rt: [4.2, 3.4, 1.7], predelay: 0.014, early: 20, earlyWin: 0.08, earlyGain: 0.6, flutter: 0.0175, flutterGain: 0.3, ring: [118, 262, 557, 991, 1720], ringGain: 0.065, build: 0.05, gain: 1.05 },
+  // level 2 core: big, bare, hard and bright — a long even tail with no metallic character
+  clean: { len: 4.2, rt: [2.6, 3.0, 2.4], predelay: 0.024, early: 14, earlyWin: 0.09, earlyGain: 0.4, build: 0.06, gain: 1 },
   plate: { len: 3.2, rt: [2.4, 2.8, 2.2], predelay: 0.012, early: 0, earlyWin: 0.01, earlyGain: 0, build: 0.005, gain: 1 },
 };
 
@@ -126,6 +128,9 @@ const ROOM_EVENTS = { drip: 2, dist_knock: 2, vent_scuttle: 1, metal_groan: 1, d
 const DREAD_ROOM = { far_steps: 2, drag_far: 1.1, door_far: 1, breath_far: 1.2, husk_whisper: 0.5, pipe_tick: 1.6, dist_knock: 0.8, drip: 0.6, metal_groan: 0.5, vent_scuttle: 0.25 };
 const DREAD_CORRIDOR = { far_steps: 2.4, drag_far: 1.2, door_far: 1.2, breath_far: 0.8, husk_whisper: 0.5, pipe_tick: 1.2, dist_knock: 1, drip: 0.8, metal_groan: 0.7, vent_scuttle: 0.3 };
 
+const L2_QUIET = { far_steps: 1.4, door_far: 1, pipe_tick: 1.6, dist_knock: 1, drip: 0.5, metal_groan: 0.6, dist_clank: 0.6, breath_far: 0.4 };
+const L2_CORRIDOR = { far_steps: 2.2, drag_far: 1, door_far: 1.2, pipe_tick: 1.4, dist_knock: 1, drip: 0.8, metal_groan: 0.8, vent_scuttle: 0.4, breath_far: 0.6 };
+
 export const ROOMS: Record<string, RoomPreset> = {
   med: { ir: 'padded', wet: 0.35, bed: { amb_room: 0.8 }, events: DREAD_ROOM, quiet: true },
   corr_a: { ir: 'corridor', wet: 0.55, bed: { amb_room: 1 }, events: DREAD_CORRIDOR, quiet: true },
@@ -149,6 +154,19 @@ export const ROOMS: Record<string, RoomPreset> = {
   gen: { ir: 'machine', wet: 0.55, bed: { amb_gen: 1, amb_room: 0.3 }, events: { dist_clank: 2, metal_groan: 2, spark_zap: 1, dist_knock: 1 } },
   lobby: { ir: 'machine', wet: 0.5, bed: { amb_room: 0.9, amb_fab: 0.25 }, events: { metal_groan: 2, dist_clank: 2, dist_voice: 1, drip: 1, dist_knock: 1 } },
   elevator: { ir: 'shaft', wet: 0.6, bed: { amb_room: 0.6, amb_fab: 0.2 }, events: { metal_groan: 3, dist_clank: 2, dist_voice: 0.8 } },
+
+  // ── level 2 "LINE TWO" (REVISION 4). Tidy, lit, wrong: the quiet rooms keep the dread palette but no
+  // husk whispers (the units here are working, and the recorded mutters come from the enemies module).
+  cab: { ir: 'shaft', wet: 0.5, bed: { amb_room: 0.55, amb_fab: 0.15 }, events: { metal_groan: 2, dist_clank: 1.5, dist_knock: 1 } },
+  dock: { ir: 'machine', wet: 0.45, bed: { amb_room: 0.8 }, events: L2_QUIET, quiet: true },
+  intake: { ir: 'padded', wet: 0.38, bed: { amb_room: 0.75 }, events: L2_QUIET, quiet: true },
+  line: { ir: 'hall', wet: 0.78, bed: { amb_fab: 0.9, amb_room: 0.3 }, events: { dist_clank: 2.5, metal_groan: 2.5, dist_knock: 1, drip: 0.6, conveyor_clunk: 0.8 } },
+  booth: { ir: 'dead', wet: 0.22, bed: { amb_quarters: 0.9 }, events: { pipe_tick: 1, dist_knock: 1, metal_groan: 0.5 }, quiet: true },
+  fitting: { ir: 'machine', wet: 0.52, bed: { amb_room: 0.6, amb_gen: 0.25 }, events: { dist_clank: 1.2, metal_groan: 1, dist_knock: 1, pipe_tick: 0.8 } },
+  relay: { ir: 'machine', wet: 0.48, bed: { amb_gen: 0.9, amb_room: 0.3 }, events: { spark_zap: 1.5, dist_clank: 1, metal_groan: 1, dist_knock: 0.8 } },
+  spine: { ir: 'corridor', wet: 0.6, bed: { amb_room: 1 }, events: L2_CORRIDOR, quiet: true },
+  core: { ir: 'clean', wet: 0.6, bed: { amb_room: 0.25 }, events: {} },
+  lift: { ir: 'dead', wet: 0.3, bed: { amb_room: 0.6 }, events: { metal_groan: 1, dist_clank: 1 } },
 };
 export const DEFAULT_ROOM: RoomPreset = { ir: 'corridor', wet: 0.5, bed: { amb_room: 0.8 }, events: ROOM_EVENTS };
 

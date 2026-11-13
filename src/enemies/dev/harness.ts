@@ -10,6 +10,12 @@
  *   &pwalk=x0,z0,x1,z1,sec    scripted player walking back and forth between two points (faces travel direction)
  *   &pface=1                  …but always facing the machine (stare)          &pnear=<s> (state=dormant: approach)
  *   &actor=1 [&pose=..] &to=x,y,z [&speed=] [&at=<s>] [&apose=name&aposeat=<s>] [&alook=x,y,z] [&eyes=0|1]
+ * Revision 4:
+ *   &type=human|foreman   &speak=<s> (actor speaks from t=0.3)  &gait=limp|carry|carry_l|carry_r
+ *   &scene=booth          glass pane GLASS_Z in front of the actor, warm light behind it, dim foreground
+ *   &shelf=1              a 1.0 m shelf in front of the machine (fold workers)
+ *   &flashlit=1           scripted player keeps a flashlight on the machine's head
+ *   &fire=<s>             scripted player fires a weapon at time s (weapon:fired event)
  */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -36,7 +42,7 @@ async function main() {
   const camera = new THREE.PerspectiveCamera(Number(P('fov', '40')), innerWidth / innerHeight, 0.02, 200);
   const debug = { autostart: true, spawn: null, noEnemies: false, noStory: true, god: false, giveAll: false, quality: null, verbose: true, fps: 0 };
   const ctx = {
-    canvas, uiRoot: document.getElementById('ui')!, scene, camera, events, physics: createPhysics(), debug, time: 0, state: 'playing', ready: false,
+    canvas, uiRoot: document.getElementById('ui')!, scene, camera, events, physics: createPhysics(), debug, time: 0, state: 'playing', ready: false, levelId: Number(P('level', '2')),
     setState() {},
   } as unknown as GameContext;
   (window as any).__game = ctx;
@@ -68,7 +74,8 @@ async function main() {
   const renderer = ctx.renderer;
   const audioLog: string[] = [];
   ctx.audio = {
-    unlock: async () => {}, play() {}, setMusic() {}, setRoom() {}, choirVoice() {}, setMasterVolume() {}, setMuffle() {}, update() {},
+    unlock: async () => {}, play(id: string) { audioLog.push('play:' + id); }, setMusic() {}, setRoom() {}, choirVoice() {}, setMasterVolume() {}, setMuffle() {}, update() {},
+    say(id: string) { audioLog.push('say:' + id); return { duration: 2, done: Promise.resolve(), setPosition() {}, stop() {} }; }, preloadVoice: async () => {},
     loop(id: string) { audioLog.push('loop+' + id); return { setVolume() {}, setPosition() {}, stop() { audioLog.push('loop-' + id); } }; },
   } as any;
 
@@ -97,11 +104,27 @@ async function main() {
     const vx = Number(P('vx', '0')), vz = Number(P('vz', '0'));
     if (q.get('vent') === '1') addBox(0.9, 0.4, 0.9, vx, 3.0, vz, wallMat);
   }
+  if (q.get('shelf') === '1') addBox(1.4, 1.0, 0.4, Number(P('x', '0')), 0.5, Number(P('z', '0')) + 0.62, wallMat);
+  if (q.get('scene') === '1' || q.get('scene') === 'booth') {
+    // the booth: a pane of thick glass in front of him, warm light inside, the viewer in the dim hall
+    const gz = Number(P('z', '0')) + 0.42;
+    const gm = (ctx.materials.get('glass_thick' as MaterialName).name === 'glass_thick' ? ctx.materials.get('glass_thick' as MaterialName) : ctx.materials.get('glass')).clone();
+    gm.transparent = true; gm.opacity = Math.min(gm.opacity ?? 1, 0.35); gm.depthWrite = false;
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.6), gm);
+    pane.position.set(0, 1.3, gz); scene.add(pane);
+    addBox(4, 0.9, 0.3, 0, 0.45, gz + 0.15, wallMat); // console sill under the glass
+  }
   if (q.get('obst') === '1') { addBox(1.2, 1.2, 1.2, 2.5, 0.6, 4, wallMat); addBox(4, 2.5, 0.4, -3, 1.25, 6, wallMat); addBox(0.6, 0.25, 3, 0, 0.125, 5, wallMat); }
   ctx.physics.build(colliders);
 
   const lights = ctx.render.lights;
-  if (lightMode === 'studio') {
+  if (q.get('scene') === 'booth') {
+    const z0 = Number(P('z', '0'));
+    lights.add({ type: 'point', position: new THREE.Vector3(-0.5, 2.7, z0 - 0.6), color: 0xffb46a, intensity: 10, distance: 7, castShadow: true });
+    lights.add({ type: 'spot', position: new THREE.Vector3(0.5, 2.8, z0 + 0.3), target: new THREE.Vector3(0, 1.2, z0), color: 0xffc890, intensity: 45, distance: 8, angle: 0.8, penumbra: 0.8, castShadow: true });
+    lights.add({ type: 'point', position: new THREE.Vector3(0, 0.8, z0 + 0.25), color: 0x6fb0ff, intensity: 0.25, distance: 1.5 }); // console glow
+    lights.add({ type: 'point', position: new THREE.Vector3(3, 3, z0 + 6), color: 0x4a5a70, intensity: 3, distance: 14 });  // hall
+  } else if (lightMode === 'studio') {
     lights.add({ type: 'spot', position: new THREE.Vector3(3.5, 5, 5.5), target: new THREE.Vector3(0, 0.9, 0), color: 0xfff1e0, intensity: 520, distance: 30, angle: 0.5, penumbra: 0.6, castShadow: true });
     lights.add({ type: 'point', position: new THREE.Vector3(-4, 2.5, 1), color: 0x7fb0ff, intensity: 40, distance: 20 });
     lights.add({ type: 'point', position: new THREE.Vector3(0, 3, -2.2), color: 0xffffff, intensity: 30, distance: 12 });
@@ -132,7 +155,7 @@ async function main() {
   for (const sp of enemySpawns) sp.group = P('group', 'g');
   const player = {
     position: new THREE.Vector3(0, 0, 9), eye: new THREE.Vector3(0, 1.65, 9), velocity: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, -1),
-    alive: true, health: 100, maxHealth: 100,
+    alive: true, health: 100, maxHealth: 100, flashlightOn: false, shake() {}, setCarry() {},
     damage(n: number) { player.health -= n; console.log('[harness] player damaged', n, '→', player.health); },
   };
   ctx.player = player as any;
@@ -173,6 +196,7 @@ async function main() {
     actor = enemies.actor(type, spawnPos, yaw0, pose === 'none' ? undefined : pose);
     if (q.get('eyes')) actor.setEyes(q.get('eyes') === '1');
     if (q.get('alook')) actor.lookAt(v3('alook'));
+    if (q.get('gait')) actor.setGait?.(q.get('gait')!);
   }
   const first = () => (actor ? { position: actor.position, object: actor.object, state: 'actor', health: 0, yaw: 0 } as any : enemies.all[0]);
   tuneSkitters();
@@ -252,6 +276,9 @@ async function main() {
       actorArrived = -2;
       actor.moveTo(v3('to'), q.get('speed') ? Number(q.get('speed')) : undefined).then(() => { actorArrived = time; console.log('[harness] actor arrived at t=' + time.toFixed(2)); });
     }
+    if (actor && q.get('speak') && (actor as any)._spoke !== true && time > 0.3) { (actor as any)._spoke = true; actor.speak?.(Number(q.get('speak'))); }
+    if (q.get('flashlit') === '1' && e) { (player as any).flashlightOn = true; player.forward.copy(e.position).setY(e.position.y + 1.68).sub(player.eye).normalize(); }
+    if (q.get('fire') && (ctx as any)._fired !== true && time > Number(q.get('fire'))) { (ctx as any)._fired = true; events.emit('weapon:fired', { weapon: 'pistol', origin: player.eye.clone(), direction: player.forward.clone() }); }
     if (actor && q.get('apose') && time >= Number(P('aposeat', '1')) && (actor as any)._posed !== true) { (actor as any)._posed = true; actor.setPose(q.get('apose')!); }
     enemies.update(dt);
     ctx.fx.update(dt);

@@ -103,4 +103,37 @@ export function noise1(t: number, seed = 0): number {
   return h(i) * (1 - u) + h(i + 1) * u;
 }
 
+const _dn = new THREE.Vector3(), _pp = new THREE.Vector3(), _ud = new THREE.Vector3();
+const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3();
+const _mb = new THREE.Matrix4();
+const _iq = new THREE.Quaternion();
+/**
+ * Two-bone arm IK in world space for a limb hanging along local -Y whose elbow flexes about local X with a
+ * NEGATIVE angle (forearm swings toward local +Z). Writes `upper.quaternion` (relative to its parent whose
+ * world rotation is `parentQ`) and returns the elbow flex angle (>= 0; apply as rotation.x = -bend).
+ */
+export function armIK(S: THREE.Vector3, T: THREE.Vector3, elbowDir: THREE.Vector3, l1: number, l2: number, parentQ: THREE.Quaternion, upper: THREE.Object3D): number {
+  _dn.copy(T).sub(S);
+  let dist = _dn.length();
+  if (dist < 1e-5) { _dn.set(0, -1, 0); dist = 0.1; }
+  _dn.multiplyScalar(1 / (_dn.length() || 1));
+  dist = Math.min(Math.max(dist, Math.abs(l1 - l2) + 0.03), (l1 + l2) * 0.995);
+  const a = Math.acos(THREE.MathUtils.clamp((l1 * l1 + dist * dist - l2 * l2) / (2 * l1 * dist), -1, 1));
+  const bend = Math.PI - Math.acos(THREE.MathUtils.clamp((l1 * l1 + l2 * l2 - dist * dist) / (2 * l1 * l2), -1, 1));
+  _pp.copy(elbowDir).addScaledVector(_dn, -elbowDir.dot(_dn));
+  if (_pp.lengthSq() < 1e-8) _pp.set(0, 1, 0).addScaledVector(_dn, -_dn.y);
+  _pp.normalize();
+  _ud.copy(_dn).multiplyScalar(Math.cos(a)).addScaledVector(_pp, Math.sin(a)).normalize();
+  // basis: y = -upper direction, z = toward the target side of the bend plane, x = y × z
+  _by.copy(_ud).negate();
+  _bz.copy(_dn).addScaledVector(_ud, -_dn.dot(_ud));
+  if (_bz.lengthSq() < 1e-8) _bz.copy(_pp).negate();
+  _bz.normalize();
+  _bx.copy(_by).cross(_bz).normalize();
+  _mb.makeBasis(_bx, _by, _bz);
+  _iq.setFromRotationMatrix(_mb);
+  upper.quaternion.copy(parentQ).invert().multiply(_iq);
+  return bend;
+}
+
 export { _qb as scratchQ };

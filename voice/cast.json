@@ -1,0 +1,153 @@
+{
+  "_doc": "THE place to change a voice. Edit describe/seed/refText of one character and run `npm run voice`: its reference is re-designed and only its lines are regenerated. Or audition: `npm run voice:cast -- <char> --audition 5`, then `--pick N`. See tools/voice/README.md.",
+  "language": "en",
+  "aliases": {
+    "pa": "choir",
+    "d.hale": "hale",
+    "dana": "hale",
+    "husk": "unit",
+    "units": "unit",
+    "unit32": "tomas"
+  },
+  "characters": {
+    "choir": {
+      "name": "CHOIR",
+      "describe": "male, middle-aged, moderate pitch",
+      "seed": 3,
+      "refText": "We are glad you are awake, Technician. Everything is in order. Please, take your time. We will wait for you.",
+      "fx": "choir",
+      "why": "calm, very steady male-ish voice (F0 ~180 Hz, the most consistent clone of the audition); the run-time choir chain layers it with copies shifted −5/+4/−12 semitones (formants move too), so it reads plural and androgynous",
+      "fxRules": [
+        {
+          "id": "^l2_choir_shutdown_1$",
+          "fx": "choir:3"
+        },
+        {
+          "id": "^l2_choir_shutdown_2$",
+          "fx": "choir:2"
+        },
+        {
+          "id": "^l2_choir_shutdown_3$",
+          "fx": "choir:1"
+        }
+      ]
+    },
+    "tomas": {
+      "name": "TOMAS",
+      "describe": "male, young adult, moderate pitch",
+      "seed": 1,
+      "refText": "Okay, okay, sorry, I'm talking too fast again. It's just been a really long night down here, you know?",
+      "fx": "headset",
+      "variants": {
+        "whisper": {
+          "derive": {
+            "whisper": 1.0
+          },
+          "match": [
+            "whisper",
+            "hushed",
+            "under his breath",
+            "barely voiced",
+            "barely audible"
+          ],
+          "level": -4
+        },
+        "breathless": {
+          "derive": {
+            "whisper": 0.45,
+            "pace": 1.08
+          },
+          "match": [
+            "out of breath",
+            "panting",
+            "winded",
+            "breath short"
+          ],
+          "level": -1
+        }
+      },
+      "fxRules": [
+        {
+          "id": "^l2_tomas_(hello_|reyes|oneway|estop_|sulking|ask$|pass$|handset|go$|bark_glass_)",
+          "fx": "intercom"
+        }
+      ],
+      "knobs": {
+        "speed": 1.1
+      },
+      "why": "light young male (median F0 ~190 Hz); speed 1.1 = 10% less audio length than the duration estimate: he talks too fast. Measured 2026-11-12 on 12 of his lines × 2 seeds: errors 8 vs 9 at 1.0 (not worse)."
+    },
+    "hale": {
+      "name": "D. HALE",
+      "describe": "female, middle-aged, very low pitch",
+      "seed": 2,
+      "refText": "This is Hale. It's late, I haven't slept, and the line is still running. Write this down, whoever finds it.",
+      "fx": "recorder",
+      "variants": {
+        "whisper": {
+          "derive": {
+            "whisper": 0.75
+          },
+          "match": [
+            "whisper",
+            "hushed"
+          ],
+          "level": -4
+        }
+      },
+      "why": "dark, low, tired (F0 ~184 Hz, darkest spectrum of the auditions)",
+      "lineSeeds": {
+        "l2_foreman_hale_die": 1
+      }
+    },
+    "voss": {
+      "name": "VOSS",
+      "describe": "female, young adult, low pitch",
+      "seed": 3,
+      "refText": "Security, Voss speaking. Cameras three and four are down again. I'm logging it, and then I'm going to go and look.",
+      "fx": "unit",
+      "why": "young, low, clipped security officer (F0 ~235 Hz)"
+    },
+    "anand": {
+      "name": "DR. ANAND",
+      "describe": "male, elderly, low pitch",
+      "seed": 5,
+      "refText": "Try to stay still for me. You took a bad shock, but your pulse is steady. Breathe slowly. Good. That's it.",
+      "fx": "unit",
+      "why": "gentle older man (F0 ~163 Hz, dark); 'elderly, moderate pitch' auditions came out at ~200 Hz and were rejected"
+    },
+    "okafor": {
+      "name": "OKAFOR",
+      "describe": "male, middle-aged, very low pitch",
+      "seed": 1,
+      "refText": "Line two is running sweet tonight. Mind the step there, my knee's not what it was. The tea is on, if you want some.",
+      "fx": "unit",
+      "why": "lowest male voice of the cast (F0 ~137 Hz), kind"
+    },
+    "unit": {
+      "name": "UNIT",
+      "describe": "female, young adult, moderate pitch",
+      "seed": 2,
+      "refText": "Good evening. Thank you for your patience. Please remain where you are. A member of staff will be with you shortly.",
+      "fx": "unit",
+      "fxRules": [
+        {
+          "note": "automated",
+          "fx": "pa"
+        }
+      ],
+      "why": "bright, polite service voice (F0 ~269 Hz) for lines with no staff donor; through the unit chain"
+    },
+    "foreman": {
+      "name": "FOREMAN",
+      "layers": [
+        "voss",
+        "anand",
+        "okafor"
+      ],
+      "fx": "foreman",
+      "why": "three staff voices at once, out of sync (each layer is a real take in that character's voice)"
+    }
+  },
+  "_fx": "Run-time processing names (src/audio/voice.ts): clean, choir (choir:N = N layers), intercom, headset (alias radio), unit, recorder, pa, foreman. Resolution: line.fx > first matching fxRules entry (id regex / note substring) > variant fx > character fx."
+}

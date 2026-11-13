@@ -20,6 +20,10 @@ export interface CamState {
   /** Signed strafe speed (m/s), + = right. */
   strafe: number;
   time: number;
+  /** 0..1 running-belt shudder (conveyor carry). Optional. */
+  shudder?: number;
+  /** Carry speed in m/s (drives the slat-seam bumps). Optional. */
+  carrySpeed?: number;
 }
 
 export class CameraRig {
@@ -31,6 +35,9 @@ export class CameraRig {
   private dmgRoll = new Spring(3.5, 0.45);
   private roll = 0;
   private bobA = 0;
+  private shud = 0;
+  private slatPhase = 0;
+  private slatDip = 0;
   private fov: number;
   private baseFov: number;
   deathT = -1;
@@ -93,13 +100,28 @@ export class CameraRig {
     const shY = sh * 0.07 * noise1(t * f, 12);
     const shR = sh * 0.09 * noise1(t * f, 13);
 
-    let pitch = s.pitch + this.kickPitch.x + this.dmgPitch.x * 0.1 + bpitch + brP + shP;
+    // running belt: a fine motor buzz through the soles plus a soft knock at every slat seam
+    this.shud = damp(this.shud, clamp(s.shudder ?? 0, 0, 1), 8, dt);
+    let beltY = 0, beltR = 0, beltP = 0;
+    if (this.shud > 1e-3) {
+      const sp = s.carrySpeed ?? 0;
+      this.slatPhase += sp * dt / 0.42;
+      if (this.slatPhase >= 1) { this.slatPhase -= Math.floor(this.slatPhase); this.slatDip = 1; }
+      this.slatDip = Math.max(0, this.slatDip - dt * 9);
+      const knock = this.slatDip * this.slatDip;
+      const k = this.shud;
+      beltY = (noise1(t * 31, 21) * 0.0016 - knock * 0.0045) * k;
+      beltR = noise1(t * 17, 22) * 0.0022 * k;
+      beltP = (noise1(t * 26, 23) * 0.0011 + knock * 0.0012) * k;
+    }
+
+    let pitch = s.pitch + this.kickPitch.x + this.dmgPitch.x * 0.1 + bpitch + brP + shP + beltP;
     const yaw = s.yaw + this.kickYaw.x + brY + shY;
-    let roll = this.roll + broll + this.dmgRoll.x * 0.08 + shR;
+    let roll = this.roll + broll + this.dmgRoll.x * 0.08 + shR + beltR;
 
     // position: eye + bob in view-yaw space + landing dip
     const sin = Math.sin(s.yaw), cos = Math.cos(s.yaw);
-    this.pos.set(s.eye.x + cos * bx, s.eye.y + by + this.landDip.x * 0.06, s.eye.z - sin * bx);
+    this.pos.set(s.eye.x + cos * bx, s.eye.y + by + this.landDip.x * 0.06 + beltY, s.eye.z - sin * bx);
 
     // death collapse
     if (this.deathT >= 0) {

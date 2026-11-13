@@ -125,7 +125,9 @@ export interface GameEvents {
   'enemy:woke': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:alerted': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:attack': { id: number; type: EnemyType; position: THREE.Vector3; kind: 'melee' | 'ranged' };
-  'enemy:damaged': { id: number; type: EnemyType; point: THREE.Vector3; direction: THREE.Vector3; amount: number };
+  'enemy:damaged': { id: number; type: EnemyType; point: THREE.Vector3; direction: THREE.Vector3; amount: number; part?: string };
+  /** REVISION 4: a destructible part is gone (foreman heads: 'head_a' | 'head_b' | 'head_c'; arms). */
+  'enemy:part-destroyed': { id: number; type: EnemyType; part: string; position: THREE.Vector3 };
   'enemy:died': { id: number; type: EnemyType; position: THREE.Vector3; group: string };
   'enemy:step': { id: number; type: EnemyType; position: THREE.Vector3 };
   /** Every enemy of a spawn group is dead. */
@@ -663,6 +665,8 @@ export interface Player extends Updatable {
    * are on the ground — conveyor belts. null = none. The level sets/clears it every frame it applies.
    */
   setCarry(velocity: THREE.Vector3 | null): void;
+  /** REVISION 4: apply only weapons, ammo, health and flashlight from a save (level-to-level carry). No teleport, no pickups. */
+  applyLoadout(save: PlayerSave): void;
   /** Checkpoints: plain-JSON snapshot of everything the player module owns (incl. collected pickups). */
   snapshot(): PlayerSave;
   /** Restore a snapshot: teleport, health, weapons/ammo, keys, flashlight; remove already-collected pickups. Emits no pickup events. */

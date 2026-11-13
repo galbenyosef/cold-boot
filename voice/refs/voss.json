@@ -1,0 +1,14 @@
+{
+  "describe": "female, young adult, low pitch",
+  "seed": 3,
+  "refText": "Security, Voss speaking. Cameras three and four are down again. I'm logging it, and then I'm going to go and look.",
+  "language": "en",
+  "source": "audition 3",
+  "sha": "bec1161d97be50da",
+  "duration": 6.4,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "security voss speaking cameras three and four are down again im logging it and then im going to go and look"
+  }
+}

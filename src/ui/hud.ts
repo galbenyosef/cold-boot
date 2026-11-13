@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { GameContext, PickupKind, WeaponId } from '../core/types';
 import { h, setText, toggle, Scrambler, svg, ICONS } from './dom';
+import { BossPips } from './boss';
 
 const SEGMENTS = 20;
 const WEAPON_NAMES: Record<WeaponId, string> = { pistol: 'HD-9 SIDEARM', shotgun: 'HD-12 BREACHER' };
@@ -49,6 +50,7 @@ export class Hud {
   private cpEl: HTMLDivElement;
   private cpLeft = 0;
   private pickups: HTMLDivElement;
+  private boss: BossPips;
   private dmgEls: { svg: SVGSVGElement; from: THREE.Vector3 | null; angle: number; life: number }[] = [];
 
   // cached values
@@ -128,13 +130,15 @@ export class Hud {
     // location + toast + pickups
     this.location = h('div', 'location', root);
     this.locName = h('span', '', this.location, '');
-    this.locSub = h('small', '', this.location, 'SUBLEVEL 3');
+    this.locSub = h('small', '', this.location, (ctx.levelId ?? 1) === 2 ? 'LINE TWO' : 'SUBLEVEL 3');
     this.toastEl = h('div', 'toast', root, '');
     this.pickups = h('div', 'pickups', root);
     // checkpoint indicator (top right): a small turning diamond + label
     this.cpEl = h('div', 'cp', root);
     h('span', 'lbl', this.cpEl, 'CHECKPOINT');
     h('i', '', this.cpEl);
+    // foreman head pips (level 2 boss), under the checkpoint corner
+    this.boss = new BossPips(ctx, root);
 
     // damage direction arcs
     const dmg = h('div', 'dmg', root);
@@ -191,7 +195,8 @@ export class Hud {
   }
 
   private addPickup(kind: PickupKind, amount: number): void {
-    const [name, cls] = PICKUP_TEXT[kind] ?? [String(kind).toUpperCase(), ''];
+    let [name, cls] = PICKUP_TEXT[kind] ?? [String(kind).toUpperCase(), ''];
+    if (kind === 'keycard' && (this.ctx.levelId ?? 1) === 2) name = 'SECTION PASS';
     const row = h('div', 'pk ' + cls, null);
     const showAmt = cls !== 'weapon' && amount > 0;
     h('b', '', row, showAmt ? `+${amount}` : '+');
@@ -329,6 +334,7 @@ export class Hud {
     }
 
     if (this.cpLeft > 0 && (this.cpLeft -= dt) <= 0) this.cpEl.classList.remove('show');
+    this.boss.update(dt);
 
     // ── objective freshness
     this.objScr.update(dt);
@@ -359,6 +365,7 @@ export class Hud {
       // Shown once we're actually in play (e.g. MEDICAL 3-A right after the wake-up).
       if (this.pendingRoom && ctx.state === 'playing') {
         setText(this.locName, this.pendingRoom);
+        toggle(this.locSub, 'hidden', this.pendingRoom.trim().toUpperCase() === (this.locSub.textContent ?? '').trim().toUpperCase());
         this.pendingRoom = null;
         this.location.classList.remove('show');
         void this.location.offsetWidth;

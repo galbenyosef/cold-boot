@@ -60,7 +60,7 @@ async function main() {
   const stats = { time: 734, kills: 17, logs: 4, logsTotal: 5 };
   const ctx = {
     canvas, uiRoot: document.getElementById('ui')!, events, input: createInput(canvas),
-    debug: { autostart: screen !== 'pause', spawn: null, noEnemies: true, noStory: true, god: true, giveAll: false, quality: null, verbose: false, fps: 60 },
+    debug: { autostart: !screen.startsWith('pause'), spawn: null, noEnemies: true, noStory: true, god: true, giveAll: false, quality: null, verbose: false, fps: 60 },
     time: 0, state: 'loading' as GameState, ready: false,
     setState(s: GameState) { if (s === ctx.state) return; const prev = ctx.state; ctx.state = s; events.emit('game:state', { state: s, prev }); },
     player,
@@ -69,7 +69,13 @@ async function main() {
     level: { roomAt: () => ({ id: 'junction', name: 'JUNCTION 3' }), object: () => undefined, screen: () => undefined },
     story: { objective: 'Fab access is on security hold — go to Security 3', logs: new Set(['log_med']), stats, lateUpdate() {}, update() {}, async run() {} },
     interactables: { get: () => undefined },
+    levelId: q.get('level') === '2' || /-l2$|^dialogue|^boss/.test(screen) ? 2 : 1,
+    enemies: { all: [] as any[], activeCount: 0 },
   } as unknown as GameContext;
+  if (ctx.levelId === 2) {
+    (ctx.level as any).roomAt = () => ({ id: 'line', name: 'LINE TWO' });
+    (ctx.story as any).objective = 'Find a way into Line Control';
+  }
   (window as any).__game = ctx;
   const ui = await createUI(ctx) as UIInternal;
   ctx.ui = ui;
@@ -85,7 +91,7 @@ async function main() {
   requestAnimationFrame(loop);
 
   const dev = document.getElementById('dev')!;
-  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake']) {
+  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2']) {
     const a = document.createElement('a'); a.href = `?screen=${s}`; a.textContent = s; dev.appendChild(a);
   }
 
@@ -150,6 +156,50 @@ async function main() {
     case 'death': ctx.setState('dead'); void ui.showDeath(); break;
     case 'ending': ctx.setState('ended'); void ui.showEnding(); break;
     case 'gate': ctx.setState('menu'); void ui.showResumeGate(); break;
+    case 'menu-l2':
+      try { localStorage.setItem('coldboot.level', '2'); } catch { /* ignore */ }
+      ctx.setState('menu'); void ui.showMenu(); break;
+    case 'dialogue':
+    case 'dialogue-note': {
+      playing();
+      player.currentWeapon = 'pistol';
+      emit('story:objective', { text: 'Find a way into Line Control' });
+      setTimeout(() => emit('story:toast', { text: 'INTERLOCK — LINE HELD' }), 200);
+      player.focus = { id: 'intercom_hall', kind: 'button', prompt: 'Use intercom', enabled: true, position: new THREE.Vector3() };
+      const lines: [string, string, number][] = [
+        ['TOMAS', "Okay. Okay, you can hear me. Sorry — I've been talking to the coffee machine for two days.", 4.2],
+        ['CHOIR', 'He is tired, Technician. Please let him rest.', 3.2],
+        ['TOMAS', "Don't listen to it. Fitting bays, east side. The pass is on the desk.", 3.6],
+        ['UNIT 32 (VOSS)', 'Shift change in four minutes. Please return to your station.', 3.4],
+        ['RECORDER — HALE', 'Pump two is isolated. Do not open the lock-out without me.', 3.6],
+      ];
+      const n = Number(q.get('n') ?? 2);
+      lines.slice(0, n).forEach(([sp, t, d], i) => setTimeout(() => emit('story:subtitle', { speaker: sp, text: t, duration: d + 30 }), 200 + i * 700));
+      if (screen === 'dialogue-note') { const f = FRAGMENTS.log_sec; setTimeout(() => void ui.showNote(f.header, f.body, f.style), 2000); }
+      break;
+    }
+    case 'boss': {
+      playing();
+      player.currentWeapon = 'shotgun';
+      emit('story:objective', { text: 'Survive' });
+      const boss: any = { id: 7, type: 'foreman', group: 'g2_foreman', position: new THREE.Vector3(), health: 600, alive: true, state: 'chase', object: { userData: {} }, heads: [{ health: 200 }, { health: 200 }, { health: 200 }] };
+      (ctx.enemies as any).all.push(boss);
+      emit('enemy:woke', { id: 7, type: 'foreman', position: boss.position });
+      const kill = Number(q.get('kill') ?? 1);
+      for (let i = 0; i < kill; i++) setTimeout(() => { boss.heads[i].health = 0; boss.health -= 200; emit('enemy:damaged', { id: 7, type: 'foreman', point: boss.position, direction: boss.position, amount: 60 }); }, 400 + i * 300);
+      break;
+    }
+    case 'card-title-l2': ctx.setState('menu'); void ui.showCard(['LINE TWO', 'SUBLEVEL 5  ·  FINAL ASSEMBLY'], { style: 'title', skippable: true, seconds: 60 }); break;
+    case 'card-end-l2': ctx.setState('ended'); void ui.showCard([
+      'CHOIR stopped at 04:12.',
+      'Thirty-two units are standing where they dropped.\nNobody has told them.',
+      'Unit 14 followed you to the end.',
+      '',
+      'TIME: 27:41',
+      'RECORDS: 9 / 11',
+      'TO BE CONTINUED',
+    ], { style: 'ending', skippable: true, seconds: 8 }); break;
+    case 'pause-l2': playing(); emit('story:objective', { text: 'Restore section C power' }); break;
     case 'wake':
       ctx.setState('cutscene'); ui.eyelids(0, 0); ui.blur(10, 0);
       setTimeout(() => { ui.eyelids(0.45, 1.2); ui.blur(5, 1.2); }, 200);

@@ -1,0 +1,8 @@
+{
+  "base": "8aac2c06613aae2c",
+  "derive": {
+    "whisper": 0.45,
+    "pace": 1.08
+  },
+  "sha": "3dbc65bf08ae6c8a"
+}

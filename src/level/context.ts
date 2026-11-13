@@ -28,7 +28,7 @@ export interface LightOpts {
  * neighbour is seen through a permanent opening (archway, window slits, cage gate) AND the grown box does
  * not swallow a third room.
  */
-const LIGHT_SPILL: Record<string, [number, number, number, number]> = {
+export const LIGHT_SPILL_L1: Record<string, [number, number, number, number]> = {
   corr_a: [0, 0, 6.0, 0],      // down the archway into the junction (junction is wider than the corridor)
   junction: [0, 0, 0, 6.0],    // junction light reaches back up the corridor
   lobby: [0, 0, 5.6, 0],       // through the cage gate into the cab + shaft
@@ -71,6 +71,10 @@ export class LevelBuild {
   readonly castLights: { desc: LightDesc; room: string }[] = [];
   /** Room currently being built (tags zones / objects for visibility culling). */
   currentRoom = '';
+  /** Set once the Level exists: lets vignettes switch machines through `level.setMachine` (keeps its state/audio in sync). */
+  setMachine: (name: string, state: MachineState) => void = (name, state) => this.machines.get(name)?.(state);
+  /** Per-room light spill past the room bounds (see LIGHT_SPILL_L1). */
+  lightSpill: Record<string, [number, number, number, number]> = LIGHT_SPILL_L1;
   private colliderItems: Record<string, { geo: THREE.BufferGeometry; m: THREE.Matrix4; uv: 'box'; su: number; sv: number }[]> = {};
   private signs = new Map<string, THREE.MeshStandardMaterial>();
   private builders: Builder[] = [];
@@ -213,7 +217,7 @@ export class LevelBuild {
       return (Math.abs(ob.min.z - v) < e || Math.abs(ob.max.z - v) < e) && ob.min.x < b.max.x - e && ob.max.x > b.min.x + e;
     });
     const m = (axis: 'x' | 'z', v: number) => (shared(axis, v) ? SHARED_MARGIN : OUTER_MARGIN);
-    const sp = LIGHT_SPILL[id] ?? [0, 0, 0, 0];
+    const sp = this.lightSpill[id] ?? [0, 0, 0, 0];
     out.min.set(b.min.x - Math.max(m('x', b.min.x), sp[0]), -1e4, b.min.z - Math.max(m('z', b.min.z), sp[2]));
     out.max.set(b.max.x + Math.max(m('x', b.max.x), sp[1]), 1e4, b.max.z + Math.max(m('z', b.max.z), sp[3]));
     return out;

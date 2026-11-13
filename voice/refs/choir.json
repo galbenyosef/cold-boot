@@ -1,0 +1,14 @@
+{
+  "describe": "male, middle-aged, moderate pitch",
+  "seed": 3,
+  "refText": "We are glad you are awake, Technician. Everything is in order. Please, take your time. We will wait for you.",
+  "language": "en",
+  "source": "audition 6",
+  "sha": "05bfa654a329a557",
+  "duration": 6.2,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "we are glad you are awake technician everything is in order please take your time we will wait for you"
+  }
+}

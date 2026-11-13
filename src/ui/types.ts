@@ -36,6 +36,11 @@ export interface UIInternal extends UISystem {
   setTorchHint(on: boolean): void;
   /** HUD: small glyph + "CHECKPOINT" for ~2 s (a checkpoint was just written). */
   showCheckpoint(): void;
+  /**
+   * REVISION 4: force the intercom "live" tag (LINE CONTROL — CH 3) on/off; null = automatic (shown while a
+   * TOMAS / INTERCOM subtitle is on screen). Optional for callers: `ui.setIntercom?.(true)`.
+   */
+  setIntercom?(on: boolean | null): void;
   /** What the main menu was left with: BEGIN (new run) or CONTINUE (resume the stored checkpoint). */
   readonly menuChoice: 'begin' | 'continue';
 }

@@ -28,6 +28,12 @@ export interface EnemyWorld {
   forceLod: number;
   /** World time until which a husk mutter is playing (max one at a time, globally). */
   whisperUntil: number;
+  /** Scripted puppets (EnemyManager.actor), e.g. to find the human a 'carry' husk is leading. */
+  actors: EnemyBase[];
+  /** REVISION 4 'worker' stealth: turn a dormant group hostile (`by` reacts first). Group '' = only `by`. */
+  provoke(group: string, by: EnemyBase | null): void;
+  /** World time until which every treadmill worker walks in exactly the same step (fitting_sync). */
+  treadSyncUntil: number;
 }
 
 const _from = new THREE.Vector3(), _to = new THREE.Vector3();
@@ -85,6 +91,8 @@ export abstract class EnemyBase implements Enemy {
    * only enemy:step. Set by subclasses first thing in their constructor.
    */
   isActor = false;
+  /** REVISION 4: dormant 'worker' (stealth) — provoked by proximity / gunfire / damage / flashlight. */
+  isWorker = false;
 
   // perception
   seesPlayer = false;
@@ -167,6 +175,12 @@ export abstract class EnemyBase implements Enemy {
   puppetEyes(_on: boolean): void { /* per type */ }
   /** Abort a pending move (resolves it). */
   puppetStop(): void { /* per type */ }
+  /** REVISION 4: animate speech for `seconds` (no-op for types that cannot). */
+  puppetSpeak(_seconds: number): void { /* per type */ }
+  /** REVISION 4: gait variant for puppetMove ('limp', 'carry', ...). */
+  puppetGait(_gait: string): void { /* per type */ }
+  /** REVISION 4: a dormant worker was provoked — turn hostile after `delay` s (beat of stillness included). */
+  provoked(delay: number): void { this.wake(delay); }
 
   /** Free per-instance GPU resources and leave the scene. */
   dispose(): void {

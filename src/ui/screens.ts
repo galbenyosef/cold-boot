@@ -1,22 +1,20 @@
 /** Full-screen overlays: log reader, cinematic cards, pause, death, ending, resume gate. */
 import type { GameContext, GameState } from '../core/types';
 import type { StoryInternal } from './types';
-import { SKIP_INTRO_KEY } from './types';
 import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings } from './dom';
 import { settingsPanel, controlsPanel, GlitchTitle } from './menu';
-import { clearSave, loadSave, requestContinue } from '../story/save';
+import { clearLevelSave, hasCheckpoint, levelLabel, reloadInto, requestContinue } from './progress';
 
-/** Reload into the stored checkpoint (the story resumes behind the one-click gate). */
-function loadCheckpoint(): void {
+/** Reload into the stored checkpoint of this level (the story resumes behind the one-click gate). */
+function loadCheckpoint(ctx: GameContext): void {
   requestContinue();
-  location.reload();
+  reloadInto(ctx.levelId ?? 1);
 }
 
-/** Start the level over from the wake-up: the checkpoint is discarded. */
-function restartLevel(): void {
-  clearSave();
-  try { sessionStorage.setItem(SKIP_INTRO_KEY, '1'); } catch { /* ignore */ }
-  location.reload();
+/** Start this level over from its beginning: its checkpoint is discarded (level 2 keeps the carried loadout). */
+function restartLevel(ctx: GameContext): void {
+  clearLevelSave(ctx);
+  reloadInto(ctx.levelId ?? 1, true);
 }
 
 // ───────────────────────────────────────────────────────────── log reader
@@ -124,6 +122,22 @@ export class LogReader {
 
 // ───────────────────────────────────────────────────────────── cards
 
+/**
+ * Per-line layout for cards: long lines (ending text, stats) get a calmer tracking and may wrap; '' is a spacer;
+ * "TO BE CONTINUED" gets its own treatment; '\n' inside a line breaks it.
+ */
+function lineClass(l: string): string {
+  const t = l.trim();
+  if (!t) return ' gap';
+  if (/^to be continued\.?$/i.test(t)) return ' tbcl';
+  const longest = Math.max(...t.split('\n').map((s) => s.length));
+  let c = '';
+  if (t.includes('\n')) c += ' multi';
+  if (longest > 40) c += ' long';
+  if (/^[^:·]{2,28}[:·]\s+\S/.test(t) && t.length <= 48) c += ' statl';
+  return c;
+}
+
 export class Cards {
   constructor(private ctx: GameContext, private parent: HTMLElement) {}
 
@@ -148,7 +162,7 @@ export class Cards {
     if (style === 'title') {
       els.push(h('div', 'big', stage, lines[0] ?? ''));
       els.push(h('div', 'rule', stage));
-      for (const l of lines.slice(1)) els.push(h('div', 'ln', stage, l));
+      for (const l of lines.slice(1)) els.push(h('div', 'ln' + lineClass(l), stage, l));
       const total = opts.seconds ?? 4.5;
       await wait(0.3);
       els.forEach((e) => e.classList.add('show'));
@@ -157,7 +171,7 @@ export class Cards {
     } else {
       stage.style.display = 'grid';
       stage.style.gap = style === 'ending' ? '26px' : '22px';
-      for (const l of lines) els.push(h('div', 'ln', stage, l));
+      for (const l of lines) els.push(h('div', 'ln' + lineClass(l), stage, l));
       els[els.length - 1]?.classList.add('last');
       const per = opts.seconds ? opts.seconds / (lines.length + 1) : 1.9;
       await wait(0.6);
@@ -225,12 +239,12 @@ export class PauseMenu {
     this.obj.innerHTML = '';
     if (obj) { h('b', 'lbl', this.obj, 'Objective'); this.obj.append(obj); }
     const t = (this.ctx.story as StoryInternal | undefined)?.stats?.time ?? this.ctx.time;
-    this.meta.textContent = ['SUBLEVEL 3', this.roomName(), fmtTime(t)].filter(Boolean).join('  ·  ');
+    this.meta.textContent = [levelLabel(this.ctx).toUpperCase(), this.roomName(), fmtTime(t)].filter(Boolean).join('  ·  ');
     this.confirmRestart = false;
     this.confirmLoad = false;
     (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart level';
     (this.loadBtn.lastChild as HTMLElement).textContent = 'Load checkpoint';
-    toggle(this.loadBtn, 'hidden', !loadSave());
+    toggle(this.loadBtn, 'hidden', !hasCheckpoint(this.ctx));
     this.hint.textContent = 'Click Resume or press Esc to continue';
     this.root.classList.remove('hidden');
     void this.root.offsetWidth;
@@ -261,7 +275,7 @@ export class PauseMenu {
       (this.loadBtn.lastChild as HTMLElement).textContent = 'Load checkpoint — click to confirm';
       return;
     }
-    loadCheckpoint();
+    loadCheckpoint(this.ctx);
   }
 
   private restart(): void {
@@ -270,7 +284,7 @@ export class PauseMenu {
       (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart level — click to confirm';
       return;
     }
-    restartLevel();
+    restartLevel(this.ctx);
   }
 }
 
@@ -299,13 +313,13 @@ export class DeathScreen {
     this.tw = new Typewriter(line, 30);
     const acts = h('div', 'acts', st);
     // With a checkpoint: LOAD CHECKPOINT is the primary action; RESTART LEVEL throws the checkpoint away.
-    const save = loadSave();
+    const save = hasCheckpoint(ctx);
     let n = 1;
     if (save) {
-      const b = button(ctx, acts, 'Load checkpoint', `0${n++}`, loadCheckpoint, 'primary');
+      const b = button(ctx, acts, 'Load checkpoint', `0${n++}`, () => loadCheckpoint(ctx), 'primary');
       if (save.place) h('span', 'where', b, `—  ${save.place}`);
     }
-    button(ctx, acts, 'Restart level', `0${n++}`, restartLevel, save ? 'danger' : 'primary');
+    button(ctx, acts, 'Restart level', `0${n++}`, () => restartLevel(ctx), save ? 'danger' : 'primary');
     button(ctx, acts, 'Title screen', `0${n++}`, () => location.reload());
     void root.offsetWidth;
     root.classList.add('show');
@@ -332,7 +346,7 @@ export class EndingScreen {
     const st = (ctx.story as StoryInternal | undefined)?.stats;
     const root = h('div', 'layer ov ending interactive grain', this.parent);
     const stage = h('div', 'stage', root);
-    const eyebrow = h('div', 'lbl', stage, this.text.eyebrow);
+    const eyebrow = h('div', 'lbl', stage, (ctx.levelId ?? 1) === 2 ? 'End of Line Two' : this.text.eyebrow);
     eyebrow.style.marginBottom = '30px';
     const tWrap = h('div', '', stage);
     this.title = new GlitchTitle(tWrap, 'COLD BOOT');
@@ -364,7 +378,7 @@ export function resumeGate(ctx: GameContext, parent: HTMLElement, place = ''): P
   const root = h('div', 'layer ov gate interactive grain scan', parent);
   const st = h('div', 'stage', root);
   h('h2', 'glow', st, 'SIGNAL REACQUIRED');
-  h('div', 'lbl', st, ['Click to resume', 'Sublevel 3', place].filter(Boolean).join('  ·  '));
+  h('div', 'lbl', st, ['Click to resume', levelLabel(ctx), place].filter(Boolean).join('  ·  '));
   void root.offsetWidth;
   root.classList.add('show');
   return new Promise((resolve) => {

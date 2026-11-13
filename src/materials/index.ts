@@ -114,7 +114,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   };
 
   const signCache = new Map<string, THREE.MeshStandardMaterial>();
-  const screens = new ScreenManager((m) => track(m, 0.8));
+  const screens = new ScreenManager((m) => track(m, 0.8), ctx.levelId ?? 1);
 
   const lib: MaterialLibrary = {
     get,

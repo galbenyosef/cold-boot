@@ -331,13 +331,19 @@ export class DoorImpl implements Door {
   }
 }
 
-export function makeDoors(L: LevelBuild, specs: DoorSpec[]): DoorImpl[] {
+/** Level 1: all door frames live in two shared zones (north / south half of the level). */
+function level1Zone(s: DoorSpec): { name: string; rooms: string[] } {
+  const south = s.z < -30;
+  return south ? { name: 'frames_s', rooms: ['fab', 'gen', 'pump', 'lobby', 'elevator'] } : { name: 'frames_n', rooms: ['med', 'corr_a', 'quarters', 'junction', 'sec', 'storage', 'airlock', 'fab'] };
+}
+
+export function makeDoors(L: LevelBuild, specs: DoorSpec[], zoneOf: (s: DoorSpec) => { name: string; rooms: string[] } = level1Zone): DoorImpl[] {
   return specs.map((s) => {
-    // All door frames live in two shared zones (north / south half of the level) instead of one zone per
-    // door: a view with five doorways in it pays ~7 draws for their frames, not ~40.
-    const south = s.z < -30;
-    const frames = L.namedBuilder(south ? 'frames_s' : 'frames_n');
-    frames.rooms = south ? ['fab', 'gen', 'pump', 'lobby', 'elevator'] : ['med', 'corr_a', 'quarters', 'junction', 'sec', 'storage', 'airlock', 'fab'];
+    // Door frames live in a few shared zones instead of one zone per door: a view with five doorways in
+    // it pays ~7 draws for their frames, not ~40.
+    const z = zoneOf(s);
+    const frames = L.namedBuilder(z.name);
+    frames.rooms = z.rooms;
     return new DoorImpl(L, s, frames);
   });
 }

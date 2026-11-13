@@ -11,9 +11,18 @@ import { CameraRig } from './camera';
 import { World } from './world';
 import { Script } from './script';
 import { INTRO_CARDS, LOG_IDS, TITLE_CARD, TOASTS } from './text';
-import { SAVE_VERSION, clearSave, loadSave, takeContinueRequest, writeSave, type CheckpointId, type SaveData } from './save';
+import { SAVE_VERSION, clearSave, loadSave, requestContinue, takeBeginRequest, takeContinueRequest, writeCarry, writeSave, type CheckpointId, type SaveData } from './save';
+import { setStoredLevel } from '../core/progress';
+import { preload } from './voice';
+import { createStoryL2 } from './l2';
 
+/** One level per page load (REVISION 4): the story of the level this page runs. */
 export async function createStory(ctx: GameContext): Promise<StorySystem> {
+  return ctx.levelId === 2 ? createStoryL2(ctx) : createStoryL1(ctx);
+}
+
+async function createStoryL1(ctx: GameContext): Promise<StorySystem> {
+  preload(ctx, ['l1_']);
   const seq = new Sequencer(ctx.events);
   const director = new MusicDirector(ctx);
   const rig = new CameraRig(ctx);
@@ -49,7 +58,33 @@ export async function createStory(ctx: GameContext): Promise<StorySystem> {
     },
     checkpoint: saveCheckpoint,
     finished: clearSave,
+    handoff,
   });
+
+  /**
+   * End of level 1 (REVISION 4 → Multi-level architecture): store level 2 and the loadout, ask for the
+   * one-click continue, reload. The screen is already black. Headless test runs (`?autostart=1`) keep the
+   * old ending screen and store nothing unless `&handoff=1` (then everything is stored but not reloaded).
+   */
+  function handoff(): boolean {
+    let test = false;
+    if (ctx.debug.autostart) {
+      try { test = new URLSearchParams(location.search).get('handoff') === '1'; } catch { /* ignore */ }
+      if (!test) return false;
+    }
+    try { writeCarry(ctx.player.snapshot()); } catch (e) { console.warn('[story] carry not stored', e); }
+    clearSave();
+    setStoredLevel(2);
+    if (test) return false;
+    requestContinue();
+    try {
+      // A forcing `?level=1` must not survive the hand-over.
+      const u = new URL(location.href);
+      if (u.searchParams.has('level')) { u.searchParams.delete('level'); location.replace(u.toString()); return true; }
+    } catch { /* ignore */ }
+    location.reload();
+    return true;
+  }
 
   /**
    * Resume from a checkpoint. The screen is black when this is called. Fast-forward the story (the
@@ -130,7 +165,15 @@ export async function createStory(ctx: GameContext): Promise<StorySystem> {
         await resume(save, false);
         return;
       }
-      if (skip) {
+      if (takeBeginRequest()) {
+        // BEGIN chosen on a level-2 page: this is the new run it reloaded into — one click, then the intro.
+        world.fade(1, 0);
+        ui().blackout?.(true, 0);
+        await ui().showResumeGate();
+        clearSave();
+        await ctx.ui.showCard(INTRO_CARDS, { style: 'intro', skippable: true });
+        await ctx.ui.showCard(TITLE_CARD, { style: 'title', skippable: true, seconds: 4.2 });
+      } else if (skip) {
         world.fade(1, 0);
         ui().blackout?.(true, 0);
         await ui().showResumeGate();
@@ -163,7 +206,7 @@ export async function createStory(ctx: GameContext): Promise<StorySystem> {
     lateUpdate(dt: number) { rig.lateUpdate(dt); },
   };
   // Review / test hooks (scripts/playthrough.mjs): fire a scare in place, read the script state.
-  Object.assign(story, { fire: (name: string) => script.fire(name), hurry: () => script.hurry() });
+  Object.assign(story, { fire: (name: string) => script.fire(name), hurry: () => script.hurry(), handoff });
   Object.defineProperty(story, 'debugState', { get: () => script.debugState });
   return story;
 }

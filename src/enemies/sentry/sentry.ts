@@ -530,7 +530,7 @@ export class Sentry extends EnemyBase {
     const mult = vol.part === 'head' ? 1.5 : vol.part === 'limb' ? 0.8 : 1;
     const dmg = amount * mult;
     this.health -= dmg;
-    w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg });
+    w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg, part: vol.part });
     this.queueHit(vol, amount, point, dir);
     this.body.velocity.addScaledVector(dir, Math.min(3, amount * 0.09));
     this.wob.v += (w.rand() - 0.5) * Math.min(30, amount) * 0.25;

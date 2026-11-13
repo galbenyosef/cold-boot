@@ -87,7 +87,7 @@ export class Ambience {
     const bed = room.bed;
     for (const id of BED_IDS) {
       let lv = bed[id] ?? 0;
-      if (id === 'amb_gen' && this.powerOn && this.eng.roomId === 'fab') lv = Math.max(lv, 0.25);
+      if (id === 'amb_gen' && this.powerOn && (this.eng.roomId === 'fab' || this.eng.roomId === 'line')) lv = Math.max(lv, 0.25);
       this.levels[id] = lv;
       let l = this.beds.get(id);
       if (lv > 0 && !l) {

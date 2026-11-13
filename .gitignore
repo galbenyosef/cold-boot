@@ -10,3 +10,4 @@ voice/auditions/
 voice/report.html
 tools/voice/.venv/
 __pycache__/
+voice/check.json

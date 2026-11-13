@@ -265,3 +265,91 @@ void surf(vec2 uv, vec4 H, vec4 D, inout vec3 albedo, inout float rough, inout f
   alpha = sat(0.08 + dirt * 0.3 + specks * 0.5 + smd * 0.05 + st * 0.06);
 }
 `;
+
+/**
+ * REVISION 4 — conveyor belt: black rubber, transverse slat seams every 15 cm (along v), cleats, scuffs,
+ * a polished wear track down the middle where loads ride, dust in the seams.
+ */
+export const BELT = /* glsl */ `
+vec4 heightFn(vec2 uv) {
+  vec2 m = uv * uTile;
+  float sl = fract(m.y / 0.15);
+  float seam = 1.0 - smoothstep(0.0, 0.05, min(sl, 1.0 - sl));
+  float h = 0.55 - 0.35 * seam;
+  // moulded diamond tread on each slat
+  vec2 q = vec2(m.x * 40.0 + m.y * 40.0, m.x * 40.0 - m.y * 40.0);
+  float tread = smoothstep(0.35, 0.5, abs(fract(q.x) - 0.5)) * smoothstep(0.35, 0.5, abs(fract(q.y) - 0.5));
+  h += 0.04 * tread;
+  h += 0.04 * fbm(uv, vec2(4.0), 4, 0.5, 1.0);
+  float s1 = scratches(uv, 10.0, 1.57, 0.2, 0.2, 1.2, 1.2, 0.8, 2.0);
+  float s2 = scratches(uv, 16.0, 0.4, 3.2, 0.1, 0.5, 0.8, 0.5, 3.0);
+  float scr = max(s1, s2);
+  h -= 0.06 * scr;
+  float gouge = smoothstep(0.82, 0.95, fbm01(uv, vec2(6.0), 4, 0.5, 4.0));
+  h -= 0.1 * gouge;
+  return vec4(h, seam, scr, gouge);
+}
+void surf(vec2 uv, vec4 H, vec4 D, inout vec3 albedo, inout float rough, inout float metal, inout float alpha, inout vec3 emis) {
+  vec2 m = uv * uTile;
+  float n1 = fbm01(uv, vec2(4.0), 5, 0.5, 11.0);
+  albedo = C(0x141516) * (0.85 + 0.3 * n1);
+  rough = 0.78 + 0.12 * fbm01(uv, vec2(12.0), 4, 0.5, 12.0);
+  metal = 0.0;
+  // wear track: loads ride the middle third — polished, slightly lighter
+  float track = 1.0 - smoothstep(0.18, 0.32, abs(fract(m.x / 1.0) - 0.5));
+  rough = mix(rough, 0.42, track * 0.6); albedo *= 1.0 + track * 0.25;
+  float sc = smoothstep(0.1, 0.6, H.b);
+  albedo = mix(albedo, C(0x3a3b3c), sc * 0.6); rough = mix(rough, 0.6, sc);
+  // dust and grit packed into the seams, oil spots
+  float seam = H.g;
+  albedo = mix(albedo, C(0x4a463e), seam * 0.55 * (0.5 + n1)); rough = mix(rough, 0.95, seam * 0.6);
+  float oil = smoothstep(0.7, 0.85, warped(uv, vec2(5.0), 5, 1.5, 13.0) * 0.5 + 0.5);
+  albedo *= 1.0 - oil * 0.3; rough = mix(rough, 0.2, oil * 0.6);
+  albedo = mix(albedo, C(0x26221c), H.a * 0.5);
+  albedo *= mix(0.6, 1.0, D.x);
+}
+`;
+
+/** REVISION 4 — thick laminated safety glass: green edge tint, heavy scratching, wiped smears, dirt film. */
+export const GLASS_THICK = /* glsl */ `
+vec4 heightFn(vec2 uv) {
+  float h = 0.5 + 0.02 * fbm(uv, vec2(2.0), 3, 0.5, 1.0);
+  float scr = max(scratches(uv, 8.0, 0.2, 3.0, 0.1, 0.9, 0.9, 0.55, 2.0), scratches(uv, 14.0, 1.4, 0.6, 0.05, 0.4, 0.7, 0.4, 3.0));
+  h -= 0.1 * scr;
+  return vec4(h, scr, 0.0, 0.0);
+}
+void surf(vec2 uv, vec4 H, vec4 D, inout vec3 albedo, inout float rough, inout float metal, inout float alpha, inout vec3 emis) {
+  float smd = smudges(uv, 3.0, 11.0);
+  // wiped arcs (someone cleaned it with a sleeve)
+  vec2 c = fract(uv * 1.3) - 0.5;
+  float wipe = smoothstep(0.02, 0.0, abs(length(c) - 0.33 - 0.04 * fbm(uv, vec2(3.0), 3, 0.5, 15.0))) * 0.5;
+  float dirt = smoothstep(0.55, 0.95, fbm01(uv, vec2(6.0), 6, 0.6, 12.0)) * 0.6;
+  float st = smoothstep(0.55, 0.85, streakNoise(uv, 40.0, 3.0, 14.0)) * 0.5;
+  albedo = mix(vec3(0.42, 0.55, 0.5), C(0x4f5249), sat(dirt * 0.8));
+  rough = 0.06 + 0.22 * smd + 0.3 * dirt + 0.15 * st + 0.3 * H.g + 0.1 * wipe;
+  metal = 0.0;
+  // see-through first: a faint green film, scratches and smears where the light catches them
+  alpha = sat(0.05 + dirt * 0.1 + smd * 0.03 + st * 0.03 + H.g * 0.2 + wipe * 0.03);
+}
+`;
+
+/** REVISION 4 — human skin (seen at 2–10 m through glass): warm subsurface-ish albedo, pores, slight blotching. */
+export const SKIN = /* glsl */ `
+vec4 heightFn(vec2 uv) {
+  float h = 0.5 + 0.04 * fbm(uv, vec2(6.0), 4, 0.5, 1.0);
+  vec3 w = worley(uv * 220.0, vec2(220.0), 2.0);
+  h -= 0.05 * smoothstep(0.3, 0.05, w.x);
+  h += 0.015 * gnoise(uv * 600.0, vec2(600.0), 3.0);
+  return vec4(h, 0.0, 0.0, 0.0);
+}
+void surf(vec2 uv, vec4 H, vec4 D, inout vec3 albedo, inout float rough, inout float metal, inout float alpha, inout vec3 emis) {
+  float n1 = fbm01(uv, vec2(3.0), 5, 0.5, 11.0);
+  float n2 = fbm01(uv, vec2(12.0), 4, 0.5, 12.0);
+  albedo = uCol * (0.92 + 0.12 * n1);
+  albedo = mix(albedo, albedo * vec3(1.08, 0.86, 0.84), smoothstep(0.55, 0.85, n2) * 0.5); // blotches
+  albedo = mix(albedo, albedo * vec3(0.9, 0.92, 1.0), smoothstep(0.6, 0.9, 1.0 - n1) * 0.25);   // tired, a bit grey
+  rough = 0.52 + 0.14 * n2 - 0.08 * smoothstep(0.6, 0.9, n1);
+  metal = 0.0;
+  albedo *= mix(0.8, 1.0, D.x);
+}
+`;
