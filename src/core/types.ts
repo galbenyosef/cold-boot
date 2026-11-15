@@ -126,6 +126,12 @@ export interface GameEvents {
   'enemy:alerted': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:attack': { id: number; type: EnemyType; position: THREE.Vector3; kind: 'melee' | 'ranged' };
   'enemy:damaged': { id: number; type: EnemyType; point: THREE.Vector3; direction: THREE.Vector3; amount: number; part?: string };
+  /**
+   * REVISION 5: a player's shot line passed through a puppet before hitting the world (the enemies module
+   * ray-tests its actors on every shot). Holograms react by themselves (tear / collapse); the story may
+   * react too. Solid puppets behind glass never get this (the glass stops the ray first).
+   */
+  'actor:shot': { actor: EnemyActor; type: ActorType; look: ActorLook; point: THREE.Vector3 };
   /** REVISION 4: a destructible part is gone (foreman heads: 'head_a' | 'head_b' | 'head_c'; arms). */
   'enemy:part-destroyed': { id: number; type: EnemyType; part: string; position: THREE.Vector3 };
   'enemy:died': { id: number; type: EnemyType; position: THREE.Vector3; group: string };
@@ -420,6 +426,7 @@ export type ScreenKind =
   | 'choir'            // the antagonist's waveform "face"
   | 'camera_feed'      // grainy CCTV-style view
   | 'vitals'           // medical monitor traces
+  | 'door_cycling'     // REVISION 5: small amber panel, "CYCLING"
   | 'door_locked'      // small red panel
   | 'door_open';       // small green panel
 
@@ -529,6 +536,13 @@ export interface Door {
   /** Lock AND close. */
   lock(): void;
   unlock(): void;
+  /** REVISION 5: true only when the leaves are fully shut (not merely closing). */
+  readonly closed: boolean;
+  /**
+   * REVISION 5: override what the door's status panel shows. 'cycling' = amber "CYCLING" (locked for a
+   * stated, temporary reason), 'dark' = panel off (unpowered), null = default (red locked / green open).
+   */
+  setStatus(status: 'cycling' | 'dark' | null): void;
 }
 
 export interface EnemySpawn {
@@ -610,6 +624,11 @@ export interface Level extends Updatable {
    * Safe to call twice (second call is ignored while running / after one-shots). Unknown ids warn once.
    */
   vignette(id: string): void;
+  /**
+   * REVISION 5: named world regions shared by story, level and the reachability check (ids in
+   * docs/DESIGN.md → REVISION 5.1), each a list of boxes. Level 1 may return an empty record.
+   */
+  readonly regions: Readonly<Record<string, readonly THREE.Box3[]>>;
 }
 
 // ───────────────────────────────────────────────────────────── player (src/player)
@@ -731,7 +750,7 @@ export interface EnemyManager extends Updatable {
    * for scripted scares (a silhouette crossing a doorway, a figure that is gone after a flicker).
    * Not listed in `all`, never perceives or attacks, emits no enemy:* events except `enemy:step`.
    */
-  actor(type: ActorType, position: THREE.Vector3, yaw?: number, pose?: string): EnemyActor;
+  actor(type: ActorType, position: THREE.Vector3, yaw?: number, pose?: string, opts?: ActorOpts): EnemyActor;
   /**
    * Checkpoints: silently delete a whole spawn group — living, dormant, dead wrecks and not-yet-spawned
    * members — with no events, fx or sound. Afterwards spawnGroup/wakeGroup for it are no-ops and
@@ -740,7 +759,13 @@ export interface EnemyManager extends Updatable {
   removeGroup(group: string): void;
 }
 
+/** REVISION 5: how a puppet is rendered. Holograms are see-through sci-fi projections (no shadow, no collision). */
+export type ActorLook = 'solid' | 'holo_ghost' | 'holo_tech';
+export interface ActorOpts { look?: ActorLook }
+
 export interface EnemyActor {
+  readonly type: ActorType;
+  readonly look: ActorLook;
   readonly object: THREE.Object3D;
   readonly position: THREE.Vector3;
   /** Walk/crawl/fly in a straight line to the point with the type's normal gait; resolves on arrival. No pathfinding. */
@@ -753,6 +778,11 @@ export interface EnemyActor {
   setEyes(on: boolean): void;
   /** REVISION 4: animate speech (jaw / head bob / small gestures) for this many seconds. No-op for types that cannot. */
   speak?(seconds: number): void;
+  /**
+   * REVISION 5: turn this solid puppet into a real, live, hostile enemy of `group` in place (same pose,
+   * position and motion — no pop). Husk actors only. The actor handle is dead afterwards.
+   */
+  promote?(group: string): Enemy;
   /** REVISION 4: gait variant for moveTo, e.g. 'limp' (Unit 14), 'carry' (walking someone by the arm). */
   setGait?(gait: string): void;
   remove(): void;

@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "shot": "node scripts/shot.mjs",
+    "check:zfight": "node scripts/check-zfight.mjs",
+    "check:doors": "node scripts/check-doors.mjs",
     "voice": "uv run --project tools/voice coldvoice gen",
     "voice:cast": "uv run --project tools/voice coldvoice cast",
     "voice:check": "uv run --project tools/voice coldvoice check",

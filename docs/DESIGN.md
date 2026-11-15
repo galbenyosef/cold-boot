@@ -842,3 +842,117 @@ source recorded in `docs/ASSETS.md`; no asset whose licence could not be verifie
 - `scripts/playthrough.mjs --level2` gains an "impatient player" mode: shoots every unit on sight, uses
   things in the wrong order, never stops for dialogue; asserts no soft-lock and that no conditional line
   fired while its condition was false (the story logs each spoken line with its condition result).
+
+## REVISION 5.1 — decisions after the plan review (authoritative; overrides REVISION 5 where they differ)
+
+Evidence and code locations: `docs/reviews/rev5-review.md`. Every item there must be resolved as below.
+
+**Ownership.** Level agent: `src/level`, `src/materials`, `scripts/check-reach.mjs`. Enemies agent:
+`src/enemies`, `public/models/`, `docs/ASSETS.md`. Story agent: `src/story`, `voice/lines.*.json`,
+`scripts/playthrough.mjs`. Coordinator: contract, docs, `scripts/check-zfight.mjs`, `scripts/check-doors.mjs`.
+
+**Phase table = one source of truth.** `src/level/l2/phases.ts` (level) exports, for each phase A–I, the
+lock/open state of every door and the line state, plus the named regions. The story applies a phase with
+one call (`applyPhase(ctx, id)` from that file) at each transition and in checkpoint fast-forward, and adds
+nothing by hand; `check:reach` uses the same table. Regions (`level.regions`): `hall_north` (hall,
+z > −50.35), `hall_south` (hall, z < −50.35, outside the tunnel), `tunnel` (inside the machine),
+`trap` (spine z −56 … −36), `spine_south` (spine z < −56 + the link passage to `d2_spine`),
+`spine_north` (spine z > −36), plus one region per room id.
+
+**Barriers are real `Door`s** (non-auto, level-built, with colliders that are solid from the moment they
+start closing): `d2_gate` (walkway gate), `d2_mouth` (tunnel mouth shutter), `d2_exit` (tunnel exit
+shutter). The `l2_line` machine no longer moves the gate. `d2_exit` logic stays in the level: while the
+line runs it opens only for a body inside the tunnel within 2 m, and shuts behind it. With `?nostory=1`:
+line held, gate open, mouth and exit shut, every other door unlocked.
+Closing behind the player is always a **latch** (story helper `closeBehind(door, keepSide)`): lock the
+door, wait for `door.closed`, then check the player's side; on the wrong side → unlock, reopen, re-arm the
+trigger. A scene clock starts only after a successful latch. Used for `d2_bulkhead_s` (keep north,
+player z > −55.6), `d2_mouth` and `d2_gate`.
+
+**Partition** (z = −50.35): opaque sheet/housings to 2.6 m with mesh above, collider to the roof. The
+tunnel body is part of it: colliders on both full end faces (x 2.5 … 7.5, y 0 … 3.6) except the belt
+aperture, solid side-bay floors, roof not standable. The catwalk is cut and walled at the plane. Belt
+guards on the running section (loading station → mouth, inside the tunnel, exit → apron end) are ≥ 2.0 m
+mesh with colliders. Belt speed stays 1.6 m/s everywhere. "Cannot leave the belt" applies from the mouth to
+the apron; stepping off northward before the mouth is allowed. No pallet or prop within 2 m of the
+partition on either side. `t2_glass` is clipped to z ≥ −50; `t2_belt` excludes the apron tail.
+
+**Enemies around the scene (B3).** At `l2_power`: `d2_relay` locks ("CYCLING — ARC INTERLOCK") until every
+awake hostile of `g2_relay` and `g2_hall_mid` is dead (fail-safe: after 45 s any survivor that is not in
+view is removed silently). All groups north of the partition (`g2_dock`, `g2_intake`, `g2_fit_tread`,
+`g2_fit_wake`) are removed silently at `l2_power` if alive (the partition hides them). `g2_spine` is
+deleted. `l2_trap` latches only with zero awake hostiles in `spine_south`/`trap`.
+
+**The taking — final staging.**
+- Tomas waits at `d2_booth` (≈ (−16.3, 0, −46)) from `l2_power` ("it says cycling — it's not opening").
+- `l2_window` (18–22 s): `booth_light_fail` fires here (not at `l2_power`); each spine-window mark has a
+  small face light that the red does not kill. Two escorts enter single file through `d2_booth_hall` on
+  authored waypoints. Tomas goes to the window mark nearest the player (0.5 m from the glass; `bang_glass`
+  takes the glass distance as a parameter); the choice can change until a unit touches him. Face distance
+  is about 1 m. Lines per the review table (conditions on `held`, on setups having played, on the player
+  being at a window, on the player having shot the glass). Shots at the glass: stars, it holds; Tomas
+  flinches (pose `flinch`) the first time; CHOIR's "rated" line once.
+- `l2_booth_open`: `d2_booth` opens within 1 s of the hall door closing. `term2_booth` and the floor item
+  are enabled only after Tomas is gone. He keeps his headset on; the player hears him on the booth's desk
+  speaker. The floor item `booth_headset` becomes his **recorder** (prompt "Pick up recorder").
+- `l2_loaded`: escorts carry at 1.3 m/s; the walk door → deck (≈ 12.3 m) takes ≈ 9.5 s. Restated target:
+  16–21 s from the hall door closing, of which the player sees the last 8–12 s from the booth. The hold
+  before laying him down has a visible cause — the loading arch's scanner sweeps him while he struggles
+  (≤ 5 s) — and ends when the player is inside the booth (x > −17.4) or 12 s after `d2_booth` opened.
+  Lay mark on the belt at (4.6, belt height, −45.2) with a hard key light; nothing in the sight line from
+  the booth (the loading arch's west post is moved or opened up; the marker writings 1 and 2 are wiped by
+  Tomas with his sleeve when the first talk starts — vignette `booth_wipe`; writing 3 is dropped).
+- When he passes the mouth: `d2_mouth` latches shut ("LOADING INTERLOCK — UNITS ON FLOOR"); the escorts
+  stand still 1.5 s — **`cp2_taken`** is saved here — then turn and walk back. When they are within 4 m of
+  `d2_booth_hall` it opens and at that instant they are promoted (`promote('g2_escort')`).
+  Loading `cp2_taken`: no scene; booth red, `d2_booth` open, Tomas gone, mouth shut; after 2 s
+  `d2_booth_hall` opens and `g2_escort` spawns as real husks at (−7.5, 0, −43.4) and (−6.5, 0, −44.4)
+  (level lists these as spawn-mode entries). `d2_mouth` reopens when `g2_escort` is cleared (fail-safe:
+  an escort unreachable for 60 s is removed). `cp2_escort` is then saved. `cp2_apron` is removed.
+- Ride: `tunnel_silhouette` is dropped. One CHOIR line while riding (the story keeps a single consistent
+  line; the "step off the line" line is cut). The nudge fires only if the player has not boarded 40 s
+  after `cp2_escort`. `g2_unit32` spawns at ≈ (5, 0.55, −60.5), inside the tunnel, behind `d2_exit`.
+- Total from the latch to the escorts' attack: ≤ 55 s.
+
+**First talk (H12).** Pressing the intercom takes the handset (toast), so Tomas talks to the player
+anywhere from then on. `d2_fitting` (status `dark` until then; the blue lamp is the door's own status
+light) unlocks after his first three lines; before that the door answers with a denied line. `cp2_talk`
+is saved when it unlocks. The rest of the talk continues over the handset as conditional lines.
+
+**Foreman (H6, A4).** Trigger: hall z < −60 after Unit 32 is dead. Level vignette `foreman_arrive` runs a
+trolley along the monorail (x −3.5) to above (−3.5, −66.5) with a siren; the enemies module's foreman has
+an emerge mode `hoist` (spawn `pose: 'hoist'`): it is lowered folded on its own cable frame from y ≈ 7 to
+the floor in ≈ 3 s, the frame releases, it unfolds. It can be damaged from the moment it is visible.
+Landing knocks the player back (never crushes). Its two husks are spawn-mode with emerge `drop` (fall from
+the hook line nearby). Nothing of `g2_foreman` exists before this.
+
+**Hanging units (H4).** Loads on the hook conveyor get simple colliders (surface `robot`) and react to
+`bullet:impact`: swing, sparks, a part may drop. They are scenery that answers bullets.
+
+**Ghost (A5).** Introduced on first entering the fitting bays: it flickers on walking in place on the
+free fourth rig (`rig_unit14`), steps off and walks away *through* a wall. Afterwards it appears at
+stations ≥ 5 m from the player in dim places during phases B, C, D, G, H — never during the taking
+(E, F). Shot or stared at: collapses, absent 45–90 s. After the foreman dies it appears once more at the
+core door, walks into the real Unit 14 standing there and vanishes as the unit's eye comes on. If the real
+Unit 14 is killed the ghost never returns. The ray test for shots is done by the enemies module on
+`weapon:fired` (once per shot, any pellet) → `actor:shot`.
+
+**Tomas reacts to being shot at (H5)**: story, from `bullet:impact` with surface `glass` inside a booth
+window rectangle → `flinch` + one line, once per phase.
+
+**Head asset (A7).** `public/models/tomas-head.glb` (+ any decoder files under `public/vendor/`), loaded
+by the enemies module on level 2 during `createEnemies`, procedural head as fallback.
+
+**Door/window conflicts.** No door leaf may slide into a window or leave fittings behind: fix `d2_booth`
+and `d2_booth_hall` (shorten the windows or change the leaf travel), and anything `check:doors` reports.
+
+**Supplies.** A medkit and shells in the booth; south-hall supplies stay.
+
+**Checks — amendments.** `check:zfight`: distance-aware threshold (≈ 3× depth resolution at the room's
+longest view; camera near 0.05), back-to-back double-sided materials, exact duplicate triangles,
+instances, both door states. `check:doors`: triangle-level with instances expanded; leaf pocket free;
+open leaf inside solid wall; no static triangles within 3 cm of a closed leaf; also `d2_gate`, `d2_mouth`,
+`d2_exit`. `check:reach`: real capsule physics, phases from `phases.ts`, a stress pass with +0.6 m step
+(wreck boxes), each phase's goal reachable and each forbidden region not. `playthrough --level2
+--impatient`: shoots on sight, wrong order, no waiting; test-side oracles for conditional lines; plus
+timing cases the flood fill cannot see (sprinting back through the closing bulkhead, gate and mouth).
