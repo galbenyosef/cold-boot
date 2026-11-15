@@ -659,3 +659,186 @@ New level-2 sound ids (audio implements; procedural as before): `belt_loop`, `be
 `press_slam`, `arm_reach`, `treadmill_loop`, `intercom_click`, `intercom_static`, `glass_bang`,
 `marker_squeak`, `bulkhead_grind`, `contactor_arc`, `siren_loop`, `cell_pull`, `core_hum`,
 `foreman_step`, `foreman_slam`, `foreman_loop`, `lift_loop`, `polisher_loop`, `shoe_slide`.
+
+---
+
+# REVISION 5 — level 2 fixes after the first hand-played run (PLAN — reviewed before implementation)
+
+Supersedes anything above that conflicts. The user played level 2 and found design holes. Root cause:
+scenes were written as "what should happen" and not as "everything the player can do". This revision
+fixes them and sets rules for all future work.
+
+## Hard rules (all levels, from now on)
+
+R1. **Never rely on the player obeying.** If the player must not do something there is a real, physical,
+    visible barrier with a reason (locked door, shutter, fence to the ceiling). If the player may do it,
+    the game handles it. A spoken "don't" is flavour, never a gate.
+R2. **Shootable or different.** Anything that looks like an enemy and can be reached by the player or a
+    bullet reacts to being shot like an enemy — or looks unmistakably different (hologram). Solid-looking
+    puppets (`enemies.actor`) may only exist behind bullet-proof glass / sealed doors, and the seal is real.
+R3. **No assumed order.** Every spoken line that refers to the world ("behind you", "that was loud", "the
+    blue door", "it's just standing there") has a condition checked at the moment of speaking. If the
+    condition is false the line is skipped or replaced by a variant for the actual state. Every beat lists
+    what happens if its precondition was already met, is impossible, or the player did the next thing first.
+R4. **Not before its time.** Enemies of a later beat do not exist in the world before that beat (spawn mode),
+    unless killing them early is explicitly handled and harmless. Bosses never exist early.
+R5. **Helplessness is built, short and smooth.** The player is locked in by doors that visibly close; the
+    scene starts immediately, runs on its own clock (never waits for the player to look or behave), lasts
+    ≤ 25 s per beat, and the room where it happens cannot be entered until the scene lets them in.
+R6. **Containment is tested.** For every story phase there is a list of regions the player must not be able
+    to reach; an automated reachability check proves it (see Checks).
+R7. Ready-made assets are allowed where procedural is weak and it matters (human faces), with a verified
+    licence recorded in `docs/ASSETS.md`.
+
+## Hall partition (what "north" and "south" mean)
+
+The hall is split at z = −50.35 into NORTH (entrance, booth glass, loading station, fitting door) and
+SOUTH (relay door, link to the spine, apron, core door). The partition is a full-width, floor-to-ceiling
+barrier (mesh fence / machine housings with real colliders up to the roof — not climbable, not jumpable)
+with exactly three openings:
+- the **walkway gate** (west): open while the line is held, closes and locks when the line runs;
+- the **tunnel** (the belt passes through it): **mouth shutter** (north end) and **exit shutter** (south
+  end) are real colliders. Line held: both shut. Line running: mouth open; exit shutter is one-way — it is
+  shut and only opens for a body arriving from inside the tunnel (it opens when the player or a unit is
+  within 2 m on the inside), and closes again behind them;
+- the **booth**, via the spine (`d2_spine` → spine → `d2_booth` → booth → `d2_booth_hall`).
+The belt has continuous side rails with colliders from the loading station to the mouth and inside the
+tunnel, so a body on the running belt cannot step off between boarding and the apron. The loading station
+is the only place to get on (a short ramp/step), and only that is open to the player.
+The held belt is ordinary floor: crossing it is allowed and nobody comments on it (remove
+`l2_tomas_bark_belt`). `l2_choir_belt` is said only when the player stands on the *running* belt.
+
+Phases and containment (R6) — `P` = where the player is allowed:
+
+| phase | state | player can be | must NOT reach |
+|-------|-------|---------------|----------------|
+| A | arrival … before the first intercom talk | cab, dock, intake, hall NORTH, hall SOUTH | fitting, relay, spine, booth, core, tunnel interior |
+| B | after the talk (Tomas unlocks `d2_fitting` from his console) | + fitting | relay (until pass), spine, booth, core, tunnel interior |
+| C | pass taken | + relay | spine, booth, core, tunnel interior |
+| D | section C power on, line running | hall SOUTH, relay, link, spine up to `d2_bulkhead_s` and beyond into the trap segment | hall NORTH, fitting, booth, tunnel interior, core |
+| E | trapped (the taking) | spine trap segment z −56 … −36 only | everything else |
+| F | booth opened | + booth | hall, spine south of the bulkhead, north of `d2_bulkhead_n` |
+| G | escorts attack (`d2_booth_hall` open) | spine trap segment, booth, hall NORTH, fitting, intake, dock | hall SOUTH except through the tunnel ride, core |
+| H | after the ride | hall SOUTH, relay, link (spine south part) | core until the foreman is dead; hall NORTH is no longer needed (may stay sealed) |
+| I | foreman dead | + core, lift after the choice | — |
+
+`d2_fitting` now starts **locked** (panel dark); Tomas unlocks it at the end of the first talk (the panel
+turns blue — that is "the door with the blue light"). So the intercom talk is a real gate: without it there
+is no fitting bay, no pass, no relay. `d2_bulkhead_n` is never opened again (the units no longer come
+through the spine).
+
+## The taking — rewritten (replaces `l2_run`, `l2_window`, `l2_booth_empty`, `l2_loaded`)
+
+Beats: `l2_power` → `l2_trap` → `l2_window` → `l2_booth_open` → `l2_loaded` → `l2_escort` → (ride) `l2_tunnel`.
+
+1. **`l2_power`** (relay switch). Arc, CHOIR thanks, the line starts, the gate shuts (the player hears and,
+   if in the hall, sees it). `d2_spine` and `d2_bulkhead_s` open. `d2_booth` and `d2_booth_hall` stay
+   locked ("CYCLING" amber panels). Tomas: joy, then "why's the line moving". Objective: get to Line
+   Control through the service spine. No fight on the way (`g2_spine` is deleted — it stalled the scene).
+   The `g2_relay` fight (existing) happens in the relay room right after the switch, before the player can
+   leave — it is the last fight before the scene, so the scene itself is uninterrupted.
+   What if the player dawdles: nothing proceeds without them; Tomas's radio lines escalate (3 lines, then
+   silence — he stops answering, which is worse). The only open way is the spine (R6 phase D).
+2. **`l2_trap`** — trigger `t2_spine_trap` (spine, z −54.5 … −51, i.e. fully north of `d2_bulkhead_s`).
+   The bulkhead slams and locks behind the player (level guarantees the door volume is clear; if the player
+   backs into the doorway while it closes, the door pushes them north — it never crushes or leaves them on
+   the wrong side). From this frame the player is in the trap segment (phase E). The scene clock starts
+   NOW and does not wait for anything.
+3. **`l2_window`** (target 18–22 s). Through the spine windows (centres z −48.4 and z −43.6) the player
+   sees the booth: lights drop to red (`booth_light_fail`); `d2_booth_hall` opens; two units walk in
+   (`holo`-free, solid actors — legal under R2 because the booth is sealed from the player: `d2_booth`
+   locked, window glass bullet-proof with real collider). Tomas backs away from them to the spine window
+   **nearest the player** (two authored marks, chosen at scene start and re-chosen once if the player moves
+   to the other window in the first 4 s), turns, palms on the glass, face to face with the player at
+   < 1 m — this is the close-up the better head is for. 4–5 very short lines (existing `l2_tomas_window_*`,
+   trimmed to fit the clock). The units take his arms (`held`), walk him out through `d2_booth_hall`,
+   the door shuts behind them.
+   The player can: shoot the glass (bullet stars appear, it holds; once: CHOIR "The glass is rated,
+   Technician."), bang on / try `d2_booth` ("CYCLING"), run between the windows, look away. None of it
+   changes the timeline.
+4. **`l2_booth_open`** — within 1 s of the hall door shutting, `d2_booth` unlocks and opens by itself.
+   The booth is empty: red light, his jacket, the marker, the headset on the floor still transmitting
+   (optional pickup `booth_headset`; not required for anything).
+5. **`l2_loaded`** (target 10–14 s) — seen **from inside the booth through the hall glass**. From the
+   moment the hall door shut, the escorts walk Tomas across the hall to the loading station (x ≈ 4,
+   z ≈ −44; ~13 m, ~8 s) under a single hard work light, lay him on the running belt (`carried`), and the
+   belt takes him into the tunnel mouth (strobes). His voice comes thin from the headset on the floor and
+   cuts off at the mouth. The walk does not wait for the player; the **laying down** waits until the
+   player is inside the booth (`t2_booth`) or 12 s have passed since `d2_booth` opened, whichever is first
+   (so it is always seen from the booth by a player who walks in, and never stalls).
+6. **`l2_escort`** — as soon as he is gone the two escorts turn and walk back toward the booth.
+   `d2_booth_hall` opens. At that instant they become real enemies (group `g2_escort`, via
+   `EnemyActor.promote`), already walking toward the player. A straight fight with two husks in and around
+   the booth. `cp2_escort` checkpoint replaces `cp2_apron` timing (taken after they are dead).
+7. **The ride.** North is open again, the gate is shut, the fitting bays are behind the player. The only
+   way south is the belt (hall partition above). Boarding at the loading station → `l2_tunnel`: ≤ 8 s
+   inside (belt speed raised to 2.2 m/s inside the tunnel), one press, two arms, strobes; the exit shutter
+   opens ahead of the player and closes behind. On the apron: `l2_unit32` (unchanged).
+   What if the player never boards: nothing else is open (R6 phase G). CHOIR nudges once after 40 s:
+   "The line is the way through, Technician."
+Total from trap to the escorts' attack: ≤ 50 s.
+
+## Order-independence audit (R3, R4) — required behaviour
+
+| situation | behaviour |
+|-----------|-----------|
+| Player kills dock / intake / fitting workers on sight | No stealth lines for a group that is dead or already hostile. Tomas (if on the intercom yet) reacts once to shooting with a line that fits ("Okay. That's one way."), never "don't". CHOIR's "please do not interrupt the units" only while that room's workers are alive and calm. |
+| Player never uses the intercom | `d2_fitting` stays locked; Tomas keeps banging / writing; objective says "Use the intercom". |
+| Pass taken while `g2_fit_wake` already dead (shot in their alcoves earlier) | No "Behind you! The alcoves!" line. Variant line. No fight beat; go straight to `l2_pass` aftermath. |
+| Pass taken, alcove units alive | They wake. "Behind you!" only if at least one living member is outside the player's view cone and within 10 m; otherwise the variant "The alcoves!". |
+| "That was loud" lines | Only if the player fired within the last 6 s. Otherwise a neutral variant. |
+| Guiding lines ("east wall, blue light", "left, left") | Only while the target is not yet reached/done and the player is not already heading there (distance decreasing); never after the pass is taken. |
+| Player goes to the relay before the fitting bays | `d2_relay` is locked without the pass (R1); Tomas: variant "It needs a pass. Supervisor's desk, fitting bays." once. |
+| Ghost lines ("the one with the limp's behind you") | Only while the ghost exists, is actually behind the player, and has not been commented on in the last 60 s. |
+| Foreman | Group is spawn-mode: nothing is in the hall before `l2_foreman`. On the beat a monorail hoist (level vignette `foreman_arrive`) lowers the folded machine to the floor at the south end; it unfolds. Its two husks ride in on hooks at the same time. Cannot be damaged before it has landed. |
+| `g2_relay`'s slumped unit shot early | Fine: it dies; after the switch only the skitters come. |
+| `g2_hall_mid` | Spawn-mode already. |
+| Unit 32 | Spawn-mode already; spawns behind the exit shutter, never visible earlier. |
+| Real Unit 14 at the core door | Spawned (inert) only after the foreman is dead; killable; remembered. |
+| Player at the core shoots the consoles / CHOIR | Nothing breaks; the conversation continues. |
+Every remaining spoken line is to be classified by the story agent as *unconditional* (pure reaction to a
+trigger the player just fired) or *conditional* (with its condition written next to it in `dialogue.ts`).
+
+## Holograms (replaces the invulnerable Unit 14 follower and the rig outline)
+
+Two sci-fi hologram looks for actors (`enemies.actor(type, pos, yaw, pose, { look })`):
+- **`holo_ghost`** — the follower. A unit-shaped projection that walks with Okafor's limp. Reads as an
+  apparition: pale blue-white, translucent with additive rim, horizontal scan lines drifting, intermittent
+  tearing/offset slices, drop-outs, slight afterimage trail when it moves, no shadow, faint light spill on
+  the floor, a quiet carrier whine. Bullets pass through: the hit tears a hole that ripples, it glitches
+  hard and collapses to a point (and is gone for a while). Looking straight at it from < 6 m for ~1.5 s
+  also makes it break up. It never comes closer than 5 m and never blocks a path. Horror, not UI.
+- **`holo_tech`** — the reference pattern on the empty calibration rig. Same unit shape, but technical:
+  crisp cyan wireframe/contours with a faint fill, measurement callouts and joint markers, a ground grid
+  ring, perfectly looping walk (`human` gait) in place, stable (no tearing). Shot: flickers and resumes.
+  Replaces the level's projected outline (the level keeps the ring spin and light only).
+Fiction (one readable line each, so it is explained in-world): rig screen — "PLAYBACK — REF PATTERN 00 —
+REYES, S."; fitting bay terminal/note — "PATTERN 14 (OKAFOR) — projector fault: playback is roaming the
+section. Do not follow it." The physical Unit 14 is met only at the core door, after the foreman: the
+ghost was its pattern all along.
+Contract: `ActorOpts.look`, event `actor:shot`, `EnemyActor.promote(group)`.
+
+## Tomas's head
+
+Replace the procedural head with a ready-made, properly licensed head model (CC0 or CC-BY with
+attribution), adapted (skin tone, hair, headset) and attached to the procedural body with the seam hidden.
+It must hold up face to face through glass at 0.5 m and still read at 10 m; eyes that look at the player,
+blinking, and a moving jaw/mouth while speaking (morph targets if the asset has them). Budget ≤ 3 MB
+shipped, loaded only on level 2, procedural head kept as the fallback if loading fails. Licence text and
+source recorded in `docs/ASSETS.md`; no asset whose licence could not be verified at its source.
+
+## Checks (automated; `npm run check`, listed in `docs/CHECKLIST.md`)
+
+- `check:zfight` — finds overlapping coplanar surfaces in the built level (both levels): triangles from
+  visible meshes whose planes coincide within 2 mm, face the same way and overlap in area, reported with
+  world position, room and material names. Zero findings required (allow-list only with a written reason).
+- `check:doors` — for every door and every moving machine part: move it through its range and report any
+  render geometry that stays inside the swept/opened volume (parts left hanging) or that is attached to the
+  wrong parent.
+- `check:reach` — for each phase in the table above: set the world to that phase (door locks, shutters,
+  gate, line state), flood-fill the walkable space from the phase's start with the player's real capsule,
+  step height and jump, and fail if any "must NOT reach" region is touched or a required region is not.
+  Level 1 gets the same check for its locked-door phases.
+- `scripts/playthrough.mjs --level2` gains an "impatient player" mode: shoots every unit on sight, uses
+  things in the wrong order, never stops for dialogue; asserts no soft-lock and that no conditional line
+  fired while its condition was false (the story logs each spoken line with its condition result).
