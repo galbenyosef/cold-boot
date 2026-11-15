@@ -18,6 +18,7 @@ Run everything here and fix what it finds. When the user finds a new class of de
 - No line that assumes the player did things in order; every world-referring line has a condition.
 - No enemy of a later beat present early; bosses never.
 - Helplessness scenes: player locked in by real doors, scene runs on its own clock, short, room not enterable early.
+- No interactable usable through glass, walls or closed doors (R8).
 
 ## Process
 - Plan the scene fully first (what the player can do at every moment and what happens), have a reviewer

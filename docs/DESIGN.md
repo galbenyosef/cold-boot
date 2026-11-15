@@ -956,3 +956,8 @@ open leaf inside solid wall; no static triangles within 3 cm of a closed leaf; a
 (wreck boxes), each phase's goal reachable and each forbidden region not. `playthrough --level2
 --impatient`: shoots on sight, wrong order, no waiting; test-side oracles for conditional lines; plus
 timing cases the flood fill cannot see (sprinting back through the closing bulkhead, gate and mouth).
+
+**R8. No interaction through solid things.** An interactable can be focused/used only if nothing solid
+(wall, door, glass) lies between the player's eye and it: the player module ray-tests against physics
+before offering the prompt. (Found by the user: the booth terminal could be read through the glass.)
+`check:reach` also asserts that no interactable of a sealed region is usable from outside it.
