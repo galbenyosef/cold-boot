@@ -255,6 +255,8 @@ uniform float uDamage;
 uniform float uLowHealth;
 uniform float uPulse;
 uniform float uSaturation;
+/** §8.7 grade: warmth (0 = the built-in look, exactly), as (teal amount, white-balance r/b shift, saturation scale). */
+uniform vec3 uGrade;
 
 vec3 RRTAndODTFit(vec3 v) {
   vec3 a = v * (v + 0.0245786) - 0.000090537;
@@ -296,9 +298,19 @@ void main() {
   float l = dot(c, LUMA);
   vec3 shadowTint = vec3(0.80, 1.00, 1.13);
   vec3 highTint = vec3(1.05, 1.00, 0.94);
+  float sat = uSaturation;
+  // §8.7 grade (stage 3a): uGrade = (0, 0, 0) leaves the built-in look bit-identical (uniform branch).
+  //   x scales the teal shadow tint (1 − x: x = 1 removes it, x < 0 deepens it), y = white balance (+ warm, − cold),
+  //   z scales saturation. render/post.ts derives the three from one warmth value.
+  if (uGrade != vec3(0.0)) {
+    shadowTint = mix(shadowTint, vec3(1.0), uGrade.x);
+    vec3 wb = vec3(1.0 + 0.30 * uGrade.y, 1.0 + 0.04 * uGrade.y, 1.0 - 0.34 * uGrade.y);
+    c *= wb / dot(wb, LUMA);
+    sat *= 1.0 + uGrade.z;
+  }
   c *= mix(shadowTint, highTint, smoothstep(0.02, 0.55, l));
   l = dot(c, LUMA);
-  c = mix(vec3(l), c, uSaturation);
+  c = mix(vec3(l), c, sat);
   // Toe: crush the bottom end smoothly (x^2/(x+k)) — deep but never clipped.
   c = c * c / (c + 0.0035);
 

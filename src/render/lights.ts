@@ -1,13 +1,26 @@
 import * as THREE from 'three';
-import type { FlickerMode, LightDesc, LightGroupPatch, LightHandle, LightManager } from '../core/types';
+import type { FlickerMode, LightDesc, LightGroupPatch, LightHandle, LightManager, Quality } from '../core/types';
 import { Flicker, FLICKER_MEAN } from './flicker';
-import type { QualityPreset } from './quality';
+import { QUALITY, type QualityPreset } from './quality';
 import { LIGHT_BOX_EDGE, lightBoxesAvailable, probeBoxesAvailable } from './patch';
 
 const FADE_TIME = 0.15;
 /** Lights further than this beyond their own reach are never considered. */
 const MAX_VIEW = 48;
 const EMPTY: readonly LightHandle[] = Object.freeze([]);
+/** §8.14 `LightDesc.minQuality`: quality rank (a light whose minQuality ranks above the current quality never scores). */
+const QRANK: Record<Quality, number> = { low: 0, medium: 1, high: 2, ultra: 3 };
+/** The preset objects are the QUALITY table's own (render passes them through), so the name is found by identity. */
+function qualityOf(preset: QualityPreset): Quality {
+  for (const k of Object.keys(QUALITY) as Quality[]) if (QUALITY[k] === preset) return k;
+  // a modified copy (dev harness overrides): closest by point-slot count
+  let best: Quality = 'high', d = Infinity;
+  for (const k of Object.keys(QUALITY) as Quality[]) {
+    const e = Math.abs(QUALITY[k].pointSlots - preset.pointSlots) + Math.abs(QUALITY[k].shadowSlots - preset.shadowSlots);
+    if (e < d) { d = e; best = k; }
+  }
+  return best;
+}
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Vector3();
@@ -137,6 +150,8 @@ export class LightPool implements LightManager {
   hooks: LightPoolHooks | null = null;
   /** Stats for the last update. */
   shadowUpdates = 0;
+  /** §8.14: lights skipped this update because of `minQuality` (switched on, but below their quality). */
+  capped = 0;
   activeSlots = 0;
   /** Pinned lights holding a slot / pinned lights left without one (no out-of-view light to displace), last update. */
   pinned = 0;
@@ -150,6 +165,8 @@ export class LightPool implements LightManager {
   private readonly projScreen = new THREE.Matrix4();
   private shadowCount = 0;
   private shadowEvery = 2;
+  /** §8.14: current render quality rank (from the preset); lights with a higher `minQuality` are never scored. */
+  private qRank = 2;
   private frame = 0;
   private seed = 1;
   private lights: THREE.Object3D[] = [];
@@ -206,6 +223,7 @@ export class LightPool implements LightManager {
     this.pointSlots.length = 0;
     this.shadowCount = preset.shadowSlots;
     this.shadowEvery = preset.shadowEvery;
+    this.qRank = QRANK[qualityOf(preset)];
 
     const totalSpots = preset.shadowSlots + preset.spotSlots;
     for (let i = 0; i < totalSpots; i++) {
@@ -265,6 +283,7 @@ export class LightPool implements LightManager {
 
   setShadowQuality(preset: QualityPreset): void {
     this.shadowEvery = preset.shadowEvery;
+    this.qRank = QRANK[qualityOf(preset)];
     for (const s of this.spotSlots) {
       if (!s.shadow) continue;
       const sh = (s.light as THREE.SpotLight).shadow;
@@ -323,6 +342,12 @@ export class LightPool implements LightManager {
     this.hooks?.onRemove(h);
   }
 
+  /** §8.14: is this light's `minQuality` above the current render quality? */
+  belowQuality(h: Handle): boolean {
+    const mq = h.desc.minQuality;
+    return mq !== undefined && QRANK[mq] > this.qRank;
+  }
+
   /**
    * Stage 3a §8.4: keep `h` in the pool while pinned (counted: two feeds may pin the same light). A pinned light is
    * selected even when it scores below the cut, by displacing the weakest selected light whose reach is OUTSIDE the
@@ -348,6 +373,7 @@ export class LightPool implements LightManager {
       const h = hs[i];
       if (h.moved || (h.desc.priority ?? 1) >= 50) continue;
       if (!h.enabled || h.intensityScale <= 0) continue;
+      if (this.belowQuality(h)) continue;
       const m = FLICKER_MEAN[h.flicker.mode];
       sig += (i + 1) * (h.intensityScale * m * (1 + h.color.r * 3.1 + h.color.g * 5.3 + h.color.b * 7.7));
     }
@@ -374,13 +400,17 @@ export class LightPool implements LightManager {
     const spotCands = this.spotCands, pointCands = this.pointCands;
     spotCands.length = 0;
     pointCands.length = 0;
+    this.capped = 0;
 
     for (let i = 0; i < hs.length; i++) {
       const h = hs[i];
       const desc = h.desc;
       h.checkMoved();
       const fl = bake ? (h.isSpot && h.flicker.mode === 'alarm' ? 1 : FLICKER_MEAN[h.flicker.mode]) : h.flicker.step(dt);
-      const base = h.enabled ? desc.intensity * h.intensityScale : 0;
+      // §8.14: below its minQuality a light is never scored (no slot, no pin, no shadow); its bound emissive stays live
+      const capped = this.belowQuality(h);
+      if (capped && h.enabled) this.capped++;
+      const base = h.enabled && !capped ? desc.intensity * h.intensityScale : 0;
       const isAlarmSpot = h.isSpot && h.flicker.mode === 'alarm';
       const factor = h.enabled ? h.intensityScale * (isAlarmSpot ? 1 : fl) : 0;
       h._factor = factor;

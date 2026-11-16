@@ -19,6 +19,13 @@ import { Arcs, type ArcSlot } from './arcs';
 import { Debris } from './debris';
 import { createPuffAtlas } from './textures';
 import { Emitters, type EmitterKind } from './emitters';
+import { createViewport, type ViewportHandle, type ViewportOpts } from './viewport';
+import { createFalls, createPool, type FallsHandle, type FallsOpts, type PoolHandle, type PoolOpts } from './water';
+import { createLampGrid, type LampGridHandle, type LampGridOpts } from './lamps';
+
+export type { ViewportHandle, ViewportOpts, ViewportState } from './viewport';
+export type { FallsHandle, FallsOpts, PoolHandle, PoolOpts, PoolSurfaceQuad } from './water';
+export type { LampGridHandle, LampGridOpts, LampSetOpts, LampState } from './lamps';
 
 const QMUL: Record<Quality, number> = { low: 0.45, medium: 0.7, high: 1, ultra: 1.25 };
 
@@ -57,9 +64,25 @@ function cone(n: THREE.Vector3, spread: number) {
 
 const r = (a: number, b: number) => a + (b - a) * Math.random();
 
-export interface FxStats { streaks: number; puffs: number; debris: number; emitters: number }
+export interface FxStats { streaks: number; puffs: number; debris: number; emitters: number; habitat: number }
 
-export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> }> {
+/**
+ * Stage 3a §8.7 (P2) — habitat effects. Not in the contract yet (proposed for `FxSystem`); reach them as
+ * `ctx.fx as FxSystemEx`. Each returns a handle; all are emissive-only (no light-pool slot) and updated by fx.update.
+ *   viewport  — the sea behind a big pane (2 draw calls)                     → `setState('calm' | 'cold' | 'dark')`
+ *   falls     — a falling-water sheet with mist at its foot (1 draw call)     → `setFlow(0…1, s)`
+ *   pool      — underwater glow, foam, reflected caustics (1 draw call)       → `setFlow`, `setGlow`
+ *   lampGrid  — daylight ceiling panels (1 draw call) + linked lights/fixtures → `setState(state, { wave, flicker })`
+ */
+export interface FxHabitat {
+  viewport(o: ViewportOpts): ViewportHandle;
+  falls(o: FallsOpts): FallsHandle;
+  pool(o: PoolOpts): PoolHandle;
+  lampGrid(o: LampGridOpts): LampGridHandle;
+}
+export type FxSystemEx = FxSystem & FxHabitat & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> };
+
+export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   const root = new THREE.Group();
   root.name = 'fx';
   ctx.scene.add(root);
@@ -413,7 +436,57 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
   const frustum = new THREE.Frustum();
   const projView = new THREE.Matrix4();
 
+  // ── stage 3a habitat effects (P2)
+  const habitat = new THREE.Group();
+  habitat.name = 'fx:habitat';
+  root.add(habitat);
+  const viewports: ViewportHandle[] = [];
+  const fallsList: FallsHandle[] = [];
+  const pools: PoolHandle[] = [];
+  const grids: LampGridHandle[] = [];
+  const quality = (): Quality => ctx.render?.quality ?? 'high';
+  const drop = <T>(list: T[], h: T) => { const i = list.indexOf(h); if (i >= 0) list.splice(i, 1); };
+  const camWorld = new THREE.Vector3();
+  /** Waterfall foot mist: soft, slow, low, short-lived (shared puffs, lit like smoke). */
+  const mist = (p: THREE.Vector3, v: THREE.Vector3, size: number, alpha: number) => {
+    resetPuff(SHAPE.SMOKE);
+    const P = puffs.s;
+    P.px = p.x; P.py = p.y; P.pz = p.z; P.vx = v.x; P.vy = v.y; P.vz = v.z;
+    P.life = r(1.6, 2.8); P.s0 = size * 0.4; P.s1 = size * r(1.6, 2.4); P.alpha = alpha;
+    P.r = P.g = P.b = r(0.78, 0.9); P.drag = 1.6; P.buoy = 0.05; P.phase = 0.55; P.fadeIn = 0.25; P.fadePow = 1.6;
+    puffs.spawn();
+  };
+
   const fx = {
+    viewport(o: ViewportOpts): ViewportHandle {
+      const h = createViewport(o, habitat, quality);
+      const remove = h.remove.bind(h);
+      h.remove = () => { remove(); drop(viewports, h); };
+      viewports.push(h);
+      return h;
+    },
+    falls(o: FallsOpts): FallsHandle {
+      const h = createFalls(o, habitat);
+      const remove = h.remove.bind(h);
+      h.remove = () => { remove(); drop(fallsList, h); };
+      fallsList.push(h);
+      return h;
+    },
+    pool(o: PoolOpts): PoolHandle {
+      const h = createPool(o, habitat);
+      const remove = h.remove.bind(h);
+      h.remove = () => { remove(); drop(pools, h); };
+      pools.push(h);
+      return h;
+    },
+    lampGrid(o: LampGridOpts): LampGridHandle {
+      const h = createLampGrid(o, habitat);
+      const remove = h.remove.bind(h);
+      h.remove = () => { remove(); drop(grids, h); };
+      grids.push(h);
+      return h;
+    },
+
     sparks(point: THREE.Vector3, normal: THREE.Vector3, count = 20, speed = 6) {
       sparksImpl(point, normal, count, speed, true);
       if (count >= 12 && flashBudget >= 1) {
@@ -562,12 +635,21 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
       arcs.update(dt, arcTick);
       flashes.update(dt);
       debris.update(dt, ctx.physics);
+      if (viewports.length || fallsList.length || pools.length || grids.length) {
+        const q = quality();
+        cam.getWorldPosition(camWorld);
+        for (let i = 0; i < viewports.length; i++) viewports[i].update(dt, cam, pixelScale.value, q);
+        for (let i = 0; i < fallsList.length; i++) fallsList[i].update(dt, camWorld, mist, qmul());
+        for (let i = 0; i < pools.length; i++) pools[i].update(dt);
+        for (let i = 0; i < grids.length; i++) grids[i].update(dt);
+      }
+
       streaks.update(dt);
       puffs.update(dt, cam);
     },
 
     stats(): FxStats {
-      return { streaks: streaks.count, puffs: puffs.count, debris: debris.activeCount, emitters: emitters.count };
+      return { streaks: streaks.count, puffs: puffs.count, debris: debris.activeCount, emitters: emitters.count, habitat: viewports.length + fallsList.length + pools.length + grids.length };
     },
     clearDecals() { decals.clear(); },
     /** Checks / debug: live decals with their anchors. */

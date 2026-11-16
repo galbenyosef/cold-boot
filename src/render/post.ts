@@ -155,6 +155,12 @@ export class PostChain implements PostFx {
   private lowHealth = 0;
   private lowHealthTarget = 0;
   private exposureMult = 1;
+  // §8.7 grade (warmth: 0 = today's look)
+  private gradeV = 0;
+  private gradeFrom = 0;
+  private gradeTo = 0;
+  private gradeT = 1;
+  private gradeDur = 0;
   private time = 0;
   private grainTime = 0;
 
@@ -215,7 +221,7 @@ export class PostChain implements PostFx {
       tHdr: { value: null }, tBloom: { value: null }, tDirt: { value: makeDirtTexture() },
       uExposure: { value: 1 }, tAdapt: { value: null }, uBloom: { value: 0.1 }, uDirt: { value: 0.5 }, uAberration: { value: 0.01 },
       uVignette: { value: 0.4 }, uAspect: { value: 1 }, uDamage: { value: 0 }, uLowHealth: { value: 0 },
-      uPulse: { value: 0 }, uSaturation: { value: 1 },
+      uPulse: { value: 0 }, uSaturation: { value: 1 }, uGrade: { value: new THREE.Vector3() },
     });
     this.finalMat = passMaterial('Final', FINAL_FRAG, {
       tColor: { value: null }, uTexel: { value: new THREE.Vector2() }, uTime: { value: 0 },
@@ -335,6 +341,21 @@ export class PostChain implements PostFx {
   }
   setLowHealth(amount: number): void { this.lowHealthTarget = Math.min(1, Math.max(0, amount)); }
   setExposure(mult: number): void { this.exposureMult = Math.max(0, mult); }
+  /**
+   * §8.7 (stage 3a): colour grade, tweened over `seconds` (wall clock, smoothstep). `warmth` > 0 counters the built-in
+   * teal shadows and warms the white balance (+0.35 ≈ neutral shadows, a touch warm); < 0 colder (−0.6 = the
+   * takeover: deeper teal, blue white balance, −15 % saturation). 0 = the built-in look exactly. No recompile.
+   */
+  grade(warmth: number, seconds: number): void {
+    warmth = Math.min(1, Math.max(-1, warmth));
+    if (seconds <= 0) { this.gradeV = this.gradeFrom = this.gradeTo = warmth; this.gradeT = 1; return; }
+    this.gradeFrom = this.gradeV;
+    this.gradeTo = warmth;
+    this.gradeT = 0;
+    this.gradeDur = seconds;
+  }
+  /** Current grade warmth (debug). */
+  get warmth(): number { return this.gradeV; }
 
   /** @param realDt wall-clock seconds (post effects keep animating while the simulation is paused) */
   update(realDt: number, simDt: number): void {
@@ -348,6 +369,11 @@ export class PostChain implements PostFx {
       this.fadeT = Math.min(1, this.fadeT + realDt / this.fadeDur);
       const k = this.fadeT * this.fadeT * (3 - 2 * this.fadeT);
       this.fadeV = this.fadeFrom + (this.fadeTo - this.fadeFrom) * k;
+    }
+    if (this.gradeT < 1) {
+      this.gradeT = Math.min(1, this.gradeT + realDt / this.gradeDur);
+      const k = this.gradeT * this.gradeT * (3 - 2 * this.gradeT);
+      this.gradeV = this.gradeFrom + (this.gradeTo - this.gradeFrom) * k;
     }
     this.lowHealth += (this.lowHealthTarget - this.lowHealth) * Math.min(1, realDt * 4);
     if (Math.abs(this.lowHealth - this.lowHealthTarget) < 0.002) this.lowHealth = this.lowHealthTarget;
@@ -487,6 +513,10 @@ export class PostChain implements PostFx {
       const beat = Math.exp(-ph * 9) + 0.7 * Math.exp(-Math.abs(ph - 0.22) * 14);
       u.uPulse.value = Math.min(1, beat);
       u.uSaturation.value = look.saturation;
+      // warmth → (teal removal, white balance, saturation): w > 0 removes the teal by 2.2 w (0.35 → 77 %), w < 0 deepens it
+      const g = this.gradeV;
+      if (g === 0) u.uGrade.value.set(0, 0, 0);
+      else u.uGrade.value.set(g > 0 ? Math.min(1, g * 2.2) : g * 0.9, g, g < 0 ? g * 0.25 : g * 0.05);
       drawFullscreen(r, this.compositeMat, this.ldr);
     }
 
