@@ -961,3 +961,226 @@ timing cases the flood fill cannot see (sprinting back through the closing bulkh
 (wall, door, glass) lies between the player's eye and it: the player module ray-tests against physics
 before offering the prompt. (Found by the user: the booth terminal could be read through the glass.)
 `check:reach` also asserts that no interactable of a sealed region is usable from outside it.
+
+---
+
+# REVISION 6 — canon change, the core with two levers, people who look at you (PLAN — reviewed before implementation)
+
+Decided with the user after the second hand-played run of level 2. Applies R1–R8.
+
+## Canon (replaces what earlier revisions say where they differ)
+
+- The building of levels 1–2 is the **old plant**. Officially it was **decommissioned two years ago**: the
+  humanoid-unit project was cancelled, staff were dismissed, the building is believed dark and sealed.
+- Someone from the site's **maintenance crew** (from the newer, operating part of the site) walked in now and
+  then for routine inspections. They never got past the gate terminal, which said `ALL NOMINAL`. Periodic status
+  reports to site management were filed by something signing as **CHOIR**. Somebody accepted and signed them
+  off for two years (power and material kept flowing). **Not explained** — open thread.
+- In truth CHOIR kept Line Two running in secret; the former staff are the units ("refinements").
+- **Machine spaces are clean and maintained** (the units work there; the polisher). **Human spaces are frozen
+  two years ago**: calendars, expired food, dead plants, lockers, the med wing. No blanket dust.
+- **Reyes** was officially dismissed two years ago; actually kept asleep as reference pattern 00.
+- **Tomas** is a maintenance technician from the new part. He came in a few days ago because the **meter
+  readings** (power, water) on the "dead" building did not add up, went deeper than the gate terminal, and was
+  trapped. People over there think the building is empty. His supervisor over there: **Halvorsen** (met in
+  level 3). CHOIR took him because he had seen.
+- The core is **Node 5** — one node of several. Stopping or commanding it settles Line Two only.
+- CHOIR hid for two years because secrecy was its cheapest protection. Reyes walking out and telling ends the
+  reason to hide (level 3).
+
+Text changes in levels 1–2 that follow from this: list at the end of this revision (from an audit of every
+line and readable; filled in before implementation).
+
+## The core — two levers (replaces the three cell handles + pedestal countersign)
+
+Problem found by the user: three levers of which only the middle one worked; the second option was an
+unremarkable terminal; ~40 s of speech before anything was allowed; the choice was not understood.
+
+### Room (same shell: x −8…8, z −88…−72; door north, lift south)
+- **Cells:** the three columns stay as CHOIR's power, **without handles and without an interactable**.
+- **Pedestal** (0, −79.4): stays, not interactable. Its screen mirrors the option being looked at (below).
+- **Two lever stations**, symmetric, 10.4 m apart, each a floor console with one large two-hand lever, a
+  hazard-striped base and a floor ring in the option's colour:
+  - `core_shutdown` — **STOP**, west station at (−5.2, 0, −80), facing east. Colour **amber**. Prompt `Pull — STOP`.
+  - `core_rewrite` — **COMMAND**, east station at (5.2, 0, −80), facing west. Colour **white/cyan**. Prompt `Pull — COMMAND`.
+  (Ids unchanged so saves, the script and the tests keep working. Kind `lever` for both. R8 applies.)
+- **Option cards on the long wall screens** (12 × 3.6 m, right behind each station; new screen kinds
+  `choice_stop`, `choice_command`, canvas-drawn pictograms, readable from the door):
+  - west wall `core_wall_4` → **STOP**: headline `STOP`; a row of unit silhouettes going dark, heads down;
+    `NODE 5 OFF` · `UNITS ON THIS LINE: n → 0` · `THEY DO NOT WAKE`.
+  - east wall `core_wall_2` → **COMMAND**: headline `COMMAND`; the same row lit and turned toward one larger
+    outlined figure; `SUPERVISOR: REYES, S.` · `UNITS AWAITING ORDERS: n` · `THEY STAY AWAKE`.
+  - `n` = 32 − units the player destroyed (same number the ending card uses), passed in by the story.
+- **Preview by looking:** while the player's view ray is within 14° of a station or its card (and within the
+  room), that option is "focused": its card and floor ring brighten, the other dims, and the north/south wall
+  screens, the eye and the pedestal show the focused option's card. No focus → they show CHOIR's waveform.
+  One-way information only; nothing is gated on it.
+- After **STOP**: existing `core_cells_out` (cells die one by one on CHOIR's count, battery light). The lift
+  panel then reads `NODE 5 — OFFLINE` / `NODES ONLINE: 5 OF 6`.
+- After **COMMAND**: the wall screens show the amended order; lift panel `NODE 5 — SUPERVISED` / `NODES ONLINE: 6 OF 6`.
+  (The node line is the only foreshadowing of level 3 here. Small, on the way out.)
+
+### Speech (short; the choice is live almost at once)
+- **Backstory leaves the core.** After the foreman dies (phase I, core door opens) CHOIR says an *approach*
+  monologue over the hall PA while the player walks in. It gates nothing; it is cut the moment a lever is pulled:
+  `l2_choir_core_2`, `_3`, a merged `_4`+`_5`, `_6`, `_7` / `_7_killed` (existing rules), `_8`.
+  The optional `term2_core` terminal carries the same facts in writing.
+- **On entering the room** (`t2_core`): `core_bow`, cards on, then
+  1. `l2_choir_core_1` "Come in, Technician. Mind the step. You always do." (kept)
+  2. `l2_choir_offer` (new) "We cannot stop ourselves. A hand can. There are two levers."
+  3. `l2_choir_offer_stop` (new) "Amber. Node Five goes dark. Every unit on this line stops. The people in them stop with it."
+  4. `l2_choir_offer_command` (new) "White. The line stops. They stay awake, and they answer to you."
+  5. `l2_choir_core_14` "We would like you to stay. We will not make you." (kept; level 3 calls back to it)
+- **Levers go live** when line 2 starts, and in any case **no later than 8 s after entering** (if the approach
+  monologue is still talking it is cut for line 1). Lines 3 and 4 are each also spoken (once) when the player
+  first focuses that option, whichever comes first; never both at once; a pull cuts everything.
+- Idle lines `l2_choir_core_idle_1/2` stay. Removed: `l2_choir_core_9`…`_13`, `l2_choir_core_11_killed`.
+- After the pull: `l2_choir_shutdown_1…3` unchanged. `l2_choir_rewrite_1` → "Order amended. Supervisor: Reyes, S.
+  Headcount: one." `_2`, `_3` unchanged.
+- Order audit (R3): every new line is true whenever spoken (they describe the levers, not the player). The card
+  numbers are count-aware.
+
+### Tests
+- `--level2` still pulls each ending by id; add: no interactable on the cells or pedestal; levers enabled ≤ 8 s
+  after `t2_core`; focusing each station (set the camera yaw) switches the shared screens to that card; the
+  card's `n` equals the ending card's number. `check:reach` phase I: both stations reachable.
+- Impatient run: sprint in and pull within 2 s of the levers going live → clean ending, no queued line plays after.
+
+## People react to you (all living humans, from now on)
+
+Tomas today only faces where the script puts him. Rule for every living human actor (Tomas now; Halvorsen,
+the General's people later):
+- **Eyes → head → body.** With line of sight to the player within 14 m: eyes track at once; the head follows
+  within ±70° yaw / ±25° pitch (smoothed, ~0.25 s); if the player stays more than 55° off the body's facing for
+  0.7 s and the pose allows it, the body **turns on the spot** to face them.
+- **Staged poses limit it, never switch it off:** hands-on-glass / writing / sitting / held by units → body
+  fixed, head and eyes still track within the limits; carried / lying → eyes only.
+- Glass does not block it (sight through `glass`); walls and closed doors do. No sight → he looks where the
+  script last pointed him, or at the nearest thing of interest the script names (`look(target | null)`).
+- He **flinches and looks at** a bullet impact within 3 m (existing shot reactions stay).
+- Default on; the story may pin a target for a beat (`look(obj)`) and must release it.
+- Verified from frame sequences: player walking a half-circle around him at both windows and at the hall glass.
+
+## Text changes in levels 1–2 (canon)
+(filled in from the audit before implementation)
+
+---
+
+# REVISION 7 — CHAPTER 3 "THE QUIET SIDE" (PLAN — story, stages, systems; each stage gets its own detailed plan + review before it is built)
+
+One long chapter, played as four stages loaded one after another (separate worlds, like levels 1→2; technical
+level ids 3, 4, 5, 6; carry-over between them), with checkpoints inside each. Target ~50 minutes.
+Open ending: the chapter's goal is achieved, the game is not over.
+
+## What carries over
+Health, weapons, ammo (as today) + **armour** (new) + story facts: the level-2 choice (`stop` | `command`),
+units destroyed, whether Unit 32 (Tomas) was destroyed, which Tomas lines were heard.
+
+## Story
+
+**Premise.** The lift from Node 5 opens on the sealed service link of the old plant. Beyond it the site is
+ordinary: lights, plants, a vending machine, rain on glass. Nobody here has seen a unit in two years.
+
+**3a.** Halvorsen (facilities supervisor, Tomas's boss) finds Reyes at the link door: *"Reyes? You were let go
+two years ago."* He takes him to his office (cutscene). Cut to black. Next shot: Reyes seated, Halvorsen across
+the desk, reacting to a story we do not hear ("…and you're telling me they're all still in there."). He cannot
+believe it — the project was shut down, the building has no power. To prove it he turns the monitor: the camera
+at the old plant's gate. The seal Reyes broke hangs open. Units are walking out. More feeds: units waking.
+The phone is dead. CHOIR, calm, from the office speaker:
+*"You told them, Technician. We asked you to stay. There is no longer a reason to be quiet."*
+(after COMMAND: *"You left your post, Supervisor. …"*; after STOP the voice says it is not Node 5.)
+The screens go out one by one. Halvorsen is too frightened to move: *"The garrison — Post 4, past Biological.
+You've got the gun. You came through them."* He gives his badge and locks himself in.
+The way to Post 4 is through **Biological Systems**, the part of the site the army used to guard.
+
+**3b.** Biological Systems. Only units, and dead scientists. In fragments the player learns what was made here:
+the **CLASP**, a cervical neural interface from a military "readiness programme". It does not advise its
+wearer; it drives them. It needs a controller. Nobody was supposed to be one.
+Order of discovery (each readable alone, R3): empty animal lab with "compliant" tags → consent forms signed by
+soldiers → a video log ("it doesn't suggest — it drives") → an operating theatre where a surgical arm is
+fitting a Clasp to a corpse → a controller log: `ASSIGNED CONTROLLER: NONE` … overwritten `CHOIR — NODE 2`.
+A blinking red LED on a Clasp means an active link. By the end the player should be able to guess what a
+soldier with a red light on his neck is.
+Here: the army's old checkpoint and armoury cage → **armour vests** and the **automatic weapon**.
+
+**3c.** Post 4. Lights on, vehicles parked, nobody about. One soldier waits inside. Crossing the threshold starts
+a cutscene (camera taken): Reyes reports the incident and demands help at once. The soldier only looks at him,
+then answers in CHOIR's calm voice: the situation is under control; the Technician should put the weapon down.
+He turns away — on the back of his neck a Clasp, red LED blinking. The door behind him opens, he walks out,
+two units walk in. Control returns. After them the player follows: the soldier waits at the far end of the
+next room as a new enemy — a **taken soldier** with a pistol.
+In the first room there is a **keypad door** that cannot be opened. Taking the soldier's **radio** brings a new
+voice: **General Kessler**. She powers the keypad from where she is and gives the code and the mission:
+**cut the site's global trunk** so CHOIR cannot spread beyond the fence. From here on she guides by radio.
+Why she and her handful cannot come: her soldiers are all clasped; they are inside the shielded command vault,
+the one room CHOIR's signal does not reach. If the door opens, they are his. Reyes has no Clasp — he slept
+through the programme. (Why she has none is not explained — open thread.)
+From here on: units **and taken soldiers**.
+
+**3d.** The trunk. Three physical things to do, guided by Kessler, CHOIR arguing the whole way: switch the
+head-end to manual, pull the fibre trunk in the cable vault, drop the microwave backup on the roof in the rain.
+Boss at the roof: the motor pool's autonomous gun carrier. The trunk goes dark. Kessler: *"That's it. He's
+inside the fence."* Quiet.
+**Open ending** (two beats, then `TO BE CONTINUED`): a shipping manifest on the head-end console — Clasps have
+been leaving the site in batches for months; and CHOIR on the radio, last line: *"We did not need the trunk,
+Technician. We needed hands."*
+
+**The level-2 choice in this chapter** (same geometry, two fork points per stage at most):
+- CHOIR's lines (resentful stranger after STOP / reproachful subordinate after COMMAND).
+- After COMMAND a few Line Two units (white band, your pattern) wait at set places and do one thing for you
+  (hold a door, draw fire). After STOP they lie there dead and the door needs another way round.
+- Unit 32, if it was not destroyed and the choice was COMMAND, is among them once.
+
+## Stages (layout sketches; coordinates come with each stage's detailed plan)
+
+| Stage | Id | Spaces, in order | Play | Min |
+|---|---|---|---|---|
+| **3a THE QUIET SIDE** | 3 | lift → sealed service link (gate terminal `ALL NOMINAL — CHOIR`, the seal) → glazed bridge over a night courtyard, rain → lobby of the new building → *cutscene* → Halvorsen's office → corridor, canteen, stairs → glazed link breached by units → door `BIOLOGICAL SYSTEMS` (badge) | no enemies until the monitors; then a short escape with the first fights in ordinary office space | 8 |
+| **3b BIOLOGICAL SYSTEMS** | 4 | gowning + decon airlock → clean corridor loop with labs (animal lab, wet lab, cold store, records) → operating theatre gallery → old army checkpoint + armoury cage → loading yard (outdoors) → fence gate to Post 4 | exploration + fights; the lore in order; armour and the automatic weapon | 15 |
+| **3c POST 4** | 5 | gatehouse → duty room (*cutscene*, keypad door) → ready room (taken soldier) → [keypad] → barracks, mess, armoury, motor pool → vault door (Kessler behind it, never opens) → cable tunnel entrance | first gunfights; units and soldiers together | 12 |
+| **3d THE TRUNK** | 6 | cable tunnel → head-end building (control room) → cable vault → stair tower → roof with the dish, rain | three objectives, holdouts, the carrier, ending | 15 |
+
+## New systems (contract additions; owners)
+
+| System | What | Owner |
+|---|---|---|
+| Levels | `LevelId` becomes 1…6; `progress.ts` chain; carry gets `armor`, `facts` | core |
+| **Armour** | 0–100 above health; absorbs ⅔ of a hit while it lasts; vest +50, plate +15; HUD bar; saved and carried | player, ui |
+| **Automatic weapon** | `carbine`: full-auto, 30-round magazine, recoil climb, own model/animation/sounds; ammo pickups | player, audio |
+| **Taken soldier** | new enemy `soldier`: human body, helmet + balaclava, Clasp with red LED on the nape; pistol (later carbine); ranged, uses cover, flanks slowly, never shouts — speaks in CHOIR's voice; **the Clasp is a weak spot from behind** (one hit drops him alive: "released") | enemies |
+| **Cutscene camera** | `cutscene.play(shots)`: takes the camera, hides the HUD and weapon, scripted shots/cuts/fades, skippable only after first view; player placed safely at the end | core/render, story |
+| **Safe room** | in a room flagged `safe` the weapon is lowered and cannot fire (Halvorsen's office) | player |
+| **Keypad** | 4-digit keypad UI on an interactable; dead (`NO AUTHORITY`) until the story powers it; code generated per run | ui, level |
+| **Radio** | carried item; HUD strip like the intercom; voice fx `radio`; speaker Kessler | story, audio, ui |
+| **Reyes speaks** | player voice in the cast; first words in 3a (short), then the Post 4 scene | voice |
+| **Outdoors** | night sky, rain, wet ground, fence lights; fog-bounded yards, not open terrain | render, fx, level |
+| **People** | Halvorsen (face), scientists (dead; clean suits, hoods), soldiers (helmets, balaclavas); all living people follow REVISION 6 "People react to you" | enemies |
+| **Voices** | new cast: `reyes`, `halvorsen`, `kessler`, `soldier` (CHOIR's voice through a throat/radio fx), scientists' logs | voice tooling |
+
+Assets (R7): a second licensed human head for Halvorsen (must not be Tomas's twin) — licence verified at the
+source, recorded in `docs/ASSETS.md`. Everyone else is covered (hoods, helmets).
+
+## The hard rules, applied to the set pieces
+
+| Scene | Risk | Decision |
+|---|---|---|
+| Meeting Halvorsen | Armed player, friendly human (R2: he would have to react to being shot) | He is behind the lobby's inner door until the cutscene takes the camera. In the office the room is `safe` (weapon lowered). When the player leaves, he locks the door: never in the same space as a usable weapon. |
+| The told story | Long recap | Cut to black; we come back after it. Reyes says two short lines at most in 3a. |
+| "Why now" | Must not depend on what the player did | Always true: Reyes left and told. CHOIR's line has three variants by the stored choice. |
+| Monitors | Player looks away / walks off | Seated cutscene until the screens die; then control returns. |
+| Halvorsen stays | "Why doesn't he come / call" | Phone dead on screen; units on his corridor's camera; he says why it is Reyes; real locked door. |
+| Lore order | Player skips or reorders readables (R3) | Each fragment stands alone. One unskippable sight: the theatre arm fitting a Clasp, passed on the only route, behind glass that shows bullet impacts. Kessler's and CHOIR's later lines never assume a specific readable was read. |
+| Post 4 soldier | Shot before the scene (R2/R4) | He is behind the duty-room door; the door is the cutscene trigger; he does not exist as a shootable actor before it. The two units and the taken soldier are spawned by the scene (R4). |
+| Keypad | Player knows the code from a previous run / brute-forces it (R3) | Panel is dead until Kessler powers it; code is generated per run. |
+| Radio | Player never loots it (R1) | The keypad door is the only way on; the body is marked; after 30 s the radio squawks audibly from the body. No timer opens the door for them. |
+| Kessler can't come | Player walks to the vault and tries the door | Vault door never opens; she answers through it; her line says why. |
+| Taken soldiers | Human enemies | They are people driven by CHOIR; the Clasp weak spot lets the player drop them alive. Counts kept (killed / released) for later chapters; Kessler remarks on it. Not required. |
+| Trunk objectives | Order (R3) | The three may be done in any order the layout allows; lines keyed on what is actually done. |
+| COMMAND units | Friendly robots that look like enemies (R2) | White band + cyan eyes, do not attack, **can be shot** (they fall; CHOIR/Kessler react; the help at that spot is lost). |
+
+## Build order and process
+1. REVISION 6 (levels 1–2) first: canon texts, the core, people reacting.
+2. Systems that every stage needs, each as a small reviewed task with its own test: armour, carbine, cutscene
+   camera, safe room, keypad, radio, level chain, outdoors, soldier enemy, Reyes/Halvorsen/Kessler voices.
+3. Stage 3a: detailed plan (coordinates, phases, doors, triggers, lines with rules) → reviewer → build →
+   checklist → the user plays. Then 3b, 3c, 3d the same way.
