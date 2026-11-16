@@ -39,7 +39,29 @@ export interface LevelDef {
   regions?: Record<string, THREE.Box3[]>;
 }
 
-export type LevelImpl = Level & { settle(seconds?: number): void; setSilent(on: boolean): void };
+export type LevelImpl = Level & {
+  settle(seconds?: number): void;
+  setSilent(on: boolean): void;
+  /**
+   * Stage 3a §8.4 (feeds): the rooms drawn — instead of the main view's portal set — for the duration of ONE feed pass
+   * (null = end of the pass). Honoured by `roomVisible` (render's `occludeForeign`), `isVisible` and the tagged-room
+   * pass; the main view's mask, its shadow requests and anything outside the pass are untouched. render/feed.ts only.
+   */
+  setVisibilityOverride(rooms: ReadonlySet<string> | null): void;
+  /**
+   * Stage 3a §8.4: rooms some live feed is showing (union of the active feeds; null = none). Enemies' `cullOne` keeps
+   * actors / machines standing in them drawable and fully animated; the main pass still hides them by `roomVisible`.
+   */
+  setFeedRooms(rooms: ReadonlySet<string> | null): void;
+};
+
+/** What a level publishes on `root.userData.visibility` for the render and enemies modules (stage 3a §8.4). */
+export interface LevelVisibility {
+  setOverride(rooms: ReadonlySet<string> | null): void;
+  setFeedRooms(rooms: ReadonlySet<string> | null): void;
+  /** Is the room at (x, z) shown by an active feed? (false outside any room) */
+  fed(x: number, z: number): boolean;
+}
 
 export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): LevelImpl {
   const t0 = def.t0 ?? performance.now();
@@ -79,16 +101,59 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
   }
   const castLights = L.castLights.map((c) => ({ desc: c.desc, bit: roomBit.get(c.room) ?? 0 }));
   let lastRoomBit = roomBit.get(def.startRoom) ?? 1, lastMask = -1;
-  L.isVisible = (id) => lastMask === -1 || (lastMask & (roomBit.get(id) ?? 0)) !== 0;
-  // Published for the render module: is the room at (x, z) potentially visible? (true outside any room)
-  L.root.userData.roomVisible = (x: number, z: number): boolean => {
-    if (lastMask === -1) return true;
+  /** Stage 3a §8.4: rooms of the feed pass in progress (0 outside a feed pass) / rooms any active feed shows. */
+  let passMask = 0, fedMask = 0;
+  const maskOf = (ids: ReadonlySet<string> | null): number => {
+    let m = 0;
+    if (ids) for (const id of ids) { const b = roomBit.get(id); if (b) m |= b; else console.warn(`[level] visibility override: unknown room "${id}"`); }
+    return m;
+  };
+  const roomIndexAt = (x: number, z: number): number => {
     for (let i = 0; i < rooms.length; i++) {
       const b = rooms[i].bounds;
-      if (x > b.min.x + 0.05 && x < b.max.x - 0.05 && z > b.min.z + 0.05 && z < b.max.z - 0.05) return (lastMask & (1 << i)) !== 0;
+      if (x > b.min.x + 0.05 && x < b.max.x - 0.05 && z > b.min.z + 0.05 && z < b.max.z - 0.05) return i;
     }
-    return true;
+    return -1;
   };
+  /** The rooms being drawn: during a feed pass exactly the feed's rooms, otherwise the main view's portal set. */
+  const drawMask = () => (passMask ? passMask : lastMask);
+  L.isVisible = (id) => (passMask ? (passMask & (roomBit.get(id) ?? 0)) !== 0 : lastMask === -1 || (lastMask & (roomBit.get(id) ?? 0)) !== 0);
+  // Published for the render module: is the room at (x, z) potentially visible? (true outside any room)
+  L.root.userData.roomVisible = (x: number, z: number): boolean => {
+    if (!passMask && lastMask === -1) return true;
+    const i = roomIndexAt(x, z);
+    return i < 0 || (drawMask() & (1 << i)) !== 0;
+  };
+  // Feed pass (stage 3a §8.4): exactly the feed's rooms are drawn — objects of those rooms that the main view's culling
+  // hid are shown, objects of the main view's other rooms are hidden — and both are put back right after the pass.
+  // Nothing else's `visible` is touched (objects a script hid stay hidden), so the main view cannot change, and the
+  // feed's image does not depend on where the player stands.
+  const passShown: THREE.Object3D[] = [];
+  const passHidden: THREE.Object3D[] = [];
+  const setOverride = (ids: ReadonlySet<string> | null): void => {
+    for (let i = 0; i < passShown.length; i++) passShown[i].visible = false;
+    for (let i = 0; i < passHidden.length; i++) passHidden[i].visible = true;
+    passShown.length = 0;
+    passHidden.length = 0;
+    passMask = maskOf(ids);
+    if (!passMask) return;
+    for (let i = 0; i < tagged.length; i++) {
+      const t = tagged[i];
+      const want = (t.mask & passMask) !== 0;
+      if (want) { if (!t.obj.visible && lastMask !== -1 && (t.mask & lastMask) === 0) { t.obj.visible = true; passShown.push(t.obj); } }
+      else if (t.obj.visible) { t.obj.visible = false; passHidden.push(t.obj); }
+    }
+  };
+  const setFeedRooms = (ids: ReadonlySet<string> | null): void => { fedMask = maskOf(ids); };
+  const visibility: LevelVisibility = {
+    setOverride, setFeedRooms,
+    fed(x, z) {
+      if (!fedMask) return false;
+      const i = roomIndexAt(x, z);
+      return i >= 0 && (fedMask & (1 << i)) !== 0;
+    },
+  };
+  L.root.userData.visibility = visibility;
   const updateVisibility = () => {
     const p = ctx.camera.position;
     for (let i = 0; i < rooms.length; i++) {
@@ -113,6 +178,7 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
       if (!grew) break;
     }
     if (mask === lastMask) return;
+    if (passMask) setOverride(null); // (never: passes end inside render) — keep the bookkeeping exact
     lastMask = mask;
     for (let i = 0; i < tagged.length; i++) tagged[i].obj.visible = (tagged[i].mask & mask) !== 0;
     // A culled room's shadow casters are not drawn, so its lights must not hold shadow maps (they stay
@@ -155,6 +221,8 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
     settle(seconds = 6) { L.settle(seconds); },
     /** Checkpoint restore (story): suppress the level's own positional one-shots while state is re-applied. */
     setSilent(on: boolean) { L.silent = on; },
+    setVisibilityOverride: setOverride,
+    setFeedRooms,
     root: L.root,
     colliders,
     spawn: def.spawn,

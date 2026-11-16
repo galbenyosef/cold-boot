@@ -66,6 +66,13 @@ export class Handle implements LightHandle {
   removed = false;
   /** Set once the light has been moved after creation (dynamic lights are excluded from probe signatures). */
   moved = false;
+  /**
+   * Stage 3a §8.4 / §8.14: pin count (live camera feeds, `LightPool.pin`). While > 0 (or `desc.pin`) the light keeps a
+   * pool slot whatever the main view's score, so a room drawn only by a feed camera is lit — no second scoring path.
+   */
+  pins = 0;
+  /** Rank among the pins (0 = most important to its feed): starved pins are the lowest-ranked ones. */
+  pinRank = 0;
   private readonly p0 = new THREE.Vector3();
 
   constructor(readonly desc: LightDesc, private readonly mgr: LightPool, seed: number) {
@@ -131,9 +138,13 @@ export class LightPool implements LightManager {
   /** Stats for the last update. */
   shadowUpdates = 0;
   activeSlots = 0;
+  /** Pinned lights holding a slot / pinned lights left without one (no out-of-view light to displace), last update. */
+  pinned = 0;
+  pinStarved = 0;
 
   private readonly groups = new Map<string, Handle[]>();
   private readonly spotCands: Handle[] = [];
+  private readonly latePins: number[] = [];
   private readonly pointCands: Handle[] = [];
   private readonly frustum = new THREE.Frustum();
   private readonly projScreen = new THREE.Matrix4();
@@ -312,6 +323,18 @@ export class LightPool implements LightManager {
     this.hooks?.onRemove(h);
   }
 
+  /**
+   * Stage 3a §8.4: keep `h` in the pool while pinned (counted: two feeds may pin the same light). A pinned light is
+   * selected even when it scores below the cut, by displacing the weakest selected light whose reach is OUTSIDE the
+   * main frustum (it lights nothing the main view shows, so the main image cannot change). It never displaces an
+   * in-view light: with no such slot left the pin waits (`pinStarved`). Shadows stay the main view's choice.
+   */
+  pin(h: LightHandle, on: boolean, rank = 0): void {
+    const k = h as Handle;
+    k.pins = Math.max(0, k.pins + (on ? 1 : -1));
+    if (on) k.pinRank = k.pins === 1 ? rank : Math.min(k.pinRank, rank);
+  }
+
   // ───────────────────────────────────────────── per-frame
 
   /**
@@ -432,6 +455,8 @@ export class LightPool implements LightManager {
           if (h.slot && !h.slot.releasing) score *= 1.3; // hysteresis
         }
       }
+      // pinned (feeds): eligible whatever the distance / frustum, as long as it is switched on
+      if (base > 1e-4 && (h.pins > 0 || (desc as LightDesc & { pin?: boolean }).pin) && score < 1e-6) score = 1e-6;
       h.score = score;
       const was = h.eligible;
       h.eligible = score > 0;
@@ -440,6 +465,8 @@ export class LightPool implements LightManager {
     }
 
     const fadeStep = bake ? 1 : fadeDt / FADE_TIME;
+    this.pinned = 0;
+    this.pinStarved = 0;
     this.assign(spotCands, this.spotSlots, this.shadowCount, fadeStep, bake);
     this.assign(pointCands, this.pointSlots, 0, fadeStep, bake);
     this.write(bake);
@@ -448,6 +475,27 @@ export class LightPool implements LightManager {
   private assign(cands: Handle[], slots: PoolSlot[], shadowSlots: number, fadeStep: number, bake: boolean): void {
     cands.sort(byScore);
     const n = Math.min(cands.length, slots.length);
+    // Pins (feeds): a pinned light ranked below the cut swaps with the weakest unpinned selected light that is outside
+    // the main frustum (no visible change); never with an in-view one. Probe bakes ignore pins.
+    if (!bake && cands.length > n) {
+      const late = this.latePins;
+      late.length = 0;
+      for (let i = n; i < cands.length; i++) {
+        const p = cands[i];
+        if (p.pins > 0 || (p.desc as LightDesc & { pin?: boolean }).pin) late.push(i);
+      }
+      if (late.length > 1) late.sort((a, b) => cands[a].pinRank - cands[b].pinRank);
+      let j = n - 1;
+      for (let k = 0; k < late.length; k++) {
+        const i = late[k], p = cands[i];
+        while (j >= 0 && (cands[j].inView || cands[j].pins > 0 || (cands[j].desc as LightDesc & { pin?: boolean }).pin)) j--;
+        if (j < 0) { this.pinStarved += late.length - k; break; }
+        cands[i] = cands[j];
+        cands[j] = p;
+        j--;
+      }
+    }
+    for (let i = 0; i < n; i++) if (cands[i].pins > 0 || (cands[i].desc as LightDesc & { pin?: boolean }).pin) this.pinned++;
     for (let i = 0; i < n; i++) cands[i].selected = true;
 
     // Shadow slots go to the best castShadow requesters among the selected (with strong hysteresis).

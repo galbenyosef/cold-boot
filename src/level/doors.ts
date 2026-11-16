@@ -25,7 +25,12 @@ export interface DoorSpec {
   rooms: [string, string];
   /** Never shuts completely while unlocked: rests at this openness (0..1 of travel time). Std doors only. */
   ajar?: number;
-  /** REVISION 5: custom opening size (std only; default 1.6 × 2.4) and the sill height the leaves stand on. */
+  /**
+   * Stage 3a §8.9: the floor (world y) the door stands on — frame, threshold, status panels, leaves, blockers,
+   * prompt and the enemy near test all sit on it. Default 0.
+   */
+  y?: number;
+  /** REVISION 5: custom opening size (std only; default 1.6 × 2.4) and the sill height the leaves stand on (above `y`). */
   w?: number; h?: number; y0?: number;
   /** Seconds for a full stroke (default std 0.85, wide/cage 1.7). */
   duration?: number;
@@ -65,8 +70,10 @@ export class DoorImpl implements Door {
   private status: 'cycling' | 'dark' | null = null;
   /** Called whenever what the status panel shows changes (door-bound lamps). */
   readonly statusListeners: ((s: DoorStatusShown) => void)[] = [];
-  /** Base height of the leaves (sill), world y. */
+  /** Base height of the leaves (sill), world y (= floor + DoorSpec.y0). */
   readonly y0: number;
+  /** Floor the door stands on, world y (DoorSpec.y). */
+  readonly floor: number;
   private idle = 0;
   private deniedArmed = true;
   private deniedFlash = 0;
@@ -87,7 +94,8 @@ export class DoorImpl implements Door {
     const std = spec.kind === 'std';
     this.w = std ? spec.w ?? 1.6 : 3.0;
     this.h = std ? spec.h ?? 2.4 : 2.8;
-    this.y0 = spec.y0 ?? 0;
+    this.floor = spec.y ?? 0;
+    this.y0 = this.floor + (spec.y0 ?? 0);
     this.position.y = this.y0;
     this.duration = spec.duration ?? (std ? 0.85 : 1.7);
     this.auto = spec.auto ?? true;
@@ -106,6 +114,12 @@ export class DoorImpl implements Door {
     if (spec.frame !== false) this.buildFrame(frames, ry, root);
     else this.buildPanels(root);
     this.buildLeaves(root);
+    // §8.9: a wide / cage door above the ground sinks its bottom leaf into the structure under its floor —
+    // that structure must exist (else the leaf hangs in the room below)
+    if (spec.kind !== 'std' && this.floor > 0.01) {
+      const bad = pitProblems(L, spec, this.y0);
+      if (bad.length) console.error(`[level] door "${spec.id}" (floor y ${this.floor}): its sinking leaf has no solid pit — ${bad.slice(0, 4).join('; ')}${bad.length > 4 ? ` (+${bad.length - 4})` : ''}`);
+    }
 
     // leaf blockers (0, 1) + the full-opening blocker that is solid while the door is closing (2)
     this.boxes.push(ctx.physics.addBox(new THREE.Box3(), 'metal'), ctx.physics.addBox(new THREE.Box3(), 'metal'), ctx.physics.addBox(new THREE.Box3(), 'metal'));
@@ -244,7 +258,8 @@ export class DoorImpl implements Door {
         const e = en[i];
         if (!e.alive || e.state === 'dormant' || e.state === 'dead') continue;
         const dx = e.position.x - this.position.x, dz = e.position.z - this.position.z;
-        if (dx * dx + dz * dz < 2.4 * 2.4 && e.position.y < this.y0 + 3.2) { near = true; break; }
+        // (bounded in height both ways, §8.9: a husk on Deck 1 never opens a Deck-2 door above it, nor the reverse)
+        if (dx * dx + dz * dz < 2.4 * 2.4 && Math.abs(e.position.y - this.floor) < 2) { near = true; break; }
       }
     }
     if (this.auto && !this.locked) {
@@ -281,7 +296,7 @@ export class DoorImpl implements Door {
     const { w, h } = this;
     const sp = this.spec;
     const jw = 0.3, T = 0.2, pr = 0.12;
-    b.push(sp.x, 0, sp.z, ry);
+    b.push(sp.x, this.floor, sp.z, ry);
     for (const s of [1, -1]) {
       const z0 = s * T, z1 = s * (T + pr);
       const face = s > 0 ? '+z' : '-z';
@@ -323,9 +338,10 @@ export class DoorImpl implements Door {
     });
     b.pop();
 
-    // status screens (two quads, one material)
+    // status screens (two quads, one material) in their frame housings (root stands on the sill: offset to the floor)
+    const sy = 1.43 + this.floor - this.y0;
     const quads = [1, -1].map((s) => new THREE.PlaneGeometry(0.15, 0.1)
-      .applyMatrix4(new THREE.Matrix4().makeRotationY(s > 0 ? 0 : Math.PI).setPosition(s * (w / 2 + jw / 2 + 0.02), 1.43, s * (T + pr + 0.042))));
+      .applyMatrix4(new THREE.Matrix4().makeRotationY(s > 0 ? 0 : Math.PI).setPosition(s * (w / 2 + jw / 2 + 0.02), sy, s * (T + pr + 0.042))));
     const m = new THREE.Mesh(mergeGeometries(quads, false)!, this.statusMat);
     m.name = `${sp.id}:status`;
     root.add(m);
@@ -418,6 +434,38 @@ export class DoorImpl implements Door {
     mk('upper', 1.25, h + 0.25, 1.3);
     mk('lower', -0.3, 1.25, 1.2);
   }
+}
+
+/** How far the bottom leaf of a wide / cage door sinks below its sill when open (leaf bottom −0.3 − 1.6). */
+export const SINK_DEPTH = 1.9;
+
+/**
+ * §8.9 build assertion for wide / cage doors above the ground: the bottom leaf sinks SINK_DEPTH below the sill
+ * into a slot that must be closed by static structure (colliders) on both faces (within 0.6 m of the door
+ * plane), at both ends (within 0.5 m past the leaf) and underneath (within 0.5 m below the sunk leaf).
+ * Returns one line per missing piece (empty = the pit is enclosed). `sill` = world y of the sill.
+ */
+export function pitProblems(L: LevelBuild, spec: Pick<DoorSpec, 'id' | 'x' | 'z' | 'wall'>, sill: number, halfWidth = 1.52): string[] {
+  const out: string[] = [];
+  const probe = new THREE.Box3();
+  // local (u along the opening, v along the door normal) → world, as DoorImpl.setBox maps it
+  const set = (u0: number, u1: number, y0: number, y1: number, v0: number, v1: number) => {
+    const ua = Math.min(u0, u1), ub = Math.max(u0, u1), va = Math.min(v0, v1), vb = Math.max(v0, v1);
+    if (spec.wall === 'z') probe.min.set(spec.x + ua, y0, spec.z + va), probe.max.set(spec.x + ub, y1, spec.z + vb);
+    else probe.min.set(spec.x + va, y0, spec.z - ub), probe.max.set(spec.x + vb, y1, spec.z - ua);
+    return L.solids.some((s) => s.intersectsBox(probe));
+  };
+  const e = 0.01, bottom = sill - SINK_DEPTH;
+  const us = [-halfWidth + 0.1, -halfWidth / 2, 0, halfWidth / 2, halfWidth - 0.1];
+  const ys = [sill - 0.2, sill - 0.8, sill - 1.4, bottom + 0.05];
+  for (const s of [1, -1]) for (const u of us) for (const y of ys) {
+    if (!set(u - e, u + e, y - e, y + e, s * 0.1, s * 0.6)) out.push(`no wall on the ${s > 0 ? '+' : '−'} face at u ${u.toFixed(2)}, y ${y.toFixed(2)}`);
+  }
+  for (const s of [1, -1]) for (const y of ys) for (const v of [-0.05, 0.05]) {
+    if (!set(s * (halfWidth + 0.02), s * (halfWidth + 0.5), y - e, y + e, v - e, v + e)) out.push(`no end wall at u ${s > 0 ? '+' : '−'}, y ${y.toFixed(2)}`);
+  }
+  for (const u of us) if (!set(u - e, u + e, bottom - 0.5, bottom - 0.02, -e, e)) out.push(`no pit floor under u ${u.toFixed(2)} (leaf bottom y ${bottom.toFixed(2)})`);
+  return out;
 }
 
 /** Level 1: all door frames live in two shared zones (north / south half of the level). */

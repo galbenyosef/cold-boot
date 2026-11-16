@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>COLD BOOT — feeds spike (K1)</title>
+    <!-- The spike boots the real game (level 2) with ?feedtest=1; render/dev/feedtest.ts drives it (window.__feedtest). -->
+    <script>
+      location.replace(new URL('../../../index.html?level=2&autostart=1&nostory=1&feedtest=1&spawn=0,0,-1.5,0' + (location.search ? '&' + location.search.slice(1) : ''), location.href));
+    </script>
+  </head>
+  <body></body>
+</html>

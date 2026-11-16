@@ -201,8 +201,12 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     const o = e.object;
     const d = o.position.distanceTo(camPos);
     const inert = !e.awake || e.settled;
-    let show = !e.holdHidden && d < (inert ? INERT_CULL : AWAKE_CULL);
-    if (show && (inert || e.isActor)) {
+    // Stage 3a §8.4: in a room a live feed shows → stays drawable and fully animated whatever the main view; the main
+    // pass still hides it (render's occludeForeign asks `roomVisible`), the feed pass draws it.
+    const vis = ctx.level?.root?.userData?.visibility as { fed(x: number, z: number): boolean } | undefined;
+    const fed = !e.holdHidden && !!vis && vis.fed(e.position.x, e.position.z);
+    let show = !e.holdHidden && (fed || d < (inert ? INERT_CULL : AWAKE_CULL));
+    if (show && !fed && (inert || e.isActor)) {
       const rv = ctx.level?.root?.userData?.roomVisible as ((x: number, z: number) => boolean) | undefined;
       if (rv) {
         // the level's own portal culling answer for the room at this point (true outside any room)

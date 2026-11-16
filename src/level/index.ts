@@ -58,6 +58,8 @@ const MACHINE_LOOPS: Record<string, MachineLoop> = {
 const LEVEL_BUILDERS: Partial<Record<LevelId, (ctx: GameContext) => Promise<Level>>> = { 1: createLevel1, 2: createLevel2, 3: createLevel3 };
 
 export async function createLevel(ctx: GameContext): Promise<Level> {
+  // dev only (stage 3a K3): `?greybox=deck2` loads the two-deck test greybox (lazy chunk; not a level)
+  if (new URLSearchParams(location.search).get('greybox') === 'deck2') return (await import('./dev/deck2')).createGreyboxDeck2(ctx);
   const build = LEVEL_BUILDERS[ctx.levelId];
   if (!build) throw new Error(`[level] no level ${ctx.levelId} in LEVEL_BUILDERS`);
   return build(ctx);

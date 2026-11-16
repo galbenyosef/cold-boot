@@ -819,7 +819,8 @@ export interface NavNode {
 /** §8.10 (stage 3a): one walkable floor of a room (nav v2: nodes per floor). */
 export interface RoomFloor {
   y: number;
-  box: THREE.Box3;
+  /** Plan-view extent `[x0, x1, z0, z1]` (as built by `LevelBuild.room(…, { floors })`, K3). */
+  box: [number, number, number, number];
 }
 
 export interface Room {
@@ -830,6 +831,8 @@ export interface Room {
   bounds: THREE.Box3;
   /** §8.9 (stage 3a): floor y of the room (`LevelBuild.room(…, { y0 })`); absent = 0. */
   y0?: number;
+  /** §8.9 (K3): the room's main floor y as resolved by the level (same as `y0 ?? 0`). */
+  floor?: number;
   /** §8.10 (stage 3a): walkable floors (nav v2); absent = one floor at `y0`. */
   floors?: readonly RoomFloor[];
 }

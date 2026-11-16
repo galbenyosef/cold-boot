@@ -39,9 +39,37 @@ const SHARED_MARGIN = 0.1, OUTER_MARGIN = 0.42;
 
 export interface Obstacle { box: THREE.Box3 }
 
+/**
+ * Stage 3a §8.9 (Deck 2): a room's floor height and the walkable floors inside it besides that floor
+ * (balconies, landings — `box` = [x0, x1, z0, z1] in plan view).
+ */
+export interface RoomOpts {
+  /** Floor of the room (world y). Bounds are y0 − 0.5 … y0 + h. Default 0. */
+  y0?: number;
+  /** Reflection probe height above the floor (default 1.6). */
+  probeY?: number;
+  /** Extra walkable floors inside the room (Deck-2 balcony over a Deck-1 hall, stair landings). */
+  floors?: { y: number; box: [number, number, number, number] }[];
+}
+
+/**
+ * The rooms this module builds: the contract's `Room` + its floor (`floor` = y0 of `room()`), and any extra
+ * floors. Read by checks through `level.rooms` (`scripts/check-reach.mjs`).
+ */
+export interface LevelRoom extends Room {
+  floor: number;
+  floors?: RoomOpts['floors'];
+}
+
+/** Floor of a room (rooms not built by `LevelBuild.room` have theirs 0.5 above the bounds' bottom). */
+export function roomFloor(r: Room): number {
+  const f = (r as Partial<LevelRoom>).floor;
+  return typeof f === 'number' ? f : r.bounds.min.y + 0.5;
+}
+
 export class LevelBuild {
   readonly root = new THREE.Group();
-  readonly rooms: Room[] = [];
+  readonly rooms: LevelRoom[] = [];
   readonly probes: THREE.Vector3[] = [];
   readonly enemySpawns: EnemySpawn[] = [];
   readonly pickups: PickupSpawn[] = [];
@@ -52,6 +80,8 @@ export class LevelBuild {
   readonly instDefs = new Map<string, { geo: THREE.BufferGeometry; mat: THREE.Material; cast: boolean }>();
   /** Nav obstacles (AABBs of colliders intersecting the walking height band). */
   readonly obstacles: THREE.Box3[] = [];
+  /** World AABB of every static collider (build-time assertions: a sinking door leaf needs a solid pit). */
+  readonly solids: THREE.Box3[] = [];
   /** Extra hand-placed nav nodes. */
   readonly navExtra: { p: THREE.Vector3; room: string }[] = [];
   lightCount = 0;
@@ -164,9 +194,10 @@ export class LevelBuild {
 
   addCollider(m: THREE.Matrix4, surface: Surface, nav: boolean) {
     (this.colliderItems[surface] ??= []).push({ geo: unitBox(), m, uv: 'box', su: 1, sv: 1 });
+    const box = aabbOf(m, new THREE.Box3());
+    this.solids.push(box);
     if (nav) {
-      const box = aabbOf(m, new THREE.Box3());
-      if (box.max.y > 0.2 && box.min.y < 1.5) this.obstacles.push(box);
+      if (box.max.y > 0.2 && box.min.y < 1.5) this.obstacles.push(box.clone());
     }
   }
 
@@ -186,11 +217,24 @@ export class LevelBuild {
     return out;
   }
 
-  room(id: string, name: string, x0: number, x1: number, z0: number, z1: number, h: number, probeY = 1.6): Room {
-    const r: Room = { id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, -0.5, z0), new THREE.Vector3(x1, h, z1)) };
+  /**
+   * A room: plan box x0…x1, z0…z1, `h` above its floor. The last argument is the probe height (number, legacy)
+   * or `RoomOpts` (§8.9: `{ y0 }` = floor; bounds y0 − 0.5 … y0 + h; probe at y0 + probeY). Rooms never overlap
+   * in plan view (`roomAt` and the portal culling resolve by x/z), so a Deck-2 room sits beside the Deck-1 ones.
+   */
+  room(id: string, name: string, x0: number, x1: number, z0: number, z1: number, h: number, opts: number | RoomOpts = {}): LevelRoom {
+    const o: RoomOpts = typeof opts === 'number' ? { probeY: opts } : opts;
+    const y0 = o.y0 ?? 0;
+    const r: LevelRoom = { id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, y0 - 0.5, z0), new THREE.Vector3(x1, y0 + h, z1)), floor: y0 };
+    if (o.floors?.length) r.floors = o.floors.map((f) => ({ y: f.y, box: [...f.box] as [number, number, number, number] }));
     this.rooms.push(r);
-    this.probes.push(new THREE.Vector3((x0 + x1) / 2, probeY, (z0 + z1) / 2));
+    this.probes.push(new THREE.Vector3((x0 + x1) / 2, y0 + (o.probeY ?? 1.6), (z0 + z1) / 2));
     return r;
+  }
+  /** Floor y of a room built so far (0 if unknown). */
+  floorOf(id: string): number {
+    const r = this.rooms.find((q) => q.id === id);
+    return r ? r.floor : 0;
   }
 
   // ── lights ──
@@ -352,5 +396,6 @@ export class LevelBuild {
   interact(id: string, kind: string, prompt: string, x: number, y: number, z: number, enabled = true, radius = 2.2) {
     return this.ctx.interactables.add({ id, kind, prompt, position: new THREE.Vector3(x, y, z), enabled, radius });
   }
-  navNode(x: number, z: number, room: string, y = 0) { this.navExtra.push({ p: new THREE.Vector3(x, y, z), room }); }
+  /** Hand-placed nav node; y defaults to the room's floor (Deck 2). */
+  navNode(x: number, z: number, room: string, y = this.floorOf(room)) { this.navExtra.push({ p: new THREE.Vector3(x, y, z), room }); }
 }

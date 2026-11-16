@@ -346,10 +346,13 @@ export function buildCore(L: LevelBuild) {
   buildLift(L);
 }
 
-function buildLift(L: LevelBuild) {
+/** The service lift (room `lift`, door `d2_lift` at z −88). Stage 3a §8.9: `y0` = its floor (default 0). */
+export function buildLift(L: LevelBuild, o: { y0?: number } = {}) {
+  const y0 = o.y0 ?? 0;
   const b = L.builder('lift');
   const Hh = 3.0;
-  L.room('lift', 'SERVICE LIFT', -2, 2, -93, -88, Hh);
+  L.room('lift', 'SERVICE LIFT', -2, 2, -93, -88, Hh, { y0 });
+  b.push(0, y0, 0, 0);
   floorSlab(b, 'floor_plate', -2, -93, 2, -88, [], 'metal', 0.3);
   ceilingSlab(b, -2.2, -93.2, 2.2, -88, Hh, 'trim_steel');
   const st = { h: Hh, t: 0.2, style: 'plain' as const, trayY: 0, features: 0, bay: 1.2 };
@@ -359,6 +362,7 @@ function buildLift(L: LevelBuild) {
   wallFace(b, { ...st, n: '-x', plane: 2, from: -93, to: -88.2, seed: 299 });
   // the cab interior (dynamic, so it can rattle)
   const cb = L.part('lift:cab');
+  cb.push(0, y0, 0, 0);
   for (const x of [-1.85, 1.85]) handrail(cb, 'chrome', [[x, 0, -88.7], [x, 0, -92.6]], 1.0, 1.4, false);
   handrail(cb, 'chrome', [[-1.85, 0, -92.75], [1.85, 0, -92.75]], 1.0, 1.4, false);
   cb.box('hazard_stripes', 0, 0.003, -88.55, 1.8, 0.006, 0.18);
@@ -375,11 +379,12 @@ function buildLift(L: LevelBuild) {
   L.ctx.physics.addMover?.(cab); // REVISION 5.2: decals on the cab panels rattle with it
   // (in FRONT of its housing — it used to sit inside the box — and large enough to read from the cab's middle:
   // after the choice it carries the node line, REVISION 6)
-  L.screen('lift_panel', 'terminal_idle', 0.6, 0.36, 1.84 - 0.008, 1.55, -89.4, '-x', { text: 'SERVICE LIFT\nUP' });
-  L.interact('lift_button', 'button', 'Call lift', 1.75, 1.15, -89.4, true, 1.8);
-  const lamp = L.spot('lift', 0, Hh - 0.15, -90.5, 0, 0, -90.5, 0xeef4ff, 26, 5, 1.2, { cast: true });
+  L.screen('lift_panel', 'terminal_idle', 0.6, 0.36, 1.84 - 0.008, y0 + 1.55, -89.4, '-x', { text: 'SERVICE LIFT\nUP' });
+  L.interact('lift_button', 'button', 'Call lift', 1.75, y0 + 1.15, -89.4, true, 1.8);
+  const lamp = L.spot('lift', 0, y0 + Hh - 0.15, -90.5, 0, y0, -90.5, 0xeef4ff, 26, 5, 1.2, { cast: true });
   const lm = L.glow(lamp, 'emissive_white');
   b.detail(() => b.box(lm, 0, Hh - 0.03, -90.5, 1.4, 0.03, 1.4));
+  b.pop();
   let state: MachineState = 'off';
   L.machines.set('l2_lift', (s) => { state = s; });
   L.ambient('lift', (_dt, t) => {

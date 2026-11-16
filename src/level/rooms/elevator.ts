@@ -32,6 +32,8 @@ export interface CabOpts {
   extras: boolean;
   place: { gateZ: number; ry: number } | null;
   panelText: string;
+  /** Stage 3a §8.9: floor of the cab (world y; default 0). The whole cab, shaft and machine move up with it. */
+  y0?: number;
 }
 
 export function buildElevator(L: LevelBuild) {
@@ -44,12 +46,13 @@ export function buildElevator(L: LevelBuild) {
 export function buildCab(L: LevelBuild, o: CabOpts) {
   const R = rng(1010);
   const H = 3.2;
-  L.room(o.room.id, o.room.name, o.room.x0, o.room.x1, o.room.z0, o.room.z1, H);
+  const y0 = o.y0 ?? 0;
+  L.room(o.room.id, o.room.name, o.room.x0, o.room.x1, o.room.z0, o.room.z1, H, { y0 });
   const st = L.builder(`${o.room.id}_static`);
-  // level-1 world → this level's world
-  const pl = o.place;
+  // level-1 world → this level's world (a cab above the ground is placed even where level 1's x/z is kept)
+  const pl = o.place ?? (y0 !== 0 ? { gateZ: -58, ry: 0 } : null);
   const pivot = pl ? new THREE.Group() : null;
-  if (pivot && pl) { pivot.rotation.y = pl.ry; pivot.position.set(0, 0, pl.gateZ).add(new THREE.Vector3(0, 0, 58).applyAxisAngle(new THREE.Vector3(0, 1, 0), pl.ry)); pivot.updateMatrixWorld(true); pivot.name = `${o.room.id}_pivot`; L.root.add(pivot); }
+  if (pivot && pl) { pivot.rotation.y = pl.ry; pivot.position.set(0, y0, pl.gateZ).add(new THREE.Vector3(0, 0, 58).applyAxisAngle(new THREE.Vector3(0, 1, 0), pl.ry)); pivot.updateMatrixWorld(true); pivot.name = `${o.room.id}_pivot`; L.root.add(pivot); }
   const host: THREE.Object3D = pivot ?? L.root;
   const W = (x: number, y: number, z: number) => (pivot ? pivot.localToWorld(new THREE.Vector3(x, y, z)) : new THREE.Vector3(x, y, z));
   if (pl) { st.push(0, 0, 0, 0); st.m.copy(pivot!.matrixWorld); }
@@ -118,7 +121,8 @@ export function buildCab(L: LevelBuild, o: CabOpts) {
   const bw = ped.localToWorld(new THREE.Vector3(0.16, 1.2, 0.17));
   st.collide(1.55, 0, -62.65, 2.15, 1.2, -62.05);
   if (o.extras) {
-    L.interact('elev_button', 'button', 'Call elevator: SURFACE', 1.91, 1.2, -62.12, false, 2.2);
+    const bp = W(1.91, 1.2, -62.12);
+    L.interact('elev_button', 'button', 'Call elevator: SURFACE', bp.x, bp.y, bp.z, false, 2.2);
     L.ctx.events.on('interact', (e) => { if (e.id === 'elev_button') btn.position.y = 1.19; });
   }
   void bw;
@@ -163,7 +167,7 @@ export function buildCab(L: LevelBuild, o: CabOpts) {
   for (let k = -1; k <= 1; k++) {
     const base = k * PERIOD + 2;
     const h = P(o.group, 0, base, Z0 + 0.5, 0xffb060, 26, 7.5, { enabled: false, priority: 2 });
-    lights.push({ h, base });
+    lights.push({ h, base: base + y0 }); // (world y: the updaters move the handle in world space)
     if (!glow) glow = L.glow(h, 'emissive_amber', 1.3);
   }
   for (let y = Y0 + 2; y < Y1; y += PERIOD) for (const s of [-1, 1]) {
@@ -235,7 +239,7 @@ export function buildCab(L: LevelBuild, o: CabOpts) {
           L.after(1.2, () => { for (const l of lights) l.h.enabled = false; });
           let tt = 0;
           L.sim((d2) => { tt += d2; const e = Math.exp(-tt * 4); cab.position.set(0, -Math.sin(tt * 22) * 0.02 * e, 0); if (tt > 1.4) { cab.position.set(0, 0, 0); cab.rotation.z = 0; return false; } return true; });
-          L.sfx('metal_clang', 0, 0.5, W(0, 0, -60.5).z, 0.8, 0.6);
+          L.sfx('metal_clang', 0, y0 + 0.5, W(0, 0, -60.5).z, 0.8, 0.6);
         }
       }
       return;
@@ -266,10 +270,11 @@ export function buildCab(L: LevelBuild, o: CabOpts) {
   // elev_gate_rattle: something heavy hits the cage gate from the shaft side — once
   if (o.extras) L.vignette('elev_gate_rattle', () => {
     const d = L.doors.get(o.doorId);
-    L.sfx('gate_rattle', 0, 1.5, -58, 1, 1);
+    const gp = W(0, 1.5, -58);
+    L.sfx('gate_rattle', gp.x, gp.y, gp.z, 1, 1);
     d?.shake(0.04, 1.5);
     const p = new THREE.Vector3();
-    for (const x of [-1.2, 0, 1.1]) L.ctx.fx.smoke(p.set(x, 3.0, -57.9), { count: 3, size: 0.3, color: 0x8a8880, rise: -0.6, life: 1.8 });
+    for (const x of [-1.2, 0, 1.1]) L.ctx.fx.smoke(p.copy(W(x, 3.0, -57.9)), { count: 3, size: 0.3, color: 0x8a8880, rise: -0.6, life: 1.8 });
     // the cab takes the blow too
     let t = 0;
     L.sim((dt) => { t += dt; const k = Math.exp(-t * 3.5); cab.position.z = Math.sin(t * 38) * 0.012 * k; cab.rotation.x = Math.sin(t * 31) * 0.003 * k; if (t > 1.6) { cab.position.z = 0; cab.rotation.x = 0; return false; } return true; });

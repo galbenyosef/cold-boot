@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext, Quality, RenderSystem } from '../core/types';
+import { FeedSystem, type FeedHandle, type FeedOptions, type FeedStats } from './feed';
 import { LightPool } from './lights';
 import { patchShaderChunks } from './patch';
 import { PostChain, type LookSettings } from './post';
@@ -35,14 +36,21 @@ export interface RenderStats {
   calls: number;
   triangles: number;
   prepareMs: number;
+  /** Stage 3a §8.4: live camera feeds. */
+  feeds: FeedStats;
 }
 
 /** Extras beyond the contract (look-dev + diagnostics); reachable as `ctx.render as RenderSystemEx`. */
 export interface RenderSystemEx extends RenderSystem {
   readonly settings: LookSettings & { envIntensity: number; ambient: number; volumetric: number };
   stats(): RenderStats;
+  /**
+   * Stage 3a §8.4 (K1; moves to the contract in K2): a live camera feed into a texture. See render/feed.ts.
+   * Cost exists only while `handle.active`; at most one feed pass per frame.
+   */
+  feed(o: FeedOptions): FeedHandle;
   /** Internals for the dev harness / console poking. Not part of the contract. */
-  readonly _debug: { lights: LightPool; probes: Probes; vol: Volumetrics; post: PostChain };
+  readonly _debug: { lights: LightPool; probes: Probes; vol: Volumetrics; post: PostChain; feeds: FeedSystem };
 }
 
 export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
@@ -138,6 +146,9 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     for (let i = 0; i < occluded.length; i++) occluded[i].visible = true;
     occluded.length = 0;
   }
+  const feeds = new FeedSystem(ctx, renderer, scene, lights, {
+    occlude: occludeForeign, restore: restoreForeign, look: () => post.look, info: renderer.info,
+  }, quality);
 
   function applySize(): void {
     const dpr = Math.min(window.devicePixelRatio || 1, preset.maxPixelRatio);
@@ -193,6 +204,9 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     scene.background = bg;
     camera.layers.mask = mask;
 
+    // ── live camera feeds (stage 3a §8.4): at most one feed pass, outside the post chain
+    if (feeds.feeds.length) feeds.update(realDt);
+
     // ── post
     const hasVol = vol.update(dt, camera, post.depthTexture, post.vol.width, post.vol.height);
     post.update(realDt, dt);
@@ -244,6 +258,7 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
       camera.layers.enableAll();
       try {
         post.precompile();
+        feeds.warm();
         renderer.setRenderTarget(post.vol);
         vol.warm(renderer, camera);
       } catch (e) { console.warn('[render] pass precompile failed', e); }
@@ -303,7 +318,8 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     post,
     viewmodelLayer: VIEWMODEL_LAYER,
     settings,
-    _debug: { lights, probes, vol, post },
+    _debug: { lights, probes, vol, post, feeds },
+    feed: (o) => feeds.create(o),
     get quality() { return quality; },
     setQuality(q: Quality) {
       if (q === quality) return;
@@ -318,6 +334,7 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
       vol.setQuality(preset);
       post.setQuality(preset);
       probes.setFaceSize(preset.probeSize);
+      feeds.setQuality(q);
       applySize();
       lastCamPos.set(Infinity, 0, 0); // snap the pool on the next frame
     },
@@ -343,8 +360,13 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
         calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
         prepareMs,
+        feeds: { ...feeds.stats },
       };
     },
   };
+  // Dev: `?feedtest=1` (K1 spike page, render/dev/feedtest.ts) — a separate chunk, never loaded otherwise.
+  if (new URLSearchParams(location.search).has('feedtest')) {
+    import('./dev/feedtest').then((m) => m.installFeedTest(ctx, system)).catch((e) => console.error('[render] feedtest failed', e));
+  }
   return system;
 }
