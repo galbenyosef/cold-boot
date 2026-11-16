@@ -1450,10 +1450,14 @@ async function runLevel2() {
       const a0 = (await core()).scans.abandoned;
       // 1. walk away (real movement, backwards from the plate)
       { const pm = await startScan('walk away'); if (!(pm.lower > 0.5)) bad(`weapon not lowered during the scan (lower ${pm.lower})`);
+        // The walk-away is armed IN THE PAGE on the scan's own progress (not on this script's wall clock): under a loaded
+        // machine a slow screenshot used to let the 1.6 s scan run out and choose.
+        await ev(() => { const g = window.__game; const tick = () => { const p = g.player.palmProgress; if (p < 0) return; if (p >= 0.6) { g.player.debug.move(-1, 0, false); return; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
         await wait(250); const down = await palm();
         if (!down.down || !down.contact || Math.max(...down.contact.map(Math.abs)) > 3) bad(`the hand does not lie on the plate during the scan (${JSON.stringify(down)})`);
         if (!fast) await cshot(`33-${choice}-run-scan-other-plate-hand-down`);
-        await ev(() => window.__game.player.debug.move(-1, 0, false)); await wait(700); await ev(() => window.__game.player.debug.move(0, 0, false));
+        for (const end = Date.now() + 8000; Date.now() < end; ) { if (!(await palm()).active) break; await wait(100); }
+        await wait(300); await ev(() => window.__game.player.debug.move(0, 0, false));
         await ended('walk away', a0 + 1); }
       // 2. hurt
       { await startScan('hurt'); await ev(() => { const g = window.__game; g.debug.god = false; g.player.damage(3); g.debug.god = true; }); await ended('hurt', a0 + 2); }

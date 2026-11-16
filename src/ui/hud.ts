@@ -315,12 +315,13 @@ export class Hud {
 
     // ── prompt + crosshair
     const focus = p.focus && p.focus.enabled && !this.promptSuppressed ? p.focus : null;
-    const fkey = focus ? focus.id + '|' + focus.prompt : null;
+    const safe = !!p.safe; // weapon lowered and locked (stage 3a §8.3): no crosshair
+    const fkey = (focus ? focus.id + '|' + focus.prompt : '') + (safe ? '|safe' : '');
     if (fkey !== c.focus) {
       c.focus = fkey;
       if (focus) setText(this.promptText, focus.prompt);
       toggle(this.prompt, 'show', !!focus);
-      toggle(this.xhair, 'off', !!focus);
+      toggle(this.xhair, 'off', !!focus || safe);
     }
     this.spread = Math.max(0, this.spread - dt * 3.2);
     const sp = Math.round(this.spread * 40) / 40;
