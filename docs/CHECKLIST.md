@@ -19,6 +19,8 @@ Run everything here and fix what it finds. When the user finds a new class of de
   - `check:cutscene` — cutscene camera + player cinematic + safe state on the dev scene (`?cutdev=1`, greybox): no input moves / fires during a scene, awkward entries (sprint, backwards, mid-jump, mid-reload, palm scan, note, pause, fire held, dying), camera = shot table, end pose / weapon exact, hand-back continuity, skip only once seen (same end state, no jump), no shot in or across the safe state; levels 1–2 unaffected. `--url`, `--frames` (shots/p4/).
 - `node scripts/playthrough.mjs <url>` (level 1), `--checkpoints`, `--level2`, `--level2 --checkpoints`,
   `--level2 --impatient` — on a static build (`vite build` + `vite preview`), not the dev server.
+- `node scripts/playthrough-l3.mjs <url>` (`npm run play:l3 -- <url>`; level 3, both choices), `--checkpoints`, `--impatient`, `--skip`
+  — static build; frame sequences of C1 / C2 / the breach in `shots/l3/` (look at them).
 - `npm run voice:check` after any change to `voice/lines.*.json` (and `npm run voice` before it).
 
 ## Design rules to check every scene against (docs/DESIGN.md → REVISION 5, R1–R7)

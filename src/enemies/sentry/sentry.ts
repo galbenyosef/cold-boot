@@ -134,7 +134,11 @@ export class Sentry extends EnemyBase {
     const p = this.body.position;
     _v.set(p.x, p.y + 0.2, p.z);
     const h = this.world.ctx.physics.raycast(_v, DOWN, 12);
-    return h ? h.point.y : null;
+    if (h) return h.point.y;
+    // stage 3a: no ground within 12 m (the atrium roof hatch is 13.5 m up) — look further, so it can descend.
+    // Levels 1–2 always find ground within 12 m: this branch never runs there.
+    const far = this.world.ctx.physics.raycast(_v, DOWN, 40);
+    return far ? far.point.y : null;
   }
 
   private setLit(on: boolean): void {

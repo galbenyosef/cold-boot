@@ -9,6 +9,7 @@ import type * as THREE from 'three';
 import type { GameContext, VoiceHandle } from '../core/types';
 import l1raw from '../../voice/lines.l1.json?raw';
 import l2raw from '../../voice/lines.l2.json?raw';
+import l3raw from '../../voice/lines.l3.json?raw';
 
 export interface VoiceLine {
   id: string;
@@ -20,11 +21,27 @@ export interface VoiceLine {
 }
 
 const DB = new Map<string, VoiceLine>();
-for (const raw of [l1raw, l2raw]) {
+for (const raw of [l1raw, l2raw, l3raw]) {
   try { for (const l of JSON.parse(raw) as VoiceLine[]) DB.set(l.id, l); } catch (e) { console.error('[story] voice lines did not parse', e); }
 }
 
+/** Recorded durations (voice/manifest.json), for scenes that schedule lines on a clock (stage 3a C2). */
+const DURATIONS = new Map<string, number>();
+// (the same module the audio system bundles: import.meta.glob of the one manifest, no second copy)
+const MANIFEST = import.meta.glob('../../voice/manifest.json', { eager: true, import: 'default' }) as Record<string, unknown>;
+try {
+  const m = (Object.values(MANIFEST)[0] ?? {}) as { lines?: Record<string, { duration?: number }> };
+  for (const [id, e] of Object.entries(m.lines ?? {})) if (Number.isFinite(e?.duration)) DURATIONS.set(id, Number(e.duration));
+} catch (e) { console.error('[story] voice manifest did not parse', e); }
+
 export function voiceLine(id: string): VoiceLine | undefined { return DB.get(id); }
+/** Expected length of a line (s): the recording's, else the reading-time estimate. */
+export function lineDuration(id: string): number {
+  const d = DURATIONS.get(id);
+  if (d !== undefined && d > 0.2) return d;
+  const l = DB.get(id);
+  return estimateDuration(l?.spoken ?? l?.text ?? '');
+}
 export function voiceIds(prefix: string): string[] { return [...DB.keys()].filter((k) => k.startsWith(prefix)); }
 
 /** Reading time when no recording tells us better. */
@@ -33,7 +50,7 @@ export function estimateDuration(text: string): number {
   return Math.max(1.4, 0.7 + words * 0.36);
 }
 
-const NAMES: Record<string, string> = { choir: 'CHOIR', tomas: 'TOMAS', hale: 'D. HALE', unit: 'SERVICE UNIT' };
+const NAMES: Record<string, string> = { choir: 'CHOIR', tomas: 'TOMAS', hale: 'D. HALE', unit: 'SERVICE UNIT', halvorsen: 'HALVORSEN', reyes: 'REYES', resident: 'RESIDENT' };
 
 /** Subtitle speaker label for a line (a unit speaking with a staff voice is still a unit). */
 export function speakerName(l: VoiceLine): string {
