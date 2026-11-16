@@ -5,6 +5,7 @@ import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings } fro
 import { settingsPanel, controlsPanel, GlitchTitle } from './menu';
 import { clearLevelSave, hasCheckpoint, levelLabel, reloadInto, requestContinue } from './progress';
 import { levelOf } from '../core/progress';
+import { ensureExtraCss } from './extra';
 
 /** Reload into the stored checkpoint of this level (the story resumes behind the one-click gate). */
 function loadCheckpoint(ctx: GameContext): void {
@@ -140,7 +141,7 @@ function lineClass(l: string): string {
 }
 
 export class Cards {
-  constructor(private ctx: GameContext, private parent: HTMLElement) {}
+  constructor(private ctx: GameContext, private parent: HTMLElement) { ensureExtraCss(); }
 
   async show(lines: string[], opts: { seconds?: number; skippable?: boolean; style?: 'intro' | 'title' | 'ending' } = {}): Promise<void> {
     const style = opts.style ?? 'intro';
@@ -172,9 +173,13 @@ export class Cards {
     } else {
       stage.style.display = 'grid';
       stage.style.gap = style === 'ending' ? '26px' : '22px';
-      for (const l of lines) els.push(h('div', 'ln' + lineClass(l), stage, l));
+      // Level 3's end card: [title, '', 'TO BE CONTINUED'] gets the level's end eyebrow above a large title (level 2's card is plain lines).
+      const info = levelOf(this.ctx);
+      const titled = style === 'ending' && !!info.endEyebrow && lines[0]?.trim().toUpperCase() === info.title.toUpperCase();
+      if (titled) els.push(h('div', 'ln eyebrow', stage, info.endEyebrow!));
+      lines.forEach((l, i) => els.push(h('div', 'ln' + lineClass(l) + (titled && i === 0 ? ' etitle' : ''), stage, l)));
       els[els.length - 1]?.classList.add('last');
-      const per = opts.seconds ? opts.seconds / (lines.length + 1) : 1.9;
+      const per = opts.seconds ? opts.seconds / (els.length + 1) : 1.9;
       await wait(0.6);
       skip?.classList.add('show');
       for (const e of els) {

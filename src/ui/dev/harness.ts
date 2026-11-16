@@ -101,7 +101,7 @@ async function main() {
   requestAnimationFrame(loop);
 
   const dev = document.getElementById('dev')!;
-  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2']) {
+  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2', 'menu-l3', 'card-end-l3', 'skip-0', 'skip-50', 'skip-100', 'place-1', 'place-2']) {
     const a = document.createElement('a'); a.href = `?screen=${s}`; a.textContent = s; dev.appendChild(a);
   }
 
@@ -171,7 +171,23 @@ async function main() {
       try { localStorage.setItem(LEVEL_KEY, screen.slice(-1)); } catch { /* ignore */ }
       ctx.setState('menu'); void ui.showMenu(); break;
     // §7 / D19: level 3's end-card stub (task P5 styles it)
-    case 'card-end-l3': ctx.setState('ended'); void ui.showCard(END_CARD_L3, { style: 'ending', skippable: true, seconds: 60 }); break;
+    case 'card-end-l3': ctx.setState('ended'); void ui.showCard(END_CARD_L3, { style: 'ending', skippable: true, seconds: 12 }); break;
+    // P5: skip ring (progress from the screen name, or ?p=), shown over a cutscene-state HUD
+    case 'skip-0':
+    case 'skip-50':
+    case 'skip-100':
+      ctx.setState('cutscene');
+      ui.showSkip?.(Number(q.get('p') ?? screen.slice(5)) / 100);
+      break;
+    // P5: long habitat place names in the location strip (level 3 fake world)
+    case 'place-1':
+    case 'place-2':
+      playing();
+      emit('story:objective', { text: 'Find someone' });
+      (ctx.level as any).roomAt = () => (screen === 'place-1'
+        ? { id: 'atrium2', name: 'GARDEN ATRIUM — DECK 2' }
+        : { id: 'outer', name: 'BIOLOGICAL SYSTEMS — OUTER LOCK' });
+      break;
     case 'dialogue':
     case 'dialogue-note': {
       playing();

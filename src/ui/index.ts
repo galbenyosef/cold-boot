@@ -104,6 +104,7 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
     showDeath() { return death.show(); },
     showEnding() { return ending.show(); },
     setHudVisible(v) { hudWanted = v; syncHud(); },
+    showSkip(progress) { hud.showSkip(progress); },
 
     eyelids(open, seconds) { setLids(open, seconds); },
     blur(px, seconds) { setBlur(px, seconds); },

@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { GameContext, PickupKind, WeaponId } from '../core/types';
 import { h, setText, toggle, Scrambler, svg, ICONS } from './dom';
 import { BossPips } from './boss';
+import { SkipRing } from './extra';
 import { levelOf } from '../core/progress';
 
 const SEGMENTS = 20;
@@ -49,6 +50,7 @@ export class Hud {
   private locSub: HTMLElement;
   private toastEl: HTMLDivElement;
   private cpEl: HTMLDivElement;
+  private skipRing: SkipRing;
   private cpLeft = 0;
   private pickups: HTMLDivElement;
   private boss: BossPips;
@@ -133,6 +135,7 @@ export class Hud {
     this.locName = h('span', '', this.location, '');
     this.locSub = h('small', '', this.location, levelOf(ctx).place.toUpperCase());
     this.toastEl = h('div', 'toast', root, '');
+    this.skipRing = new SkipRing(parent);
     this.pickups = h('div', 'pickups', root);
     // checkpoint indicator (top right): a small turning diamond + label
     this.cpEl = h('div', 'cp', root);
@@ -161,6 +164,9 @@ export class Hud {
     ev.on('player:damaged', (e) => this.damaged(e.from));
     ev.on('player:flashlight', () => { this.torchEverToggled = true; });
   }
+
+  /** Hold-to-skip ring (bottom right; lives outside the HUD layer so it shows during cutscenes). null hides it. */
+  showSkip(progress: number | null): void { this.skipRing.set(progress); }
 
   setVisible(v: boolean): void {
     if (this.c.visible === v) return;
