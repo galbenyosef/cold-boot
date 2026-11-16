@@ -253,6 +253,132 @@ def analyze(a: np.ndarray, sr: int = SR) -> dict:
     }
 
 
+def voice_metrics(a: np.ndarray, sr: int = SR) -> dict:
+    """Objective delivery measures (nobody listens — these stand in for ears).
+
+    Over speech frames (40 ms window, 10 ms hop, frames within 20 dB of the loud ones):
+      voiced    fraction of frames with clear periodicity (normalised autocorrelation > 0.45, 60–450 Hz).
+                Normal speech ~0.6–0.8; a real whisper is nearly all unvoiced (< 0.15).
+      hnr       median harmonics-to-noise ratio, dB (from the autocorrelation peak). Whisper ≲ 0 dB.
+      cpp       mean cepstral peak prominence, dB: low = breathy / aperiodic.
+      centroid  mean spectral centroid, Hz (whisper is brighter: no low glottal energy).
+      tilt      long-term spectrum slope 200 Hz–8 kHz, dB/octave (whisper: flatter = less negative).
+      f0sd      F0 standard deviation across voiced frames, semitones (intonation range: low = flat read).
+      esd       standard deviation of frame level over speech frames, dB (low = even, machine-like).
+      level     speech RMS, dBFS.
+    Artefact measures (what makes a DSP whisper sound "robotic"):
+      tonal     persistence of the spectral fine structure (log spectrum minus its envelope, 0.5–7 kHz)
+                between unvoiced frames 40 ms apart (correlation). Real breath noise ≈ 0;
+                buzzy / metallic comb or vocoder residue > 0.
+      buzz      flatness modulation: power of the 5 ms spectral-flatness track at 20–90 Hz relative to
+                2–20 Hz (frame-rate flutter of an LPC/vocoder resynthesis shows up as high values)."""
+    x = a.astype(np.float64)
+    out = dict(voiced=0.0, hnr=0.0, cpp=0.0, centroid=0.0, tilt=0.0, f0sd=0.0, esd=0.0, level=-99.0,
+               tonal=0.0, buzz=0.0)
+    win, hop = int(sr * 0.04), int(sr * 0.01)
+    if len(x) < win * 4:
+        return out
+    n = (len(x) - win) // hop
+    idx = np.arange(win)[None, :] + hop * np.arange(n)[:, None]
+    fr = x[idx]
+    fr = fr - fr.mean(1, keepdims=True)
+    rms = np.sqrt((fr**2).mean(1) + 1e-12)
+    sp = rms > 0.1 * np.percentile(rms, 95)
+    if sp.sum() < 5:
+        return out
+    w = np.hanning(win)
+    fw = fr * w
+    nfft = 2048
+    S = np.abs(np.fft.rfft(fw, nfft, axis=1)) ** 2
+    freqs = np.fft.rfftfreq(nfft, 1 / sr)
+    # periodicity (window-corrected normalised autocorrelation)
+    ac = np.fft.irfft(S, nfft, axis=1)[:, :win]
+    wac = np.fft.irfft(np.abs(np.fft.rfft(w, nfft)) ** 2, nfft)[:win]
+    acn = ac / (ac[:, :1] + 1e-12) / (wac / wac[0])[None, :]
+    lo, hi = int(sr / 450), int(sr / 60)
+    seg = acn[:, lo:hi]
+    k = seg.argmax(1)
+    r = np.clip(seg[np.arange(n), k], 1e-4, 0.9999)
+    vo = sp & (r > 0.45)
+    out["voiced"] = round(float(vo.sum() / sp.sum()), 3)
+    out["hnr"] = round(float(np.median(10 * np.log10(r[sp] / (1 - r[sp])))), 2)
+    if vo.sum() > 3:
+        f0 = sr / (k[vo] + lo)
+        st = 12 * np.log2(f0 / np.median(f0))
+        st = st[np.abs(st) < 12]  # octave errors out
+        out["f0sd"] = round(float(st.std()), 2) if len(st) > 3 else 0.0
+    # cepstral peak prominence
+    L = 10 * np.log10(S[sp] + 1e-12)
+    cep = np.fft.irfft(L, axis=1)[:, :hi + 2]
+    q = np.arange(cep.shape[1])
+    cpps = []
+    for c in cep:
+        p = lo + int(np.argmax(c[lo:hi]))
+        A = np.polyfit(q[lo:hi], c[lo:hi], 1)
+        cpps.append(c[p] - np.polyval(A, p))
+    out["cpp"] = round(float(np.mean(cpps)), 3)
+    Ssp = S[sp]
+    band = (freqs > 50) & (freqs < 11000)
+    cen = (Ssp[:, band] * freqs[band]).sum(1) / (Ssp[:, band].sum(1) + 1e-12)
+    out["centroid"] = round(float(np.average(cen, weights=Ssp[:, band].sum(1))))
+    lt = 10 * np.log10(Ssp.mean(0) + 1e-12)
+    m = (freqs >= 200) & (freqs <= 8000)
+    out["tilt"] = round(float(np.polyfit(np.log2(freqs[m]), lt[m], 1)[0]), 2)
+    db = 20 * np.log10(rms[sp])
+    out["esd"] = round(float(db.std()), 2)
+    out["level"] = round(float(20 * np.log10(np.sqrt((rms[sp] ** 2).mean()))), 1)
+    # fine-structure persistence in unvoiced speech frames
+    uv = sp & (r < 0.3)
+    fb = (freqs > 500) & (freqs < 7000)
+    Ld = 10 * np.log10(S[:, fb] + 1e-12)
+    ker = np.ones(15) / 15
+    env = np.array([np.convolve(l, ker, "same") for l in Ld])
+    fine = Ld - env
+    fine = fine - fine.mean(1, keepdims=True)
+    cs = []
+    for t in np.nonzero(uv[:-4] & uv[4:])[0]:
+        u, v = fine[t], fine[t + 4]
+        cs.append(float(u @ v / (np.linalg.norm(u) * np.linalg.norm(v) + 1e-12)))
+    out["tonal"] = round(float(np.mean(cs)), 3) if cs else 0.0
+    # spectral-flatness modulation (5 ms frames)
+    w2, h2 = int(sr * 0.01), int(sr * 0.005)
+    n2 = (len(x) - w2) // h2
+    f2 = x[np.arange(w2)[None, :] + h2 * np.arange(n2)[:, None]] * np.hanning(w2)
+    P = np.abs(np.fft.rfft(f2, axis=1)) ** 2 + 1e-12
+    flat = np.exp(np.log(P).mean(1)) / P.mean(1)
+    e2 = np.sqrt((f2**2).mean(1))
+    keep = e2 > 0.1 * np.percentile(e2, 95)
+    fl = np.where(keep, flat, np.median(flat[keep]) if keep.any() else 0)
+    fl = fl - fl.mean()
+    M = np.abs(np.fft.rfft(fl)) ** 2
+    mf = np.fft.rfftfreq(len(fl), 0.005)
+    lo_b = M[(mf >= 2) & (mf < 20)].sum()
+    out["buzz"] = round(float(M[(mf >= 20) & (mf < 90)].sum() / (lo_b + 1e-12)), 3)
+    return out
+
+
+def envelope_similarity(a: np.ndarray, b: np.ndarray, sr: int = SR) -> float:
+    """Speaker-identity proxy that does not depend on voicing: correlation of the long-term
+    spectral envelope 300 Hz–5 kHz (formant region, linear tilt removed, 1/6-octave smoothing)."""
+    def lt(x):
+        n = 1024
+        if len(x) < 2 * n:
+            return None
+        fr = np.array([x[i : i + n] * np.hanning(n) for i in range(0, len(x) - n, 240)])
+        S = np.abs(np.fft.rfft(fr, axis=1)) ** 2
+        e = S.sum(1)
+        S = S[e > 0.05 * np.percentile(e, 95)]
+        f = np.fft.rfftfreq(n, 1 / sr)
+        oc = np.arange(np.log2(300), np.log2(5000), 1 / 6)
+        L = np.array([10 * np.log10(S[:, (f >= 2 ** (o - 1 / 12)) & (f < 2 ** (o + 1 / 12))].mean() + 1e-12)
+                      for o in oc])
+        return L - np.polyval(np.polyfit(oc, L, 1), oc)
+    ta, tb = lt(a.astype(np.float64)), lt(b.astype(np.float64))
+    if ta is None or tb is None:
+        return 0.0
+    return round(float(np.corrcoef(ta, tb)[0, 1]), 3)
+
+
 def timbre(a: np.ndarray, sr: int = SR) -> np.ndarray:
     """Crude timbre signature: mean MFCC (1..19) over loud frames."""
     from scipy.fft import dct

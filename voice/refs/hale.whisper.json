@@ -1,7 +1,14 @@
 {
-  "base": "262a95445ade2fc4",
-  "derive": {
-    "whisper": 0.75
-  },
-  "sha": "0cf7ead4fb00c1cc"
+  "describe": "female, middle-aged, whispering",
+  "seed": 4,
+  "refText": "It's Hale. Keep your voice down, they're right outside. Listen to me. Write this down, and don't stop.",
+  "language": "en",
+  "source": "audition 12",
+  "sha": "a6e907d0b82fcbd9",
+  "duration": 5.75,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "its hail keep your voice down there right outside listen to me write this down and dont stop"
+  }
 }

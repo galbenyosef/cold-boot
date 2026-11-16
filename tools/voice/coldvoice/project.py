@@ -137,10 +137,32 @@ def install_ref(char: str, audio: np.ndarray, fields: dict, source: str, check: 
     if check:
         meta["asr"] = {k: check[k] for k in ("ok", "score", "transcript")}
     save_json(j, meta)
-    # derived variant refs are stale now
-    for p in REFS.glob(f"{char}.*.*"):
-        p.unlink()
+    # DSP-derived variant refs depend on the base clip → stale now (designed variant refs do not)
+    for vj in REFS.glob(f"{char}.*.json"):
+        if "derive" in load_json(vj, {}):
+            for p in REFS.glob(vj.stem + ".*"):
+                p.unlink()
     return Ref(char, None, w, fields["refText"], meta["sha"])
+
+
+def variant_fields(entry: dict, v: dict, cast: dict) -> dict:
+    """Design fields of a *designed* variant reference (variant has its own describe/seed/refText)."""
+    return {"describe": v.get("describe", ""), "seed": int(v.get("seed", 0)),
+            "refText": v.get("refText") or entry["refText"],
+            "language": entry.get("language", cast.get("language", "en"))}
+
+
+def install_variant_ref(char: str, variant: str, audio: np.ndarray, fields: dict, source: str,
+                        check: dict | None) -> Ref:
+    REFS.mkdir(parents=True, exist_ok=True)
+    w, t, j = ref_paths(char, variant)
+    A.write_wav(w, audio)
+    t.write_text(fields["refText"] + "\n")
+    meta = dict(fields, source=source, sha=sha(w), duration=round(len(audio) / A.SR, 2))
+    if check:
+        meta["asr"] = {k: check[k] for k in ("ok", "score", "transcript")}
+    save_json(j, meta)
+    return Ref(char, variant, w, fields["refText"], meta["sha"])
 
 
 def ensure_ref(eng, cast: dict, char: str, log=print) -> Ref:
@@ -165,14 +187,39 @@ def ensure_ref(eng, cast: dict, char: str, log=print) -> Ref:
 
 
 def ensure_variant_ref(eng, cast: dict, char: str, variant: str, log=print) -> Ref:
-    """Variant reference derived from the base reference by DSP (see audio.derive_ref)."""
-    base = ensure_ref(eng, cast, char, log)
-    v = (char_entry(cast, char).get("variants") or {}).get(variant)
+    """A variant's reference. Three kinds (cast.json `variants.<name>`):
+      describe/seed/refText  a DESIGNED reference of its own (e.g. "…, whispering": the model really
+                             whispers) — re-designed whenever those fields change, like a base voice;
+      derive                 legacy: DSP transform of the base clip (audio.derive_ref) — sounded robotic;
+      neither                the base reference (the variant only changes knobs / level / fx)."""
+    entry = char_entry(cast, char)
+    v = (entry.get("variants") or {}).get(variant)
     if v is None:
         raise KeyError(f"{char}:{variant}")
-    derive = v.get("derive") or {}
     w, t, j = ref_paths(char, variant)
     meta = load_json(j, {})
+    if v.get("describe"):
+        fields = variant_fields(entry, v, cast)
+        current = w.exists() and t.exists() and all(meta.get(k) == x for k, x in fields.items())
+        if v.get("refLocked") and w.exists() and t.exists():
+            current = True
+        if not current:
+            log(f"[{char}:{variant}] designing reference: '{fields['describe']}' seed {fields['seed']}")
+            a = eng.design(fields["describe"], fields["seed"], fields["refText"], fields["language"])
+            chk = eng.score(a, fields["refText"])
+            if not chk["ok"]:
+                log(f"[{char}:{variant}] WARNING reference take does not match its text (ASR: "
+                    f"{chk['transcript']!r}); audition with `npm run voice:cast -- {char}:{variant}`")
+            return install_variant_ref(char, variant, a, fields, "design", chk)
+        return Ref(char, variant, w, t.read_text().strip(), sha(w))
+    base = ensure_ref(eng, cast, char, log)
+    derive = v.get("derive") or {}
+    if not derive:
+        for p in (w, t, j):  # a stale clip from an earlier kind of this variant
+            p.unlink(missing_ok=True)
+        return base
+    if "derive" not in meta:
+        meta = {}
     if not (w.exists() and meta.get("base") == base.sha and meta.get("derive") == derive):
         log(f"[{char}:{variant}] deriving reference {derive}")
         a = A.derive_ref(base.audio(), derive)
@@ -310,8 +357,12 @@ def line_files(cast: dict, ln: Line) -> list[str]:
     return [f"{ln.id}.mp3"] + [f"{ln.id}.L{k}.mp3" for k in range(1, n)]
 
 
-def existing_ref(char: str, variant: str | None) -> Ref | None:
+def existing_ref(char: str, variant: str | None, cast: dict | None = None) -> Ref | None:
     w, t, _ = ref_paths(char, variant)
+    if variant and cast is not None:
+        v = (char_entry(cast, char).get("variants") or {}).get(variant) or {}
+        if not v.get("describe") and not v.get("derive"):
+            return existing_ref(char, None)  # a variant that uses the base reference
     if not (w.exists() and t.exists()):
         return None
     return Ref(char, variant, w, t.read_text().strip(), sha(w))

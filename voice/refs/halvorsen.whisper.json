@@ -1,7 +1,14 @@
 {
-  "base": "82e9aad21c9ff663",
-  "derive": {
-    "whisper": 0.75
-  },
-  "sha": "589742c809d59356"
+  "describe": "male, middle-aged, british accent, whispering",
+  "seed": 5,
+  "refText": "Please, keep your voice down. They're just outside the door. Take it, and go. Go now, while you can.",
+  "language": "en",
+  "source": "audition 17",
+  "sha": "72a3bcd0e6dc03f2",
+  "duration": 5.43,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "please keep your voice down theyre just outside the door take it and go go now while you can"
+  }
 }

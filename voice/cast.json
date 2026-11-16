@@ -1,5 +1,5 @@
 {
-  "_doc": "THE place to change a voice. Edit describe/seed/refText of one character and run `npm run voice`: its reference is re-designed and only its lines are regenerated. Or audition: `npm run voice:cast -- <char> --audition 5`, then `--pick N`. See tools/voice/README.md.",
+  "_doc": "THE place to change a voice. Edit describe/seed/refText of one character and run `npm run voice`: its reference is re-designed and only its lines are regenerated. Or audition: `npm run voice:cast -- <char> --audition 5`, then `--pick N`. Keep `describe` as short as possible: attributes only (gender, age, pitch, accent, `whispering`), never delivery or emphasis. Emphasis = the stressed word in UPPERCASE in the line's `spoken` (subtitle `text` unchanged). The line `note` is NOT given to the model; it only selects a variant (`match`) / fx rule. VARIANTS (`variants.<name>`, chosen by `speaker: \"char:name\"` or a `match` word in the note): a variant with its own describe/seed/refText is a DESIGNED reference (every whisper: the character's short description + `whispering`, a whispered sentence) — the model really whispers, lines are cloned from it; audition/swap with `npm run voice:cast -- tomas:whisper --audition 6` then `--pick N` (one command installs it; `npm run voice` then regenerates only those lines). A variant with neither describe nor derive uses the base reference and only changes knobs/level/fx (tomas:breathless: delivery written into `spoken`). `derive` (DSP whisper from the base clip) is legacy — it sounded robotic. See tools/voice/README.md.",
   "language": "en",
   "aliases": {
     "pa": "choir",
@@ -40,9 +40,9 @@
       "fx": "headset",
       "variants": {
         "whisper": {
-          "derive": {
-            "whisper": 1.0
-          },
+          "describe": "male, young adult, moderate pitch, whispering",
+          "seed": 2,
+          "refText": "Okay. Stay low, and keep quiet. They can hear us in here. Just keep walking, slowly. Don't look at them.",
           "match": [
             "whisper",
             "hushed",
@@ -50,20 +50,21 @@
             "barely voiced",
             "barely audible"
           ],
-          "level": -4
+          "level": -4,
+          "why": "DESIGNED whisper (2026-11-16, measurement only, nobody listened): audition 2 of voice/auditions/tomas.whisper. Samples voiced 0.42, HNR -1.6 dB, centroid 2555 Hz (old DSP-derived takes: 0.55 / -0.5 dB / 976 Hz), envelope similarity to his normal voice 0.70 (old derived 0.69; his own normal lines 0.81; other cast 0.25-0.53). Runner-ups: 10 ('male, young adult, whispering' seed 2: env 0.67, voiced 0.54) and 8 (seed 8: env 0.61). The short 'male, young adult, whispering' failed ASR on 3 of 4 seeds (too faint)."
         },
         "breathless": {
-          "derive": {
-            "whisper": 0.45,
-            "pace": 1.08
-          },
           "match": [
             "out of breath",
             "panting",
             "winded",
             "breath short"
           ],
-          "level": -1
+          "level": -1,
+          "knobs": {
+            "speed": 1.0
+          },
+          "why": "base reference (no designed or derived clip): the model has no breath control, so the line's `spoken` carries it — [sigh] (the package's only exhale tag) and '...' pauses; speed 1.0 instead of Tomas's 1.1 leaves room for them. Measured on l2_tomas_fit_after_1 (2 seeds): [sigh]+pauses gave up to 4 pauses / 1.3 s and voiced 0.80 vs plain 1-2 pauses / 0.3-0.5 s, voiced 0.84-0.96; ASR 1.0."
         }
       },
       "fxRules": [
@@ -85,14 +86,15 @@
       "fx": "recorder",
       "variants": {
         "whisper": {
-          "derive": {
-            "whisper": 0.75
-          },
+          "describe": "female, middle-aged, whispering",
+          "seed": 4,
+          "refText": "It's Hale. Keep your voice down, they're right outside. Listen to me. Write this down, and don't stop.",
           "match": [
             "whisper",
             "hushed"
           ],
-          "level": -4
+          "level": -4,
+          "why": "DESIGNED whisper, measurement only: audition 12 of voice/auditions/hale.whisper ('female, middle-aged, whispering' seed 4): voiced 0.36, HNR -2.1 dB, centroid 2192 Hz, envelope similarity to her normal voice 0.82 (her own normal lines 0.84). Pitch words dropped: the shorter description whispered more AND stayed closer to her (the 'very low pitch' versions: voiced 0.49-0.79, env 0.07-0.70). Runner-ups: 10 (seed 2, env 0.78) and 9 (seed 1, most whispered: voiced 0.28, env 0.71)."
         }
       },
       "why": "dark, low, tired (F0 ~184 Hz, darkest spectrum of the auditions)",
@@ -126,8 +128,8 @@
     },
     "unit": {
       "name": "UNIT",
-      "describe": "female, young adult, moderate pitch",
-      "seed": 2,
+      "describe": "female, moderate pitch, monotone",
+      "seed": 3,
       "refText": "Good evening. Thank you for your patience. Please remain where you are. A member of staff will be with you shortly.",
       "fx": "unit",
       "fxRules": [
@@ -136,7 +138,7 @@
           "fx": "pa"
         }
       ],
-      "why": "bright, polite service voice (F0 ~269 Hz) for lines with no staff donor; through the unit chain"
+      "why": "Flat automated voice (2026-11-16, measurement only): audition 33 of voice/auditions/unit ('female, moderate pitch, monotone' seed 3, the old polite refText). 'monotone' is a free word the model responds to (lower, steadier voices); measured on 6 unit lines: F0 sd 2.26-2.33 semitones vs 2.41 for the old voice, HNR 12.0 vs 10.1 dB (steadier phonation), F0 ~291 Hz, distinct from every voice (max envelope similarity 0.30, Voss). Clipped or run-on reference texts were LESS flat (2.6-4.6 st); sampler temperature / guidance changed nothing. Runner-ups: 22 ('female, monotone' seed 1: the flattest, 1.99-2.18 st, but 195 Hz and envelope 0.85 to Hale = sounds like her) and 39 (seed 9: 2.37 st, lowest level variation 5.33 dB)."
     },
     "foreman": {
       "name": "FOREMAN",
@@ -156,13 +158,14 @@
       "fx": "room",
       "variants": {
         "whisper": {
-          "derive": {
-            "whisper": 0.75
-          },
+          "describe": "male, middle-aged, british accent, whispering",
+          "seed": 5,
+          "refText": "Please, keep your voice down. They're just outside the door. Take it, and go. Go now, while you can.",
           "match": [
             "whisper"
           ],
-          "level": -3
+          "level": -3,
+          "why": "DESIGNED whisper, measurement only: audition 17 of voice/auditions/halvorsen.whisper ('male, middle-aged, british accent, whispering' seed 5): voiced 0.46, HNR -1.2 dB, centroid 1741 Hz, ASR 1.00 - the most whispered of the 12 accent candidates. Envelope similarity is not informative for him (his own normal lines only 0.37 to his reference). Runner-ups: 16 ('male, middle-aged, whispering' seed 4, no accent word: voiced 0.49, env 0.25) and 9 (accent, seed 1: voiced 0.55)."
         }
       },
       "fxRules": [

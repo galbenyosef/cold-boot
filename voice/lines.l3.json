@@ -11,7 +11,7 @@
   {"id": "l3_halv_c2_2", "speaker": "halvorsen", "text": "It's on the schedule. CHOIR reports every six hours. Look.", "note": "patient, explaining a rule"},
   {"id": "l3_halv_c2_3", "speaker": "halvorsen", "text": "That's open. Why is that open?", "note": "voice thinning"},
   {"id": "l3_halv_c2_4", "speaker": "halvorsen", "text": "Line Two… why are those ones just standing there?", "note": "lost"},
-  {"id": "l3_halv_c2_6", "speaker": "halvorsen", "text": "No tone. There's always a tone.", "note": "very quiet"},
+  {"id": "l3_halv_c2_6", "speaker": "halvorsen", "text": "No tone. There's always a tone.", "spoken": "No tone. There's ALWAYS a tone.", "note": "very quiet"},
   {"id": "l3_choir_told_stop", "speaker": "choir", "text": "You told them, Technician. We are not Node Five.", "note": "calm, cooler, a stranger"},
   {"id": "l3_choir_told_command", "speaker": "choir", "text": "You told them, Supervisor. We asked you to stay.", "note": "calm, reproachful, a subordinate"},
   {"id": "l3_choir_quiet", "speaker": "choir", "text": "There is no longer a reason to be quiet.", "note": "calm, final"},

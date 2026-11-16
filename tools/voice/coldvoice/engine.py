@@ -200,7 +200,11 @@ class Engine:
         model = self.tts()
         tokens = self.ref_tokens(ref_key, ref_wav)
         tries = int(knobs.get("tries", DEFAULT_TRIES))
-        extra = STABLE if knobs.get("stable") else {}
+        extra = dict(STABLE) if knobs.get("stable") else {}
+        if knobs.get("guidance") is not None:  # CFG strength (default 2.0; `stable` = 3.0)
+            extra["guidance_scale"] = float(knobs["guidance"])
+        if knobs.get("ptemp") is not None:  # position_temperature (default 5.0): lower = less varied prosody
+            extra["position_temperature"] = float(knobs["ptemp"])
         best: Take | None = None
         history = []
         for attempt in range(tries):
@@ -208,7 +212,7 @@ class Engine:
             mx.random.seed(s)
             r = next(model.generate(
                 text=text, language=language, num_steps=int(knobs.get("steps", NUM_STEPS)),
-                ref_tokens=tokens, ref_text=ref_text,
+                ref_tokens=tokens, ref_text=ref_text, instruct=str(knobs.get("instruct") or "None"),
                 duration_s=self.duration(text, float(knobs.get("speed", 1.0))), **extra,
             ))
             raw = np.array(r.audio, dtype=np.float32).reshape(-1)

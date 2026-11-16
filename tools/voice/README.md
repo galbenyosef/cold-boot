@@ -18,6 +18,7 @@ Requirements: `uv`, `ffmpeg` (Homebrew), Apple Silicon. First run: `uv sync --pr
 | `npm run voice -- --force …` | regenerate even if unchanged (new seeds are *not* drawn — use `lineSeed`, below) |
 | `npm run voice -- --dry` | list what would be generated |
 | `npm run voice:cast -- <char> [--describe "…"]… [--seed N] [--audition K] [--text "…"]` | audition voices: for each description × K seeds, design a reference clip, clone 2–3 sample lines (the character's own longest lines by default), score them with ASR and write `voice/auditions/<char>/` (gitignored) with an `index.html` to listen. |
+| `npm run voice:cast -- <char>:<variant> …` | the same for a variant's own reference (`tomas:whisper`): samples are the variant's lines, the page adds whisper measures and similarity to the base voice; `--pick N` writes the variant's describe/seed/refText. |
 | `npm run voice:cast -- <char> --pick N` | install audition N as `voice/refs/<char>.wav` (+ `.txt`, `.json`) and write its description/seed into `voice/cast.json`. The next `npm run voice` regenerates all of that character's lines and nothing else. |
 | `npm run voice:check` | decode every `public/voice/*.mp3`, transcribe, align with the text; prints failures and stale lines; writes `voice/check.json`; exit code 1 on any failure. |
 | `npm run voice:report` | writes `voice/report.html` (gitignored): one player per line grouped by character, text / spoken text / delivery note, ASR transcript, score, the reference clips, and feedback boxes ("copy feedback" puts all notes on the clipboard). |
@@ -29,7 +30,7 @@ Only one process runs at a time (MLX: single ML thread; lock file `voice/auditio
 ```
 voice/cast.json          characters: describe, seed, refText, fx, knobs, variants, fxRules  ← change voices here
 voice/refs/<char>.wav    the character's reference clip (+ .txt transcript, .json how it was made)
-voice/refs/<char>.<v>.wav derived variant references (whisper …), regenerated automatically
+voice/refs/<char>.<v>.wav variant references (designed whisper …), regenerated automatically from cast.json
 voice/lines.l1.json      lines (owned by the story): { id, speaker, text, spoken?, note?, fx? }
 voice/lines.l2.json
 voice/manifest.json      generated: per line { file, duration, hash, speaker, variant, name, text, fx, score, ok, transcript … }
@@ -47,11 +48,23 @@ public/voice/<id>.mp3    generated: mono 24 kHz MP3 ~64 kbit/s, the *clean* take
    keeps exactly one voice. OmniVoice ignores `instruct` when cloning (measured: whisper/shouting/sad
    instructions had no effect on a cloned take), so the reference is the only delivery control. Hence:
 3. **Variants** (`speaker: "tomas:whisper"`, or picked automatically when the line's `note` contains one of
-   the variant's `match` words): a variant reference is *derived from the base reference by DSP*
-   (`audio.derive_ref`): `whisper` = LPC envelope of the voice with a noise excitation (0–1 mix),
-   `pitch` = semitones, `pace` = speed. Cloning a whispered reference makes the model whisper new text
-   naturally in the same timbre (measured: voiced frames 13–15 % vs 45 % normal; timbre similarity
-   0.98 to the base voice, while a *designed* "whisper" voice was a different person, 0.36).
+   the variant's `match` words). A variant has its own reference, of one of three kinds:
+   - **designed** (`describe` / `seed` / `refText` in the variant — used for every whisper): a reference
+     made by voice design exactly like a base voice, with the character's own short description plus the
+     model's `whispering` attribute and a sentence a whisperer would say. Lines are cloned from it, so the
+     model itself whispers (aperiodic, bright, no voice buzz). Re-designed when those fields change;
+     audition / swap with `npm run voice:cast -- tomas:whisper …` (below). The seed is chosen so the
+     whispered speaker stays close to the normal voice (envelope similarity, see `audio.envelope_similarity`).
+   - **base** (no `describe`, no `derive` — e.g. `tomas:breathless`): the normal reference; the variant
+     only changes `knobs` / `level` / `fx`, and the delivery comes from the line's `spoken` text
+     (short phrases, `...` pauses).
+   - **derived** (`derive: {whisper, pitch, pace}`) — legacy DSP transform of the base clip
+     (`audio.derive_ref`, LPC envelope + noise). Kept in the code, not used: the user heard it as a cheap
+     robotic synthesiser (measured on the old takes: half the frames still voiced, HNR ≈ 0 dB = a buzzy
+     voice with noise on top, centroid unchanged ~950 Hz; a designed whisper is 0.4 voiced, HNR −1.6 dB,
+     centroid ~2500 Hz).
+   The model has no breath / pant tag and no whisper control while cloning (re-measured 2026-11-16:
+   `instruct="whisper"` on a cloned take changed nothing, voiced 0.79–0.85 vs 0.73–0.84).
 4. **Quality gate** (from tities `synth.py`): each take is transcribed by Parakeet and aligned word by word
    with the text (`align.align`): missing words, extra words / half-words, and stalls (a silence > 1 s inside
    a sentence) are errors. Any error → another take with another seed (up to `tries`, default 5), the best
@@ -71,7 +84,10 @@ takes. To re-roll one character's takes without changing the voice, bump its `"l
   estimate by ×1.15; that gave ~1.7× more word errors (31 vs 18 over 63 takes); ×0.9 was worse again.
 - `MAX_ERRORS = 0`, `GAP_MAX = 1.0 s`.
 - `stable: true` (per character) = guidance 3.0 instead of 2.0: helped in one round, neutral in another.
-- `position_temperature` stays at 5.0 (lower was worse).
+- `position_temperature` stays at 5.0 (lower was worse). Per-character knobs `ptemp` / `guidance` exist for
+  experiments; 2026-11-16 on the UNIT voice (6 lines × 2 seeds): ptemp 0.5–2 and guidance 3 did not make the
+  read flatter (F0 sd 2.21–2.35 st, all within noise) and ptemp ≤ 2 added ASR failures — unused.
+- `instruct` knob: passed while cloning, but the model ignores it there (measured) — unused.
 - Per character `speed` (default 1.0) divides the duration estimate. Tomas uses 1.1 (he talks too fast);
   measured on 12 of his lines × 2 seeds: 8 errors at 1.1 vs 9 at 1.0.
 
@@ -89,16 +105,38 @@ npm run voice                                                             # rege
 npm run voice:check && npm run voice:report
 ```
 
+A variant is auditioned and swapped the same way, with `<char>:<variant>`:
+
+```bash
+npm run voice:cast -- tomas:whisper --audition 6                 # 6 new seeds of the variant's description
+npm run voice:cast -- tomas:whisper --describe "male, young adult, moderate pitch, whispering" --seed 1 --audition 8
+open voice/auditions/tomas.whisper/index.html                     # whisper measures + similarity to the base voice
+npm run voice:cast -- tomas:whisper --pick 2                       # install; updates the variant in cast.json
+npm run voice -- --speaker tomas:whisper                           # regenerates only the whispered lines
+```
+
+The audition page prints per take: voiced fraction, HNR, spectral centroid, F0 sd, level sd, `tonal`
+(buzz/metallic residue) — `audio.voice_metrics` — and, for variants, the envelope similarity to the base voice
+(same speaker ≈ 0.8, other cast members 0.2–0.6). Samples are the variant's own longest lines.
+
 Voice-design vocabulary (comma-separated) used here: gender `male` / `female`; age `young adult`,
 `middle-aged`, `elderly`; pitch `low pitch`, `moderate pitch`, `high pitch`, `very low pitch`; `whispering`
 (design only — it changes the speaker too). Upstream OmniVoice also lists `child`, `teenager`,
 `very high pitch` and English accents (`british accent`, …) — untested here. Pitch words are relative to
 the gender (a "moderate pitch" man came out at 175–195 Hz, an "elderly, moderate pitch" man at ~200 Hz),
-so audition and look at the F0 the audition page prints.
+so audition and look at the F0 the audition page prints. Keep descriptions as short as possible
+(user rule): attributes only, never delivery or emphasis — the installed package (`mlx_audio` 0.6.5,
+`tts/models/omnivoice/omnivoice.py`) passes `instruct` as free text between `<|instruct_start|>` tokens and
+lists no vocabulary; there is no emotion, speed or breath control in the model (speed = the length we give
+it, `knobs.speed`).
 
 Line text: `spoken` is what is said when it differs from the subtitle (numbers written out, stage marks
-removed). OmniVoice also accepts the tags `[laughter]`, `[sigh]`, `[surprise-oh]`, `[question-en]`,
-`[dissatisfaction-hnn]` … inside `spoken` (not aligned by the ASR check).
+removed). **Stress a word by writing it in UPPERCASE in `spoken`** (user rule; the subtitle `text` keeps
+normal case) — never by describing it in a note or a description. The `note` is NOT given to the model
+(it only picks a variant / fx rule and documents the intent). Pauses: `.` `,` `...`. The only non-verbal
+tags the package knows (`_NONVERBAL_PATTERN` in `omnivoice.py`): `[laughter]`, `[sigh]`,
+`[confirmation-en]`, `[question-en|ah|oh|ei|yi]`, `[surprise-ah|oh|wa|yo]`, `[dissatisfaction-hnn]` —
+inside `spoken` (not aligned by the ASR check). No `[breath]`.
 
 ## Run-time processing
 

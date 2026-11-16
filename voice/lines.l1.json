@@ -20,7 +20,7 @@
   { "id": "l1_choir_death_4", "speaker": "choir", "text": "Nothing here is wasted, Technician.", "note": "calm, soft" },
   { "id": "l1_choir_death_5", "speaker": "choir", "text": "The units are sorry. They were being careful.", "note": "calm, apologetic" },
 
-  { "id": "l1_hale_recorder", "speaker": "hale", "text": "The tall ones won't go in the water, so I'm in the water. Key's in my fist. Listen — if it left one of us alive, it left them for their hands.", "note": "low, exhausted, cold, whispering close to a recorder; urgent on 'Listen'", "fx": "recorder" },
+  { "id": "l1_hale_recorder", "speaker": "hale", "text": "The tall ones won't go in the water, so I'm in the water. Key's in my fist. Listen — if it left one of us alive, it left them for their hands.", "spoken": "The tall ones won't go in the water, so I'm in the water. Key's in my fist. LISTEN, if it left one of us alive, it left them for their hands.", "note": "low, exhausted, cold, whispering close to a recorder", "fx": "recorder" },
 
   { "id": "l1_unit_junction", "speaker": "anand", "text": "— morning — mind the step — mind the step —", "spoken": "Morning. Mind the step. Mind the step.", "note": "flat, polite, absent; the same phrase twice with identical intonation", "fx": "unit" },
   { "id": "l1_unit_bench", "speaker": "voss", "text": "— nearly done — nearly done — go on home —", "spoken": "Nearly done. Nearly done. Go on home.", "note": "flat, polite, absent, murmured while working", "fx": "unit" },

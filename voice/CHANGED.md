@@ -71,3 +71,21 @@ All takes: voice/auditions/<char>/ (index.html; swap with `npm run voice:cast --
 Deviations from plan §6.1: halvorsen "male, middle-aged, low pitch" came out at 166 Hz (near CHOIR) so the British-accent description was used; resident "high pitch" instead of moderate (moderate = Voss/Unit).
 Murmur: `l3_reyes_murmur` has `text: ""` (no subtitle) and `spoken: "I came up from Line Two and they're all…"`; the mp3 is the CLEAN intelligible take; the unintelligible treatment (room + low-pass 400 Hz, -10 dB) is run-time (src/audio/voicefx).
 Retries: 8 Halvorsen lines needed 2-5 tries (c1_3 5, c1_2b 4); all passed. No text edits.
+
+# 2026-11-16 — user feedback on voice/preview.html (whispers, breathless, UNIT, stress)
+
+Nobody listened; every choice is by measurement (`audio.voice_metrics`, `audio.envelope_similarity`).
+Old takes: `voice/auditions/_old/` (gitignored), comparison numbers in `voice/auditions/_old/compare.json`.
+
+- **Whispers** (tomas, hale, halvorsen): the DSP-derived variant refs (`derive.whisper`) are gone. Each whisper
+  variant is now a *designed* reference of its own (`describe` = the character's short description +
+  `whispering`, a whispered `refText`, a seed picked by audition). Picks: tomas:whisper 2, hale:whisper 12,
+  halvorsen:whisper 17 (see each variant's `why` in cast.json; runner-ups listed there).
+- **tomas:breathless**: no reference of its own any more (base voice, speed 1.0); `l2_tomas_fit_after_1` got
+  `spoken: "[sigh] You alright? ... That was loud. ... Everything heard that."`.
+- **UNIT**: `female, moderate pitch, monotone`, seed 3 (audition 33), same refText. Runner-ups 22, 39.
+- **Stress in UPPERCASE** (new `spoken`, subtitles unchanged): `l1_hale_recorder` (LISTEN, the user's own
+  wording; note no longer describes the emphasis), `l2_tomas_unit14_off` (ONLY), `l2_tomas_run_4` (NEVER),
+  `l2_tomas_bark_relay_locked` (SAID), `l2_tomas_bark_spine_dead` (EVERYTHING's), `l2_tomas_rig_2` (YOU),
+  `l2_tomas_ask` (WHOLE), `l3_halv_c2_6` (ALWAYS).
+- Regenerated 36 lines (16 whisper, 1 breathless, 14 UNIT, 5 stress-only); 205 untouched.

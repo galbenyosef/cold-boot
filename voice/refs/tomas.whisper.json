@@ -1,7 +1,14 @@
 {
-  "base": "8aac2c06613aae2c",
-  "derive": {
-    "whisper": 1.0
-  },
-  "sha": "76da33cb4627f3c4"
+  "describe": "male, young adult, moderate pitch, whispering",
+  "seed": 2,
+  "refText": "Okay. Stay low, and keep quiet. They can hear us in here. Just keep walking, slowly. Don't look at them.",
+  "language": "en",
+  "source": "audition 2",
+  "sha": "204a3bf6d3061b65",
+  "duration": 6.0,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "okay stay low and keep quiet they can hear us in here just keep walking slowly dont look at them"
+  }
 }
