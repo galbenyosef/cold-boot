@@ -38,6 +38,8 @@ export interface SoundDef {
   /** 'load' (awaited in createAudio), 'idle' (rendered in the background right after), 'late' (background,
    *  after the idle set), 'lazy' (on first use). */
   when?: 'load' | 'idle' | 'late' | 'lazy';
+  /** Only pre-render (idle/late sets) on these levels; still renders on demand anywhere. Default: every level. */
+  levels?: readonly number[];
   /** Variant selection: 'random' (default, never the same twice) or 'cycle' (step through the variants in
    *  order, ping-pong; restarts at 0 after a 2.5 s pause — sequences that should sound like they move). */
   order?: 'random' | 'cycle';

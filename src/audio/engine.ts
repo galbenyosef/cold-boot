@@ -70,6 +70,10 @@ export class AudioEngine {
   private wet = 0.5;
   room: RoomPreset = DEFAULT_ROOM;
   roomId = '';
+  /** The level this page runs (selects room presets + which 'idle'/'late' sounds are pre-rendered). */
+  level = 0;
+  /** Habitat mood: false = warm bed, true = cold bed (the plant AI has taken over). Only level-3 presets have a cold form. */
+  cold = false;
 
   private bank = new Map<string, AudioBuffer[]>();
   private pending = new Map<string, Promise<void>>();
@@ -162,7 +166,7 @@ export class AudioEngine {
 
   /** Background render of 'idle' sounds (not awaited by createAudio), then the 'late' set. */
   renderIdle(): Promise<void> {
-    const pick = (w: 'idle' | 'late') => [...SOUND_MAP.values()].filter((d) => d.when === w && !this.bank.has(d.id));
+    const pick = (w: 'idle' | 'late') => [...SOUND_MAP.values()].filter((d) => d.when === w && !this.bank.has(d.id) && (!d.levels || d.levels.includes(this.level)));
     const t0 = performance.now();
     return Promise.all(pick('idle').map((d) => this.ensure(d.id))).then(() => {
       this.idleRenderMs = performance.now() - t0;
@@ -356,9 +360,21 @@ export class AudioEngine {
   setRoom(id: string): void {
     if (id === this.roomId) return;
     this.roomId = id;
-    const preset = presetFor(id);
+    const preset = presetFor(id, this.level, this.cold);
     this.room = preset;
     this.setReverb(preset.ir, preset.wet);
+  }
+
+  /** Switch the warm/cold mood and re-resolve the current room. Returns true if anything changed. */
+  setMood(cold: boolean): boolean {
+    if (cold === this.cold) return false;
+    this.cold = cold;
+    if (!this.roomId) return true;
+    const preset = presetFor(this.roomId, this.level, this.cold);
+    if (preset === this.room) return true;
+    this.room = preset;
+    this.setReverb(preset.ir, preset.wet);
+    return true;
   }
 
   private setReverb(name: IrName, wet: number): void {

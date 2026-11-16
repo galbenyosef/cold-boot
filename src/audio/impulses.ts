@@ -4,7 +4,8 @@
  */
 import { mulberry } from './synth/core';
 
-export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate' | 'dead' | 'cistern' | 'clean';
+export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate' | 'dead' | 'cistern' | 'clean'
+  | 'office' | 'tiled' | 'atrium' | 'lock';
 
 interface IrSpec {
   len: number;
@@ -35,6 +36,14 @@ const SPECS: Record<IrName, IrSpec> = {
   cistern: { len: 5.0, rt: [4.2, 3.4, 1.7], predelay: 0.014, early: 20, earlyWin: 0.08, earlyGain: 0.6, flutter: 0.0175, flutterGain: 0.3, ring: [118, 262, 557, 991, 1720], ringGain: 0.065, build: 0.05, gain: 1.05 },
   // level 2 core: big, bare, hard and bright — a long even tail with no metallic character
   clean: { len: 4.2, rt: [2.6, 3.0, 2.4], predelay: 0.024, early: 14, earlyWin: 0.09, earlyGain: 0.4, build: 0.06, gain: 1 },
+  // level 3 (habitat): carpeted offices — short and soft but not dead (acoustic ceiling, desks, glass partitions)
+  office: { len: 0.8, rt: [0.55, 0.42, 0.2], predelay: 0.003, early: 12, earlyWin: 0.02, earlyGain: 0.45, build: 0.006, gain: 0.75 },
+  // canteen / clinic / decon room: hard tile and linoleum, mid-sized, a touch of flutter, no metal ring
+  tiled: { len: 1.8, rt: [1.1, 1.25, 1.0], predelay: 0.004, early: 16, earlyWin: 0.03, earlyGain: 0.6, flutter: 0.0072, flutterGain: 0.18, build: 0.012, gain: 1 },
+  // garden atrium: 13 m of glass, terrazzo and planting — long, airy, slow onset, no metallic ring
+  atrium: { len: 4.6, rt: [3.4, 3.0, 1.7], predelay: 0.035, early: 20, earlyWin: 0.14, earlyGain: 0.35, build: 0.16, gain: 1.05 },
+  // pressure lock: white steel box, small, ringing a little
+  lock: { len: 1.6, rt: [1.0, 1.0, 0.7], predelay: 0.003, early: 14, earlyWin: 0.02, earlyGain: 0.6, flutter: 0.0062, flutterGain: 0.3, ring: [260, 610, 1180], ringGain: 0.04, build: 0.008, gain: 1 },
   plate: { len: 3.2, rt: [2.4, 2.8, 2.2], predelay: 0.012, early: 0, earlyWin: 0.01, earlyGain: 0, build: 0.005, gain: 1 },
 };
 
@@ -110,6 +119,8 @@ export interface RoomPreset {
   quiet?: boolean;
   /** Room-local recurring one-offs (not "distant" — independent of the single distant-event slot). */
   local?: LocalEvent[];
+  /** Level-3 habitat: the preset after the takeover (engine.setMood(true)); fields given here replace the warm ones. */
+  cold?: Partial<Omit<RoomPreset, 'cold'>>;
 }
 
 export interface LocalEvent {
@@ -168,6 +179,30 @@ export const ROOMS: Record<string, RoomPreset> = {
   core: { ir: 'clean', wet: 0.6, bed: { amb_room: 0.25 }, events: {} },
   lift: { ir: 'dead', wet: 0.3, bed: { amb_room: 0.6 }, events: { metal_groan: 1, dist_clank: 1 } },
 };
+// ── level 3 "HALCYON HABITAT" (stage 3a). Warm and ordinary until the takeover, then the same rooms gone cold.
+// Room ids are the plan's (§2.1); `lobby` and `quarters` differ from the level-1 presets, so these are only
+// consulted when the engine runs level 3 (presetFor(id, 3)).
+const HAB_WARM = { door_far: 1, pipe_tick: 0.5 };
+const HAB_COLD = { far_steps: 1.4, door_far: 0.8, pipe_tick: 1.2, hull_creak: 1.2, alarm_soft: 0.6, breath_far: 0.3, dist_knock: 0.6, metal_groan: 0.5 };
+const COLD_ROOM = { quiet: true, events: HAB_COLD, ir: 'dead' as IrName, wet: 0.3, bed: { amb_hab_cold: 1 } };
+export const ROOMS_L3: Record<string, RoomPreset> = {
+  lift3: { ir: 'dead', wet: 0.3, bed: { amb_room: 0.55 }, events: { metal_groan: 1 }, cold: { bed: { amb_room: 0.45, amb_hab_cold: 0.4 } } },
+  lock: { ir: 'lock', wet: 0.5, bed: { amb_lock: 0.9 }, events: {}, cold: { bed: { amb_lock: 0.45, amb_hab_cold: 0.5 }, wet: 0.6 } },
+  gallery_n: { ir: 'corridor', wet: 0.45, bed: { amb_hab: 0.8, amb_garden: 0.3 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'corridor', wet: 0.55, bed: { amb_hab_cold: 0.9, amb_garden: 0.1 } } },
+  lobby: { ir: 'office', wet: 0.3, bed: { amb_hab: 0.9 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'office', wet: 0.35 } },
+  admin: { ir: 'office', wet: 0.32, bed: { amb_hab: 1 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'office', wet: 0.38 } },
+  office: { ir: 'dead', wet: 0.22, bed: { amb_hab: 0.7 }, events: HAB_WARM, cold: { ...COLD_ROOM, wet: 0.26, bed: { amb_hab_cold: 0.8 } } },
+  stair_w: { ir: 'corridor', wet: 0.5, bed: { amb_hab: 0.6 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'corridor', wet: 0.6 } },
+  canteen: { ir: 'tiled', wet: 0.45, bed: { amb_hab: 0.8 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'tiled', wet: 0.5 } },
+  atrium: {
+    ir: 'atrium', wet: 0.62, bed: { amb_garden: 1 }, events: HAB_WARM,
+    local: [{ id: 'pool_lap', every: [2.5, 7], vol: [0.45, 0.9], at: [0, 0.5, -27] }],
+    cold: { ...COLD_ROOM, ir: 'atrium', wet: 0.7, bed: { amb_hab_cold: 0.9, amb_garden: 0.12 }, local: [] },
+  },
+  clinic: { ir: 'tiled', wet: 0.38, bed: { amb_hab: 0.7 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'tiled', wet: 0.45 } },
+  quarters: { ir: 'office', wet: 0.28, bed: { amb_hab: 0.75 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'office', wet: 0.3, bed: { amb_hab_cold: 1 } } },
+  bio_lock: { ir: 'tiled', wet: 0.5, bed: { amb_lock: 1 }, events: {}, cold: { bed: { amb_lock: 0.6, amb_hab_cold: 0.35 }, wet: 0.55 } },
+};
 export const DEFAULT_ROOM: RoomPreset = { ir: 'corridor', wet: 0.5, bed: { amb_room: 0.8 }, events: ROOM_EVENTS };
 
 /** Unknown / renamed room ids fall back to the closest known preset by name, then to DEFAULT_ROOM. */
@@ -178,7 +213,17 @@ const ALIASES: Array<[RegExp, string]> = [
   [/corr|hall|pass|vent/, 'corr_a'],
 ];
 const resolved = new Map<string, RoomPreset>();
-export function presetFor(id: string): RoomPreset {
+const coldCache = new WeakMap<RoomPreset, RoomPreset>();
+export function presetFor(id: string, level = 0, cold = false): RoomPreset {
+  if (level === 3) {
+    const p = ROOMS_L3[id];
+    if (p) {
+      if (!cold || !p.cold) return p;
+      let c = coldCache.get(p);
+      if (!c) { c = { ...p, ...p.cold, cold: undefined }; coldCache.set(p, c); }
+      return c;
+    }
+  }
   const hit = ROOMS[id];
   if (hit) return hit;
   let p = resolved.get(id);

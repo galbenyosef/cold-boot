@@ -10,6 +10,9 @@
  *                      level / peak / clipping / duration per line × chain, spectrograms, click a cell to
  *                      hear it. &ids=a,b (ids or prefixes; default: a few per speaker) &fx=all|<name>
  *                      &live=1 also runs say() through a real createAudio() and checks handles/ducking.
+ *   hab              — level 3 (stage 3a): every habitat room preset warm and cold (IR, wet, bed, events), each IR
+ *                      auditioned with `door_chime` (click a cell). Plain `mode=sounds&filter=^(pdoor_|purge_|radio_|…)`
+ *                      auditions the new level-3 ids: CLICK ANY SPECTROGRAM to play it (loops repeat; click again to stop).
  * Results on window.__audioReport; window.__game = { ready: true } when done.
  */
 import * as THREE from 'three';
@@ -87,12 +90,107 @@ async function modeSounds() {
       const b = bufs[0];
       const cv = cell(`${d.id} ×${bufs.length} ${s0.dur}s\npk ${s0.peakDb} rms ${s0.rmsDb} atk ${s0.attackMs}ms tail ${s0.tailMs}ms\ncen ${s0.centroid}Hz lo ${(s0.bands.sub + s0.bands.low).toFixed(2)} up ${s0.bands.upmid.toFixed(2)}`, W, H);
       draw(cv, chansOf(b), b.sampleRate);
+      cv.style.cursor = 'pointer';
+      cv.onclick = () => audition(b, !!d.loop, (d.vol ?? 0.7));
     }
   }
+  // offline-render hook for scripts (scripts: node → page): PCM of one variant as base64 Float32 per channel
+  (window as any).__pcm = (id: string, variant = 0) => {
+    const b = all.get(id)?.[variant];
+    if (!b) return null;
+    const chs: string[] = [];
+    for (let c = 0; c < b.numberOfChannels; c++) {
+      const u8 = new Uint8Array(b.getChannelData(c).slice().buffer);
+      let bin = '';
+      for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+      chs.push(btoa(bin));
+    }
+    return { sr: b.sampleRate, channels: chs, variants: all.get(id)!.length, loop: !!SOUND_MAP.get(id)?.loop, vol: SOUND_MAP.get(id)?.vol ?? 0.7, dur: SOUND_MAP.get(id)?.dur };
+  };
   const totalAudio = [...all.values()].reduce((a, bs) => a + bs.reduce((x, b) => x + b.duration, 0), 0);
   Object.assign(report, { loadMs: Math.round(loadMs), loadCount: loadDefs.length, restMs: Math.round(restMs), totalDefs: ALL_SOUNDS.length,
     totalAudioSec: +totalAudio.toFixed(1), slowest: Object.entries(timings).sort((a, b) => b[1] - a[1]).slice(0, 8), warnings, sounds: per });
   head.textContent = `load set: ${loadDefs.length} defs in ${loadMs.toFixed(0)} ms · rest ${restMs.toFixed(0)} ms · ${ALL_SOUNDS.length} defs, ${totalAudio.toFixed(1)} s audio · warnings ${warnings.length}`;
+}
+
+let auditionCtx: AudioContext | null = null;
+let auditionSrc: AudioBufferSourceNode | null = null;
+/** Click-to-listen: plays a rendered buffer at its def volume (loops repeat until the next click). */
+function audition(b: AudioBuffer, loop: boolean, vol: number): void {
+  auditionCtx ??= new AudioContext();
+  void auditionCtx.resume();
+  try { auditionSrc?.stop(); } catch { /* already stopped */ }
+  const src = auditionCtx.createBufferSource();
+  src.buffer = b; src.loop = loop;
+  const g = auditionCtx.createGain(); g.gain.value = vol;
+  src.connect(g); g.connect(auditionCtx.destination);
+  src.start();
+  auditionSrc = src;
+}
+
+async function modeHab() {
+  const { ROOMS_L3, presetFor } = await import('../impulses');
+  const chime = (await renderDef(SOUND_MAP.get('door_chime')!))[0];
+  const rows: Record<string, unknown> = {};
+  const W = 340, H = 80;
+  for (const id of Object.keys(ROOMS_L3)) {
+    for (const cold of [false, true]) {
+      const p = presetFor(id, 3, cold);
+      // the room's reverb tail applied to a chime (offline): dry + IR × wet
+      const oc = new OfflineAudioContext(1, Math.ceil((chime.duration + 3) * SR), SR);
+      const src = oc.createBufferSource(); src.buffer = chime;
+      const dry = oc.createGain(); dry.gain.value = 0.35;
+      const conv = oc.createConvolver(); conv.buffer = makeIR(p.ir, SR);
+      const wet = oc.createGain(); wet.gain.value = p.wet;
+      src.connect(dry); dry.connect(oc.destination); src.connect(conv); conv.connect(wet); wet.connect(oc.destination);
+      src.start();
+      const r = await oc.startRendering();
+      const st = stats(chansOf(r), SR);
+      rows[`${id}${cold ? ':cold' : ''}`] = { ir: p.ir, wet: p.wet, bed: p.bed, quiet: !!p.quiet, events: Object.keys(p.events), local: (p.local ?? []).map((e) => e.id), tailMs: st.tailMs };
+      const cv = cell(`${id}${cold ? ' COLD' : ' warm'}  ir=${p.ir} wet=${p.wet}${p.quiet ? ' quiet' : ''}\nbed ${JSON.stringify(p.bed)}\ntail ${st.tailMs}ms`, W, H);
+      draw(cv, chansOf(r), SR);
+      cv.style.cursor = 'pointer';
+      cv.onclick = () => audition(r, false, 1);
+    }
+  }
+  Object.assign(report, { rooms: rows });
+  if (q.get('live')) {
+    // the real system on level 3: room presets, the mood switch, the room-based footsteps, the glass that holds
+    const ctx = fakeCtx() as unknown as { levelId: number; events: ReturnType<typeof createEvents> };
+    ctx.levelId = 3;
+    const audio = await createAudio(ctx as unknown as GameContext);
+    await audio.unlock();
+    const dbg = (audio as any).debug;
+    const eng = dbg.engine;
+    const played: string[] = [];
+    const orig = eng.play.bind(eng);
+    eng.play = (id: string, p?: unknown) => { played.push(id); orig(id, p as never); };
+    const out: Record<string, unknown> = { level: eng.level };
+    audio.setRoom('office');
+    out.office = { ir: eng.room.ir, quiet: !!eng.room.quiet, cold: eng.cold };
+    ctx.events.emit('player:footstep', { position: new THREE.Vector3(), surface: 'concrete', running: false });
+    audio.setRoom('canteen');
+    ctx.events.emit('player:footstep', { position: new THREE.Vector3(), surface: 'metal', running: false });
+    audio.setRoom('lock');
+    ctx.events.emit('player:footstep', { position: new THREE.Vector3(), surface: 'metal', running: false });
+    ctx.events.emit('bullet:impact', { point: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0), surface: 'glass' });
+    audio.setRoom('atrium');
+    out.atriumWarm = { ir: eng.room.ir, bed: eng.room.bed, local: (eng.room.local ?? []).map((e: { id: string }) => e.id) };
+    audio.play('habitat_takeover');
+    out.atriumCold = { ir: eng.room.ir, bed: eng.room.bed, quiet: !!eng.room.quiet, cold: eng.cold, mood: dbg.cold };
+    ctx.events.emit('story:beat', { id: 'habitat_restore' });
+    out.restored = { cold: eng.cold, ir: eng.room.ir };
+    ctx.events.emit('story:beat', { id: 'habitat_takeover' });
+    out.beatCold = eng.cold;
+    await new Promise((r) => setTimeout(r, 1500));
+    for (const id of ['fountain_loop', 'radio_music', 'lamp_hum_warm', 'amb_garden']) { const h = audio.loop(id); await new Promise((r) => setTimeout(r, 400)); h.stop(0.1); }
+    out.played = played;
+    out.bank = ['step_carpet', 'step_tile', 'impact_glass_hold', 'amb_hab_cold', 'fountain_loop', 'radio_music'].map((id) => `${id}:${eng.buffers(id) ? 'ready' : 'missing'}`);
+    // level 1 stays level 1
+    out.l1 = { carpetRenderedAtL3Only: SOUND_MAP.get('step_carpet')?.levels };
+    report.live = out;
+  }
+  head.textContent = `hab: ${Object.keys(ROOMS_L3).length} level-3 rooms × warm/cold — click to hear a chime in the room`;
 }
 
 async function loadMusicBank(): Promise<Map<string, AudioBuffer[]>> {
@@ -481,6 +579,7 @@ async function modeVoice() {
     else if (mode === 'music') await modeMusic();
     else if (mode === 'choir') await modeChoir();
     else if (mode === 'live') await modeLive();
+    else if (mode === 'hab') await modeHab();
     else await modeSounds();
   } catch (e) {
     report.error = String((e as Error)?.stack ?? e);

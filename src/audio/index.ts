@@ -19,6 +19,9 @@ export interface AudioDebug {
   preRenderMs: number;
   /** Effective music mode (after auto-combat / menu logic). */
   readonly musicMode: MusicMode;
+  /** Level 3 mood switch (warm bed ↔ cold bed): what `play('habitat_takeover')` / `story:beat habitat_takeover` do. */
+  setMood(cold: boolean): void;
+  readonly cold: boolean;
 }
 
 const STEP_ID: Record<Surface, string> = {
@@ -29,6 +32,12 @@ const IMPACT_ID: Record<Surface, string> = {
 };
 const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9 };
 const GRATE_ROOMS = new Set(['corr_a', 'elevator']);
+/** Level 3 (habitat): the floor under the player's feet by room id — the contract's `Surface` has no carpet/tile, so
+ *  footsteps there are chosen by room (any surface but glass / flesh / robot). `step_wood` is available for story use. */
+const FLOOR_L3: Record<string, string> = {
+  gallery_n: 'step_carpet', lobby: 'step_carpet', admin: 'step_carpet', office: 'step_carpet', stair_w: 'step_carpet', quarters: 'step_carpet',
+  canteen: 'step_tile', atrium: 'step_tile', clinic: 'step_tile', bio_lock: 'step_tile',
+};
 
 function silentVoice(duration: number): VoiceHandle {
   return { duration, done: new Promise<void>((r) => setTimeout(r, duration * 1000)), setPosition() {}, stop() {} };
@@ -51,6 +60,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     console.warn('[audio] Web Audio unavailable — running silent', e);
     return stubAudio();
   }
+  const level = levelOf(ctx);
+  eng.level = level.id;
   await eng.preload();
   if (ctx.debug?.verbose) console.info(`[audio] pre-rendered load set in ${eng.preRenderMs.toFixed(0)} ms`);
   // the rest renders in the background once loading has moved on
@@ -60,7 +71,6 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   const amb = new Ambience(eng);
   const voice = new VoiceBank(eng);
   // levels after the first start powered (level 2: the hall is held, not dead) — LEVELS[id].powerOnAtLoad
-  const level = levelOf(ctx);
   if (level.powerOnAtLoad) amb.powerOn = true;
   // this level's voice files: fetch the bytes in the background (decode stays lazy)
   setTimeout(() => { try { voice.prefetchLevel(level.id); } catch { /* ignore */ } }, 1500);
@@ -113,6 +123,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
       }
     },
     play(id: string, opts?: PlayOpts) {
+      if (id === 'habitat_takeover') setMood(true); // the story's one switch: warm bed → cold bed (also via story:beat)
       eng.play(id, opts ? { position: opts.position, volume: opts.volume, pitch: opts.pitch } : undefined);
     },
     loop(id: string, opts?: PlayOpts): LoopHandle {
@@ -210,6 +221,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
       engine: eng, music, ambience: amb, voice,
       get preRenderMs() { return eng.preRenderMs; },
       get musicMode() { return effective; },
+      setMood,
+      get cold() { return eng.cold; },
     },
   };
 
@@ -219,6 +232,12 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     if (b === undefined) b = ctx.level?.rooms?.find((r) => r.id === id)?.bounds ?? null;
     amb.applyRoom(b);
     bedStarted = true;
+  }
+
+  /** Level 3: warm bed ↔ cold bed (rooms re-resolve to their `cold` preset; the bed crossfades over ~1.2 s). */
+  function setMood(cold: boolean) {
+    if (!eng.setMood(cold)) return;
+    if (bedStarted) amb.applyRoom(undefined, 1.2);
   }
 
   function refreshMusic() {
@@ -271,13 +290,15 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     const t = eng.now;
     if (t - impactWindow > 0.05) { impactWindow = t; impactCount = 0; }
     if (++impactCount > 3) return;
-    eng.play(IMPACT_ID[surface] ?? 'impact_metal', { position: point });
+    // level 3: the habitat's glazing is thick laminate and holds — it does not shatter
+    eng.play(surface === 'glass' && level.id === 3 ? 'impact_glass_hold' : IMPACT_ID[surface] ?? 'impact_metal', { position: point });
     if (surface === 'metal' && Math.random() < 0.22) eng.play('ricochet', { position: point, delay: 0.015 });
   });
 
   ev.on('player:footstep', ({ surface, running }) => {
     let id = STEP_ID[surface] ?? 'step_metal';
     if (surface === 'metal' && GRATE_ROOMS.has(eng.roomId)) id = 'step_grate';
+    if (level.id === 3 && surface !== 'glass' && surface !== 'flesh' && surface !== 'robot') id = FLOOR_L3[eng.roomId] ?? id;
     eng.play(id, { volume: running ? 1.2 : 0.75, pitch: running ? 1.03 : 1 });
     if (running && Math.random() < 0.6) eng.play('gear_rattle', { volume: 0.8 });
   });
@@ -391,6 +412,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
         eng.play('power_up', { volume: 0.9 });
         amb.powerOn = true; amb.applyRoom();
         break;
+      case 'habitat_takeover': setMood(true); break; // level 3: the plant AI takes the habitat (also: play('habitat_takeover'))
+      case 'habitat_restore': setMood(false); break;
       case 'choir_speaks':
         eng.play('glitch', { volume: 0.8 });
         break;

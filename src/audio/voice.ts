@@ -77,6 +77,8 @@ const POS: Record<string, { ref: number; rolloff: number; send: number }> = {
   pa: { ref: 7, rolloff: 0.6, send: 1.1 },
   clean: { ref: 2.5, rolloff: 1.0, send: 0.7 },
   choir: { ref: 8, rolloff: 0.5, send: 1 },
+  room: { ref: 2.5, rolloff: 1.1, send: 0.35 }, // a small speaker / a person in an office
+  door: { ref: 2, rolloff: 1.3, send: 0.3 }, // behind a sealed cabin door
 };
 /** Duck amount while speaking (engine.setDuck: 1 = music −50 %, ambience −40 %). "Slightly". */
 const DUCK: Record<string, number> = { choir: 0.75, pa: 0.5 };

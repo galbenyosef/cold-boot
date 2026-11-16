@@ -201,3 +201,42 @@ The other modes: shows per-sound stats on
 `window.__audioReport` and draws spectrograms. `mode=ambience` (~2 min, real time) measures the dread layer:
 footstep reference peak vs every quiet-room event, the room-tone dropout depth, combat suppression, room-id
 mapping and per-room bed levels.
+
+## Level 3 — HALCYON HABITAT (stage 3a, `sounds/rev7.ts`)
+
+Everything is `levels: [3]`: pre-rendered in the background on level 3 only, rendered on demand elsewhere. Positional ids take
+`{ position }`; loops are started/stopped by the story (`handle.stop(fade)`).
+
+**Loops**: `fountain_loop` (stereo, 8 s; `fountain_stop` one-shot when it dies) · `lamp_hum_warm` / `lamp_hum_cold` (failing ballast) ·
+`vending_hum`, `fridge_hum` · `aquarium_loop` (pump + bubbles; stop at the takeover) · `radio_music` (20 s, an original 8-bar
+tune through a small kitchen radio; positional so a door muffles it) and `radio_static` (the takeover: start it, later stop) ·
+`hvac_loop` (supply grille) · `viewport_rumble` (sub-bass, 31 / 47 Hz) · `purge_air` (nozzle blast, if the story wants to time
+the purge itself). Beds (via room presets, not played by hand): `amb_hab` warm, `amb_hab_cold`, `amb_garden`, `amb_lock`.
+
+**One-shots**: `pool_lap` · `lamp_flicker` · `lamps_die` (the grid going out, 3.5 s) · `emerg_on` · `vending_kick`, `vending_drop` ·
+`hull_creak` · pressure door `pdoor_release` (dogs, 1.5 s), `pdoor_travel` (leaves, exactly 2.6 s of motion), `pdoor_seal`,
+and the composites `pdoor_open` (dogs 0.6 s, then the leaves; also the C2 `pdoor_open_feed` beat) and `pdoor_close`
+(travel then seal) · `shutter_slam`, `shutter_roll` (1.8 s) · `door_chime`, `desk_bell` · `badge_ok`, `badge_deny` ·
+purge `purge_cycle` (15.6 s composite: valves, 1 Hz amber ticks → 2 Hz after 10.4 s, air blast 0.6–12.4 s, equalise 10.6–13.4 s,
+latch at 13.5, all-clear chime 13.85 s; positional at the lock/door), `purge_tick`, `purge_end` · cutscene `chair_creak`,
+`mug_clink`, `monitor_switch`, `screen_die` (4 variants, one per screen), `office_die`, `phone_dead`, `alarm_soft` (far) ·
+`habitat_takeover` (7 s; **playing it, or a `story:beat` with id `habitat_takeover`, switches the habitat to the cold bed**) ·
+`impact_glass_hold` · `step_carpet`, `step_wood`, `step_tile`.
+
+**Automatic on level 3** (do not also play): `bullet:impact` on `glass` plays `impact_glass_hold` instead of `impact_glass`;
+`player:footstep` picks the floor by room id (carpet: gallery_n lobby admin office stair_w quarters; tile: canteen atrium clinic
+bio_lock), any surface except glass/flesh/robot; lock and lift3 keep the metal step. `step_wood` is for story use only.
+
+**Mood**: `play('habitat_takeover')` or `story:beat habitat_takeover` → cold; `story:beat habitat_restore` → warm. Each level-3
+room preset has a `cold` form (bed crossfades over ~1.2 s, reverb changes, the room becomes a quiet "dread" room with
+`far_steps door_far pipe_tick hull_creak alarm_soft …`; the atrium loses its `pool_lap` events).
+
+**Rooms** (`ROOMS_L3`, only when `levelId === 3`): lift3 dead · lock `lock` IR (steel box) · gallery_n corridor · lobby/admin/quarters
+`office` IR (carpet, short) · office dead · stair_w corridor · canteen/clinic/bio_lock `tiled` IR · atrium `atrium` IR (long, airy;
+`pool_lap` every 2.5–7 s at the pool).
+
+**Voice fx**: `room` (small desk speaker, 200 Hz–5.5 kHz + early reflections; `room:400` = unintelligible murmur) and `door`
+(through a sealed door: 900 Hz two-pole low-pass, 150/330 Hz body, −6 dB).
+
+Dev: `/dev/audio.html?mode=sounds&filter=^(pdoor_|purge_)` (click a spectrogram to hear it), `?mode=hab` (every room × warm/cold),
+`?mode=hab&live=1` (real system on level 3), `?mode=voice&ids=<line>&fx=room,room:400,door`.

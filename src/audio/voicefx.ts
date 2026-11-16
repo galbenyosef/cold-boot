@@ -14,6 +14,11 @@
  *   foreman   all layers of a multi-voice line (cast "layers") through the unit chain, out of sync
  *   recorder  pocket recorder: small-speaker band, tape hiss, wow/flutter, start/stop clunks
  *   pa        automated announcement through a ceiling speaker
+ *   room      (level 3) a voice from a small desk / wall speaker in an office: 200 Hz – 5.5 kHz, a little honk,
+ *             light drive, four early reflections and a short soft tail. `room:400` = the same with a 400 Hz
+ *             low-pass (an unintelligible murmur from the next room)
+ *   door      (level 3) a voice from behind a sealed cabin door: two-pole low-pass at 900 Hz, panel/wood body
+ *             resonances (~150 / 330 Hz) and a resonant thump path, a faint air-gap leak, −6 dB relative
  *
  * Output: a 24 kHz AudioBuffer (stereo for choir, mono otherwise) normalised so active speech sits at
  * the same RMS for every chain (OUT_RMS), peak ≤ 0.95.
@@ -23,13 +28,13 @@ import { hashStr, mulberry } from './synth/core';
 export const FX_SR = 24000;
 const OUT_RMS = 0.13;
 
-export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa';
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door';
 
-export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa'];
+export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door'];
 
 export function parseFx(fx: string | undefined | null): { name: VoiceFxName; arg: number | null } {
   const [raw, a] = String(fx ?? 'clean').toLowerCase().split(':');
-  const alias: Record<string, VoiceFxName> = { radio: 'headset', handset: 'headset', speaker: 'pa', staff: 'unit', tape: 'recorder' };
+  const alias: Record<string, VoiceFxName> = { radio: 'headset', handset: 'headset', speaker: 'pa', staff: 'unit', tape: 'recorder', desk: 'room', cabin: 'door' };
   const n = (alias[raw] ?? raw) as VoiceFxName;
   const arg = a !== undefined && a !== '' && Number.isFinite(+a) ? +a : null;
   return { name: FX_NAMES.includes(n) ? n : 'clean', arg };
@@ -216,8 +221,8 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
   const base = src[0];
   const dur = base.length / FX_SR;
   const stereo = name === 'choir';
-  const lead = name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'pa' ? 0.04 : 0;
-  const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : 0.01;
+  const lead = name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'pa' ? 0.04 : name === 'door' ? 0.05 : name === 'room' ? 0.02 : 0;
+  const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : 0.01;
   const longest = Math.max(...src.map((d) => d.length)) / FX_SR + (name === 'foreman' ? 0.22 : 0);
   const len = Math.ceil((lead + longest + tail) * FX_SR);
   const c = new OfflineAudioContext(stereo ? 2 : 1, len, FX_SR);
@@ -343,13 +348,45 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
     chain(band, gain(c, 0.4), fbIn); chain(fbIn, fd, filt(c, 'lowpass', 2000), fg, fbIn); chain(fbIn, gain(c, 0.5), out);
     play(c, base, t0, first);
     click(c, 0.005, 0.12, out);
+  } else if (name === 'room') {
+    // small desk speaker: 200 Hz – 5.5 kHz with a little cabinet honk and light drive, then a small office
+    const first = gain(c, 1);
+    const fcut = arg && arg >= 150 ? arg : 5500;
+    const spk = chain(first, filt(c, 'highpass', arg ? 160 : 200, 0.8), filt(c, 'highpass', arg ? 160 : 200, 0.6),
+      filt(c, 'peaking', 1500, 0.9, 3), shaper(c, 1.4), filt(c, 'lowpass', fcut), filt(c, 'lowpass', fcut)) as AudioNode;
+    const dry = gain(c, 1);
+    spk.connect(dry); dry.connect(out);
+    // early reflections of a carpeted 4 × 3 m room + a short soft tail
+    for (const [dt, lv] of [[0.0063, 0.34], [0.0121, 0.27], [0.0197, 0.2], [0.031, 0.14]] as const) {
+      const d = c.createDelay(0.1); d.delayTime.value = dt;
+      chain(spk, d, filt(c, 'lowpass', 3200), gain(c, lv), out);
+    }
+    const fbIn = gain(c, 1), fd = c.createDelay(0.2), fg = gain(c, 0.3);
+    fd.delayTime.value = 0.043;
+    chain(spk, gain(c, 0.16), fbIn); chain(fbIn, fd, filt(c, 'lowpass', 2400), fg, fbIn); chain(fbIn, gain(c, 0.7), out);
+    play(c, base, t0, first);
+    if (!arg) click(c, 0.004, 0.04, out); // a speaker coming alive
+  } else if (name === 'door') {
+    // a voice through a sealed cabin door: nothing above ~1 kHz, the panel itself rings low
+    const first = gain(c, 1);
+    const thru = chain(first, filt(c, 'highpass', 90, 0.7), filt(c, 'lowpass', 900, 0.8), filt(c, 'lowpass', 900, 0.7),
+      filt(c, 'peaking', 150, 2.2, 6), filt(c, 'peaking', 330, 3, 4)) as AudioNode;
+    thru.connect(out);
+    // resonant thump path: the take excites a 140 Hz panel mode (what you feel through wood)
+    chain(first, filt(c, 'bandpass', 140, 5), gain(c, 1.3), out);
+    // faint leak under the door: the consonants' top end, tiny and very dull
+    chain(first, filt(c, 'bandpass', 1300, 1.2), filt(c, 'lowpass', 1500), gain(c, 0.06), out);
+    // the cabin behind: short dead tail
+    const d1 = c.createDelay(0.1); d1.delayTime.value = 0.017;
+    chain(thru, d1, filt(c, 'lowpass', 700), gain(c, 0.3), out);
+    play(c, base, t0, first);
   }
   const rendered = await c.startRendering();
   const chans = Array.from({ length: rendered.numberOfChannels }, (_, i) => rendered.getChannelData(i));
   // keep the take's own level relative to the generator's TARGET_RMS (0.12): a whisper stays quieter
   const inRms = speechRms([base]);
   const rel = inRms > 1e-5 ? Math.max(0.3, Math.min(1.5, inRms / 0.12)) : 1;
-  normalise(chans, OUT_RMS * rel);
+  normalise(chans, OUT_RMS * rel * (name === 'door' ? 0.5 : 1));
   return rendered;
 }
 

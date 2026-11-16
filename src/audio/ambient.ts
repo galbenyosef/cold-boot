@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import type { AudioEngine, LoopVoice } from './engine';
 import { SOUND_MAP } from './sounds';
 
-const BED_IDS = ['amb_room', 'amb_fab', 'amb_gen', 'amb_quarters', 'amb_pump'] as const;
+const BED_IDS = ['amb_room', 'amb_fab', 'amb_gen', 'amb_quarters', 'amb_pump', 'amb_hab', 'amb_hab_cold', 'amb_garden', 'amb_lock'] as const;
 
 /** Peak of the player's own walking footstep at the listener: step vol 0.2 × walk 0.75 × peak 0.9. */
 const FOOTSTEP_PEAK = 0.2 * 0.75 * 0.9;
@@ -56,6 +56,9 @@ const SPECS: Record<string, Spec> = {
   dist_voice: { d: [14, 22], y: [-1, 1], cap: 0.5, cool: 200 },
   water_slosh: { d: [8, 16], y: [-2, -1.5], cap: 0.9, cool: 20 },
   pipe_knock: { d: [8, 16], y: [0, 2], cap: 0.8, cool: 15 },
+  // level 3 habitat (cold palette)
+  hull_creak: { d: [8, 16], y: [-1, 3], lp: 1100, cap: 0.7, cool: 35, pitch: [0.8, 1.1] },
+  alarm_soft: { d: [18, 28], y: [0, 3], lp: 1000, cap: 0.5, cool: 70 },
 };
 
 export class Ambience {
@@ -81,7 +84,7 @@ export class Ambience {
   constructor(private readonly eng: AudioEngine) {}
 
   /** Crossfade the bed to the current room's preset. `bounds` = the room's box (for room-local events). */
-  applyRoom(bounds?: THREE.Box3 | null): void {
+  applyRoom(bounds?: THREE.Box3 | null, fade = 2.5): void {
     if (bounds !== undefined) this.bounds = bounds;
     const room = this.eng.room;
     const bed = room.bed;
@@ -94,7 +97,7 @@ export class Ambience {
         l = this.eng.loop(id, { volume: 0 }) as LoopVoice;
         this.beds.set(id, l);
       }
-      l?.setVolume(lv, 2.5);
+      l?.setVolume(lv, fade);
     }
     const now = this.eng.now;
     this.localNext = (room.local ?? []).map((e) => now + 1 + Math.random() * e.every[0]);
