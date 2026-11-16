@@ -1,11 +1,11 @@
 {
-  "describe": "female, moderate pitch, monotone",
-  "seed": 3,
+  "describe": "female, monotone",
+  "seed": 1,
   "refText": "Good evening. Thank you for your patience. Please remain where you are. A member of staff will be with you shortly.",
   "language": "en",
-  "source": "audition 33",
-  "sha": "9fe9c857c5b7eb68",
-  "duration": 6.58,
+  "source": "audition 22",
+  "sha": "dad57e4733957e21",
+  "duration": 6.55,
   "asr": {
     "ok": true,
     "score": 1.0,

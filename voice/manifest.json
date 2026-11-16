@@ -297,14 +297,14 @@
       "fx": "pa",
       "level": "l1",
       "file": "voice/l1_elevator_down.mp3",
-      "duration": 1.82,
-      "hash": "b44684a9224d477a",
+      "duration": 1.76,
+      "hash": "1a6b4a680129d595",
       "score": 1.0,
       "ok": true,
       "transcript": "going down line two intake",
       "tries": 1,
-      "seed": 1302965832,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.82s"
+      "seed": 1302765826,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s"
     },
     "l1_hale_recorder": {
       "speaker": "hale",
@@ -331,14 +331,14 @@
       "fx": "pa",
       "level": "l1",
       "file": "voice/l1_pump_wake.mp3",
-      "duration": 1.8,
-      "hash": "b9094dd7ca689052",
+      "duration": 1.51,
+      "hash": "5aeb6a7a56a9aaa2",
       "score": 1.0,
       "ok": true,
-      "transcript": "sedation hold release",
+      "transcript": "sedation hold released",
       "tries": 1,
-      "seed": 1011755155,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s"
+      "seed": 1011555149,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.51s"
     },
     "l1_unit_bench": {
       "speaker": "voss",
@@ -382,14 +382,14 @@
       "fx": "unit",
       "level": "l1",
       "file": "voice/l1_unit_rack.mp3",
-      "duration": 1.25,
-      "hash": "d1c4387a97600d70",
+      "duration": 1.88,
+      "hash": "9f735c2a148f4a51",
       "score": 1.0,
       "ok": true,
       "transcript": "shift change shift change",
       "tries": 1,
-      "seed": 544432525,
-      "info": "match=1.00 miss=0 extra=0 stall=0 tail-cut audio=1.25s"
+      "seed": 544232519,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.88s"
     },
     "l1_unit_return": {
       "speaker": "okafor",
@@ -416,14 +416,14 @@
       "fx": "unit",
       "level": "l1",
       "file": "voice/l1_unit_whisper_1.mp3",
-      "duration": 1.64,
-      "hash": "36a66a9f9f236908",
+      "duration": 1.29,
+      "hash": "24ef7f06a2963590",
       "score": 1.0,
       "ok": true,
       "transcript": "please hold still",
       "tries": 1,
-      "seed": 1229486567,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.64s"
+      "seed": 1229286561,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.29s"
     },
     "l1_unit_whisper_2": {
       "speaker": "anand",
@@ -484,14 +484,14 @@
       "fx": "unit",
       "level": "l1",
       "file": "voice/l1_unit_whisper_5.mp3",
-      "duration": 1.07,
-      "hash": "fc522c25a43b594e",
+      "duration": 0.81,
+      "hash": "d4afcb6055a3a97b",
       "score": 1.0,
       "ok": true,
       "transcript": "almost there",
       "tries": 1,
-      "seed": 1311946192,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.07s"
+      "seed": 1311746186,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.81s"
     },
     "l1_unit_whisper_6": {
       "speaker": "anand",
@@ -1335,7 +1335,7 @@
       "level": "l2",
       "file": "voice/l2_tomas_ask.mp3",
       "duration": 4.6,
-      "hash": "4510881fdad9794f",
+      "hash": "1cbc22990e9e9f65",
       "score": 1.0,
       "ok": true,
       "transcript": "section cs dead bring it back up and my door opens thats all thats the whole plan",
@@ -1607,12 +1607,12 @@
       "level": "l2",
       "file": "voice/l2_tomas_bark_relay_locked.mp3",
       "duration": 3.08,
-      "hash": "f17247c8388a2aef",
+      "hash": "7b85f3a3241e3d81",
       "score": 1.0,
       "ok": true,
       "transcript": "its locked i said its locked pass first fitting base",
-      "tries": 4,
-      "seed": 1580160168,
+      "tries": 3,
+      "seed": 1580159168,
       "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
     },
     "l2_tomas_bark_shots_1": {
@@ -2576,7 +2576,7 @@
       "level": "l2",
       "file": "voice/l2_tomas_run_4.mp3",
       "duration": 2.68,
-      "hash": "0fc6ae070f445951",
+      "hash": "bc57da9bb9014f30",
       "score": 1.0,
       "ok": true,
       "transcript": "the hall door its opening that one never opens",
@@ -2746,7 +2746,7 @@
       "level": "l2",
       "file": "voice/l2_tomas_unit14_off.mp3",
       "duration": 4.72,
-      "hash": "bab0e039597fa9cf",
+      "hash": "7f996fea0cd694c8",
       "score": 1.0,
       "ok": true,
       "transcript": "it went through the wall units dont do that its a projection its only a projection",
@@ -3136,14 +3136,14 @@
       "fx": "pa",
       "level": "l2",
       "file": "voice/l2_unit_cab_arrive.mp3",
-      "duration": 1.86,
-      "hash": "4a6da406933ae942",
+      "duration": 1.92,
+      "hash": "161555505686c3b1",
       "score": 1.0,
       "ok": true,
-      "transcript": "line two intake mine the gate",
+      "transcript": "line two intake mind the gate",
       "tries": 1,
-      "seed": 873353989,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.86s"
+      "seed": 873153983,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.92s"
     },
     "l2_unit_fitting_denied": {
       "speaker": "unit",
@@ -3153,14 +3153,14 @@
       "fx": "pa",
       "level": "l2",
       "file": "voice/l2_unit_fitting_denied.mp3",
-      "duration": 2.99,
-      "hash": "dec968b8370dcc8b",
+      "duration": 3.08,
+      "hash": "24b65b73e2e0bf27",
       "score": 1.0,
       "ok": true,
-      "transcript": "fitting bays closed authorized from line control",
+      "transcript": "fitting base closed authorized from line control",
       "tries": 1,
-      "seed": 1272693968,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.99s"
+      "seed": 1272493962,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
     },
     "l2_unit_lift": {
       "speaker": "unit",
@@ -3170,14 +3170,14 @@
       "fx": "pa",
       "level": "l2",
       "file": "voice/l2_unit_lift.mp3",
-      "duration": 1.76,
-      "hash": "1d5b1db52cbd81cd",
+      "duration": 1.65,
+      "hash": "2b171b2cad6b20fa",
       "score": 1.0,
       "ok": true,
       "transcript": "service lift going up",
       "tries": 1,
-      "seed": 1999288047,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s"
+      "seed": 1999088041,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.65s"
     },
     "l2_unit_mutter_1": {
       "speaker": "anand",
@@ -3238,14 +3238,14 @@
       "fx": "unit",
       "level": "l2",
       "file": "voice/l2_unit_mutter_4.mp3",
-      "duration": 1.6,
-      "hash": "e5710f36468f5025",
+      "duration": 1.32,
+      "hash": "54c9e7764f6939ea",
       "score": 1.0,
       "ok": true,
-      "transcript": "size is on the left",
+      "transcript": "sizes on the left",
       "tries": 1,
-      "seed": 1448073280,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s"
+      "seed": 1447873274,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.32s"
     },
     "l2_unit_mutter_5": {
       "speaker": "voss",
@@ -3766,7 +3766,7 @@
       "level": "l3",
       "file": "voice/l3_halv_c2_6.mp3",
       "duration": 1.92,
-      "hash": "d9ac89e0a7181777",
+      "hash": "0780d58a1d11fea6",
       "score": 1.0,
       "ok": true,
       "transcript": "no tone theres always a tone",
@@ -3782,14 +3782,14 @@
       "fx": "room",
       "level": "l3",
       "file": "voice/l3_halv_c2_7.mp3",
-      "duration": 3.56,
-      "hash": "cb176075c0aca0cb",
-      "score": 1.0,
+      "duration": 3.55,
+      "hash": "3283cf0df77f5fa9",
+      "score": 0.9,
       "ok": true,
-      "transcript": "the navy post four past biological you came through them",
+      "transcript": "the navy postfor passed biological you came through them",
       "tries": 1,
       "seed": 1949175835,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.56s"
+      "info": "match=0.90 miss=0 extra=0 stall=0 audio=3.55s"
     },
     "l3_halv_c2_9": {
       "speaker": "halvorsen",
@@ -3833,14 +3833,14 @@
       "fx": "room",
       "level": "l3",
       "file": "voice/l3_halv_go_1.mp3",
-      "duration": 1.83,
-      "hash": "ad106889a4747a3b",
+      "duration": 2.12,
+      "hash": "5937e6c8e58d0a87",
       "score": 1.0,
       "ok": true,
       "transcript": "please go before theyre out there",
       "tries": 1,
       "seed": 1984597402,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.83s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.12s"
     },
     "l3_halv_go_2": {
       "speaker": "halvorsen",
@@ -3850,14 +3850,14 @@
       "fx": "room",
       "level": "l3",
       "file": "voice/l3_halv_go_2.mp3",
-      "duration": 2.72,
-      "hash": "06595beaf3bf5a1d",
+      "duration": 2.71,
+      "hash": "1570a38b14a2f95b",
       "score": 1.0,
       "ok": true,
-      "transcript": "post four post biological the badge opens it",
+      "transcript": "post four past biological the badge opens it",
       "tries": 1,
       "seed": 1866587631,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.71s"
     },
     "l3_halv_lock": {
       "speaker": "halvorsen",
@@ -4020,14 +4020,14 @@
       "fx": "unit",
       "level": "l3",
       "file": "voice/l3_unit_bio_denied.mp3",
-      "duration": 1.47,
-      "hash": "aafe9839362717d3",
+      "duration": 1.15,
+      "hash": "cd452fc85724fc6c",
       "score": 1.0,
       "ok": true,
       "transcript": "badge required",
       "tries": 1,
-      "seed": 1923055510,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.47s"
+      "seed": 1922855504,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.15s"
     },
     "l3_unit_bio_reader": {
       "speaker": "unit",
@@ -4037,14 +4037,14 @@
       "fx": "unit",
       "level": "l3",
       "file": "voice/l3_unit_bio_reader.mp3",
-      "duration": 3.94,
-      "hash": "06737a87675d875d",
+      "duration": 3.65,
+      "hash": "27055de847621001",
       "score": 1.0,
       "ok": true,
-      "transcript": "badge accepted halvorsen p facilities purge fifteen seconds",
-      "tries": 1,
-      "seed": 58642536,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.94s"
+      "transcript": "badge accepted halverson p facilities purged fifteen seconds",
+      "tries": 2,
+      "seed": 58443530,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.65s"
     },
     "l3_unit_lift_arrive": {
       "speaker": "unit",
@@ -4054,14 +4054,14 @@
       "fx": "pa",
       "level": "l3",
       "file": "voice/l3_unit_lift_arrive.mp3",
-      "duration": 2.47,
-      "hash": "5088a267281ef3d7",
+      "duration": 2.6,
+      "hash": "5190ee6574aa4b81",
       "score": 1.0,
       "ok": true,
-      "transcript": "habitat ring pressure lock mind the steps",
+      "transcript": "habitat ring pressure lock mind the step",
       "tries": 1,
-      "seed": 2132402326,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.47s"
+      "seed": 2132202320,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.60s"
     },
     "l3_unit_sector": {
       "speaker": "unit",
@@ -4071,14 +4071,14 @@
       "fx": "unit",
       "level": "l3",
       "file": "voice/l3_unit_sector.mp3",
-      "duration": 1.72,
-      "hash": "a71ec4ff510f1552",
+      "duration": 1.7,
+      "hash": "430bea4cfd3f681b",
       "score": 1.0,
       "ok": true,
       "transcript": "sector sealed pressure alarm",
       "tries": 1,
-      "seed": 884421782,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s"
+      "seed": 884221776,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.70s"
     },
     "l3_unit_sector_badge": {
       "speaker": "unit",
@@ -4088,14 +4088,14 @@
       "fx": "unit",
       "level": "l3",
       "file": "voice/l3_unit_sector_badge.mp3",
-      "duration": 1.87,
-      "hash": "a8f5f1c4e089a307",
+      "duration": 1.89,
+      "hash": "9ab1599da5a4c00c",
       "score": 1.0,
       "ok": true,
       "transcript": "sector sealed badge refused",
       "tries": 1,
-      "seed": 897156707,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.87s"
+      "seed": 896956701,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.89s"
     }
   },
   "version": 1

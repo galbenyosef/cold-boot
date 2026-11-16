@@ -128,8 +128,8 @@
     },
     "unit": {
       "name": "UNIT",
-      "describe": "female, moderate pitch, monotone",
-      "seed": 3,
+      "describe": "female, monotone",
+      "seed": 1,
       "refText": "Good evening. Thank you for your patience. Please remain where you are. A member of staff will be with you shortly.",
       "fx": "unit",
       "fxRules": [
@@ -159,7 +159,7 @@
       "variants": {
         "whisper": {
           "describe": "male, middle-aged, british accent, whispering",
-          "seed": 5,
+          "seed": 1,
           "refText": "Please, keep your voice down. They're just outside the door. Take it, and go. Go now, while you can.",
           "match": [
             "whisper"
