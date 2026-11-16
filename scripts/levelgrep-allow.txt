@@ -44,3 +44,10 @@ src/player/viewmodels/hands.ts :: THUMB_R[s + 1], s === 2, s < 2,
 
 # ── dev-only test driver for the feed spike (runs only with ?feedtest on level 2)
 src/render/dev/feedtest.ts :: needs ?level=2
+
+# ── chapter 3 additions (P1 materials, P7 audio): level-3-only asset sets and their dev harnesses.
+#    To fold into LevelInfo (a `materials` / `acoustics` field) when stage 3b adds a second habitat level.
+src/audio/dev/harness.ts :: levelId
+src/audio/impulses.ts :: level === 3
+src/materials/dev/harness.ts :: levelId: habView ? 3 : undefined
+src/materials/index.ts :: HABITAT_FROM
