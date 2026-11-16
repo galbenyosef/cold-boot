@@ -184,7 +184,8 @@ function pageAnalyse(o) {
 
   // reverse sanity: meshes under leaf groups far from the door footprint (wrong parent)
   const wrong = [];
-  const toLocal = (wx, wy, wz) => { const dx = wx - px, dz = wz - pz; return wall === 'z' ? [dx, wy, dz] : [dz, wy, -dx]; };
+  const fy = door.floor ?? 0; // (stage 3a: a Deck-2 door's leaves stand on its floor)
+  const toLocal = (wx, wy, wz) => { const dx = wx - px, dz = wz - pz; return wall === 'z' ? [dx, wy - fy, dz] : [dz, wy - fy, -dx]; };
   for (const lg of root.children) lg.traverse((m) => {
     if (!m.isMesh || m.name?.endsWith(':status') || !m.geometry) return;
     if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();

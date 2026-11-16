@@ -24,7 +24,7 @@ import { parseArgs, launch, bootLevel } from './lib/check-common.mjs';
 const args = parseArgs();
 const base = args.url ?? 'http://127.0.0.1:5173';
 const which = args.level ?? 'all';
-const targets = which === 'all' ? ['greybox', 1, 2] : which === 'greybox' ? ['greybox'] : [Number(which)];
+const targets = which === 'all' ? ['greybox', 1, 2, 3] : which === 'greybox' ? ['greybox'] : [Number(which)];
 const sims = !args['no-sim'];
 /**
  * Levels 1–2 nav node sets as built before nav v2 (K4 baseline: ids, positions, rooms, links). Nav v2 must not change
@@ -421,7 +421,7 @@ for (const target of targets) {
   line(st.badLinks.length === 0, `every link (${st.linkN}${st.drops ? `, ${st.drops} drop` : ''}) is walked by a husk capsule`, st.badLinks.length ? ` — ${st.badLinks.length} not` : '');
   show(st.badLinks);
   if (st.floors) {
-    const cases = greybox ? await page.evaluate(() => window.__game.level.navCases) : null;
+    const cases = await page.evaluate(() => window.__game.level.navCases ?? null);
     const expected = new Set(cases?.unlinkedFloors ?? []), ignore = new Set(cases?.ignoreFloors ?? []);
     const lost = Object.entries(st.floors).filter(([k, f]) => f.kept === 0 && !k.endsWith(':stair') && !ignore.has(k));
     const bad = lost.filter(([k]) => !expected.has(k));
@@ -437,13 +437,16 @@ for (const target of targets) {
   }
 
   if (sims) {
-    const cases = greybox ? await page.evaluate(() => window.__game.level.navCases) : { reach: await page.evaluate(() => window.__nav.autoCases(4)) };
+    // a level that declares its own cases (the greybox, level 3) runs those; levels 1–2 get seeded random ones
+    const own = await page.evaluate(() => window.__game.level.navCases ?? null);
+    const cases = own ?? { reach: await page.evaluate(() => window.__nav.autoCases(4)) };
     for (const c of cases.reach) {
       const r = await page.evaluate((c) => window.__nav.reach(c), c);
       const vias = (c.via ?? []).filter((v) => !r[v]);
-      const bad = !r.reached || r.under || r.outside || r.stuck || (greybox && r.offFloor) || vias.length;
+      const strict = greybox || boot.decks;
+      const bad = !r.reached || r.under || r.outside || r.stuck || (strict && r.offFloor) || vias.length;
       const why = [!r.reached && `did not attack within ${c.within} s (ended at ${r.at}${r.end ? ', ' + r.end : ''})`, r.under && `under the floor ${r.under}`, r.outside && `outside every room ${r.outside}`,
-        r.stuck && `stuck ${r.stuck}`, greybox && r.offFloor && `standing off any floor ${r.offFloor}`, vias.length && `route did not use: ${vias.join(', ')}`].filter(Boolean);
+        r.stuck && `stuck ${r.stuck}`, strict && r.offFloor && `standing off any floor ${r.offFloor}`, vias.length && `route did not use: ${vias.join(', ')}`].filter(Boolean);
       const text = `${c.id.padEnd(18)} ${c.label} — ${r.reached ? `attacked after ${r.t.toFixed(1)} s` : 'NOT reached'}${r.stair ? ', via stair' : ''}${r.drop ? ', via drop' : ''}`;
       if (c.expect === 'fail') expectFail(!!bad, `${text}${bad ? ` (${why[0]})` : ''}`);
       else { line(!bad, text); for (const w of why) console.log(`       ${w}`); }

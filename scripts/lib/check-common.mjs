@@ -16,7 +16,7 @@ export function parseArgs(argv = process.argv) {
 
 export function levelsOf(args) {
   const l = args.level ?? 'all';
-  return l === 'all' ? [1, 2] : [Number(l)];
+  return l === 'all' ? [1, 2, 3] : [Number(l)];
 }
 
 export async function launch() {
