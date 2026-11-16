@@ -18,8 +18,8 @@ import type { Enemy, EnemyType, GameContext, PalmPlate } from '../../core/types'
 import type { Sequencer } from '../sequencer';
 import type { MusicDirector } from '../director';
 import type { World } from '../world';
-import type { Fragment } from '../text';
-import { CHECKPOINT_IDS_L2, type CheckpointIdL2, type ProgressL2 } from '../save';
+import { CHECKPOINT_IDS_L2, type CheckpointIdL2 } from '../save';
+import type { CheckpointRule } from '../stage/base';
 import { hasSay, speak } from '../voice';
 import { DEAD_DOORS, DEG, GLASS, TOMAS_AT_GLASS, TOMAS_DESK, V, WORKER_GROUPS, emptyProgressL2, face, type HooksL2 } from './base';
 import { Taking } from './taking';
@@ -73,15 +73,7 @@ const BACKLOG: { id: string; stage: 'B' | 'C'; pause?: number }[] = [
 ];
 
 export class ScriptL2 extends Taking {
-  private tickTimer = 0;
-  private noteClosedReal = -1e9;
-  private lastNoteId: string | null = null;
   private recorder: ReturnType<typeof speak>['handle'] = null;
-
-  // ── checkpoints ──
-  private calmFor = 0;
-  private lastCheckpoint: CheckpointIdL2 | null = null;
-  private pendingCheckpoint: CheckpointIdL2 | null = null;
 
   // ── bark state ──
   private lightOnWorker = 0;
@@ -113,14 +105,11 @@ export class ScriptL2 extends Taking {
 
   constructor(ctx: GameContext, seq: Sequencer, director: MusicDirector, w: World, logs: Set<string>, hooks: HooksL2) {
     super(ctx, seq, director, w, logs, hooks);
+    // (the scaffolding records triggers, cleared groups, the last shot and handles death: ../stage/base.ts)
     const ev = ctx.events;
-    ev.on('trigger:enter', (e) => { this.triggerAt.set(e.id, this.seq.time); this.insideTrig.add(e.id); });
-    ev.on('trigger:exit', (e) => { this.insideTrig.delete(e.id); });
-    ev.on('enemy:group-cleared', (e) => { if (!this.prog.cleared.includes(e.group)) this.prog.cleared.push(e.group); });
     ev.on('interact', (e) => this.onInteract(e.id));
     ev.on('door:denied', (e) => this.onDenied(e.id));
-    ev.on('player:died', () => this.onDied());
-    ev.on('weapon:fired', () => { this.lastShotAt = this.seq.time; this.onShot(); });
+    ev.on('weapon:fired', () => { this.onShot(); });
     ev.on('bullet:impact', (e) => this.onImpact(e.point, e.surface));
     ev.on('player:damaged', (e) => this.onHurt(e.health));
     ev.on('enemy:alerted', (e) => this.onEnemyStir(e.id));
@@ -225,7 +214,7 @@ export class ScriptL2 extends Taking {
   }
 
   /** What every run starts from, before any phase: interactables, machines, screens. No door state. */
-  private baseline(): void {
+  protected baseline(): void {
     const w = this.w;
     for (const id of ['booth_headset', 'term2_booth', 'core_shutdown', 'core_rewrite', 'lift_button']) w.setInteractable(id, false);
     w.setPrompt('booth_headset', TOAST2.recorder);
@@ -235,87 +224,39 @@ export class ScriptL2 extends Taking {
     w.screen('booth_console', 'terminal_idle', SCREEN2.boothOrder);
   }
 
-  private baselineMood(): 'silence' | 'ambient' | 'tension' {
+  protected baselineMood(): 'silence' | 'ambient' | 'tension' {
     if (this.f.core) return 'silence';
     if (this.f.power) return 'tension';
     if (this.f.hall) return 'ambient';
     return 'silence';
   }
 
-  fastForward(saved: ProgressL2, from: CheckpointIdL2, cleared: readonly string[]): void {
-    const p = emptyProgressL2();
-    p.beats = [...saved.beats];
-    p.read = [...saved.read];
-    p.visited = [...saved.visited];
-    p.flags = { ...p.flags, ...saved.flags };
-    p.triggered = [...new Set([...saved.triggered, ...cleared])];
-    p.cleared = [...new Set([...saved.cleared, ...cleared])];
-    p.checkpoints = [...saved.checkpoints];
-    p.heard = [...(saved.heard ?? [])];
-    this.prog = p;
-    this.done = new Set();
-    for (const id of p.heard ?? []) this.talk.heard.add(id);
-    this.restoredFrom = from;
-    this.lastCheckpoint = from;
-    this.ff = true;
-    const lv = this.ctx.level as unknown as { settle?: (seconds?: number) => void; setSilent?: (on: boolean) => void };
-    try {
-      try { lv.setSilent?.(true); } catch { /* ignore */ }
-      this.baseline();
-      for (const id of p.beats) {
-        if (this.done.has(id)) continue;
-        this.done.add(id);
-        this.consequence(id);
-      }
-      for (const g of p.triggered) {
-        try { this.ctx.enemies.removeGroup(g); } catch (e) { console.warn(`[story] removeGroup ${g} failed`, e); }
-        this.triggeredAt.set(g, -1e9);
-      }
-      if (this.f.unit14Dead) { try { this.ctx.enemies.removeGroup('g2_unit14'); } catch { /* ignore */ } }
-      // Every door and the line: the phase table, snapped. Then the one latch a phase cannot know about.
-      this.snapPhase();
-      if (this.f.loaded && !this.f.escort) this.snapShut('d2_mouth');
-      try { lv.settle?.(14); } catch (e) { console.warn('[story] level.settle failed', e); }
-    } finally {
-      this.ff = false;
-      try { lv.setSilent?.(false); } catch { /* ignore */ }
-    }
-    for (const id of p.read) this.closedAt.set(id, -1e9);
-    this.director.setMood(this.baselineMood());
+  // ── fast-forward (the scaffolding's `fastForward` replays the consequences; these are level 2's extras) ──
+
+  protected override afterReplay(): void {
+    if (this.f.unit14Dead) { try { this.ctx.enemies.removeGroup('g2_unit14'); } catch { /* ignore */ } }
+  }
+  /** The one latch a phase cannot know about. */
+  protected override afterSnap(): void {
+    if (this.f.loaded && !this.f.escort) this.snapShut('d2_mouth');
   }
   private snapShut(id: string): void {
     const d = this.door(id) as (ReturnType<ScriptL2['door']> & { snap?: () => void }) | null;
     try { d?.lock(); d?.snap?.(); } catch { /* ignore */ }
   }
 
-  snapshot(): ProgressL2 { return JSON.parse(JSON.stringify(this.prog)) as ProgressL2; }
+  // ───────────────────────────────────────────────────────────── per-frame (scaffolding `tick` hooks)
 
-  // ───────────────────────────────────────────────────────────── per-frame
-
-  tick(dt: number): void {
-    this.talk.update();
-    if (!this.started) return;
-    this.coreTick(dt);
-    if (this.w.active() > 0) this.lastCombat = this.now;
-    this.tickTimer -= dt;
-    if (this.tickTimer > 0) return;
-    const step = 0.2 - this.tickTimer;
-    this.tickTimer = 0.2;
-    const room = this.w.room();
-    if (room) {
-      if (!this.prog.visited.includes(room)) this.prog.visited.push(room);
-      if (this.ctx.state === 'playing') this.roomTime.set(room, (this.roomTime.get(room) ?? 0) + step);
-    }
+  protected override onFrame(dt: number): void { this.coreTick(dt); }
+  protected override onStep(_step: number): void {
     // Is the player already walking toward the fitting door? (1 s of distance samples.)
     this.fitDist.push(Math.hypot(this.pos.x - 10, this.pos.z + 34));
     if (this.fitDist.length > 6) this.fitDist.shift();
-    if (this.pos.distanceToSquared(this.lastMovePos) > 1.2) { this.lastMovePos.copy(this.pos); this.lastMoveAt = this.now; }
     if (this.talk.speaking?.startsWith('l2_tomas_bark_unit14')) this.ghostCommentAt = this.now;
     if (this.director.mood === 'silence' && this.w.active() > 0 && !this.f.core) this.director.setMood('ambient');
-    this.hooks.setObjective(this.computeObjective());
-    this.barks(step);
-    this.checkpoints(step);
   }
+  protected override afterObjective(step: number): void { this.barks(step); }
+  protected objective(): string { return this.computeObjective(); }
 
   private computeObjective(): string {
     const f = this.f;
@@ -346,7 +287,8 @@ export class ScriptL2 extends Taking {
    *   cp2_escort → G2 · cp2_foreman → H · cp2_core → I.
    * `cp2_taken` is never taken by the calm rule: it is saved at one fixed instant (taking.ts).
    */
-  private readonly CHECKPOINTS: Record<CheckpointIdL2, { when: () => boolean; valid: () => boolean }> = {
+  protected readonly checkpointIds = CHECKPOINT_IDS_L2;
+  protected readonly CHECKPOINTS: Record<CheckpointIdL2, CheckpointRule> = {
     cp2_start: { when: () => this.has('l2_dock'), valid: () => !this.f.hall },
     cp2_hall: { when: () => this.f.hall, valid: () => !this.f.met },
     cp2_talk: { when: () => this.f.fitOpen, valid: () => !this.f.pass },
@@ -358,49 +300,9 @@ export class ScriptL2 extends Taking {
     cp2_core: { when: () => this.f.core && this.inRoom('core'), valid: () => !this.f.choice },
   };
 
-  private calm(): boolean {
-    const ctx = this.ctx, p = ctx.player;
-    if (ctx.state !== 'playing' || !this.live || this.ended || this.noteOpen) return false;
-    // No checkpoint is written during a palm scan.
-    if (this.scanning || (p.palmProgress ?? -1) >= 0) return false;
-    if (!p.alive || p.health <= 0 || !p.controlsEnabled) return false;
-    if (Math.abs(p.velocity.y) > 0.4) return false;
-    if (this.w.active() > 0 || this.now - this.lastCombat < 3) return false;
-    for (const g of this.prog.triggered) if (!this.fought(g, 8)) return false;
-    return true;
-  }
-
-  private checkpoints(step: number): void {
-    if (this.ctx.debug.noStory) return;
-    const taken = this.prog.checkpoints;
-    const lastIdx = this.lastCheckpoint ? CHECKPOINT_IDS_L2.indexOf(this.lastCheckpoint) : -1;
-    let due: CheckpointIdL2 | null = null;
-    for (let i = CHECKPOINT_IDS_L2.length - 1; i > lastIdx; i--) {
-      const id = CHECKPOINT_IDS_L2[i];
-      if (taken.includes(id)) continue;
-      const c = this.CHECKPOINTS[id];
-      if (c.when() && c.valid()) { due = id; break; }
-    }
-    this.pendingCheckpoint = due;
-    if (!due || !this.calm()) { this.calmFor = 0; return; }
-    this.calmFor += step;
-    if (this.calmFor < 0.6) return;
-    this.calmFor = 0;
-    this.pendingCheckpoint = null;
-    this.save(due);
-  }
-  private save(id: CheckpointIdL2): void {
-    this.prog.checkpoints.push(id);
-    this.lastCheckpoint = id;
-    this.stamp(id);
-    try { this.hooks.checkpoint(id); } catch (e) { console.error('[story] checkpoint failed', e); }
-  }
-  /** A checkpoint at a fixed instant of a scene (not when calm). Skipped only if the player is dead. */
-  protected checkpointNow(id: 'cp2_taken'): void {
-    const p = this.ctx.player;
-    if (this.ctx.debug.noStory || this.prog.checkpoints.includes(id)) return;
-    if (!p.alive || p.health <= 0 || this.ctx.state === 'dead' || this.ended) return;
-    this.save(id);
+  /** On top of the scaffolding's calm rule: no checkpoint is written during a palm scan. */
+  protected override checkpointBlocked(): boolean {
+    return !!this.scanning || (this.ctx.player.palmProgress ?? -1) >= 0;
   }
 
   // ───────────────────────────────────────────────────────────── flow
@@ -1370,20 +1272,8 @@ export class ScriptL2 extends Taking {
     if (f) this.openNote(id, f);
   }
 
-  private openNote(id: string, f: Fragment): void {
-    if (this.noteId === id) return;
-    if (this.lastNoteId === id && performance.now() - this.noteClosedReal < 350) return;
-    this.logs.add(id);
-    if (!this.prog.read.includes(id)) this.prog.read.push(id);
-    this.ctx.events.emit('story:log', { id, title: f.header, body: f.body });
-    const done = () => {
-      if (this.noteId !== id) return;
-      this.noteId = null;
-      this.lastNoteId = id;
-      this.noteClosedReal = performance.now();
-      this.closedAt.set(id, this.now);
-    };
-    this.noteId = id;
+  /** A readable was opened (scaffolding `openNote`): his recorder plays; Tomas may comment on a note. */
+  protected override onNoteOpened(id: string): void {
     // His last memo is heard (recorded voice only).
     if (id === 'booth_headset' && hasSay(this.ctx)) {
       try { this.recorder?.stop(0.1); } catch { /* ignore */ }
@@ -1393,20 +1283,6 @@ export class ScriptL2 extends Taking {
       const mine = this.recorder;
       setTimeout(() => { if (this.recorder === mine && this.noteId === id) this.recorder = speak(this.ctx, 'l2_tomas_headset_2', { subtitle: false }).handle; }, (d + 0.5) * 1000);
     } else if (id.startsWith('note2_') || id.startsWith('term2_')) this.bark('l2_tomas_bark_read', 120);
-    const ui = this.ui;
-    if (typeof ui.showNote === 'function') {
-      ui.showNote(f.header, f.body, f.style).catch((e) => console.error('[story] showNote failed', e)).finally(done);
-      return;
-    }
-    this.legacyReading = true;
-    const prev = this.ctx.state;
-    const pausable = prev === 'playing';
-    if (pausable) this.ctx.setState('paused');
-    ui.showLog(f.header, f.body).catch((e) => console.error('[story] showLog failed', e)).finally(() => {
-      this.legacyReading = false;
-      if (pausable && this.ctx.state === 'paused') this.ctx.setState(prev);
-      done();
-    });
   }
 
   /** A locked door was tried: the door says why (toast). Tomas only comments on what he can know. */
@@ -1443,17 +1319,6 @@ export class ScriptL2 extends Taking {
     }
   }
 
-  private onDied(): void {
-    const ctx = this.ctx;
-    if (ctx.state === 'ended' || ctx.state === 'dead') return;
-    ctx.setState('dead');
-    this.talk.shutUp();
-    for (const l of this.loops.splice(0)) { try { l.stop(1.5); } catch { /* ignore */ } }
-    this.ui.closeNote?.();
-    this.ui.setHudVisible(false);
-    ctx.ui.showDeath().catch((e) => console.error('[story] showDeath failed', e));
-  }
-
   /** `?nostory=1`: no beats; line held, gate open, mouth and exit shut, every other door unlocked (level table). */
   openEverything(): void {
     applyPhase(this.ctx, 'nostory', true);
@@ -1468,11 +1333,9 @@ export class ScriptL2 extends Taking {
   }
 
   /** Test hook: end quiet windows; `fast` also shortens every line and scripted pause. */
-  hurry(fast?: boolean): void {
-    this.quietUntil = 0;
-    this.lastCombat = -1e9;
+  override hurry(fast?: boolean): void {
+    super.hurry(fast);
     this.backlogHoldUntil = 0;
-    if (fast !== undefined) this.talk.fast = fast;
   }
 
   get debugState() {

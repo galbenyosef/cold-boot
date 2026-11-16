@@ -1,52 +1,25 @@
 /**
  * STORY, level 2 — "LINE TWO" (REVISION 4). Owns the flow of this page load: menu / one-click gate →
- * title card → the lift arrives → the script (./script.ts) → one of two endings. Shares the sequencer,
- * music director, world wrappers and save helpers with level 1.
+ * title card → the lift arrives → the script (./script.ts) → one of two endings. The page-level flow, the
+ * checkpoint writer and resume are the shared scaffolding (../stage/page.ts); this file adds the arrival, the
+ * ending and the hand-over to level 3.
  */
 import type { GameContext, StorySystem } from '../../core/types';
-import type { StoryInternal, StoryStats, UIInternal } from '../../ui/types';
-import { SKIP_INTRO_KEY } from '../../ui/types';
-import { Sequencer } from '../sequencer';
-import { MusicDirector } from '../director';
-import { CameraRig } from '../camera';
-import { World } from '../world';
 import { preload } from '../voice';
-import {
-  SAVE_VERSION, STORY_REV_L2, clearAllProgress, clearSaveL2, loadSaveL2, requestBegin, takeContinueRequest, writeSaveL2,
-  type CheckpointIdL2, type SaveDataL2,
-} from '../save';
+import { CHECKPOINT_IDS_L2, STORY_REV_L2, clearSaveL2, type CheckpointIdL2, type ProgressL2, type SaveSpec } from '../save';
 import { levelOf, setStoredLevel } from '../../core/progress';
 import { applyStartLoadout, carryOut, chainMode, finishLevel, goToLevel } from '../chain';
+import { createStagePage } from '../stage/page';
 import { ScriptL2 } from './script';
 import { END_CARDS, ENDING_L2, LOG_IDS_L2, TITLE_CARD_L2, TOAST2 } from './text';
 
+/** Same spec as save.ts's level-2 entry (`loadSaveL2`): existing saves load unchanged. */
+const SPEC_L2: SaveSpec = { level: 2, rev: STORY_REV_L2, ids: CHECKPOINT_IDS_L2 };
+
 export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
   preload(ctx, ['l2_']);
-  const seq = new Sequencer(ctx.events);
-  const director = new MusicDirector(ctx);
-  const rig = new CameraRig(ctx);
-  const world = new World(ctx);
-  const logs = new Set<string>();
-  const stats: StoryStats = { time: 0, kills: 0, logs: 0, logsTotal: LOG_IDS_L2.length };
-  let objective = '';
-  const ui = () => ctx.ui as UIInternal;
-  const realSleep = (s: number) => new Promise<void>((r) => setTimeout(r, s * 1000));
-
-  function saveCheckpoint(id: CheckpointIdL2): void {
-    const progress = script.snapshot();
-    let place = '';
-    try { place = ctx.level.roomAt(ctx.player.position)?.name ?? ''; } catch { /* ignore */ }
-    const data: SaveDataL2 = {
-      v: SAVE_VERSION, rev: STORY_REV_L2, level: 2, id, place, facts: { ...ctx.facts },
-      player: ctx.player.snapshot(),
-      story: progress,
-      logs: [...logs],
-      stats: { time: Math.round(stats.time * 10) / 10, kills: stats.kills },
-      cleared: [...progress.cleared],
-    };
-    if (!writeSaveL2(data)) return;
-    try { ui().showCheckpoint?.(); } catch { /* ignore */ }
-  }
+  const page = createStagePage<ProgressL2, CheckpointIdL2>(ctx, SPEC_L2, LOG_IDS_L2.length);
+  const { stats, logs, world } = page;
 
   const fmtTime = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
@@ -81,134 +54,27 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
     if (next !== null) goToLevel(); else location.reload();
   }
 
-  const script = new ScriptL2(ctx, seq, director, world, logs, {
-    setObjective(text: string) {
-      if (text === objective) return;
-      objective = text;
-      ctx.events.emit('story:objective', { text });
+  const script = new ScriptL2(ctx, page.seq, page.director, world, logs, { ...page.hooks, ending });
+
+  const story = page.finish(script, {
+    /** A new run of this level: loadout (the carry from level 1, else the direct-start loadout), title card, the lift arrives. */
+    async begin(card: boolean, short: boolean) {
+      applyStartLoadout(ctx);
+      if (card) await ctx.ui.showCard(TITLE_CARD_L2, { style: 'title', skippable: true, seconds: 4.2 });
+      script.start();
+      await script.arrival(short);
     },
-    checkpoint: saveCheckpoint,
-    ending,
-  });
-
-  /** The loadout the level starts with (§8.1 chain): the carry from level 1, else the direct-start loadout. */
-  function applyLoadout(): void { applyStartLoadout(ctx); }
-
-  async function resume(save: SaveDataL2, instant: boolean): Promise<void> {
-    ctx.setState('cutscene');
-    ctx.ui.setHudVisible(false);
-    for (const id of save.logs) logs.add(id);
-    stats.time = save.stats.time;
-    stats.kills = save.stats.kills;
-    script.fastForward(save.story, save.id, save.cleared);
-    if (save.story.flags.power) {
+    noStory: () => script.openEverything(),
+    afterFastForward(save) {
+      if (!save.story.flags.power) return;
       try { ctx.audio.setMuffle(1); } catch { /* ignore */ }
       ctx.events.emit('story:beat', { id: 'l2_power' });
       setTimeout(() => { try { if (ctx.state !== 'paused') ctx.audio.setMuffle(0); } catch { /* ignore */ } }, 2600);
-    }
-    try { ctx.player.restore(save.player); } catch (e) { console.error('[story] player.restore failed', e); }
-    ctx.player.controlsEnabled = true;
-    script.start();
-    ctx.setState('playing');
-    script.resumeLive();
-    if (!instant) await realSleep(0.35);
-    ui().blackout?.(false, instant ? 0 : 1.2);
-    world.fade(0, instant ? 0.3 : 1.2);
-    ctx.events.emit('story:toast', { text: TOAST2.restored });
-  }
-
-  /** A new run of this level: loadout, title card, the lift arrives. */
-  async function begin(card: boolean, short: boolean): Promise<void> {
-    applyLoadout();
-    if (card) await ctx.ui.showCard(TITLE_CARD_L2, { style: 'title', skippable: true, seconds: 4.2 });
-    script.start();
-    await script.arrival(short);
-  }
-
-  ctx.events.on('enemy:died', () => { stats.kills++; });
-
-  const story: StoryInternal = {
-    get objective() { return objective; },
-    get logs() { return logs; },
-    get stats() { stats.logs = logs.size; return stats; },
-
-    async run() {
-      const d = ctx.debug;
-      if (d.noStory) {
-        script.openEverything();
-        if (!d.autostart) {
-          ctx.setState('menu');
-          rig.startMenu();
-          await ctx.ui.showMenu();
-          rig.stopMenu();
-          world.fade(0, 1.2);
-        }
-        ctx.setState('playing');
-        return;
-      }
-      if (d.autostart) {
-        let wantSave = false;
-        try { wantSave = new URLSearchParams(location.search).get('continue') === '1'; } catch { /* ignore */ }
-        const save = wantSave ? loadSaveL2() : null;
-        if (save) { await resume(save, true); return; }
-        await begin(false, true);
-        return;
-      }
-
-      let skip = false;
-      try { skip = sessionStorage.getItem(SKIP_INTRO_KEY) === '1'; sessionStorage.removeItem(SKIP_INTRO_KEY); } catch { /* ignore */ }
-      // One click: arriving from level 1's ending, or LOAD CHECKPOINT from the death / pause screen.
-      const oneClick = takeContinueRequest();
-
-      ctx.setState('menu');
-      if (oneClick || skip) {
-        const save = oneClick ? loadSaveL2() : null;
-        world.fade(1, 0);
-        ui().blackout?.(true, 0);
-        await ui().showResumeGate(save?.place);
-        if (save) { await resume(save, false); return; }
-        if (skip) clearSaveL2();
-        await begin(!skip, false);
-        return;
-      }
-      rig.startMenu();
-      await ctx.ui.showMenu();
-      const choice = ui().menuChoice;
-      ui().blackout?.(true, 0.8);
-      await realSleep(0.9);
-      rig.stopMenu();
-      world.fade(1, 0);
-      if (choice === 'continue') {
-        const save = loadSaveL2();
-        if (save) { await resume(save, false); return; }
-        await begin(true, false);
-        return;
-      }
-      // BEGIN: everything cleared, back to level 1 (unless this page was forced to level 2 by its URL).
-      clearAllProgress();
-      if (d.level !== ctx.levelId) {
-        requestBegin();
-        location.reload();
-        return;
-      }
-      setStoredLevel(2);
-      await begin(true, false);
     },
-
-    update(dt: number) {
-      const active = ctx.state === 'playing' || ctx.state === 'cutscene';
-      if (ctx.state === 'playing') stats.time += dt;
-      seq.update(dt, active);
-      director.update(dt);
-      script.tick(dt);
-    },
-
-    lateUpdate(dt: number) { rig.lateUpdate(dt); },
-  };
+    resumed: () => script.resumeLive(),
+    restoredToast: TOAST2.restored,
+  });
   // `ending` (check:chain): run the level end directly — the card and the §8.1 hand-over — without playing the level.
-  Object.assign(story, { fire: (name: string) => script.fire(name), hurry: (fast?: boolean) => script.hurry(fast), ending });
-  Object.defineProperty(story, 'debugState', { get: () => script.debugState });
-  // REVISION 5: every spoken line with its condition result (the impatient playthrough's oracle reads it).
-  Object.defineProperty(story, 'lineLog', { get: () => script.talk.log });
+  Object.assign(story, { ending });
   return story;
 }

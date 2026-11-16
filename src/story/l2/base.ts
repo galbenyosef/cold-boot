@@ -2,10 +2,12 @@
  * Level 2 script — shared state, helpers and the FACTS the dialogue rules ask (REVISION 5).
  *
  * The script is one class cut into layers so no file is a wall of text:
- *   base.ts    (this)  the record, time / place / actor helpers, phases, latches, `facts`
+ *   ../stage/base.ts   the shared scaffolding: the record, beats, waits, place / actor helpers, phase plumbing,
+ *                      latches, fights, checkpoints, fast-forward, the dialogue channel (stage 3a §8.13)
+ *   base.ts    (this)  level 2's flags, places, cast, phase derivation and `facts`
  *   ghost.ts           the two holograms: pattern 14 roaming the section, pattern 00 on the rig
  *   taking.ts          Section C → the trap → the window → the loading → the escorts → the ride
- *   script.ts          everything else (acts 1–2, 4–5), checkpoints, barks, reactions, debug
+ *   script.ts          everything else (acts 1–2, 4–5), consequences, checkpoint rules, barks, reactions, debug
  *
  * Construction rules (unchanged from level 1): every beat is its own thread waiting on its own condition;
  * everything that must survive a reload lives in ONE serialisable record (`prog`); every beat has an
@@ -15,16 +17,18 @@
  * (`facts`, `Dialogue` rules).
  */
 import * as THREE from 'three';
-import type { ActorLook, ActorType, Door, Enemy, EnemyActor, GameContext, LoopHandle } from '../../core/types';
-import type { UIInternal } from '../../ui/types';
+import type { Enemy, EnemyActor, GameContext } from '../../core/types';
 import type { Sequencer } from '../sequencer';
 import type { MusicDirector } from '../director';
 import type { World } from '../world';
 import type { CheckpointIdL2, ProgressL2 } from '../save';
-import { Dialogue, type Facts, type SayOpts } from './dialogue';
-import { applyPhase, inRegion, letterOf, type PhaseId } from './phases';
+import { StageBase, DEG, V, face, type StageHooks } from '../stage/base';
+import { L2_DIALOGUE, type Facts, type SayOpts } from './dialogue';
+import { REGION_FALLBACK_L2, applyPhase, letterOf, type PhaseId } from './phases';
 
-export interface HooksL2 {
+export { DEG, V, face };
+
+export interface HooksL2 extends StageHooks<CheckpointIdL2> {
   setObjective(text: string): void;
   checkpoint(id: CheckpointIdL2): void;
   /** The level is finished: run the ending (cards, ending screen, clear the checkpoint). `left` = units still standing. */
@@ -74,11 +78,6 @@ export function emptyProgressL2(): ProgressL2 {
   return { beats: [], read: [], visited: [], flags: { ...FLAGS0 }, triggered: [], cleared: [], checkpoints: [], heard: [] };
 }
 
-export const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-export const DEG = Math.PI / 180;
-/** Yaw that faces from `a` toward `b` (yaw 0 looks down −Z). */
-export const face = (a: THREE.Vector3, b: THREE.Vector3) => Math.atan2(-(b.x - a.x), -(b.z - a.z));
-
 export const WORKER_GROUPS = ['g2_dock', 'g2_intake', 'g2_fit_tread'];
 /** Everything north of the partition: gone (silently) once the line runs — the partition hides them. */
 export const NORTH_GROUPS = ['g2_dock', 'g2_intake', 'g2_fit_tread', 'g2_fit_wake'];
@@ -107,49 +106,16 @@ export const LAY = V(4.6, 0.55, -45.2);
 /** `cp2_taken` load: the escorts as real husks, already on their way back. */
 export const ESCORT_SPAWNS = [V(-7.5, 0, -43.4), V(-6.5, 0, -44.4)];
 
-export abstract class Base {
-  protected prog: ProgressL2 = emptyProgressL2();
-  protected done = new Set<string>();
-  protected ff = false;
-  protected restoredFrom: CheckpointIdL2 | null = null;
-
-  // ── session facts ──
-  protected live = false;        // controls handed over (arrival finished)
-  protected started = false;
-  protected ended = false;
-  protected triggerAt = new Map<string, number>();
-  protected insideTrig = new Set<string>();
-  protected triggeredAt = new Map<string, number>();
-  protected closedAt = new Map<string, number>();
-  protected roomTime = new Map<string, number>();
-  protected toastCooldown = new Map<string, number>();
-  protected deniedAt = new Map<string, number>();
-  protected diedIn = new Map<string, number>();
-  protected removedGroups = new Set<string>();
-  protected quietUntil = 0;
-  protected lastCombat = -1e9;
-  protected noteId: string | null = null;
-  protected legacyReading = false;
-  protected tmp = new THREE.Vector3();
-  protected tmp2 = new THREE.Vector3();
-  protected actors = new Set<EnemyActor>();
-  protected loops: LoopHandle[] = [];
-  /** Script time of named instants (latch, taken, …): the measured timings in `debugState.t`. */
-  protected marks: Record<string, number> = {};
-  protected phaseApplied: PhaseId | null = null;
+export abstract class Base extends StageBase<Flags, PhaseId, CheckpointIdL2, Facts, ProgressL2> {
+  protected declare hooks: HooksL2;
 
   // ── the cast ──
-  readonly talk: Dialogue;
   protected tomas: EnemyActor | null = null;
   protected tomasPose = '';
   protected tomasSpot: 'chair' | 'glass' | 'door' | 'window' | 'held' | 'belt' | 'gone' = 'chair';
   protected escorts: EnemyActor[] = [];
 
   // ── what just happened (for line conditions) ──
-  protected lastMovePos = new THREE.Vector3();
-  protected lastMoveAt = 0;
-  protected lastShotAt = -1e9;
-  protected lastHurtAt = -1e9;
   protected provokedAt = -1e9;
   protected workerKilledAt = -1e9;
   protected syncAt = -1e9;
@@ -161,60 +127,18 @@ export abstract class Base {
   protected onBeltTomas = false;
   protected tomasOffAir = false;
 
-  constructor(
-    protected ctx: GameContext,
-    protected seq: Sequencer,
-    protected director: MusicDirector,
-    protected w: World,
-    protected logs: Set<string>,
-    protected hooks: HooksL2,
-  ) {
-    this.talk = new Dialogue(ctx, seq, this.facts);
+  constructor(ctx: GameContext, seq: Sequencer, director: MusicDirector, w: World, logs: Set<string>, hooks: HooksL2) {
+    super(ctx, seq, director, w, logs, hooks, L2_DIALOGUE);
+    this.regionFallback = REGION_FALLBACK_L2;
     this.talk.bindActor('tomas', () => this.tomas);
-    this.talk.onSaid = (id) => { if (!this.prog.heard) this.prog.heard = []; if (!this.prog.heard.includes(id)) this.prog.heard.push(id); };
   }
 
-  // ───────────────────────────────────────────────────────────── small helpers
-
-  protected get ui(): UIInternal { return this.ctx.ui as UIInternal; }
-  protected get now(): number { return this.seq.time; }
-  protected get f(): Flags { return this.prog.flags as unknown as Flags; }
-  protected get pos(): THREE.Vector3 { return this.ctx.player.position; }
-  protected has(id: string): boolean { return this.done.has(id); }
-  /** A pause in the telling: tests may shorten it. */
-  protected wait(s: number) { return this.seq.wait(this.talk.fast ? Math.min(s, 0.4) : s); }
-  /** A wait that tests may not shorten (physical things: a walk, a door, a scene clock). */
-  protected hold(s: number) { return this.seq.wait(s); }
-  protected until(p: () => boolean) { return this.seq.waitUntil(p); }
-  protected async untilOr(p: () => boolean, seconds: number): Promise<boolean> {
-    const t0 = this.now;
-    let ok = false;
-    await this.until(() => (ok = p()) || this.now - t0 >= seconds);
-    return ok;
+  protected emptyProgress(): ProgressL2 { return emptyProgressL2(); }
+  protected override onPose(a: EnemyActor, pose: string): void { if (a === this.tomas) this.tomasPose = pose; }
+  /** Its living units no longer count as units on the line (`unitsLeft`) — unless `gone` is false (they merely stay behind the partition). */
+  protected override onRemoved(_group: string, living: Enemy[], gone: boolean): void {
+    if (gone) this.f.husksRemoved = (this.f.husksRemoved ?? 0) + living.filter((e) => e.type === 'husk').length;
   }
-  protected S(name: string, fn: () => Promise<unknown>): void { this.seq.spawn(name, fn); }
-  protected stamp(name: string): void { if (!(name in this.marks)) this.marks[name] = +this.now.toFixed(2); }
-
-  protected abstract consequence(id: string): void;
-
-  protected mark(id: string): boolean {
-    if (this.done.has(id)) return false;
-    this.done.add(id);
-    this.prog.beats.push(id);
-    this.consequence(id);
-    this.syncPhase(); // a flag may have moved the phase: the level's table sets the doors
-    return true;
-  }
-  /** A DESIGN.md beat: recorded, consequences applied, `story:beat` emitted. False = already happened. */
-  protected beat(id: string): boolean {
-    if (!this.mark(id)) return false;
-    this.stamp(id);
-    if (this.ctx.debug.verbose) console.log(`[story] beat ${id} @${this.now.toFixed(1)}s`);
-    this.ctx.events.emit('story:beat', { id });
-    return true;
-  }
-  /** Internal run-once cue ('#id' in the record). */
-  protected once(id: string): boolean { return this.mark('#' + id); }
 
   // ── phases (the level's table is the single source of door state) ──
 
@@ -232,142 +156,16 @@ export abstract class Base {
     if (f.fitOpen) return 'B';
     return 'A';
   }
-  /**
-   * Apply the door / line state of the phase the record is in (level `applyPhase`). Called after every flag
-   * change that moves the phase, and once at the end of a checkpoint fast-forward (snapped, no animation).
-   */
-  protected syncPhase(): void {
-    const id = this.phase;
-    if (this.ff || id === this.phaseApplied) return;
-    this.phaseApplied = id;
-    this.stamp('phase_' + id);
-    if (this.ctx.debug.verbose) console.log(`[story] phase ${id} @${this.now.toFixed(1)}s`);
-    applyPhase(this.ctx, id);
-  }
-  protected snapPhase(): void {
-    this.phaseApplied = this.phase;
-    applyPhase(this.ctx, this.phaseApplied, true);
-  }
-  protected door(id: string): Door | null {
-    try { return this.w.hasDoor(id) ? this.ctx.level.door(id) : null; } catch { return null; }
-  }
-  protected doorStatus(id: string, status: 'cycling' | 'dark' | null): void {
-    try { this.door(id)?.setStatus?.(status); } catch { /* a level build without setStatus */ }
-  }
-  /** Hold a door open for scripted walkers (puppets do not trip the auto-open, and an auto door would close on them). */
-  protected holdOpen(id: string): void {
-    const d = this.door(id);
-    if (!d) return;
-    try { d.unlock(); d.auto = false; d.open(); } catch { /* ignore */ }
-  }
-  /** Fully shut? (`Door.closed`; a build without it: locked and not open.) */
-  protected isShut(d: Door): boolean {
-    const c = (d as { closed?: boolean }).closed;
-    return typeof c === 'boolean' ? c : d.locked && !d.isOpen;
-  }
-  /**
-   * REVISION 5.1 latch. Lock the door, wait until it is fully shut, then check which side the player is on.
-   * Wrong side → unlock and reopen; the caller re-arms its trigger. A scene clock may start only on `true`.
-   */
-  protected async closeBehind(id: string, keepSide: () => boolean): Promise<boolean> {
-    const d = this.door(id);
-    if (!d) return keepSide();
-    d.lock();
-    const t0 = this.now;
-    await this.until(() => this.isShut(d) || this.now - t0 > 4);
-    // A build whose doors have no `closed`: give the leaves their travel time.
-    if (typeof (d as { closed?: boolean }).closed !== 'boolean') await this.hold(1.0);
-    if (keepSide()) return true;
-    d.unlock();
-    d.open();
-    return false;
-  }
+  protected applyPhaseTo(id: PhaseId, snap: boolean): void { applyPhase(this.ctx, id, snap); }
 
-  // ── fights ──
-
-  protected engage(group: string, how: 'wake' | 'spawn' | 'both', stagger?: number): void {
-    if (!this.prog.triggered.includes(group)) this.prog.triggered.push(group);
-    this.triggeredAt.set(group, this.now);
-    if (how !== 'spawn') this.w.wakeGroup(group, stagger);
-    if (how !== 'wake') this.w.spawnGroup(group);
-  }
-  protected fought(g: string, minDelay = 5): boolean {
-    if (!this.prog.triggered.includes(g)) return false;
-    if (this.prog.cleared.includes(g)) return true;
-    return this.now - (this.triggeredAt.get(g) ?? -1e9) > minDelay && this.w.alive(g) === 0;
-  }
-  /**
-   * Delete a group without a trace (it is out of the player's world for good). `gone` (default): its living units
-   * no longer count as units on the line (`unitsLeft`) — false for the groups that merely stay behind the partition.
-   */
-  protected removeSilently(group: string, gone = true): void {
-    if (gone) this.f.husksRemoved = (this.f.husksRemoved ?? 0) + this.members(group).filter((e) => e.type === 'husk').length;
-    try { this.ctx.enemies.removeGroup(group); } catch (e) { console.warn(`[story] removeGroup ${group} failed`, e); }
-    this.removedGroups.add(group);
-    if (!this.prog.triggered.includes(group)) this.prog.triggered.push(group);
-    this.triggeredAt.set(group, -1e9);
-  }
-  protected members(group: string): Enemy[] {
-    try { return this.ctx.enemies.all.filter((e) => e.group === group && e.alive); } catch { return []; }
-  }
-  protected awakeIn(group: string): Enemy[] { return this.members(group).filter((e) => e.state !== 'dormant'); }
   /**
    * REVISION 6.1 — the ONE count: units still on this line = 32 − every unit destroyed or removed in this level.
    * Both option cards, the ending card and CHOIR's `_7` / `_7_killed` variant read it.
    */
   protected unitsLeft(): number { return Math.max(0, 32 - (this.f.husksKilled ?? 0) - (this.f.husksRemoved ?? 0)); }
-  /**
-   * Every living member of `group` comes for the player: dormant ones wake, awake-but-idle ones are alerted
-   * (an idle machine only notices by sight, in its front cone — a gate must never wait on one that was looking
-   * the other way). Never for working units or Unit 14 (they wake only when provoked).
-   */
-  protected rouse(group: string): void {
-    let sleeping = false;
-    for (const e of this.members(group)) {
-      if (e.state === 'dormant') sleeping = true;
-      else if (e.state === 'idle') { try { this.ctx.enemies.alertNoise(e.position, 0.4); } catch { /* ignore */ } }
-    }
-    // (wakeGroup skips the awake and the already waking — an emerging 'drop' / 'hoist' keeps its own clock)
-    if (sleeping) this.w.wakeGroup(group, 0.4);
-  }
-  /** The player is near `e` or can see it: a fight with it is going on. */
-  protected engaged(e: Enemy, near = 9): boolean {
-    return this.distTo(e.position) < near || this.los(this.tmp2.copy(e.position).setY(e.position.y + 1.1).clone());
-  }
-  /**
-   * Until every member of `group` is dead (or `stop()`). Meanwhile they are roused every second, so the gate
-   * waiting on this never depends on a machine that is asleep, idle or facing away. Last resort only: if for
-   * `stranded` s no member has been near or in view of the player (stuck where nobody can get at it), the group is
-   * removed silently — never while one is seen, and never while a `keep` member (a boss) is still alive.
-   */
-  protected async fightOut(group: string, stranded = 60, opts: { stop?: () => boolean; keep?: (e: Enemy) => boolean } = {}): Promise<void> {
-    let lost = 0, last = this.now, nextRouse = 0;
-    await this.until(() => {
-      if (this.w.alive(group) === 0 || opts.stop?.()) return true;
-      const dt = Math.min(1, this.now - last); last = this.now;
-      if (this.now >= nextRouse) { this.rouse(group); nextRouse = this.now + 1; }
-      const m = this.members(group);
-      lost = this.ctx.state !== 'playing' || m.some((e) => this.engaged(e)) ? 0 : lost + dt;
-      if (lost > stranded && !(opts.keep && m.some(opts.keep))) {
-        console.warn(`[story] ${group}: ${m.length} unit(s) out of the player's reach for ${stranded} s — removed`);
-        this.removeSilently(group);
-      }
-      return false;
-    });
-  }
 
   // ── where the player is ──
 
-  protected inRoom(room: string): boolean { return this.w.room() === room; }
-  protected in(xMin: number, xMax: number, zMin: number, zMax: number): boolean {
-    const p = this.pos;
-    return p.x >= xMin && p.x <= xMax && p.z >= zMin && p.z <= zMax;
-  }
-  protected region(name: string, p: THREE.Vector3 = this.pos): boolean { return inRegion(this.ctx, name, p); }
-  /** Inside a level trigger right now — or, for a level build without it, inside the fallback area. */
-  protected at(trigger: string, fallback?: () => boolean): boolean {
-    return this.insideTrig.has(trigger) || (!!fallback && fallback());
-  }
   protected atGlass = () => this.inRoom('line') && this.in(-10, -6, -50, -41.5);
   protected atLoad = () => this.at('t2_load', () => this.inRoom('line') && this.in(1, 8, -47, -42));
   protected hallSouth = () => this.at('t2_line_south', () => this.inRoom('line') && this.pos.z < -54 && this.pos.x < 2.5);
@@ -375,111 +173,8 @@ export abstract class Base {
   protected onApron = () => this.at('t2_tunnel_out', () => this.in(2.5, 7.5, -66, -62.5) && this.w.room() !== 'relay');
   protected inTunnel = () => this.region('tunnel') && this.in(2.5, 7.5, -62, -50.35);
 
-  protected distTo(point: THREE.Vector3): number {
-    const p = this.pos;
-    return Math.hypot(p.x - point.x, p.z - point.z);
-  }
-  protected angleTo(point: THREE.Vector3): number {
-    const p = this.ctx.player;
-    const d = this.tmp.copy(point).sub(p.eye);
-    const len = d.length();
-    if (len < 1e-3) return 0;
-    return Math.acos(THREE.MathUtils.clamp(d.dot(p.forward) / len, -1, 1));
-  }
-  protected los(point: THREE.Vector3): boolean {
-    try { return this.ctx.physics.lineOfSight(this.ctx.player.eye, point); } catch { return true; }
-  }
-  protected isLookingAt(point: THREE.Vector3, coneDeg = 25, needLos = false): boolean {
-    return this.angleTo(point) <= coneDeg * DEG && (!needLos || this.los(point));
-  }
-  protected notLookingAt(point: THREE.Vector3, coneDeg = 64): boolean {
-    return this.angleTo(point) > coneDeg * DEG || !this.los(point);
-  }
-
-  protected get noteOpen(): boolean {
-    if (this.legacyReading) return true;
-    try { return !!this.ui.noteOpen; } catch { return false; }
-  }
-  protected free(): boolean {
-    return this.ctx.state === 'playing' && !this.noteOpen && this.w.active() === 0 && this.now - this.lastCombat > 4;
-  }
-  protected quiet(seconds: number): void { this.quietUntil = Math.max(this.quietUntil, this.now + seconds); }
-  /** Wait for a calm moment where `where()` holds; false when `expire()` came first. */
-  protected async cue(where: () => boolean, expire?: () => boolean): Promise<boolean> {
-    let ok = false;
-    await this.until(() => {
-      if (expire?.()) return true;
-      ok = this.now >= this.quietUntil && this.free() && where();
-      return ok;
-    });
-    return ok;
-  }
-
-  protected toast(text: string, cooldown = 0): void {
-    const now = this.now;
-    if (cooldown > 0 && (this.toastCooldown.get(text) ?? -1e9) > now - cooldown) return;
-    this.toastCooldown.set(text, now);
-    this.ctx.events.emit('story:toast', { text });
-  }
-
-  // ── actors ──
-
-  protected actor(type: ActorType, position: THREE.Vector3, yaw: number, pose?: string, look?: ActorLook): EnemyActor | null {
-    let a: EnemyActor | null = null;
-    try {
-      const en = this.ctx.enemies as unknown as { actor?: (t: ActorType, p: THREE.Vector3, y?: number, pose?: string, o?: { look?: ActorLook }) => EnemyActor };
-      if (typeof en.actor === 'function') a = en.actor(type, position, yaw, pose, look ? { look } : undefined) ?? null;
-    } catch (e) { console.warn('[story] actor failed', e); }
-    if (a) this.actors.add(a);
-    return a;
-  }
-  protected drop(a: EnemyActor | null): void {
-    if (!a) return;
-    this.actors.delete(a);
-    this.w.removeActor(a);
-  }
-  protected pose(a: EnemyActor | null, pose: string): void {
-    if (a && a === this.tomas) this.tomasPose = pose;
-    try { a?.setPose(pose); } catch { /* ignore */ }
-  }
-  protected gait(a: EnemyActor | null, gait: string): void { try { a?.setGait?.(gait); } catch { /* ignore */ } }
-  protected eyes(a: EnemyActor | null, on: boolean): void { try { a?.setEyes(on); } catch { /* ignore */ } }
-  /** A point pins a frozen point, an object pins it live, null = back to `auto` (humans: the player when seen). */
-  protected lookAt(a: EnemyActor | null, p: THREE.Vector3 | THREE.Object3D | null): void { try { a?.lookAt(p); } catch { /* ignore */ } }
-  /** Walk an actor through points (straight segments); gives up after a generous timeout. */
-  protected async walk(a: EnemyActor | null, points: THREE.Vector3[], speed = 1.0): Promise<void> {
-    if (!a) return;
-    for (const p of points) {
-      if (!this.actors.has(a)) return;
-      let from = 3;
-      try { from = Math.hypot(a.position.x - p.x, a.position.z - p.z); } catch { /* ignore */ }
-      if (from < 0.05) continue;
-      let arrived: Promise<unknown> = Promise.resolve();
-      try { arrived = a.moveTo(p, speed).catch(() => undefined); } catch { /* ignore */ }
-      await Promise.race([arrived, this.hold(from / Math.max(0.2, speed) + 1.5)]);
-    }
-  }
-  protected place(a: EnemyActor | null, p: THREE.Vector3, yaw?: number): void {
-    if (!a) return;
-    try {
-      a.position.copy(p);
-      a.object.position.copy(p);
-      if (yaw !== undefined) a.object.rotation.y = yaw;
-    } catch { /* ignore */ }
-  }
-  protected headOf(a: EnemyActor): THREE.Vector3 { return this.tmp2.copy(a.position).setY(a.position.y + 1.55); }
-  /** Floor / deck / belt height under a point. */
-  protected groundY(x: number, z: number, from = 3.2): number {
-    try {
-      const hit = this.ctx.physics.raycast(V(x, from, z), V(0, -1, 0), from + 0.5);
-      if (hit) return hit.point.y;
-    } catch { /* ignore */ }
-    return 0;
-  }
-
   // ── dialogue shortcuts ──
 
-  protected say(id: string, opts?: SayOpts): Promise<boolean> { return this.talk.say(id, opts); }
   /** Tomas, in the ear. While he is at the hall glass he gestures along. */
   protected tomasSays(ids: string[], pri: 'scene' | 'talk' = 'scene', opts: SayOpts = {}): Promise<boolean> {
     return this.talk.lines(ids, { pri, ...opts, onStart: () => { if (this.tomas && this.tomasSpot === 'glass' && this.tomasPose !== 'wave') this.pose(this.tomas, 'talk'); } });

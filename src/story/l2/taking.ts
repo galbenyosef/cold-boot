@@ -411,8 +411,6 @@ export abstract class Taking extends Ghosted {
     await this.escortsReturn(e1, e2, deckY);
   }
 
-  protected abstract checkpointNow(id: 'cp2_taken'): void;
-
   // ───────────────────────────────────────────────────────────── l2_escort
 
   /** They turn and walk back toward the booth; 4 m from the hall door it opens and they are real. */
