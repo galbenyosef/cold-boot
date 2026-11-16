@@ -42,3 +42,32 @@ Text is final. Regenerate with `npm run voice` (only changed hashes are rebuilt)
 
 ## Removed (delete `public/voice/<id>.mp3` and the manifest entries)
 - `l2_tomas_run_2`, `l2_tomas_run_glass`, `l2_tomas_run_5`, `l2_unit14_booth`, `l2_choir_belt`, `l2_tomas_bark_belt`
+
+# voice/lines.l3.json — stage 3a (P9)
+
+45 lines from docs/plans/stage-3a.md §6.2 (halvorsen 19, choir 16, unit 5, reyes 3 incl. murmur, resident 2). Generated, `voice:check` 241/241 ok.
+New cast: `halvorsen`, `reyes`, `resident` (+ halvorsen `whisper` variant, derived, matches note "whisper": c2_7, go_1, go_2).
+Nobody has listened. Choices are by measurement (median F0 Hz / spectral centroid Hz / voiced fraction / mean clone similarity / ASR of samples; all candidates: ref ASR ok, samples score 1.00).
+Existing refs for comparison: choir 180/1542, tomas 190/1851, hale 184/1216, voss 235/1745, anand 163/1318, okafor 137/1766, unit 269/1969.
+
+| char | audition | description, seed | F0 | centroid | voiced | role |
+|---|---|---|---|---|---|---|
+| halvorsen | 7 | male, middle-aged, moderate pitch, british accent, 1 | 113.5 | 2475 | 0.71 | PICKED |
+| halvorsen | 9 | same, 3 | 117.6 | 2407 | 0.47 | runner-up |
+| halvorsen | 8 | same, 2 | 100.6 | 2949 | 0.58 | alt (brightest) |
+| halvorsen | 6 | male, elderly, moderate pitch, 3 | 210.5 | 1643 | 0.78 | runner-up (a different kind: higher, no accent) |
+| halvorsen | 1-3 | male, middle-aged, low pitch, 1-3 | 166-168 | 1724-1996 | 0.5-0.59 | rejected: within 25 Hz of CHOIR/Anand/Hale |
+| halvorsen | 4,5 | male, elderly, moderate pitch, 1-2 | 186/182 | 1407/1654 | 0.79/0.86 | rejected: CHOIR-like (180) |
+| reyes | 1 | male, middle-aged, low pitch, 2 | 152.4 | 2199 | 0.74 | PICKED |
+| reyes | 2 | same, 3 | 145.5 | 1852 | 0.72 | runner-up |
+| reyes | 3 | male, young adult, low pitch, 2 | 142.9 | 2090 | 0.67 | runner-up (close to Okafor 137) |
+| reyes | 4,5,6 | young adult low 3 / elderly very low 2,3 | 140 / 112 / 124 | 1654/1613/1396 | | not picked (5 is near Halvorsen 113) |
+| resident | 3 | female, young adult, high pitch, 2 | 313.7 | 2475 | 0.74 | PICKED (sim 0.90-0.92) |
+| resident | 4 | female, young adult, high pitch, 3 | 340.4 | 2010 | 0.70 | runner-up (sim 0.86-0.97) |
+| resident | 1 | female, young adult, moderate pitch, 2 | 246.2 | 2320 | 0.61 | runner-up (close to Voss 235) |
+| resident | 2,5,6 | moderate / middle-aged | 271 / 267 / 258 | | | rejected: Unit 269 |
+
+All takes: voice/auditions/<char>/ (index.html; swap with `npm run voice:cast -- <char> --pick N` then `npm run voice`).
+Deviations from plan §6.1: halvorsen "male, middle-aged, low pitch" came out at 166 Hz (near CHOIR) so the British-accent description was used; resident "high pitch" instead of moderate (moderate = Voss/Unit).
+Murmur: `l3_reyes_murmur` has `text: ""` (no subtitle) and `spoken: "I came up from Line Two and they're all…"`; the mp3 is the CLEAN intelligible take; the unintelligible treatment (room + low-pass 400 Hz, -10 dB) is run-time (src/audio/voicefx).
+Retries: 8 Halvorsen lines needed 2-5 tries (c1_3 5, c1_2b 4); all passed. No text edits.

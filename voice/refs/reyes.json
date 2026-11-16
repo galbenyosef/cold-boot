@@ -1,0 +1,14 @@
+{
+  "describe": "male, middle-aged, low pitch",
+  "seed": 2,
+  "refText": "I came up from Line Two. I haven't slept. I need a phone, and I need it now.",
+  "language": "en",
+  "source": "audition 1",
+  "sha": "c7e79e0af2b48e1d",
+  "duration": 4.16,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "i came up from line two i havent slept i need a phone and i need it now"
+  }
+}

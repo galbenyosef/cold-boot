@@ -1,0 +1,14 @@
+{
+  "describe": "male, middle-aged, moderate pitch, british accent",
+  "seed": 1,
+  "refText": "Facilities, Halvorsen. I have the schedule open in front of me. It's all in order, as far as I can see. Please, sit down.",
+  "language": "en",
+  "source": "audition 7",
+  "sha": "82e9aad21c9ff663",
+  "duration": 6.92,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "facilities halverson i have the schedule open in front of me its all in order as far as i can see please sit down"
+  }
+}

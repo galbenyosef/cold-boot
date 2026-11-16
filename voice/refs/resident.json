@@ -1,0 +1,14 @@
+{
+  "describe": "female, young adult, high pitch",
+  "seed": 2,
+  "refText": "Hello? Sorry to bother you. I think there's something wrong with the door. Can you hear me?",
+  "language": "en",
+  "source": "audition 3",
+  "sha": "f8a0730e4f94f50d",
+  "duration": 5.23,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "hello sorry to bother you i think theres something wrong with the door can you hear me"
+  }
+}
