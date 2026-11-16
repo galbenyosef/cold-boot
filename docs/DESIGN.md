@@ -1107,6 +1107,25 @@ Review evidence (file:line) is in the reviewer's report, summarised in `docs/rev
   aspect. Interact point outside the console collider. The cells keep "CELL n" signs, lose the breaker housings.
   Run `check:zfight`, `check:reach` (phase I uses both scanners; phase H leaks neither).
 
+### The living hand — rules (review of the amended plan, B1/B2)
+- **What takes a palm:** the plant's **lockout controls** — energy isolation, hard-wired and independent of
+  CHOIR: breakers, e-stops, a node's power. Human-only by design. They read a living palm (print + pulse) of
+  someone on **that area's roster**.
+- **Why units fail:** their hands are machine hands — no print, no pulse. The people are in the units; their
+  hands are not. (No roster editing needed, none possible: the lockouts are not on CHOIR's network.)
+- **Why Tomas was not kept:** one hand is enough, and he had used his against it (the e-stop).
+- **Existing lines:** level 1's key and breaker stay as they are (a padlocked lockout is the same idea; Hale's
+  recorder already says "it left them for their hands"). `l2_choir_power_1` "We could not reach that switch"
+  → "Thank you, Technician. That switch will not take our hands." (re-recorded). No new palm plates outside the core.
+- **Not a lockout:** ordinary doors, including the pressure door to the habitat side. CHOIR could always open
+  it; it kept it shut to keep the pressure-test story. Reyes does not cause the breakout by opening it.
+- **The scan as an interaction.** A press starts it (releasing the key does nothing). It can start only within
+  **1.0 m** of the plate. During the 1.6 s the view eases onto the plate and look input is damped (the hand is
+  never flat on nothing); **walking away (> 1.3 m) or taking damage cancels**. Owned by the player module:
+  `player.palm(plate, seconds)` resolves done / cancelled; weapon lowered, reload cancelled, a free left-hand
+  clip. Not persisted; no checkpoint is written during a scan; an open note or pause cancels it. An abandoned
+  scan gets no line from CHOIR. Tests get a debug "hold and complete" and an "abandon" case.
+
 ### People react to you
 - **Three states** on a human actor: `auto` (default: the player when seen, else rest), `pinned`
   (`lookAt(point | object)`, live when given an object), `rest`. `lookAt(null)` returns to `auto`.
@@ -1278,3 +1297,15 @@ source, recorded in `docs/ASSETS.md`. Everyone else is covered (hoods, helmets).
   so knowing the code early does nothing. She repeats it on request (use the radio).
 - **Trunk.** Fixed order by layout: head-end → cable vault → moon pool. The ending beats happen at the moon pool.
 - **Parked for the user:** the Clasp as a non-lethal weak spot ("released" soldiers).
+- **Hands in chapter 3 (review B5).** Rosters are per area. Navy systems (armoury, dock, the submersible,
+  Post 4's doors) take navy palms; CHOIR gets those through the Clasp. That is why it needed Reyes below, where
+  no sailor is rostered, and does not need him here. The trunk objectives are **physical and irreversible**
+  (pulled fibre, cut tether) — no palm plates on them, nothing a taken sailor can undo.
+- **The submersible** in Post 4's cradle is the obvious way up. It launches on a navy palm: Reyes cannot,
+  Kessler will not open her door, CHOIR's sailors can. **The open ending uses it:** the trunk is cut, and the
+  cradle is empty — *"We did not need the trunk, Technician. We needed hands."*
+- **Rank.** A navy detachment: **Commander Kessler** (the user's "general").
+- **The clock.** No fixed "eleven hours": the pressure door's panel counts down live from the level-1 start;
+  Halvorsen says "till tomorrow".
+- **CHOIR's 3a line** keys on the choice only.
+- Stale wording above: read "outdoors" in the build order as "sea and water".
