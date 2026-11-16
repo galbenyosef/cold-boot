@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { EnemyType, FxSystem, GameContext, LightDesc, LightHandle, LightManager, MaterialLibrary, MaterialName } from '../../core/types';
 import { createEvents } from '../../core/events';
+import { clampBuilt, parseLevel } from '../../core/progress';
 import { createPhysics } from '../../physics/physics';
 import { createEnemies } from '../index';
 
@@ -43,7 +44,7 @@ async function main() {
   const camera = new THREE.PerspectiveCamera(Number(P('fov', '40')), innerWidth / innerHeight, 0.02, 200);
   const debug = { autostart: true, spawn: null, noEnemies: false, noStory: true, god: false, giveAll: false, quality: null, verbose: true, fps: 0 };
   const ctx = {
-    canvas, uiRoot: document.getElementById('ui')!, scene, camera, events, physics: createPhysics(), debug, time: 0, state: 'playing', ready: false, levelId: Number(P('level', '2')),
+    canvas, uiRoot: document.getElementById('ui')!, scene, camera, events, physics: createPhysics(), debug, time: 0, state: 'playing', ready: false, levelId: clampBuilt(parseLevel(P('level', '2')) ?? 2), facts: {},
     setState() {},
   } as unknown as GameContext;
   (window as any).__game = ctx;

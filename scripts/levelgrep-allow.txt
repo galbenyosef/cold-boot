@@ -1,0 +1,43 @@
+# check:chain level grep (docs/plans/stage-3a.md §8.1): every hit of
+#   levelId|storedLevel|=== 2|!== 1|=== '2'|lvl2|level ===/!== <digit>
+# in src/**/*.ts (outside src/<module>/l<N>/ and src/core/progress.ts) must contain one of these substrings
+# for its file. Format: `<path> :: <substring>`. Level facts go into LEVELS (core/progress.ts) and are read with
+# levelOf(ctx) — do not add a binary level branch here; add a field to LevelInfo instead.
+
+# ── the level id itself: set once at boot, carried, dispatched on (lookups that throw for an unknown level)
+src/core/types.ts :: levelId: LevelId;
+src/main.ts :: const levelId = resolveLevel(debug);
+src/main.ts :: levelId,
+src/main.ts :: facts: startFacts(levelId, debug),
+src/level/index.ts :: LEVEL_BUILDERS[ctx.levelId]
+src/level/index.ts :: no level ${ctx.levelId} in LEVEL_BUILDERS
+src/story/index.ts :: STORIES[ctx.levelId]
+src/story/index.ts :: no story for level ${ctx.levelId} in STORIES
+src/story/camera.ts :: SHOTS[ctx.levelId]
+src/story/camera.ts :: no menu shots for level ${ctx.levelId}
+src/story/chain.ts :: clearLevelSave(ctx.levelId);
+src/story/chain.ts :: setStoredLevel(ctx.levelId); return null;
+src/story/chain.ts :: makeCarry(ctx.levelId,
+src/story/chain.ts :: loadCarryFor(ctx.levelId)
+src/story/save.ts :: import { FIRST_LEVEL, LEVEL_IDS, levelInfo, setStoredLevel, storedLevel } from '../core/progress';
+src/story/save.ts :: const level = storedLevel();
+# dev pages build a fake ctx
+src/ui/dev/harness.ts :: levelId: parseLevel(q.get('level'))
+src/enemies/dev/harness.ts :: levelId: clampBuilt(parseLevel(P('level', '2')) ?? 2)
+
+# ── unrelated numeric comparisons the pattern also matches
+src/ui/screens.ts :: i === 2 || i === 3 ? 1.6 : 0.9
+src/materials/screens.ts :: y % 3 === 2 ? 0.55 : 1.0
+src/materials/screens.ts :: (c === 2 ? 1 : 0.72)
+src/audio/sounds/world.ts :: else if (kind === 2) x = 0;
+src/audio/synth/render.ts :: if (k !== 1) for
+src/render/volumetrics.ts :: field(ch === 2 ? 16 : 4)
+src/level/rooms/airlock.ts :: if (i !== 1) jet(
+src/level/rooms/pump.ts :: (i === 1 || i === 2 ? 0.012 : 0)
+src/enemies/husk/husk.ts :: } else if (this.phase === 2) {
+src/enemies/husk/husk.ts :: const surge = armsLeft === 2 ?
+src/enemies/husk/husk.ts :: (armsLeft === 2 ? 1 : 0.6)
+src/player/dev/fpview.ts :: if (zoom !== 1) {
+src/player/viewmodels/grip.ts :: const t = s === 2 ?
+src/player/viewmodels/hands.ts :: f.r[s + 1], s === 2, s < 2,
+src/player/viewmodels/hands.ts :: THUMB_R[s + 1], s === 2, s < 2,

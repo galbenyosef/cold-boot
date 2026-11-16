@@ -2,6 +2,7 @@
 import type { GameContext, Quality } from '../core/types';
 import { h, button, sfx, saveSettings, type Settings, glyph, toggle } from './dom';
 import { saveInfo, clearAllProgress, reloadInto, requestBegin, requestContinue, type SaveInfo } from './progress';
+import { FIRST_LEVEL, levelInfo, levelOf } from '../core/progress';
 
 /** sessionStorage: BEGIN on a level-2 page reloaded into level 1 — the next menu is a one-click "begin" gate. */
 const BEGIN_FRESH_KEY = 'coldboot.beginFresh';
@@ -160,6 +161,7 @@ export class MainMenu {
   private continueBtn: HTMLButtonElement;
   private continueWhere: HTMLSpanElement;
   private levelLine: HTMLDivElement;
+  private levelLineText: HTMLSpanElement;
   private info: SaveInfo | null = null;
   private freshGate: HTMLDivElement | null = null;
   /** How the menu was left (read by the story after `open()` resolves). */
@@ -185,7 +187,7 @@ export class MainMenu {
     // CONTINUE sits above BEGIN and only exists while a checkpoint is stored (see open()).
     this.levelLine = h('div', 'lvlline lbl hidden', items);
     h('i', '', this.levelLine);
-    h('span', '', this.levelLine, 'Level 2  —  Line Two');
+    this.levelLineText = h('span', '', this.levelLine, '');
     this.continueBtn = button(ctx, items, 'Continue', '00', () => this.begin('continue'), 'primary hidden');
     this.continueWhere = h('span', 'where', this.continueBtn, '');
     this.items.push(button(ctx, items, 'Begin', '01', () => this.begin('begin'), 'primary'));
@@ -225,9 +227,12 @@ export class MainMenu {
   open(): Promise<void> {
     const info = this.info = saveInfo();
     toggle(this.continueBtn, 'hidden', !info);
-    const where = info ? (info.place || (info.level === 2 ? '' : 'Sublevel 3')) : '';
+    const where = info?.place ?? '';
     this.continueWhere.textContent = where ? `—  ${where}` : '';
-    toggle(this.levelLine, 'hidden', info?.level !== 2);
+    // §8.1: the stored level's menu line ("Level 2 — Line Two", "Chapter 3 — The Quiet Side"); none for level 1
+    const line = info ? levelInfo(info.level).menuLine : null;
+    this.levelLineText.textContent = line ?? '';
+    toggle(this.levelLine, 'hidden', !line);
     this.choice = 'begin';
     let fresh = false;
     try { fresh = sessionStorage.getItem(BEGIN_FRESH_KEY) === '1'; sessionStorage.removeItem(BEGIN_FRESH_KEY); } catch { /* ignore */ }
@@ -244,7 +249,7 @@ export class MainMenu {
     const g = this.freshGate = h('div', 'layer ov gate interactive grain scan', this.root.parentElement!);
     const st = h('div', 'stage', g);
     h('h2', 'glow', st, 'COLD BOOT');
-    h('div', 'lbl', st, 'Click to begin  ·  Sublevel 3');
+    h('div', 'lbl', st, `Click to begin  ·  ${levelInfo(FIRST_LEVEL).place}`);
     void g.offsetWidth;
     g.classList.add('show');
     return new Promise((r) => {
@@ -259,18 +264,18 @@ export class MainMenu {
   private begin(choice: 'begin' | 'continue'): void {
     const r = this.resolve;
     if (!r) return;
-    const here = this.ctx.levelId ?? 1;
+    const here = levelOf(this.ctx).id;
     if (choice === 'begin') {
       // BEGIN always starts the whole game over: level 1, no checkpoints, no carried loadout.
       clearAllProgress();
       // A page forced to a level by its URL (?level=2) begins THAT level; the story handles it.
-      if (here !== 1 && this.ctx.debug.level !== here) {
+      if (here !== FIRST_LEVEL && this.ctx.debug.level !== here) {
         this.resolve = null;
         // The story's own begin request (one-click gate + intro); our gate is the fallback for older builds.
         if (!requestBegin()) { try { sessionStorage.setItem(BEGIN_FRESH_KEY, '1'); } catch { /* ignore */ } }
         sfx(this.ctx, 'ui_open', 0.7);
         this.root.classList.add('leaving');
-        setTimeout(() => reloadInto(1), 500);
+        setTimeout(() => reloadInto(FIRST_LEVEL), 500);
         return;
       }
     } else if (this.info && this.info.level !== here) {

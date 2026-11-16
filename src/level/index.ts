@@ -3,12 +3,13 @@
  * Everything is procedural; see docs/DESIGN.md for the authoritative layout, ids and light groups.
  */
 import * as THREE from 'three';
-import type { GameContext, Level } from '../core/types';
+import type { GameContext, Level, LevelId } from '../core/types';
 import { LevelBuild } from './context';
 import type { DoorSpec } from './doors';
 import { defineInstances } from './props';
 import { assembleLevel, buildRooms, type MachineLoop, type PortalSpec } from './assemble';
 import { createLevel2 } from './l2';
+import { createLevel3 } from './l3';
 import { buildMed } from './rooms/med';
 import { buildCorridor } from './rooms/corridor';
 import { buildQuarters } from './rooms/quarters';
@@ -53,9 +54,13 @@ const MACHINE_LOOPS: Record<string, MachineLoop> = {
   gen_turbine: { id: 'machine_loop', pos: [19, 1.5, -38], vol: { idle: 0.25, active: 0.8, frenzy: 1 } },
 };
 
-/** Dispatch on the level this page load runs (REVISION 4). */
+/** Dispatch on the level this page load runs (REVISION 4; §8.1: one entry per built level). */
+const LEVEL_BUILDERS: Partial<Record<LevelId, (ctx: GameContext) => Promise<Level>>> = { 1: createLevel1, 2: createLevel2, 3: createLevel3 };
+
 export async function createLevel(ctx: GameContext): Promise<Level> {
-  return ctx.levelId === 2 ? createLevel2(ctx) : createLevel1(ctx);
+  const build = LEVEL_BUILDERS[ctx.levelId];
+  if (!build) throw new Error(`[level] no level ${ctx.levelId} in LEVEL_BUILDERS`);
+  return build(ctx);
 }
 
 async function createLevel1(ctx: GameContext): Promise<Level> {

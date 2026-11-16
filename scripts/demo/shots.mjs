@@ -269,7 +269,7 @@ export const SHOTS = [
       mark('gen');
       ctl.walkTo([[14.65, -38.0]], { lookAlong: false });
       ctl.track({ x: 16.05, y: 1.3, z: -38 }, { w: 2.6, z: 0.85 });
-      await ctl.until(() => { try { return JSON.parse(localStorage.getItem('coldboot.save.v1')).id === 'cp_breaker'; } catch { return false; } }, 12);
+      await ctl.until(() => { try { return JSON.parse(localStorage.getItem('coldboot.save.l1.v2')).id === 'cp_breaker'; } catch { return false; } }, 12);
       mark('checkpoint');
       await ctl.wait(2.4);
       ctl.tap('KeyE');

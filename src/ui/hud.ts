@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { GameContext, PickupKind, WeaponId } from '../core/types';
 import { h, setText, toggle, Scrambler, svg, ICONS } from './dom';
 import { BossPips } from './boss';
+import { levelOf } from '../core/progress';
 
 const SEGMENTS = 20;
 const WEAPON_NAMES: Record<WeaponId, string> = { pistol: 'HD-9 SIDEARM', shotgun: 'HD-12 BREACHER' };
@@ -130,7 +131,7 @@ export class Hud {
     // location + toast + pickups
     this.location = h('div', 'location', root);
     this.locName = h('span', '', this.location, '');
-    this.locSub = h('small', '', this.location, (ctx.levelId ?? 1) === 2 ? 'LINE TWO' : 'SUBLEVEL 3');
+    this.locSub = h('small', '', this.location, levelOf(ctx).place.toUpperCase());
     this.toastEl = h('div', 'toast', root, '');
     this.pickups = h('div', 'pickups', root);
     // checkpoint indicator (top right): a small turning diamond + label
@@ -196,7 +197,7 @@ export class Hud {
 
   private addPickup(kind: PickupKind, amount: number): void {
     let [name, cls] = PICKUP_TEXT[kind] ?? [String(kind).toUpperCase(), ''];
-    if (kind === 'keycard' && (this.ctx.levelId ?? 1) === 2) name = 'SECTION PASS';
+    if (kind === 'keycard') name = levelOf(this.ctx).keycardName ?? name;
     const row = h('div', 'pk ' + cls, null);
     const showAmt = cls !== 'weapon' && amount > 0;
     h('b', '', row, showAmt ? `+${amount}` : '+');

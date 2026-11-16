@@ -1,11 +1,11 @@
-// Harvest real checkpoint saves (coldboot.save.v1) for the demo shots, by playing the story quickly
+// Harvest real checkpoint saves (coldboot.save.l1.v2) for the demo shots, by playing the story quickly
 // (teleports + story hooks, like scripts/playthrough.mjs in its fast mode). Writes shots/demo/saves/<cp>.json.
 //   node scripts/demo/saves.mjs [baseUrl]
 import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:5199';
-const KEY = 'coldboot.save.v1';
+const KEY = 'coldboot.save.l1.v2';
 mkdirSync('shots/demo/saves', { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu', '--mute-audio'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });

@@ -14,6 +14,7 @@ import { applyMacro, macroConfigOf } from './macro';
 import { DecalFactory, DECAL_COUNT } from './decals';
 import { createSign } from './signs';
 import { ScreenManager } from './screens';
+import { levelOf } from '../core/progress';
 
 /** Tile size in metres for each textured material (1 UV unit = 1 m). */
 export const TILE_SIZES: Partial<Record<MaterialName, number>> = Object.fromEntries(
@@ -120,7 +121,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   };
 
   const signCache = new Map<string, THREE.MeshStandardMaterial>();
-  const screens = new ScreenManager((m) => track(m, 0.8), ctx.levelId ?? 1);
+  const screens = new ScreenManager((m) => track(m, 0.8), levelOf(ctx));
 
   const lib: MaterialLibrary = {
     get,

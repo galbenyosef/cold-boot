@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext, PickupKind, PickupSpawn } from '../core/types';
+import { levelOf } from '../core/progress';
 import type { VmMats } from './viewmodels/mats';
 import { buildPistol } from './viewmodels/pistol';
 import { buildShotgun } from './viewmodels/shotgun';
@@ -182,8 +183,8 @@ export class Pickups {
     this.root.add(glint);
     const auto = !(sp.kind in PROMPTS);
     let prompt = PROMPTS[sp.kind] ?? 'Take';
-    // Level 2+: a keycard is named after its key ('p2_section_pass' → "Take section pass").
-    if (sp.kind === 'keycard' && this.ctx.levelId !== undefined && this.ctx.levelId !== 1) prompt = `Take ${keyOf(sp.id).replace(/_/g, ' ')}`;
+    // Levels with a named keycard (2+): it is named after its key ('p2_section_pass' → "Take section pass").
+    if (sp.kind === 'keycard' && levelOf(this.ctx).keycardName !== null) prompt = `Take ${keyOf(sp.id).replace(/_/g, ' ')}`;
     const item: Item = { spawn: sp, obj, glint, center, phase: Math.random() * 10, auto, taken: false };
     this.items.push(item);
     if (!auto) {
@@ -206,8 +207,9 @@ export class Pickups {
   restoreCollected(ids: readonly string[]) {
     // Ids of another level's spawns (a save carried across levels) are dropped; runtime ids are kept.
     const mine = new Set(this.ctx.level?.pickupSpawns?.map((p) => p.id) ?? []);
-    const other = this.ctx.levelId === 2 ? /^p_/ : /^p2_/;
-    ids = ids.filter((id) => typeof id === 'string' && (mine.has(id) || !other.test(id)));
+    // §8.1: "this level's ids or runtime ids" — a level spawn id looks like `p_…` / `p2_…` / `p3_…`.
+    const levelSpawn = /^p\d*_/;
+    ids = ids.filter((id) => typeof id === 'string' && (mine.has(id) || !levelSpawn.test(id)));
     const want = new Set(ids);
     for (const it of this.items) {
       if (it.taken || !want.has(it.spawn.id)) continue;

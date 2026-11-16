@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { DebugFlags, Quality } from './types';
+import { parseLevel } from './progress';
 
 export function parseDebug(): DebugFlags {
   const q = new URLSearchParams(location.search);
@@ -25,7 +26,10 @@ export function parseDebug(): DebugFlags {
     giveAll: q.get('give') === 'all',
     quality: (['low', 'medium', 'high', 'ultra'] as const).includes(quality as Quality) ? (quality as Quality) : null,
     verbose: on('debug'),
-    level: q.get('level') === '1' ? 1 : q.get('level') === '2' ? 2 : null,
+    // §8.1: 1…6 parse (main.ts clamps an unbuilt level to the highest built one); anything else = stored level
+    level: parseLevel(q.get('level')),
+    choice: q.get('choice') === 'stop' || q.get('choice') === 'command' ? (q.get('choice') as 'stop' | 'command') : null,
+    units: /^\d+$/.test(q.get('units') ?? '') ? Math.min(32, Number(q.get('units'))) : null,
     fps: 0,
   };
 }

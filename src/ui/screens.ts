@@ -4,17 +4,18 @@ import type { StoryInternal } from './types';
 import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings } from './dom';
 import { settingsPanel, controlsPanel, GlitchTitle } from './menu';
 import { clearLevelSave, hasCheckpoint, levelLabel, reloadInto, requestContinue } from './progress';
+import { levelOf } from '../core/progress';
 
 /** Reload into the stored checkpoint of this level (the story resumes behind the one-click gate). */
 function loadCheckpoint(ctx: GameContext): void {
   requestContinue();
-  reloadInto(ctx.levelId ?? 1);
+  reloadInto(levelOf(ctx).id);
 }
 
 /** Start this level over from its beginning: its checkpoint is discarded (level 2 keeps the carried loadout). */
 function restartLevel(ctx: GameContext): void {
   clearLevelSave(ctx);
-  reloadInto(ctx.levelId ?? 1, true);
+  reloadInto(levelOf(ctx).id, true);
 }
 
 // ───────────────────────────────────────────────────────────── log reader
@@ -346,7 +347,7 @@ export class EndingScreen {
     const st = (ctx.story as StoryInternal | undefined)?.stats;
     const root = h('div', 'layer ov ending interactive grain', this.parent);
     const stage = h('div', 'stage', root);
-    const eyebrow = h('div', 'lbl', stage, (ctx.levelId ?? 1) === 2 ? 'End of Line Two' : this.text.eyebrow);
+    const eyebrow = h('div', 'lbl', stage, levelOf(ctx).endEyebrow ?? this.text.eyebrow);
     eyebrow.style.marginBottom = '30px';
     const tWrap = h('div', '', stage);
     this.title = new GlitchTitle(tWrap, 'COLD BOOT');

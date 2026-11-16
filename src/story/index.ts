@@ -2,7 +2,7 @@
  * STORY — owns the whole flow (menu → intro → wake → scripted beats → descent → ending) and every
  * scripted beat. See docs/DESIGN.md → Story beats. The script itself lives in ./script.ts.
  */
-import type { GameContext, StorySystem } from '../core/types';
+import type { GameContext, LevelId, StorySystem } from '../core/types';
 import type { StoryInternal, StoryStats, UIInternal } from '../ui/types';
 import { SKIP_INTRO_KEY } from '../ui/types';
 import { Sequencer } from './sequencer';
@@ -11,14 +11,19 @@ import { CameraRig } from './camera';
 import { World } from './world';
 import { Script } from './script';
 import { INTRO_CARDS, LOG_IDS, TITLE_CARD, TOASTS } from './text';
-import { SAVE_VERSION, clearSave, loadSave, requestContinue, takeBeginRequest, takeContinueRequest, writeCarry, writeSave, type CheckpointId, type SaveData } from './save';
-import { setStoredLevel } from '../core/progress';
+import { SAVE_VERSION, STORY_REV_L1, clearSave, loadSave, takeBeginRequest, takeContinueRequest, writeSave, type CheckpointId, type SaveData } from './save';
+import { carryOut, handOff } from './chain';
 import { preload } from './voice';
 import { createStoryL2 } from './l2';
+import { createStoryL3 } from './l3';
 
-/** One level per page load (REVISION 4): the story of the level this page runs. */
+/** One level per page load (REVISION 4): the story of the level this page runs (§8.1: one entry per built level). */
+const STORIES: Partial<Record<LevelId, (ctx: GameContext) => Promise<StorySystem>>> = { 1: createStoryL1, 2: createStoryL2, 3: createStoryL3 };
+
 export async function createStory(ctx: GameContext): Promise<StorySystem> {
-  return ctx.levelId === 2 ? createStoryL2(ctx) : createStoryL1(ctx);
+  const create = STORIES[ctx.levelId];
+  if (!create) throw new Error(`[story] no story for level ${ctx.levelId} in STORIES`);
+  return create(ctx);
 }
 
 async function createStoryL1(ctx: GameContext): Promise<StorySystem> {
@@ -39,12 +44,13 @@ async function createStoryL1(ctx: GameContext): Promise<StorySystem> {
     let place = '';
     try { place = ctx.level.roomAt(ctx.player.position)?.name ?? ''; } catch { /* ignore */ }
     const data: SaveData = {
-      v: SAVE_VERSION, id, place,
+      v: SAVE_VERSION, level: 1, rev: STORY_REV_L1, id, place,
       player: ctx.player.snapshot(),
       story: progress,
       logs: [...logs],
       stats: { time: Math.round(stats.time * 10) / 10, kills: stats.kills },
       cleared: [...progress.cleared],
+      facts: { ...ctx.facts },
     };
     if (!writeSave(data)) return;
     try { ui().showCheckpoint?.(); } catch { /* ignore */ }
@@ -62,28 +68,12 @@ async function createStoryL1(ctx: GameContext): Promise<StorySystem> {
   });
 
   /**
-   * End of level 1 (REVISION 4 → Multi-level architecture): store level 2 and the loadout, ask for the
-   * one-click continue, reload. The screen is already black. Headless test runs (`?autostart=1`) keep the
-   * old ending screen and store nothing unless `&handoff=1` (then everything is stored but not reloaded).
+   * End of level 1 (REVISION 4 → Multi-level architecture; §8.1 chain): store the carry (loadout + facts) and level 2,
+   * ask for the one-click continue, reload. The screen is already black. Headless test runs (`?autostart=1`) keep
+   * the old ending screen and store nothing unless `&handoff=1` (then everything is stored but not reloaded).
    */
   function handoff(): boolean {
-    let test = false;
-    if (ctx.debug.autostart) {
-      try { test = new URLSearchParams(location.search).get('handoff') === '1'; } catch { /* ignore */ }
-      if (!test) return false;
-    }
-    try { writeCarry(ctx.player.snapshot()); } catch (e) { console.warn('[story] carry not stored', e); }
-    clearSave();
-    setStoredLevel(2);
-    if (test) return false;
-    requestContinue();
-    try {
-      // A forcing `?level=1` must not survive the hand-over.
-      const u = new URL(location.href);
-      if (u.searchParams.has('level')) { u.searchParams.delete('level'); location.replace(u.toString()); return true; }
-    } catch { /* ignore */ }
-    location.reload();
-    return true;
+    try { return handOff(ctx, carryOut(ctx)); } catch (e) { console.warn('[story] hand-over failed', e); return false; }
   }
 
   /**

@@ -7,7 +7,8 @@
  * previous one for a moment (rapid back-and-forth stays readable), then the older one fades. While Tomas is
  * on the intercom a small "live" indicator sits above the vitals: LINE CONTROL — CH 3.
  */
-import type { GameContext } from '../core/types';
+import type { GameContext, LevelInfo } from '../core/types';
+import { levelOf } from '../core/progress';
 import { h, setText, toggle, Typewriter, glyph, svg } from './dom';
 
 type Kind = 'choir' | 'pa' | 'tomas' | 'unit' | 'rec' | '';
@@ -15,11 +16,11 @@ type Kind = 'choir' | 'pa' | 'tomas' | 'unit' | 'rec' | '';
 /** Seconds an older line stays once a new speaker has taken over. */
 const OLD_HOLD = 1.6;
 
-function classify(speaker: string, level: number): Kind {
+function classify(speaker: string, style: LevelInfo['subtitles']): Kind {
   const s = speaker.trim().toUpperCase();
   if (/^PA$/.test(s)) return 'pa';
   if (/^CHOIR\b/.test(s)) return 'choir';
-  if (level === 1) return ''; // level 1 keeps its original look for every other speaker
+  if (style === 'single') return ''; // level 1 keeps its original look for every other speaker
   if (/TOMAS|INTERCOM|LINE CONTROL|HEADSET/.test(s)) return 'tomas';
   if (/RECORD|HALE|TAPE|LOG\b|VOICE MEMO/.test(s)) return 'rec';
   if (/UNIT|FOREMAN|VOSS|ANAND|OKAFOR|HUSK|STAFF/.test(s)) return 'unit';
@@ -110,12 +111,12 @@ export class Subtitles {
   }
 
   show(speaker: string, text: string, duration: number): void {
-    const level = this.ctx.levelId ?? 1;
-    const kind = classify(speaker, level);
+    const style = levelOf(this.ctx).subtitles;
+    const kind = classify(speaker, style);
     const live = this.entries.filter((e) => !e.dying);
     const newest = live[live.length - 1];
     let e: Entry;
-    if (newest && (newest.speaker === speaker || level === 1)) {
+    if (newest && (newest.speaker === speaker || style === 'single')) {
       // Same speaker continuing (or level 1: one line at a time, as it always was): replace in place.
       e = newest;
     } else {

@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext, Interactable, PalmPlate, PalmResult, PickupKind, Player, PlayerSave, Surface, WeaponId, WeaponState } from '../core/types';
+import { WEAPON_IDS } from '../core/types';
 import { Controller, MOVE, type MoveInput } from './controller';
 import { CameraRig } from './camera';
 import { Flashlight } from './flashlight';
@@ -301,10 +302,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         position: [r(p.x), r(p.y), r(p.z)],
         yaw: r(yaw),
         health: Math.round(health),
-        weapons: {
-          pistol: { owned: ws.pistol.owned, clip: ws.pistol.clip, reserve: ws.pistol.reserve },
-          shotgun: { owned: ws.shotgun.owned, clip: ws.shotgun.clip, reserve: ws.shotgun.reserve },
-        },
+        weapons: Object.fromEntries(WEAPON_IDS.map((id) => [id, { owned: ws[id].owned, clip: ws[id].clip, reserve: ws[id].reserve }])) as PlayerSave['weapons'],
         current: weapons.current,
         keys: [...keys],
         flashlight: flash.on,
@@ -316,7 +314,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       ctrl.body.velocity.set(0, 0, 0);
       player.health = Math.max(1, save.health);
       weapons.cancelReload();
-      for (const id of ['pistol', 'shotgun'] as const) {
+      for (const id of WEAPON_IDS) {
         const w = save.weapons?.[id], s = weapons.states[id];
         if (!w) continue;
         s.owned = !!w.owned;
@@ -338,7 +336,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       // Level change (REVISION 4): weapons / ammo / health / lamp only — no position, keys or pickup ids.
       if (save.weapons) {
         weapons.cancelReload();
-        for (const id of ['pistol', 'shotgun'] as const) {
+        for (const id of WEAPON_IDS) {
           const w = save.weapons[id], s = weapons.states[id];
           if (!w) continue;
           s.owned = !!w.owned;

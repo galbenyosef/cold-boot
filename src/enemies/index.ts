@@ -20,6 +20,7 @@ import { Foreman } from './foreman/foreman';
 import { buildHumanTemplate, type HumanTemplate } from './human/model';
 import { Human } from './human/human';
 import { loadTomasHead } from './human/head';
+import { levelOf } from '../core/progress';
 
 export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const t0 = performance.now();
@@ -36,10 +37,13 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const foreman: EnemyFactory = (world, group, position, yaw, o) => new Foreman(world, getForeman(), group, position, yaw, o);
   const human: EnemyFactory = (world, group, position, yaw, o) => new Human(world, getHuman(), group, position, yaw, o);
   const extra: ActorFactories = { human };
-  const lvl2 = ctx.levelId === 2 || (ctx.level?.enemySpawns ?? []).some((s) => s.type === 'foreman');
-  if (lvl2) { getForeman(); getHuman(); }
+  // §8.1: the level's cast (LEVELS[id].cast) — level 2 foreman + Tomas, level 3 the human template (Halvorsen)
+  const cast = levelOf(ctx).cast;
+  const needForeman = cast.foreman || (ctx.level?.enemySpawns ?? []).some((s) => s.type === 'foreman');
+  if (needForeman) getForeman();
+  if (cast.human) getHuman();
   // REVISION 5: Tomas's scanned head (level 2 only); the procedural face stays if it cannot be loaded in time
-  if (ctx.levelId === 2 && humanTpl) {
+  if (cast.tomasHead && humanTpl) {
     const tpl = humanTpl as HumanTemplate;
     try {
       tpl.scan = await Promise.race([
@@ -62,7 +66,8 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   // actors / spawn groups created later then reuse those programs (no first-sight compile hitch).
   const warmWorld = (manager as any).world;
   const warm = [husk, skitter, sentry];
-  if (lvl2) warm.push(foreman, human);
+  if (needForeman) warm.push(foreman);
+  if (cast.human) warm.push(human);
   for (const f of warm) {
     const e = f(warmWorld, '', new THREE.Vector3(0, -400, 0), 0, { dormant: false, pose: 'idle', actor: true });
     e.puppetEyes(true);

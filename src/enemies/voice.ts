@@ -7,6 +7,7 @@
  */
 import type * as THREE from 'three';
 import type { GameContext, VoiceHandle } from '../core/types';
+import { levelOf } from '../core/progress';
 
 interface Line { id: string; speaker?: string; text?: string; fx?: string; note?: string }
 
@@ -44,14 +45,14 @@ function load(level: number): { mutter: Line[]; foreman: Line[] } {
 
 /** True when recorded unit mutters can be played on this level. */
 export function hasUnitVoices(ctx: GameContext): boolean {
-  return typeof (ctx.audio as any)?.say === 'function' && load(ctx.levelId ?? 1).mutter.length > 0;
+  return typeof (ctx.audio as any)?.say === 'function' && load(levelOf(ctx).id).mutter.length > 0;
 }
 
 let lastIdx = -1;
 /** Play one random unit mutter at `pos`. Returns the handle (duration known) or null → caller falls back. */
 export function sayMutter(ctx: GameContext, pos: THREE.Vector3, rand: () => number): VoiceHandle | null {
   if (typeof (ctx.audio as any)?.say !== 'function') return null;
-  const { mutter } = load(ctx.levelId ?? 1);
+  const { mutter } = load(levelOf(ctx).id);
   if (mutter.length === 0) return null;
   let i = Math.floor(rand() * mutter.length);
   if (i === lastIdx && mutter.length > 1) i = (i + 1) % mutter.length;
@@ -65,7 +66,7 @@ export function sayMutter(ctx: GameContext, pos: THREE.Vector3, rand: () => numb
  */
 export function sayChorus(ctx: GameContext, positions: THREE.Vector3[], rand: () => number, delays = [0, 0.32, 0.77]): { handle: Promise<VoiceHandle | null>; index: number }[] {
   if (typeof (ctx.audio as any)?.say !== 'function') return [];
-  const { foreman } = load(ctx.levelId ?? 1);
+  const { foreman } = load(levelOf(ctx).id);
   if (foreman.length === 0) return [];
   // prefer three different speakers
   const pool = foreman.slice();

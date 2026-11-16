@@ -16,8 +16,107 @@ export type GameState = 'loading' | 'menu' | 'playing' | 'cutscene' | 'paused' |
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra';
 
-/** Which level this page load is running (REVISION 4). One level per page load; changing level reloads. */
-export type LevelId = 1 | 2;
+/**
+ * Which level this page load is running (REVISION 4). One level per page load; changing level reloads.
+ * Stage 3a (docs/plans/stage-3a.md §8.1): 1…6 parse; only `LEVELS[id].built` levels boot (core/progress.ts).
+ */
+export type LevelId = 1 | 2 | 3 | 4 | 5 | 6;
+
+/**
+ * Static facts about one level (§8.1). `LEVELS` in core/progress.ts is the ONLY place that knows them; modules
+ * look their level up (`levelOf(ctx)`) instead of branching on the level number.
+ */
+export interface LevelInfo {
+  id: LevelId;
+  /** Id prefix of this level's lines / files: 'l1', 'l2', … */
+  tag: `l${LevelId}`;
+  /** Has a level + story implementation (a direct start of an unbuilt level clamps to the highest built one). */
+  built: boolean;
+  /** Chapter title (end card, menu). */
+  title: string;
+  /** Short place name: HUD location line, resume gate, menu ("Sublevel 3", "Line Two"). */
+  place: string;
+  /** Boot overlay status word while the level builds. */
+  bootStatus: string;
+  /** Header line of terminal screens (materials/screens.ts). */
+  screenHeader: string;
+  /** Camera label on `camera_feed` screens. */
+  camLabel: string;
+  /** `terminal_idle` screens show their `text` (level 2+), not only scrolling diagnostics. */
+  idleText: boolean;
+  /** Audio: the level's bus is powered from load (ambience "power on" without the restore beat). */
+  powerOnAtLoad: boolean;
+  /** HUD name of a picked-up keycard; null = the generic name ("LOCK-OUT KEY"); prompts name the key when set. */
+  keycardName: string | null;
+  /** Eyebrow of the end screen; null = the level's own ending text. */
+  endEyebrow: string | null;
+  /** Menu line under CONTINUE when this is the stored level (null = none). */
+  menuLine: string | null;
+  /** Subtitles: 'single' = one line at a time (level 1's look), 'stacked' = speakers stack, per-speaker styles. */
+  subtitles: 'single' | 'stacked';
+  /** Enemy templates the level needs at load (enemies/index.ts). */
+  cast: { foreman: boolean; human: boolean; tomasHead: boolean };
+  /** Arrival without a carry (direct start / debug URL): loadout and facts (§7). */
+  direct: { facts: Facts; loadout: DirectLoadout | null };
+  /** A carried health value below this is raised to it on arrival (0 = none). */
+  healthFloor: number;
+  /** The level the chain hands over to at this level's end; null = the end card + menu (§8.1, D19). */
+  next: LevelId | null;
+}
+
+/**
+ * Loadout for a direct start (§7), applied as pickups: `give(weapon, clip)` then `give(ammo_<weapon>, reserve)` (a
+ * weapon pickup fills the clip and adds its amount to the reserve, so 12 + 24 ends as 12 / 36 — as level 2 always did).
+ */
+export interface DirectLoadout {
+  weapons: Partial<Record<WeaponId, { clip: number; reserve: number }>>;
+  health: number;
+  flashlight: boolean;
+}
+
+/**
+ * Story facts carried between levels and stored with every checkpoint (§8.1, §7). Level 2's end sets `choice`
+ * (`stop` = STOP / shutdown, `command` = COMMAND / rewrite) and `unitsLeft`. Optional because level 1 has none yet.
+ */
+export interface Facts {
+  choice?: 'stop' | 'command';
+  unitsLeft?: number;
+  [k: string]: string | number | boolean | undefined;
+}
+
+/** The loadout + facts one level hands to the next (§8.1). Key `coldboot.carry.v2`. */
+export interface CarryV2 {
+  v: 2;
+  /** The level that wrote it; only valid for `LEVELS[from].next`. */
+  from: LevelId;
+  health: number;
+  /** Armour points (no armour system yet: always 0). */
+  armor: number;
+  flashlight: boolean;
+  current: WeaponId | null;
+  /** Full record. On load unknown ids are dropped and missing ones are unowned. */
+  weapons: Record<WeaponId, { owned: boolean; clip: number; reserve: number }>;
+  facts: Facts;
+}
+
+/** One checkpoint (§8.1). Key `coldboot.save.l<N>.v2`; `rev` = the level's story revision; `P` = its progress record. */
+export interface SaveV2<P, Id extends string = string> {
+  v: 2;
+  level: LevelId;
+  rev: number;
+  id: Id;
+  /** Display name of the room the checkpoint was taken in (menu CONTINUE). */
+  place: string;
+  player: PlayerSave;
+  story: P;
+  /** Records recovered (ending stat). */
+  logs: string[];
+  stats: { time: number; kills: number };
+  /** Enemy groups to delete on load (all dead at save time). */
+  cleared: string[];
+  /** `ctx.facts` when the checkpoint was written. */
+  facts: Facts;
+}
 
 export interface DebugFlags {
   /** ?autostart=1 — skip the menu/intro and go straight to 'playing' (no pointer lock required). */
@@ -36,8 +135,12 @@ export interface DebugFlags {
   quality: Quality | null;
   /** ?debug=1 — modules may draw helpers / verbose logs. */
   verbose: boolean;
-  /** ?level=1|2 — force a level (REVISION 4); null = use saved progress. */
+  /** ?level=1…6 — force a level (REVISION 4, §8.1; unbuilt levels clamp to the highest built one); null = use saved progress. */
   level: LevelId | null;
+  /** ?choice=stop|command — level 2's choice for a direct start of a later level (§7); null = carry / default. */
+  choice: 'stop' | 'command' | null;
+  /** ?units=N — `facts.unitsLeft` for a direct start (§7); null = carry / default. */
+  units: number | null;
   /** Smoothed frames per second, written by main loop. */
   fps: number;
 }
@@ -68,6 +171,11 @@ export interface GameContext {
   debug: DebugFlags;
   /** The level this page load runs. Set by main.ts before any system is created; never changes. */
   levelId: LevelId;
+  /**
+   * §8.1: story facts this level was entered with (carry, else `?choice=`/`?units=`, else `LEVELS[id].direct.facts`).
+   * Set by main.ts before any system is created, so the level may build per fact (e.g. a screen per choice).
+   */
+  facts: Readonly<Facts>;
   /** Seconds of simulated (unpaused) game time. */
   time: number;
   state: GameState;
@@ -85,6 +193,8 @@ export interface Updatable {
 
 export type Surface = 'metal' | 'concrete' | 'glass' | 'rubber' | 'robot' | 'flesh';
 export type WeaponId = 'pistol' | 'shotgun';
+/** §8.1: every WeaponId, in slot order. snapshot / restore / carry iterate this list (never hard-coded ids). */
+export const WEAPON_IDS: readonly WeaponId[] = ['pistol', 'shotgun'];
 export type EnemyType = 'skitter' | 'husk' | 'sentry' | 'foreman';
 /** Scripted puppets (enemies.actor) may also be a human (REVISION 4: Tomas). */
 export type ActorType = EnemyType | 'human';
@@ -326,6 +436,10 @@ export interface LightDesc {
    * normally the light's room bounds, slightly expanded.
    */
   bounds?: THREE.Box3;
+  /** §8.4 (stage 3a): kept in the pool while pinned (feed rooms during a feed); no new scoring path. */
+  pin?: boolean;
+  /** §8.14 (stage 3a): below this render quality the light is never scored (fill lights dropped on low). */
+  minQuality?: Quality;
 }
 
 export interface LightHandle {
@@ -378,6 +492,29 @@ export interface PostFx {
   setLowHealth(amount: number): void;
   /** Exposure multiplier (1 = default). */
   setExposure(mult: number): void;
+  /**
+   * §8.7 (stage 3a): colour grade, animated over `seconds`. `warmth` > 0 counters the built-in teal shadows and
+   * warms the white balance, < 0 colder; 0 = today's look. Optional until render implements it.
+   */
+  grade?(warmth: number, seconds: number): void;
+}
+
+/** §8.4 (stage 3a): a live render-to-texture surveillance view (`RenderSystem.feed`). */
+export interface FeedOpts {
+  name: string;
+  width: number;
+  height: number;
+  /** Redraw rate. */
+  hz: number;
+  /** Rooms drawn in the feed pass (level visibility override). */
+  rooms: string[];
+}
+export interface FeedHandle {
+  /** Linear HDR target; the `feed` screen shader tone-maps it. */
+  readonly texture: THREE.Texture;
+  readonly camera: THREE.PerspectiveCamera;
+  active: boolean;
+  remove(): void;
 }
 
 export interface RenderSystem {
@@ -398,6 +535,8 @@ export interface RenderSystem {
   /** Render one frame (handles post-processing, light pool assignment, flicker). */
   render(dt: number): void;
   resize(width: number, height: number): void;
+  /** §8.4 (stage 3a): create a surveillance feed (one active at a time). Optional until render implements it. */
+  feed?(o: FeedOpts): FeedHandle;
 }
 
 // ───────────────────────────────────────────────────────────── materials (src/materials)
@@ -450,7 +589,28 @@ export type MaterialName =
   | 'emissive_red'
   | 'emissive_amber'
   | 'emissive_cyan'
-  | 'emissive_green';
+  | 'emissive_green'
+  | HabitatMaterialName;
+
+/**
+ * Stage 3a habitat materials (docs/plans/stage-3a.md §8.6), implemented by task P1. Until then `get` warns and falls
+ * back, and materials/defs keeps them out of its exhaustive SPECS record (P1 removes that exclusion).
+ */
+export type HabitatMaterialName =
+  | 'wood_veneer'         // oak grain stretched 40:1, satin
+  | 'wood_dark'           // walnut
+  | 'fabric_warm'         // twill, per-instance vertex colour
+  | 'carpet'              // loop-pile carpet with a 30 cm stripe
+  | 'plaster_warm'        // roller-textured off-white plaster
+  | 'terrazzo'            // Voronoi-chip terrazzo, polished
+  | 'stone_pale'          // honed limestone
+  | 'tile_ceramic'        // 15 cm glazed tile with grout
+  | 'linoleum'            // speckled pale-green linoleum
+  | 'soil'                // loam with mulch
+  | 'leaf'                // alpha-tested leaf atlas, double-sided, wrap lighting
+  | 'bark'                // smooth fig bark
+  | 'water'               // dark high-gloss water, two scrolling ripple normals
+  | 'glass_clear';        // clean architectural glass, faint fingerprints
 
 export type DecalName =
   | 'blood_splat' | 'blood_smear' | 'blood_pool' | 'oil_stain' | 'oil_drip' | 'scorch'
@@ -469,9 +629,16 @@ export type ScreenKind =
   // REVISION 6 (the core's two palm scanners). `text` of the option cards = the unit count, e.g. "28".
   | 'choice_stop'      // option card STOP (amber): pictogram of the units going dark + the consequence
   | 'choice_command'   // option card COMMAND (plain white): the units awake, turned to one supervisor
-  | 'palm';            // palm plate. `text` = "<amber|white>|<off|standby|idle|scan|done|fail>|<LABEL>|<scan seconds>"
+  | 'palm'             // palm plate. `text` = "<amber|white>|<off|standby|idle|scan|done|fail>|<LABEL>|<scan seconds>"
+  // stage 3a (§8.5, §6.5): drawn by materials once P1 lands; until then a blank panel
+  | 'pressure'         // pressure-door panel: `TEST|hh:mm:ss` → EQUALISING → RELEASED|CHOIR → OPEN → SECTOR SEALED
+  | 'habitat_status'   // lobby status board (clock, EVENING, nodes online)
+  | 'badge'            // badge reader
+  | 'feed'             // live surveillance feed: `opts.texture` (RenderSystem.feed)
+  | 'cctv';            // canvas CCTV animation (only if the feed spike falls back, §8.4)
 
-export type SignStyle = 'label' | 'warning' | 'danger' | 'directional' | 'stencil';
+/** `wayfinding` (stage 3a §8.6): habitat signage; until materials implement it, drawn like `stencil`. */
+export type SignStyle = 'label' | 'warning' | 'danger' | 'directional' | 'stencil' | 'wayfinding';
 
 export interface MaterialLibrary extends Updatable {
   /** Shared instance — do NOT mutate. Unknown names log a warning and return a fallback. */
@@ -483,9 +650,9 @@ export interface MaterialLibrary extends Updatable {
   /** A material with a rendered text sign / label texture. `aspect` = width / height of the quad. */
   sign(text: string, style: SignStyle, aspect?: number): THREE.MeshStandardMaterial;
   /** Animated emissive monitor material (animated in update()). Each call returns a fresh material. */
-  screen(kind: ScreenKind, opts?: { text?: string; aspect?: number }): THREE.MeshStandardMaterial;
+  screen(kind: ScreenKind, opts?: { text?: string; aspect?: number; texture?: THREE.Texture }): THREE.MeshStandardMaterial;
   /** Change an existing screen material to another kind (e.g. terminal_idle → choir). */
-  setScreen(material: THREE.MeshStandardMaterial, kind: ScreenKind, opts?: { text?: string }): void;
+  setScreen(material: THREE.MeshStandardMaterial, kind: ScreenKind, opts?: { text?: string; texture?: THREE.Texture }): void;
   /** Called by render.prepare() result: apply the reflection env map to all library materials. */
   setEnvMap(env: THREE.Texture | null, intensity?: number): void;
 }
@@ -517,6 +684,12 @@ export interface FxSystem extends Updatable {
 }
 
 // ───────────────────────────────────────────────────────────── audio (src/audio)
+
+/**
+ * Voice processing names (`fx` of a line in voice/lines.*.json, audio/voicefx.ts `FX_NAMES`). `room` (dry close +
+ * small-room reflections) and `door` (through a door) are stage 3a additions (§6.1, §8.11), implemented by P7.
+ */
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door';
 
 /** Sound ids are free-form strings; the list implemented by audio is in docs/DESIGN.md → Audio. */
 export interface PlayOpts {
@@ -585,9 +758,15 @@ export interface Door {
   /**
    * REVISION 5: override what the door's status panel shows. 'cycling' = amber "CYCLING" (locked for a
    * stated, temporary reason), 'dark' = panel off (unpowered), null = default (red locked / green open).
+   * 'private' (stage 3a §8.12): blue panel, prompt "Private cabin", locked — until level implements it, as null.
    */
-  setStatus(status: 'cycling' | 'dark' | null): void;
+  setStatus(status: DoorStatus | null): void;
+  /** §8.9 (stage 3a): floor y of the frame / sill (Deck 2 = 4.8). Absent = 0. */
+  readonly y?: number;
 }
+
+/** Door status panel overrides (see Door.setStatus). */
+export type DoorStatus = 'cycling' | 'dark' | 'private';
 
 export interface EnemySpawn {
   id: string;
@@ -627,16 +806,32 @@ export interface PickupSpawn {
 
 export interface NavNode {
   id: number;
+  /** §8.10 (stage 3a): `y` is the node's walkable floor (Deck 2 = 4.8), not always 0. */
   position: THREE.Vector3;
   links: number[];
   room: string;
+  /** §8.10: index into the room's `floors` (nav v2); absent = the room's main floor. */
+  floor?: number;
+  /** §8.10: a stair link-chain node (explicit links every 1.0 m). */
+  stair?: boolean;
+}
+
+/** §8.10 (stage 3a): one walkable floor of a room (nav v2: nodes per floor). */
+export interface RoomFloor {
+  y: number;
+  box: THREE.Box3;
 }
 
 export interface Room {
   id: string;
   /** Display name, e.g. "MEDICAL 3-A". */
   name: string;
+  /** §8.9: y0 − 0.5 … y0 + h. */
   bounds: THREE.Box3;
+  /** §8.9 (stage 3a): floor y of the room (`LevelBuild.room(…, { y0 })`); absent = 0. */
+  y0?: number;
+  /** §8.10 (stage 3a): walkable floors (nav v2); absent = one floor at `y0`. */
+  floors?: readonly RoomFloor[];
 }
 
 export interface Level extends Updatable {
@@ -673,6 +868,11 @@ export interface Level extends Updatable {
    * docs/DESIGN.md → REVISION 5.1), each a list of boxes. Level 1 may return an empty record.
    */
   readonly regions: Readonly<Record<string, readonly THREE.Box3[]>>;
+  /**
+   * §8.4 (stage 3a): while set, only these rooms count as visible (roomVisible, the tagged-room pass, render's
+   * occludeForeign, enemies' cull) — used around a feed pass. null clears it. Optional until level implements it.
+   */
+  setVisibilityOverride?(rooms: ReadonlySet<string> | null): void;
 }
 
 // ───────────────────────────────────────────────────────────── player (src/player)
@@ -743,6 +943,20 @@ export interface Player extends Updatable {
   cancelPalm(): void;
   /** REVISION 6.1: progress 0..1 of the running palm scan; -1 when no scan is running. */
   readonly palmProgress: number;
+  /**
+   * §8.2 (stage 3a): cutscene mode. on: zero velocity, cancel reload / palm, ignore input, no footsteps, viewmodel
+   * hidden or held lowered (`topUp`: refill the clip quietly); off: restore. Optional until player implements it (P4).
+   */
+  cinematic?(on: boolean, o?: { viewmodel?: 'hidden' | 'lowered'; topUp?: boolean }): void;
+  /**
+   * §8.3 (stage 3a): safe state. While on the weapon is stowed (as the palm scan), fire / reload / switch are
+   * ignored, the crosshair is hidden; off → raise over 0.34 s. Story-driven. Optional until P4.
+   */
+  setSafe?(on: boolean): void;
+  /** §8.3: true while `setSafe(true)` holds. */
+  readonly safe?: boolean;
+  /** §8.2 (stage 3a): forget a held / buffered key (the skip key must not also jump). Optional until P4. */
+  consumeKey?(code: string): void;
   /** Checkpoints: plain-JSON snapshot of everything the player module owns (incl. collected pickups). */
   snapshot(): PlayerSave;
   /** Restore a snapshot: teleport, health, weapons/ammo, keys, flashlight; remove already-collected pickups. Emits no pickup events. */
@@ -771,6 +985,8 @@ export interface PlayerSave {
   flashlight: boolean;
   /** Ids of PickupSpawns already collected. */
   pickups: string[];
+  /** §8.1 (stage 3a): armour points; absent = 0 (no armour system yet). */
+  armor?: number;
 }
 
 // ───────────────────────────────────────────────────────────── enemies (src/enemies)
@@ -829,7 +1045,13 @@ export interface EnemyManager extends Updatable {
 
 /** REVISION 5: how a puppet is rendered. Holograms are see-through sci-fi projections (no shadow, no collision). */
 export type ActorLook = 'solid' | 'holo_ghost' | 'holo_tech';
-export interface ActorOpts { look?: ActorLook }
+export interface ActorOpts {
+  look?: ActorLook;
+  /** §8.8 (stage 3a): which person a 'human' actor is (body, head, voice). Default 'tomas'. */
+  who?: ActorWho;
+}
+/** §8.8: the human actors. */
+export type ActorWho = 'tomas' | 'halvorsen';
 
 export interface EnemyActor {
   readonly type: ActorType;
@@ -876,6 +1098,8 @@ export interface UISystem extends Updatable {
   showDeath(): Promise<void>;
   showEnding(): Promise<void>;
   setHudVisible(visible: boolean): void;
+  /** §8.2 (stage 3a): cutscene skip ring, 0..1 while SPACE is held; null hides it. Optional until UI implements it (P5). */
+  showSkip?(progress: number | null): void;
 }
 
 // ───────────────────────────────────────────────────────────── story (src/story)

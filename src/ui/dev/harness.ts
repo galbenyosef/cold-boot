@@ -4,8 +4,10 @@
  * Screens: menu hud choir log console pause card-intro card-title death ending gate wake
  */
 import * as THREE from 'three';
-import type { GameContext, GameState, WeaponState } from '../../core/types';
+import type { GameContext, GameState, LevelId, WeaponState } from '../../core/types';
 import { createEvents } from '../../core/events';
+import { LEVEL_KEY, levelOf, parseLevel } from '../../core/progress';
+import { END_CARD_L3 } from '../../story/l3/text';
 import { createInput } from '../../core/input';
 import { createUI } from '../index';
 import type { UIInternal } from '../types';
@@ -69,12 +71,20 @@ async function main() {
     level: { roomAt: () => ({ id: 'junction', name: 'JUNCTION 3' }), object: () => undefined, screen: () => undefined },
     story: { objective: 'Fab access is on security hold — go to Security 3', logs: new Set(['log_med']), stats, lateUpdate() {}, update() {}, async run() {} },
     interactables: { get: () => undefined },
-    levelId: q.get('level') === '2' || /-l2$|^dialogue|^boss/.test(screen) ? 2 : 1,
+    // ?level=N, else the screen's `-lN` suffix; dialogue / boss screens are level 2's
+    levelId: parseLevel(q.get('level')) ?? parseLevel(/-l(\d)$/.exec(screen)?.[1]) ?? (/^dialogue|^boss/.test(screen) ? 2 : 1),
+    facts: {},
     enemies: { all: [] as any[], activeCount: 0 },
   } as unknown as GameContext;
-  if (ctx.levelId === 2) {
-    (ctx.level as any).roomAt = () => ({ id: 'line', name: 'LINE TWO' });
-    (ctx.story as any).objective = 'Find a way into Line Control';
+  // §8.1: per-level dressing of the fake world (a lookup; level 1 = the defaults above)
+  const FAKE: Partial<Record<LevelId, { room: { id: string; name: string }; objective: string }>> = {
+    2: { room: { id: 'line', name: 'LINE TWO' }, objective: 'Find a way into Line Control' },
+    3: { room: { id: 'l3_stub', name: 'HABITAT LOBBY' }, objective: 'Find someone — the habitat lobby' },
+  };
+  const fake = FAKE[levelOf(ctx).id];
+  if (fake) {
+    (ctx.level as any).roomAt = () => fake.room;
+    (ctx.story as any).objective = fake.objective;
   }
   (window as any).__game = ctx;
   const ui = await createUI(ctx) as UIInternal;
@@ -157,8 +167,11 @@ async function main() {
     case 'ending': ctx.setState('ended'); void ui.showEnding(); break;
     case 'gate': ctx.setState('menu'); void ui.showResumeGate(); break;
     case 'menu-l2':
-      try { localStorage.setItem('coldboot.level', '2'); } catch { /* ignore */ }
+    case 'menu-l3':
+      try { localStorage.setItem(LEVEL_KEY, screen.slice(-1)); } catch { /* ignore */ }
       ctx.setState('menu'); void ui.showMenu(); break;
+    // §7 / D19: level 3's end-card stub (task P5 styles it)
+    case 'card-end-l3': ctx.setState('ended'); void ui.showCard(END_CARD_L3, { style: 'ending', skippable: true, seconds: 60 }); break;
     case 'dialogue':
     case 'dialogue-note': {
       playing();

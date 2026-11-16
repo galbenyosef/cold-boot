@@ -37,7 +37,7 @@ const SCARES = argv.includes('--scares');
 const CHECKPOINTS = argv.includes('--checkpoints');
 const ONLY_CP = argv.find((a) => a.startsWith('--cp='))?.slice(5) ?? null;
 const LEVEL2 = argv.includes('--level2');
-const SAVE_KEY = LEVEL2 ? 'coldboot.save.l2.v1' : 'coldboot.save.v1';
+const SAVE_KEY = LEVEL2 ? 'coldboot.save.l2.v2' : 'coldboot.save.l1.v2';
 const CP_IDS = ['cp_armed', 'cp_fab', 'cp_lockout', 'cp_key', 'cp_breaker', 'cp_lobby'];
 const base = argv.find((a) => !a.startsWith('--')) ?? 'http://127.0.0.1:5173';
 mkdirSync('shots', { recursive: true });
@@ -84,8 +84,15 @@ const boot = async (query = '') => {
   const url = `${base}/?autostart=1&god=1${LEVEL2 && !/[?&]level=/.test(query) && !query.includes('nolevel') ? '&level=2' : ''}${query}`;
   // Navigating while the previous page still streams voice files can abort once: retry.
   expectNav = true;
+  // Mark the outgoing page: `ready` must come from a NEW page. An aborted / retried navigation must never let the
+  // previous run's page (its beats, its choice) pass for a fresh boot.
+  await page.evaluate(() => { window.__stalePage = true; }).catch(() => {});
   for (let i = 0; ; i++) {
-    try { await page.goto(url); break; } catch (e) { if (i >= 2) throw e; await page.waitForTimeout(700); }
+    try { await page.goto(url); } catch (e) { if (i >= 2) throw e; await page.waitForTimeout(700); continue; }
+    const fresh = await page.evaluate(() => !window.__stalePage).catch(() => false);
+    if (fresh) break;
+    if (i >= 2) throw new Error('boot: the page did not reload (stale page after goto)');
+    await page.waitForTimeout(700);
   }
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 60000 });
   expectNav = false;
@@ -665,7 +672,7 @@ for (const [idx, cp] of CP_IDS.entries()) {
 // Storage rules: plain ?autostart=1 ignores the save; a corrupt / wrong-version blob is discarded.
 if (!ONLY_CP) {
   console.log('\n══════════ storage rules ══════════');
-  const blob = { v: 1, id: 'cp_armed', place: 'SECURITY 3', player: { position: [-8, 0, -19.6], yaw: 0, health: 50, weapons: { pistol: { owned: true, clip: 5, reserve: 7 }, shotgun: { owned: false, clip: 0, reserve: 0 } }, current: 'pistol', keys: [], flashlight: false, pickups: ['p_pistol'] },
+  const blob = { v: 2, level: 1, rev: 1, facts: {}, id: 'cp_armed', place: 'SECURITY 3', player: { position: [-8, 0, -19.6], yaw: 0, health: 50, weapons: { pistol: { owned: true, clip: 5, reserve: 7 }, shotgun: { owned: false, clip: 0, reserve: 0 } }, current: 'pistol', keys: [], flashlight: false, pickups: ['p_pistol'] },
     story: { beats: ['wake', 'hold_released', 'armed'], read: [], visited: ['med', 'sec'], flags: { holdReleased: true, armed: true }, triggered: [], cleared: [], checkpoints: ['cp_armed'] }, logs: [], stats: { time: 60, kills: 0 }, cleared: [] };
   await ev(([k, v]) => localStorage.setItem(k, JSON.stringify(v)), [SAVE_KEY, blob]);
   await boot();
@@ -683,7 +690,7 @@ if (!ONLY_CP) {
   r = await ev(() => ({ from: window.__game.story.debugState.restoredFrom, z: window.__game.player.position.z, clip: window.__game.player.weapons.pistol.clip }));
   console.log('  &continue=1           →', JSON.stringify(r));
   if (r.from !== 'cp_armed' || r.clip !== 5) problems.push(`a hand-written valid save was not loaded: ${JSON.stringify(r)}`);
-  for (const [name, raw] of [['garbage', '{not json'], ['other version', JSON.stringify({ ...blob, v: 99 })], ['wrong shape', JSON.stringify({ v: 1, id: 'cp_key' })]]) {
+  for (const [name, raw] of [['garbage', '{not json'], ['other version', JSON.stringify({ ...blob, v: 99 })], ['wrong shape', JSON.stringify({ v: 2, level: 1, rev: 1, id: 'cp_key' })], ['other level', JSON.stringify({ ...blob, level: 2 })]]) {
     await ev(([k, v]) => localStorage.setItem(k, v), [SAVE_KEY, raw]);
     await boot('&continue=1');
     await wait(600);
@@ -691,6 +698,13 @@ if (!ONLY_CP) {
     console.log(`  ${name.padEnd(21)} →`, JSON.stringify(r));
     if (r.from || r.kept || r.state !== 'playing' || r.z < 0) problems.push(`${name} save must be discarded and the game start fresh: ${JSON.stringify(r)}`);
   }
+  // §8.1: a v1 save (schema before the level chain) is deleted on boot, once; the level starts over.
+  await ev(([k, v]) => { localStorage.removeItem(k); localStorage.setItem('coldboot.save.v1', JSON.stringify(v)); }, [SAVE_KEY, { ...blob, v: 1 }]);
+  await boot('&continue=1');
+  await wait(600);
+  r = await ev(() => ({ from: window.__game.story.debugState.restoredFrom, z: window.__game.player.position.z, v1: localStorage.getItem('coldboot.save.v1'), state: window.__game.state }));
+  console.log('  v1 save              →', JSON.stringify(r));
+  if (r.from || r.v1 !== null || r.state !== 'playing' || r.z < 0) problems.push(`a v1 save must be discarded once and the level start over: ${JSON.stringify(r)}`);
 }
 
 await browser.close();
@@ -958,7 +972,12 @@ async function runLevel2() {
       ints: g.interactables.all.map((i) => i.id).join(','),
     };
   });
-  const clearL2 = () => ev(() => { for (const k of ['coldboot.save.l2.v1', 'coldboot.carry', 'coldboot.level']) localStorage.removeItem(k); });
+  // Every stored run key of every schema (saves of all levels, carry, level pointer, v1 keys) and the one-shot
+  // session flags (continue / begin / skip-intro); settings and `coldboot.seen.v1` stay.
+  const clearL2 = () => ev(() => {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('coldboot.') && k !== 'coldboot.settings' && k !== 'coldboot.seen.v1') localStorage.removeItem(k);
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith('coldboot.')) sessionStorage.removeItem(k);
+  });
   const doorIs = (id) => ev((id) => { try { const d = window.__game.level.door(id); return { locked: d.locked, open: d.isOpen, closed: d.closed }; } catch { return null; } }, id);
   const groupsNow = () => ev(() => { const o = {}; for (const e of window.__game.enemies.all) o[e.group] = (o[e.group] ?? 0) + (e.alive ? 1 : 0); return o; });
   const pPos = () => ev(() => { const p = window.__game.player.position; return [p.x, p.y, p.z]; });
@@ -1466,12 +1485,13 @@ async function runLevel2() {
     await page.waitForFunction(() => window.__game.state === 'ended', null, { timeout: 60000 }).catch(() => bad('never reached state "ended"'));
     await wait(fast ? 1500 : 5000);
     await shot(`21-end-${choice}`);
-    const end = await ev(() => ({ state: window.__game.state, save: localStorage.getItem('coldboot.save.l2.v1'), level: localStorage.getItem('coldboot.level'), beats: window.__game.story.debugState.beats.filter((b) => !b.startsWith('#')),
+    const end = await ev(() => ({ state: window.__game.state, save: localStorage.getItem('coldboot.save.l2.v2'), level: localStorage.getItem('coldboot.level'), beats: window.__game.story.debugState.beats.filter((b) => !b.startsWith('#')),
       husks: window.__game.story.debugState.flags.husksKilled, units: window.__game.story.debugState.core.units, text: document.querySelector('.cb')?.innerText?.replace(/\s+/g, ' ').slice(0, 1200) ?? '' }));
     console.log('  ending text:', end.text);
     if (end.save) bad('the level-2 checkpoint was not cleared by the ending');
     if (end.level !== '2') bad(`stored level after finishing level 2 is ${end.level}, expected 2`);
-    if (!/TO BE CONTINUED/i.test(end.text)) notes.push('ending text "TO BE CONTINUED" not found in the DOM');
+    // D20 (stage 3a): level 2's card stays, without "TO BE CONTINUED" — the chain hands over to level 3.
+    if (/TO BE CONTINUED/i.test(end.text)) bad('level 2\'s end card still says "TO BE CONTINUED" (D20)');
     // The ending counts what is left: never "thirty-two" once units were shot — and it is the cards' number.
     if (end.husks > 0 && /thirty-two/i.test(end.text)) bad('the ending card claims thirty-two units although the player shot some');
     { const m = choice === 'shutdown' ? /UNITS STANDING: 0 OF (\d+)/i.exec(end.text) : /UNITS AWAITING ORDERS: (\d+)/i.exec(end.text);
@@ -1519,6 +1539,8 @@ async function runLevel2() {
     for (const choice of ENDINGS) {
       console.log(`\n══════════ level 2 → ${choice} ══════════`);
       await clearL2(); await boot();
+      { const b0 = await ev(() => ({ beats: window.__game.story.debugState.beats, from: window.__game.story.debugState.restoredFrom }));
+        if (b0.from || b0.beats.some((x) => /^l2_choice_|^l2_end$/.test(x))) bad(`the ${choice} run did not start fresh: ${JSON.stringify(b0)}`); }
       for (const seg of SEG2) await seg(choice === 'rewrite');
       const end = await s2End(choice);
       checkOrder(end.beats, choice);
@@ -1536,11 +1558,11 @@ async function runLevel2() {
       await clearL2(); await boot(); await wait(300);
       await ev(([old, v]) => {
         const g = window.__game;
-        const s = { v, level: 2, place: 'X', player: g.player.snapshot(), story: { beats: ['l2_arrive'], read: [], visited: [], flags: {}, triggered: [], cleared: [], checkpoints: [] }, logs: [], stats: { time: 1, kills: 0 }, cleared: [], ...old };
-        localStorage.setItem('coldboot.save.l2.v1', JSON.stringify(s));
+        const s = { v, level: 2, facts: {}, place: 'X', player: g.player.snapshot(), story: { beats: ['l2_arrive'], read: [], visited: [], flags: {}, triggered: [], cleared: [], checkpoints: [] }, logs: [], stats: { time: 1, kills: 0 }, cleared: [], ...old };
+        localStorage.setItem('coldboot.save.l2.v2', JSON.stringify(s));
       }, [old, SAVE_V]);
       await boot('&continue=1'); await wait(1500);
-      const r = await ev(() => ({ restored: window.__game.story.debugState.restoredFrom, save: localStorage.getItem('coldboot.save.l2.v1'), state: window.__game.state, beats: window.__game.story.debugState.beats }));
+      const r = await ev(() => ({ restored: window.__game.story.debugState.restoredFrom, save: localStorage.getItem('coldboot.save.l2.v2'), state: window.__game.state, beats: window.__game.story.debugState.beats }));
       console.log(`[old save ${JSON.stringify(old)}]`, JSON.stringify({ restored: r.restored, kept: !!r.save, state: r.state }));
       if (r.restored) bad(`an old save (${JSON.stringify(old)}) was loaded instead of discarded`);
       if (r.state !== 'playing' || !r.beats.includes('l2_arrive')) bad('after discarding an old save the level did not start from the beginning');
@@ -1548,9 +1570,9 @@ async function runLevel2() {
     // Level 1 → level 2 hand-over: stored level, carried loadout.
     await clearL2(); await boot('&level=1&handoff=1'); await wait(500);
     await ev(() => { const g = window.__game; g.player.give('pistol', 12); g.player.give('ammo_pistol', 7); g.story.handoff(); });
-    const ho = await ev(() => ({ level: localStorage.getItem('coldboot.level'), carry: JSON.parse(localStorage.getItem('coldboot.carry') ?? 'null'), l1: localStorage.getItem('coldboot.save.v1') }));
+    const ho = await ev(() => ({ level: localStorage.getItem('coldboot.level'), carry: JSON.parse(localStorage.getItem('coldboot.carry.v2') ?? 'null'), l1: localStorage.getItem('coldboot.save.l1.v2') }));
     console.log('[handoff]', JSON.stringify(ho));
-    if (ho.level !== '2' || !ho.carry?.weapons?.pistol?.owned || ho.l1) bad(`hand-over did not store level 2 + loadout / clear the level-1 save: ${JSON.stringify(ho)}`);
+    if (ho.level !== '2' || ho.carry?.v !== 2 || ho.carry?.from !== 1 || !ho.carry?.weapons?.pistol?.owned || ho.l1) bad(`hand-over did not store level 2 + loadout / clear the level-1 save: ${JSON.stringify(ho)}`);
     await boot('&nolevel=1'); await wait(800);
     { const r = await ev(() => ({ level: window.__game.levelId, pistol: window.__game.player.weapons.pistol, shotgun: window.__game.player.weapons.shotgun.owned }));
       console.log('[handoff → reload]', JSON.stringify(r));

@@ -10,6 +10,11 @@ Run everything here and fix what it finds. When the user finds a new class of de
   - `check:wreck` — a dead robot on the floor is walked over, not into.
   - `check:reach` — per story phase, the player cannot reach what must be sealed and can reach what is needed.
   - `check:decals` — bullet holes / decals shot onto every door leaf (and registered movers) ride with it or vanish when it opens; none left hanging in mid-air.
+  - `check:chain` — the level chain + save/carry v2: every built level boots directly (`?level=4+` clamps, a bad
+    `?level=` falls back to the stored level), L1 → L2 → L3 hand-overs keep loadout and facts (both choices), level 3's
+    end card + carry, menu CONTINUE / BEGIN on a stored level 3, v1 saves discarded once, corrupt carries ignored; plus
+    a source grep that fails on a binary level branch (allow-list `scripts/levelgrep-allow.txt`). Static build:
+    `node scripts/check-chain.mjs --url http://127.0.0.1:<port>`.
 - `node scripts/playthrough.mjs <url>` (level 1), `--checkpoints`, `--level2`, `--level2 --checkpoints`,
   `--level2 --impatient` — on a static build (`vite build` + `vite preview`), not the dev server.
 - `npm run voice:check` after any change to `voice/lines.*.json` (and `npm run voice` before it).

@@ -9,6 +9,7 @@ import { Music, type MusicMode } from './music';
 import { Ambience } from './ambient';
 import { renderChoir } from './choir';
 import { VoiceBank } from './voice';
+import { levelOf } from '../core/progress';
 
 export interface AudioDebug {
   engine: AudioEngine;
@@ -58,10 +59,11 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   const music = new Music(eng.ctx, eng.buses.music, eng.plateIn, (id) => eng.buffers(id));
   const amb = new Ambience(eng);
   const voice = new VoiceBank(eng);
-  // level 2 starts with the hall powered (held, not dead)
-  if (ctx.levelId === 2) amb.powerOn = true;
+  // levels after the first start powered (level 2: the hall is held, not dead) — LEVELS[id].powerOnAtLoad
+  const level = levelOf(ctx);
+  if (level.powerOnAtLoad) amb.powerOn = true;
   // this level's voice files: fetch the bytes in the background (decode stays lazy)
-  setTimeout(() => { try { voice.prefetchLevel(ctx.levelId ?? 1); } catch { /* ignore */ } }, 1500);
+  setTimeout(() => { try { voice.prefetchLevel(level.id); } catch { /* ignore */ } }, 1500);
   const musicTimer = setInterval(() => { if (eng.running) music.tick(); }, 100);
   void musicTimer;
 

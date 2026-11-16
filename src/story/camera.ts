@@ -5,7 +5,7 @@
  * Driven from `story.lateUpdate`, which the UI calls at the end of `ui.update` every frame.
  */
 import * as THREE from 'three';
-import type { GameContext } from '../core/types';
+import type { GameContext, LevelId } from '../core/types';
 
 interface Shot { from: THREE.Vector3; to: THREE.Vector3; lookFrom: THREE.Vector3; lookTo: THREE.Vector3; dur: number; fov?: number }
 
@@ -25,6 +25,14 @@ const SHOTS_L2: Shot[] = [
   { from: v(-2.5, 3.4, -24.5), to: v(-1.2, 3.2, -27.5), lookFrom: v(-9, 1.6, -45), lookTo: v(-8.5, 1.5, -46), dur: 15, fov: 60 },
 ];
 
+/** Level 3 stub (K2): one slow push across the stub room; the shots table of §4 replaces it (P4/P10). */
+const SHOTS_L3: Shot[] = [
+  { from: v(-3.8, 2.4, -1.0), to: v(-3.0, 2.3, -1.8), lookFrom: v(1.5, 1.0, -8.5), lookTo: v(2.2, 1.0, -8.8), dur: 14, fov: 60 },
+];
+
+/** Menu shots per level (§8.1: a lookup, one entry per built level). */
+const SHOTS: Partial<Record<LevelId, Shot[]>> = { 1: SHOTS_L1, 2: SHOTS_L2, 3: SHOTS_L3 };
+
 const BASE_FADE = 0.12;
 
 export class CameraRig {
@@ -42,7 +50,9 @@ export class CameraRig {
   private shots: Shot[];
 
   constructor(private ctx: GameContext) {
-    this.shots = ctx.levelId === 2 ? SHOTS_L2 : SHOTS_L1;
+    const shots = SHOTS[ctx.levelId];
+    if (!shots) throw new Error(`[story] no menu shots for level ${ctx.levelId}`);
+    this.shots = shots;
     this.baseFov = ctx.camera.fov;
   }
 

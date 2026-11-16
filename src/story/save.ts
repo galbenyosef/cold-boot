@@ -1,19 +1,97 @@
 /**
- * Checkpoint storage (REVISION 3): one small versioned JSON blob in localStorage.
+ * Checkpoint + carry storage, schema v2 for every level (REVISION 3/4; stage 3a §8.1).
  *
- * Every access is wrapped in try/catch (private mode, disabled storage, quota); a blob that does not
- * parse, has another version or the wrong shape is discarded. Nothing here touches the game world.
+ * Keys: `coldboot.level` (core/progress.ts), `coldboot.save.l<N>.v2` (one checkpoint per level), `coldboot.carry.v2`
+ * (what one level hands to the next), `coldboot.seen.v1` (scenes seen on this browser; never cleared by BEGIN).
+ * The v1 keys (`coldboot.save.v1`, `coldboot.save.l2.v1`, `coldboot.carry`) are deleted on boot (`discardV1`): an old
+ * player starts their stored level over.
+ *
+ * Every access is wrapped in try/catch (private mode, disabled storage, quota); a blob that does not parse, has
+ * another version / level / story revision or the wrong shape is discarded. Nothing here touches the game world.
  */
-import type { LevelId, PlayerSave, WeaponId } from '../core/types';
-import { setStoredLevel, storedLevel } from '../core/progress';
+import type { CarryV2, Facts, LevelId, PlayerSave, SaveV2, WeaponId } from '../core/types';
+import { WEAPON_IDS } from '../core/types';
+import { FIRST_LEVEL, LEVEL_IDS, levelInfo, setStoredLevel, storedLevel } from '../core/progress';
 
-export const SAVE_KEY = 'coldboot.save.v1';
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 /** sessionStorage flag: set by LOAD CHECKPOINT so the reloaded page resumes from the save (one click). */
 export const CONTINUE_KEY = 'coldboot.continue';
+/** sessionStorage flag: BEGIN was chosen on a later level's page — the reloaded level-1 page starts a new run behind one click. */
+export const BEGIN_KEY = 'coldboot.begin';
+export const CARRY_KEY = 'coldboot.carry.v2';
+/** D9: scenes seen on this browser (skip allowed on the second view). Never cleared by BEGIN. */
+export const SEEN_KEY = 'coldboot.seen.v1';
+/** v1 storage (REVISION 3/4), discarded once on boot. */
+export const V1_KEYS = ['coldboot.save.v1', 'coldboot.save.l2.v1', 'coldboot.carry'] as const;
+
+export const saveKey = (level: LevelId): string => `coldboot.save.l${level}.v2`;
+
+const strings = (a: unknown): a is string[] => Array.isArray(a) && a.every((s) => typeof s === 'string');
+const num = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+
+// ───────────────────────────────────────────────────────────── generic checkpoint per level
+
+/** What a level's story declares about its checkpoints. */
+export interface SaveSpec {
+  level: LevelId;
+  /** Story revision: a save written by an older flow is discarded on load. */
+  rev: number;
+  ids: readonly string[];
+}
+
+function validPlayer(p: any): p is PlayerSave {
+  if (!p || !Array.isArray(p.position) || p.position.length !== 3 || !p.position.every(num) || !num(p.yaw) || !num(p.health)) return false;
+  if (!p.weapons || typeof p.weapons !== 'object' || !strings(p.keys) || !strings(p.pickups)) return false;
+  return true;
+}
+
+export function validFacts(f: any): f is Facts {
+  if (!f || typeof f !== 'object' || Array.isArray(f)) return false;
+  for (const v of Object.values(f)) if (typeof v !== 'string' && typeof v !== 'boolean' && !num(v)) return false;
+  if (f.choice !== undefined && f.choice !== 'stop' && f.choice !== 'command') return false;
+  if (f.unitsLeft !== undefined && !num(f.unitsLeft)) return false;
+  return true;
+}
+
+function validSave(s: any, spec: SaveSpec): boolean {
+  if (!s || typeof s !== 'object' || s.v !== SAVE_VERSION || s.level !== spec.level || s.rev !== spec.rev) return false;
+  if (!spec.ids.includes(s.id) || !validPlayer(s.player) || !validFacts(s.facts)) return false;
+  const st = s.story;
+  if (!st || !strings(st.beats) || !strings(st.read) || !strings(st.visited) || !strings(st.triggered) || !strings(st.cleared) || !strings(st.checkpoints)) return false;
+  if (!st.flags || typeof st.flags !== 'object') return false;
+  if (st.heard !== undefined && !strings(st.heard)) return false;
+  if (!strings(s.logs) || !strings(s.cleared) || !s.stats || !num(s.stats.time) || !num(s.stats.kills)) return false;
+  return true;
+}
+
+/** The stored checkpoint of `spec.level`, or null (none / unreadable / corrupt / other version — those are deleted). */
+export function loadLevelSave<P>(spec: SaveSpec): SaveV2<P> | null {
+  let raw: string | null = null;
+  try { raw = localStorage.getItem(saveKey(spec.level)); } catch { return null; }
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw);
+    if (validSave(s, spec)) { if (typeof s.place !== 'string') s.place = ''; return s as SaveV2<P>; }
+  } catch { /* fall through: discard */ }
+  clearLevelSave(spec.level);
+  return null;
+}
+
+export function writeLevelSave<P>(s: SaveV2<P>): boolean {
+  try { localStorage.setItem(saveKey(s.level), JSON.stringify(s)); return true; } catch { return false; }
+}
+
+export function clearLevelSave(level: LevelId): void {
+  try { localStorage.removeItem(saveKey(level)); } catch { /* ignore */ }
+}
+
+// ───────────────────────────────────────────────────────────── level 1
 
 export const CHECKPOINT_IDS = ['cp_armed', 'cp_fab', 'cp_lockout', 'cp_key', 'cp_breaker', 'cp_lobby'] as const;
 export type CheckpointId = typeof CHECKPOINT_IDS[number];
+/** Revision of level 1's story record (v2 schema). */
+export const STORY_REV_L1 = 1;
+const SPEC_L1: SaveSpec = { level: 1, rev: STORY_REV_L1, ids: CHECKPOINT_IDS };
 
 /** The story's whole serialisable progress record (owned by `Script`). */
 export interface Progress {
@@ -46,19 +124,7 @@ export interface Progress {
   checkpoints: string[];
 }
 
-export interface SaveData {
-  v: number;
-  id: CheckpointId;
-  /** Display name of the room the checkpoint was taken in (menu CONTINUE). */
-  place: string;
-  player: PlayerSave;
-  story: Progress;
-  /** Records recovered (ending stat). */
-  logs: string[];
-  stats: { time: number; kills: number };
-  /** Enemy groups to delete on load (all dead at save time). */
-  cleared: string[];
-}
+export type SaveData = SaveV2<Progress, CheckpointId>;
 
 export function emptyProgress(): Progress {
   return {
@@ -68,68 +134,16 @@ export function emptyProgress(): Progress {
   };
 }
 
-const strings = (a: unknown): a is string[] => Array.isArray(a) && a.every((s) => typeof s === 'string');
-const num = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
-
-function valid(s: any): s is SaveData {
-  if (!s || typeof s !== 'object' || s.v !== SAVE_VERSION) return false;
-  if (!(CHECKPOINT_IDS as readonly string[]).includes(s.id)) return false;
-  const p = s.player, st = s.story;
-  if (!p || !Array.isArray(p.position) || p.position.length !== 3 || !p.position.every(num) || !num(p.yaw) || !num(p.health)) return false;
-  if (!p.weapons || !p.weapons.pistol || !p.weapons.shotgun || !strings(p.keys) || !strings(p.pickups)) return false;
-  if (!st || !strings(st.beats) || !strings(st.read) || !strings(st.visited) || !strings(st.triggered) || !strings(st.cleared) || !strings(st.checkpoints)) return false;
-  if (!st.flags || typeof st.flags !== 'object') return false;
-  if (!strings(s.logs) || !strings(s.cleared) || !s.stats || !num(s.stats.time) || !num(s.stats.kills)) return false;
-  return true;
-}
-
-/** The stored checkpoint, or null (none / unreadable / corrupt / other version — those are deleted). */
 export function loadSave(): SaveData | null {
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(SAVE_KEY); } catch { return null; }
-  if (!raw) return null;
-  try {
-    const s = JSON.parse(raw);
-    if (valid(s)) {
-      // Flags added by later builds default to false.
-      s.story.flags = { ...emptyProgress().flags, ...s.story.flags };
-      if (typeof s.place !== 'string') s.place = '';
-      return s;
-    }
-  } catch { /* fall through: discard */ }
-  clearSave();
-  return null;
+  const s = loadLevelSave<Progress>(SPEC_L1) as SaveData | null;
+  // Flags added by later builds default to false.
+  if (s) s.story.flags = { ...emptyProgress().flags, ...s.story.flags };
+  return s;
 }
+export function writeSave(s: SaveData): boolean { return writeLevelSave(s); }
+export function clearSave(): void { clearLevelSave(1); }
 
-export function writeSave(s: SaveData): boolean {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); return true; } catch { return false; }
-}
-
-export function clearSave(): void {
-  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
-}
-
-/** Ask the next page load to resume from the checkpoint (death / pause → LOAD CHECKPOINT). */
-export function requestContinue(): void {
-  try { sessionStorage.setItem(CONTINUE_KEY, '1'); } catch { /* ignore */ }
-}
-
-/** Read and clear the "resume from the checkpoint" request. */
-export function takeContinueRequest(): boolean {
-  try {
-    const on = sessionStorage.getItem(CONTINUE_KEY) === '1';
-    sessionStorage.removeItem(CONTINUE_KEY);
-    return on;
-  } catch { return false; }
-}
-
-// ───────────────────────────────────────────────────────────── REVISION 4: two levels
-
-export const SAVE_KEY_L2 = 'coldboot.save.l2.v1';
-/** The loadout carried from level 1 into level 2 (written by level 1's ending). */
-export const CARRY_KEY = 'coldboot.carry';
-/** sessionStorage flag: BEGIN was chosen on a level-2 page — the reloaded level-1 page starts a new run behind one click. */
-export const BEGIN_KEY = 'coldboot.begin';
+// ───────────────────────────────────────────────────────────── level 2
 
 /**
  * REVISION 5: `cp2_talk` (fitting door unlocked), `cp2_taken` (fixed instant: he is through the mouth, the
@@ -142,6 +156,7 @@ export const CHECKPOINT_IDS_L2 = ['cp2_start', 'cp2_hall', 'cp2_talk', 'cp2_pass
  */
 export const STORY_REV_L2 = 5;
 export type CheckpointIdL2 = typeof CHECKPOINT_IDS_L2[number];
+const SPEC_L2: SaveSpec = { level: 2, rev: STORY_REV_L2, ids: CHECKPOINT_IDS_L2 };
 
 /** Level 2's progress record: same shape as level 1's, with free-form flags (owned by `src/story/l2`). */
 export interface ProgressL2 {
@@ -156,93 +171,128 @@ export interface ProgressL2 {
   heard?: string[];
 }
 
-export interface SaveDataL2 {
-  v: number;
-  /** `STORY_REV_L2` at the time of writing. */
-  rev: number;
-  level: 2;
-  id: CheckpointIdL2;
-  place: string;
-  player: PlayerSave;
-  story: ProgressL2;
-  logs: string[];
-  stats: { time: number; kills: number };
-  cleared: string[];
+export type SaveDataL2 = SaveV2<ProgressL2, CheckpointIdL2>;
+
+export function loadSaveL2(): SaveDataL2 | null { return loadLevelSave<ProgressL2>(SPEC_L2) as SaveDataL2 | null; }
+export function writeSaveL2(s: SaveDataL2): boolean { return writeLevelSave(s); }
+export function clearSaveL2(): void { clearLevelSave(2); }
+
+// ───────────────────────────────────────────────────────────── level 3 (stage 3a §7)
+
+export const CHECKPOINT_IDS_L3 = ['cp3_start', 'cp3_office', 'cp3_canteen', 'cp3_balcony'] as const;
+export type CheckpointIdL3 = typeof CHECKPOINT_IDS_L3[number];
+export const STORY_REV_L3 = 1;
+export const SPEC_L3: SaveSpec = { level: 3, rev: STORY_REV_L3, ids: CHECKPOINT_IDS_L3 };
+
+/** §7 `ProgressL3`. `flags`: released, quiet, met, office, left, breach, purge, bioOpen, sealed, shotDoors. */
+export interface ProgressL3 extends ProgressL2 {
+  heard: string[];
+  /** Level clock (seconds since arrival, §6.4). */
+  t: number;
+}
+export type SaveDataL3 = SaveV2<ProgressL3, CheckpointIdL3>;
+
+export function emptyProgressL3(): ProgressL3 {
+  return { beats: [], read: [], visited: [], heard: [], flags: {}, triggered: [], cleared: [], checkpoints: [], t: 0 };
 }
 
-function validL2(s: any): s is SaveDataL2 {
-  if (!s || typeof s !== 'object' || s.v !== SAVE_VERSION || s.rev !== STORY_REV_L2) return false;
-  if (!(CHECKPOINT_IDS_L2 as readonly string[]).includes(s.id)) return false;
-  const p = s.player, st = s.story;
-  if (!p || !Array.isArray(p.position) || p.position.length !== 3 || !p.position.every(num) || !num(p.yaw) || !num(p.health)) return false;
-  if (!p.weapons || !p.weapons.pistol || !p.weapons.shotgun || !strings(p.keys) || !strings(p.pickups)) return false;
-  if (!st || !strings(st.beats) || !strings(st.read) || !strings(st.visited) || !strings(st.triggered) || !strings(st.cleared) || !strings(st.checkpoints)) return false;
-  if (!st.flags || typeof st.flags !== 'object') return false;
-  if (st.heard !== undefined && !strings(st.heard)) return false;
-  if (!strings(s.logs) || !strings(s.cleared) || !s.stats || !num(s.stats.time) || !num(s.stats.kills)) return false;
-  return true;
+/** Every level's checkpoint spec (menu CONTINUE validates through these). */
+const SPECS: Partial<Record<LevelId, SaveSpec>> = { 1: SPEC_L1, 2: SPEC_L2, 3: SPEC_L3 };
+
+/** The room name of a level's valid checkpoint (menu); null = no checkpoint (an invalid one is deleted). */
+function checkpointPlace(level: LevelId): string | null {
+  const spec = SPECS[level];
+  if (!spec) return null;
+  const s = loadLevelSave<unknown>(spec);
+  return s ? s.place : null;
 }
 
-export function loadSaveL2(): SaveDataL2 | null {
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(SAVE_KEY_L2); } catch { return null; }
-  if (!raw) return null;
-  try {
-    const s = JSON.parse(raw);
-    if (validL2(s)) { if (typeof s.place !== 'string') s.place = ''; return s; }
-  } catch { /* fall through: discard */ }
-  clearSaveL2();
-  return null;
+// ───────────────────────────────────────────────────────────── carry
+
+/** A carried weapon record → the full `Record<WeaponId>`: unknown ids dropped, missing ones unowned (§8.1). */
+export function fullWeapons(w: unknown): CarryV2['weapons'] {
+  const src = (w && typeof w === 'object' ? w : {}) as Record<string, any>;
+  const out = {} as CarryV2['weapons'];
+  for (const id of WEAPON_IDS) {
+    const e = src[id];
+    out[id] = e && typeof e === 'object'
+      ? { owned: !!e.owned, clip: num(e.clip) ? Math.max(0, Math.floor(e.clip)) : 0, reserve: num(e.reserve) ? Math.max(0, Math.floor(e.reserve)) : 0 }
+      : { owned: false, clip: 0, reserve: 0 };
+  }
+  return out;
 }
 
-export function writeSaveL2(s: SaveDataL2): boolean {
-  try { localStorage.setItem(SAVE_KEY_L2, JSON.stringify(s)); return true; } catch { return false; }
+export function makeCarry(from: LevelId, p: PlayerSave, facts: Facts): CarryV2 {
+  const current: WeaponId | null = p.current && (WEAPON_IDS as readonly string[]).includes(p.current) ? p.current : null;
+  return { v: 2, from, health: Math.round(p.health), armor: num(p.armor) ? p.armor : 0, flashlight: !!p.flashlight, current, weapons: fullWeapons(p.weapons), facts: { ...facts } };
 }
 
-export function clearSaveL2(): void {
-  try { localStorage.removeItem(SAVE_KEY_L2); } catch { /* ignore */ }
-}
-
-/** What level 2 starts with: weapons / ammo / health only (never position, keys or pickups). */
-export interface Carry {
-  health: number;
-  weapons: Record<WeaponId, { owned: boolean; clip: number; reserve: number }>;
-  current: WeaponId | null;
-  flashlight: boolean;
-}
-
-export function writeCarry(p: PlayerSave): void {
-  const c: Carry = { health: p.health, weapons: p.weapons, current: p.current, flashlight: p.flashlight };
+export function writeCarry(c: CarryV2): void {
   try { localStorage.setItem(CARRY_KEY, JSON.stringify(c)); } catch { /* ignore */ }
 }
 
-export function loadCarry(): Carry | null {
+/** The stored carry, whatever level wrote it, or null (none / corrupt / other version). Does not delete. */
+export function readCarry(): CarryV2 | null {
   try {
     const c = JSON.parse(localStorage.getItem(CARRY_KEY) ?? 'null');
-    if (c && num(c.health) && c.weapons && c.weapons.pistol && c.weapons.shotgun) return c as Carry;
-  } catch { /* ignore */ }
-  return null;
+    if (!c || typeof c !== 'object' || c.v !== 2 || !LEVEL_IDS.includes(c.from) || !num(c.health) || !validFacts(c.facts)) return null;
+    if (!c.weapons || typeof c.weapons !== 'object') return null;
+    return {
+      v: 2, from: c.from, health: c.health, armor: num(c.armor) ? c.armor : 0, flashlight: !!c.flashlight,
+      current: (WEAPON_IDS as readonly unknown[]).includes(c.current) ? c.current : null,
+      weapons: fullWeapons(c.weapons), facts: { ...c.facts },
+    };
+  } catch { return null; }
 }
+
+/** The carry that leads INTO `level` (written by the level whose `next` it is), or null. */
+export function loadCarryFor(level: LevelId): CarryV2 | null {
+  const c = readCarry();
+  return c && levelInfo(c.from).next === level ? c : null;
+}
+
+// ───────────────────────────────────────────────────────────── menu / chain helpers
 
 /**
  * For the menu (UI): what CONTINUE would resume. `place` is the checkpoint's room name, or null when the
- * stored level has no checkpoint (level 2 then starts from its beginning). null = nothing to continue.
+ * stored level has no checkpoint (a later level then starts from its beginning). null = nothing to continue.
  */
 export function saveInfo(): { level: LevelId; place: string | null } | null {
-  if (storedLevel() === 2) {
-    const s = loadSaveL2();
-    return { level: 2, place: s ? (s.place || 'Line Two') : null };
-  }
-  const s = loadSave();
-  return s ? { level: 1, place: s.place || 'Sublevel 3' } : null;
+  const level = storedLevel();
+  const place = checkpointPlace(level);
+  if (level === FIRST_LEVEL) return place === null ? null : { level, place: place || levelInfo(level).place };
+  return { level, place: place === null ? null : place || levelInfo(level).place };
 }
 
-/** BEGIN: back to level 1, every checkpoint and the carried loadout gone. */
+/** BEGIN: back to level 1, every checkpoint and the carried loadout gone (`seen` stays, D9). */
 export function clearAllProgress(): void {
-  clearSave();
-  clearSaveL2();
+  for (const l of LEVEL_IDS) clearLevelSave(l);
   try { localStorage.removeItem(CARRY_KEY); } catch { /* ignore */ }
-  setStoredLevel(1);
+  setStoredLevel(FIRST_LEVEL);
+}
+
+/** Delete the v1 keys (once: afterwards they do not exist). True when something was discarded. */
+export function discardV1(): boolean {
+  let any = false;
+  for (const k of V1_KEYS) {
+    try { if (localStorage.getItem(k) !== null) { localStorage.removeItem(k); any = true; } } catch { /* ignore */ }
+  }
+  if (any) console.info('[save] v1 progress discarded (schema v2): the stored level starts over');
+  return any;
+}
+
+/** Ask the next page load to resume from the checkpoint (death / pause → LOAD CHECKPOINT, hand-over). */
+export function requestContinue(): void {
+  try { sessionStorage.setItem(CONTINUE_KEY, '1'); } catch { /* ignore */ }
+}
+
+/** Read and clear the "resume from the checkpoint" request. */
+export function takeContinueRequest(): boolean {
+  try {
+    const on = sessionStorage.getItem(CONTINUE_KEY) === '1';
+    sessionStorage.removeItem(CONTINUE_KEY);
+    return on;
+  } catch { return false; }
 }
 
 export function requestBegin(): void {
@@ -255,4 +305,17 @@ export function takeBeginRequest(): boolean {
     sessionStorage.removeItem(BEGIN_KEY);
     return on;
   } catch { return false; }
+}
+
+/** D9: has this scene been seen on this browser? */
+export function seen(id: string): boolean {
+  try { const a = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]'); return Array.isArray(a) && a.includes(id); } catch { return false; }
+}
+
+export function markSeen(id: string): void {
+  try {
+    const a = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]');
+    const list: string[] = Array.isArray(a) ? a.filter((x) => typeof x === 'string') : [];
+    if (!list.includes(id)) { list.push(id); localStorage.setItem(SEEN_KEY, JSON.stringify(list)); }
+  } catch { /* ignore */ }
 }

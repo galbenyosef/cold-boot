@@ -3,7 +3,7 @@
  * title card → the lift arrives → the script (./script.ts) → one of two endings. Shares the sequencer,
  * music director, world wrappers and save helpers with level 1.
  */
-import type { GameContext, PlayerSave, StorySystem } from '../../core/types';
+import type { GameContext, StorySystem } from '../../core/types';
 import type { StoryInternal, StoryStats, UIInternal } from '../../ui/types';
 import { SKIP_INTRO_KEY } from '../../ui/types';
 import { Sequencer } from '../sequencer';
@@ -12,10 +12,11 @@ import { CameraRig } from '../camera';
 import { World } from '../world';
 import { preload } from '../voice';
 import {
-  SAVE_VERSION, STORY_REV_L2, clearAllProgress, clearSaveL2, loadCarry, loadSaveL2, requestBegin, takeContinueRequest, writeSaveL2,
+  SAVE_VERSION, STORY_REV_L2, clearAllProgress, clearSaveL2, loadSaveL2, requestBegin, takeContinueRequest, writeSaveL2,
   type CheckpointIdL2, type SaveDataL2,
 } from '../save';
-import { setStoredLevel } from '../../core/progress';
+import { levelOf, setStoredLevel } from '../../core/progress';
+import { applyStartLoadout, carryOut, chainMode, finishLevel, goToLevel } from '../chain';
 import { ScriptL2 } from './script';
 import { END_CARDS, ENDING_L2, LOG_IDS_L2, TITLE_CARD_L2, TOAST2 } from './text';
 
@@ -36,7 +37,7 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
     let place = '';
     try { place = ctx.level.roomAt(ctx.player.position)?.name ?? ''; } catch { /* ignore */ }
     const data: SaveDataL2 = {
-      v: SAVE_VERSION, rev: STORY_REV_L2, level: 2, id, place,
+      v: SAVE_VERSION, rev: STORY_REV_L2, level: 2, id, place, facts: { ...ctx.facts },
       player: ctx.player.snapshot(),
       story: progress,
       logs: [...logs],
@@ -50,25 +51,34 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
   const fmtTime = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
   /**
-   * Both endings: one card (`ui.showCard`, style 'ending') — what was done, what Unit 14 got, the stats,
-   * "TO BE CONTINUED". The stored level stays 2; its checkpoint is cleared. Afterwards: back to the menu.
+   * Both endings: one card (`ui.showCard`, style 'ending') — what was done, what Unit 14 got, the stats (D20: no
+   * "TO BE CONTINUED" while the chain goes on). §8.1: the carry with the facts (`choice`, `unitsLeft`) is written
+   * BEFORE the checkpoint is cleared, level 3 becomes the stored level, and after the card the page hands over
+   * to it (one click). Test runs (`?autostart=1`) store nothing unless `&handoff=1` and never reload; without it
+   * the stored level stays 2, as before.
    */
   async function ending(choice: 'shutdown' | 'rewrite', unit14: 'spared' | 'shot' | 'killed', left: number): Promise<void> {
-    clearSaveL2();
-    setStoredLevel(2);
+    const mode = chainMode(ctx);
+    let next: ReturnType<typeof finishLevel> = null;
+    if (mode === 'off') { clearSaveL2(); setStoredLevel(2); }
+    else {
+      try { next = finishLevel(ctx, carryOut(ctx, { choice: choice === 'shutdown' ? 'stop' : 'command', unitsLeft: left })); }
+      catch (err) { console.error('[story] hand-over not stored', err); clearSaveL2(); }
+    }
     const e = ENDING_L2[choice];
     try { ctx.input.exitPointerLock(); } catch { /* ignore */ }
     const lines = [
       e.eyebrow, '',
       ...END_CARDS[choice](left), END_CARDS.unit14[unit14], '',
       e.status(left),
-      `TIME: ${fmtTime(stats.time)}`, `MACHINES STOPPED: ${stats.kills}`, `RECORDS RECOVERED: ${logs.size} / ${LOG_IDS_L2.length}`, '',
-      ENDING_L2.tbc,
+      `TIME: ${fmtTime(stats.time)}`, `MACHINES STOPPED: ${stats.kills}`, `RECORDS RECOVERED: ${logs.size} / ${LOG_IDS_L2.length}`,
+      ...(levelOf(ctx).next === null ? ['', ENDING_L2.tbc] : []),
     ];
     try {
       await ctx.ui.showCard(lines, { style: 'ending', skippable: true, seconds: 34 });
     } catch (err) { console.error('[story] ending card failed', err); }
-    if (!ctx.debug.autostart) location.reload();
+    if (mode !== 'reload') return;
+    if (next !== null) goToLevel(); else location.reload();
   }
 
   const script = new ScriptL2(ctx, seq, director, world, logs, {
@@ -81,28 +91,8 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
     ending,
   });
 
-  /**
-   * The loadout the level starts with: what level 1 ended with (`coldboot.carry`), or — arriving by a
-   * debug URL — pistol + shotgun with modest ammo. Skipped when the player module already armed the
-   * player (it may apply the carry itself).
-   */
-  function applyLoadout(): void {
-    const p = ctx.player;
-    try {
-      if (p.weapons.pistol.owned || p.weapons.shotgun.owned) return;
-      const carry = loadCarry();
-      if (carry) {
-        const save: PlayerSave = { ...p.snapshot(), health: Math.max(40, carry.health), weapons: carry.weapons, current: carry.current, flashlight: carry.flashlight };
-        const apply = (p as unknown as { applyLoadout?: (s: PlayerSave) => void }).applyLoadout;
-        if (typeof apply === 'function') apply.call(p, save); else p.restore(save);
-        return;
-      }
-      p.give('pistol', 12);
-      p.give('shotgun', 6);
-      p.give('ammo_pistol', 24);
-      p.give('ammo_shotgun', 8);
-    } catch (e) { console.warn('[story] loadout failed', e); }
-  }
+  /** The loadout the level starts with (§8.1 chain): the carry from level 1, else the direct-start loadout. */
+  function applyLoadout(): void { applyStartLoadout(ctx); }
 
   async function resume(save: SaveDataL2, instant: boolean): Promise<void> {
     ctx.setState('cutscene');
@@ -196,7 +186,7 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
       }
       // BEGIN: everything cleared, back to level 1 (unless this page was forced to level 2 by its URL).
       clearAllProgress();
-      if (d.level !== 2) {
+      if (d.level !== ctx.levelId) {
         requestBegin();
         location.reload();
         return;
@@ -215,7 +205,8 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
 
     lateUpdate(dt: number) { rig.lateUpdate(dt); },
   };
-  Object.assign(story, { fire: (name: string) => script.fire(name), hurry: (fast?: boolean) => script.hurry(fast) });
+  // `ending` (check:chain): run the level end directly — the card and the §8.1 hand-over — without playing the level.
+  Object.assign(story, { fire: (name: string) => script.fire(name), hurry: (fast?: boolean) => script.hurry(fast), ending });
   Object.defineProperty(story, 'debugState', { get: () => script.debugState });
   // REVISION 5: every spoken line with its condition result (the impatient playthrough's oracle reads it).
   Object.defineProperty(story, 'lineLog', { get: () => script.talk.log });

@@ -3,7 +3,7 @@
  * Tile sizes are in metres (geometry UVs are metres), see TILE in the final report / README of the module.
  */
 import * as THREE from 'three';
-import type { MaterialName } from '../../core/types';
+import type { HabitatMaterialName, MaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
@@ -72,7 +72,8 @@ const poly = (o: PolyOpts) => ({
 const HERO = 1024;
 const MINOR = 512;
 
-export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`>, MatSpec> = {
+// HabitatMaterialName (stage 3a §8.6) stays out of the exhaustive record until task P1 defines them.
+export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | HabitatMaterialName>, MatSpec> = {
   wall_panel: {
     tex: { size: HERO, tile: 2, depth: 0.02, glsl: G_WALL, uniforms: wall(0x4f5b55, 0.9), aoRadius: 0.03, seed: 1 },
     params: {}, env: 1, macro: [0.25, 0.25],

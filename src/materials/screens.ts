@@ -4,7 +4,7 @@
  * global cap on redraws per frame. A shared overlay adds pixel grid, scanlines, vignette and glass glare.
  */
 import * as THREE from 'three';
-import type { ScreenKind } from '../core/types';
+import type { LevelInfo, ScreenKind } from '../core/types';
 
 const MONO = 'ui-monospace, Menlo, "SF Mono", Consolas, monospace';
 const SANS = '"Arial Narrow", "Helvetica Neue", Arial, sans-serif';
@@ -34,10 +34,13 @@ interface Screen {
 const INTENSITY: Record<ScreenKind, number> = {
   terminal_idle: 2.6, terminal_alert: 3.2, static: 1.8, choir: 3.5, camera_feed: 2.0, vitals: 2.6, door_locked: 3.5, door_open: 3.0, door_cycling: 3.2,
   choice_stop: 2.2, choice_command: 2.2, palm: 3.0,
+  // stage 3a §8.5: placeholders until task P1 draws these kinds (blank panels until then)
+  pressure: 3.0, habitat_status: 2.6, badge: 3.0, feed: 2.0, cctv: 2.0,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
   choice_stop: 6, choice_command: 6, palm: 24,
+  pressure: 4, habitat_status: 4, badge: 8, feed: 12, cctv: 12,
 };
 /**
  * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must
@@ -111,12 +114,14 @@ export class ScreenManager {
   private cursor = 0;
   private seedCounter = 1;
 
-  /** Level-specific chrome (REVISION 4): header / camera labels, and terminal_idle shows its `text` on level 2. */
-  private header = 'HALCYON DYNAMICS // ERIDU DEEP FAB  —  SUBLEVEL 3';
-  private camLabel = 'SUBLVL-3';
-  private idleText = false;
-  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial, levelId: number = 1) {
-    if (levelId === 2) { this.header = 'HALCYON DYNAMICS // ERIDU DEEP FAB  —  LINE TWO / SECTION C'; this.camLabel = 'LINE-2'; this.idleText = true; }
+  /** Level-specific chrome (REVISION 4; §8.1 from `LEVELS`): header / camera labels, terminal_idle shows its `text`. */
+  private header: string;
+  private camLabel: string;
+  private idleText: boolean;
+  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial, level: Pick<LevelInfo, 'screenHeader' | 'camLabel' | 'idleText'>) {
+    this.header = level.screenHeader;
+    this.camLabel = level.camLabel;
+    this.idleText = level.idleText;
   }
 
   create(kind: ScreenKind, opts?: { text?: string; aspect?: number }): THREE.MeshStandardMaterial {

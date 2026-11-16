@@ -40,11 +40,13 @@ for (const shot of SHOTS) {
   let save = null;
   if (shot.save) {
     save = JSON.parse(readFileSync(`shots/demo/saves/${shot.save}.json`, 'utf8'));
+    // saves harvested before the v2 schema (stage 3a §8.1): same record, new envelope
+    if (save.v === 1) Object.assign(save, { v: 2, level: 1, rev: 1, facts: {} });
     if (shot.patchSave) shot.patchSave(save);
   }
   await page.addInitScript(({ save, audioSeconds }) => {
     window.__capCfg = { audioSeconds };
-    try { if (save) localStorage.setItem('coldboot.save.v1', JSON.stringify(save)); else localStorage.removeItem('coldboot.save.v1'); } catch { /* ignore */ }
+    try { if (save) localStorage.setItem('coldboot.save.l1.v2', JSON.stringify(save)); else localStorage.removeItem('coldboot.save.l1.v2'); } catch { /* ignore */ }
   }, { save, audioSeconds: shot.audioSeconds ?? 60 });
   await page.addInitScript({ content: hooks });
   if (shot.init) await page.addInitScript({ content: shot.init });
