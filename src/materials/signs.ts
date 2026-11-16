@@ -161,6 +161,216 @@ function parseArrow(text: string): { text: string; dir: 'left' | 'right' | 'up' 
   return { text: t, dir, side };
 }
 
+// ───────────────────────────── stage 3a: habitat wayfinding (§8.6)
+
+const WAY = '"Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif';
+export type Pictogram = 'leaf' | 'cup' | 'cross' | 'bed' | 'info' | 'person' | 'flask' | 'stairs' | 'lift' | 'wave' | 'warn' | 'door' | 'none';
+/** Band colour per pictogram: the habitat's colour code (garden green, canteen orange, clinic red, quarters blue…). */
+export const WAY_COLOURS: Record<Pictogram, string> = {
+  leaf: '#4f8a4a', cup: '#d0782e', cross: '#c4463a', bed: '#3d6fa8', info: '#c49a3a', person: '#b58a34', flask: '#6a5aa0',
+  stairs: '#55636e', lift: '#55636e', wave: '#2c7c8c', warn: '#c0392b', door: '#5f7a8a', none: '#5f7a8a',
+};
+const WAY_KEYS: [RegExp, Pictogram][] = [
+  [/SEALED|ALARM|EMERGENCY|DANGER|NO ENTRY|DO NOT/i, 'warn'],
+  [/BIOLOG|BIO-SYS|\bBIO\b|DECON/i, 'flask'],
+  [/ATRIUM|GARDEN|PLANT|GREEN/i, 'leaf'],
+  [/VIEWPORT|\bSEA\b|OCEAN|POOL|FOUNTAIN/i, 'wave'],
+  [/CANTEEN|CAF[EÉ]|KITCHEN|GALLEY|MESS|MENU/i, 'cup'],
+  [/CLINIC|MEDICAL|SICK|FIRST AID|PHARMA/i, 'cross'],
+  [/QUARTERS|CABIN|RESIDENT|DORM|\bRING [A-Z]\b/i, 'bed'],
+  [/STAIR/i, 'stairs'],
+  [/\bLIFT\b|ELEVATOR/i, 'lift'],
+  [/LOBBY|RECEPTION|INFORMATION|PLEASE|WAIT|EQUALIS/i, 'info'],
+  [/FACILIT|OFFICE|STAFF|SUPERVISOR|ADMIN|HALVORSEN/i, 'person'],
+];
+
+/** `[picto] text` override, else the first keyword that matches; plain nameplates get no pictogram. */
+export function wayPictogram(text: string): { picto: Pictogram; text: string } {
+  const m = /^\s*\[(\w+)\]\s*/.exec(text);
+  if (m && m[1] in WAY_COLOURS) return { picto: m[1] as Pictogram, text: text.slice(m[0].length) };
+  for (const [re, p] of WAY_KEYS) if (re.test(text)) return { picto: p, text };
+  return { picto: 'none', text };
+}
+
+function pictogram(g: Ctx, p: Pictogram, cx: number, cy: number, s: number, ink: string, bg: string) {
+  g.save();
+  g.translate(cx, cy);
+  g.fillStyle = ink; g.strokeStyle = ink; g.lineCap = 'round'; g.lineJoin = 'round';
+  const r = s / 2;
+  const lw = (k: number) => { g.lineWidth = s * k; };
+  switch (p) {
+    case 'leaf': {
+      g.rotate(-0.6);
+      g.beginPath(); g.moveTo(0, r * 0.95); g.quadraticCurveTo(r * 0.95, 0, 0, -r * 0.95); g.quadraticCurveTo(-r * 0.95, 0, 0, r * 0.95); g.fill();
+      g.strokeStyle = bg; lw(0.05);
+      g.beginPath(); g.moveTo(0, r * 0.95); g.lineTo(0, -r * 0.6); g.stroke();
+      for (let i = 0; i < 3; i++) { const y = r * (0.4 - i * 0.35); g.beginPath(); g.moveTo(0, y); g.lineTo(r * 0.3, y - r * 0.22); g.moveTo(0, y); g.lineTo(-r * 0.3, y - r * 0.22); g.stroke(); }
+      g.strokeStyle = ink; lw(0.07); g.beginPath(); g.moveTo(0, r * 0.9); g.lineTo(0, r * 1.15); g.stroke();
+      break;
+    }
+    case 'cup': {
+      g.beginPath(); g.moveTo(-r * 0.62, -r * 0.2); g.lineTo(r * 0.42, -r * 0.2); g.lineTo(r * 0.34, r * 0.55); g.quadraticCurveTo(r * 0.3, r * 0.75, r * 0.1, r * 0.75);
+      g.lineTo(-r * 0.38, r * 0.75); g.quadraticCurveTo(-r * 0.56, r * 0.75, -r * 0.56, r * 0.55); g.closePath(); g.fill();
+      lw(0.08); g.beginPath(); g.arc(r * 0.48, r * 0.2, r * 0.22, -Math.PI / 2, Math.PI / 2); g.stroke();
+      lw(0.06);
+      for (let i = 0; i < 3; i++) { const x = -r * 0.35 + i * r * 0.3; g.beginPath(); g.moveTo(x, -r * 0.35); g.bezierCurveTo(x + r * 0.15, -r * 0.55, x - r * 0.15, -r * 0.7, x, -r * 0.9); g.stroke(); }
+      break;
+    }
+    case 'cross': {
+      const a = r * 0.3, b = r * 0.85;
+      g.fillRect(-a, -b, a * 2, b * 2); g.fillRect(-b, -a, b * 2, a * 2);
+      break;
+    }
+    case 'bed': {
+      g.fillRect(-r * 0.9, r * 0.1, r * 1.8, r * 0.32);
+      g.fillRect(-r * 0.9, -r * 0.5, r * 0.14, r * 1.25); g.fillRect(r * 0.76, r * 0.1, r * 0.14, r * 0.65);
+      g.beginPath(); g.arc(-r * 0.48, -r * 0.12, r * 0.2, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.moveTo(-r * 0.2, r * 0.08); g.lineTo(-r * 0.2, -r * 0.25); g.quadraticCurveTo(-r * 0.2, -r * 0.32, -r * 0.1, -r * 0.32);
+      g.lineTo(r * 0.76, -r * 0.18); g.lineTo(r * 0.76, r * 0.08); g.closePath(); g.fill();
+      g.fillRect(-r * 0.9, r * 0.42, r * 0.14, r * 0.33);
+      break;
+    }
+    case 'info': {
+      lw(0.08); g.beginPath(); g.arc(0, 0, r * 0.9, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.arc(0, -r * 0.45, r * 0.13, 0, Math.PI * 2); g.fill();
+      g.fillRect(-r * 0.12, -r * 0.2, r * 0.24, r * 0.75); g.fillRect(-r * 0.28, r * 0.43, r * 0.56, r * 0.12); g.fillRect(-r * 0.28, -r * 0.2, r * 0.2, r * 0.12);
+      break;
+    }
+    case 'person': {
+      g.beginPath(); g.arc(0, -r * 0.5, r * 0.3, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.moveTo(-r * 0.68, r * 0.9); g.lineTo(-r * 0.68, r * 0.3); g.quadraticCurveTo(-r * 0.68, -r * 0.1, -r * 0.25, -r * 0.1);
+      g.lineTo(r * 0.25, -r * 0.1); g.quadraticCurveTo(r * 0.68, -r * 0.1, r * 0.68, r * 0.3); g.lineTo(r * 0.68, r * 0.9); g.closePath(); g.fill();
+      break;
+    }
+    case 'flask': {
+      g.beginPath(); g.moveTo(-r * 0.2, -r * 0.85); g.lineTo(-r * 0.2, -r * 0.25); g.lineTo(-r * 0.75, r * 0.75); g.quadraticCurveTo(-r * 0.8, r * 0.88, -r * 0.62, r * 0.88);
+      g.lineTo(r * 0.62, r * 0.88); g.quadraticCurveTo(r * 0.8, r * 0.88, r * 0.75, r * 0.75); g.lineTo(r * 0.2, -r * 0.25); g.lineTo(r * 0.2, -r * 0.85); g.closePath();
+      lw(0.08); g.stroke();
+      g.beginPath(); g.moveTo(-r * 0.5, r * 0.3); g.lineTo(r * 0.5, r * 0.3); g.lineTo(r * 0.72, r * 0.75); g.lineTo(-r * 0.72, r * 0.75); g.closePath(); g.fill();
+      g.fillRect(-r * 0.35, -r * 0.95, r * 0.7, r * 0.1);
+      break;
+    }
+    case 'stairs': {
+      g.beginPath(); g.moveTo(-r * 0.9, r * 0.85);
+      for (let i = 0; i < 4; i++) { const x = -r * 0.9 + i * r * 0.45, y = r * 0.85 - (i + 1) * r * 0.42; g.lineTo(x, y); g.lineTo(x + r * 0.45, y); }
+      g.lineTo(r * 0.9, r * 0.85); g.closePath(); g.fill();
+      break;
+    }
+    case 'lift': {
+      lw(0.08); g.strokeRect(-r * 0.75, -r * 0.9, r * 1.5, r * 1.8);
+      g.beginPath(); g.moveTo(0, -r * 0.7); g.lineTo(r * 0.38, -r * 0.18); g.lineTo(-r * 0.38, -r * 0.18); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(0, r * 0.7); g.lineTo(r * 0.38, r * 0.18); g.lineTo(-r * 0.38, r * 0.18); g.closePath(); g.fill();
+      break;
+    }
+    case 'wave': {
+      lw(0.1);
+      for (let i = 0; i < 3; i++) {
+        const y = -r * 0.5 + i * r * 0.5;
+        g.beginPath(); g.moveTo(-r * 0.9, y);
+        for (let k = 0; k <= 16; k++) { const x = -r * 0.9 + k * r * 1.8 / 16; g.lineTo(x, y + Math.sin(k / 16 * Math.PI * 4) * r * 0.14); }
+        g.stroke();
+      }
+      break;
+    }
+    case 'warn': {
+      g.beginPath(); g.moveTo(0, -r * 0.9); g.lineTo(r * 0.95, r * 0.75); g.lineTo(-r * 0.95, r * 0.75); g.closePath(); g.fill();
+      g.fillStyle = bg; g.fillRect(-r * 0.08, -r * 0.35, r * 0.16, r * 0.62); g.beginPath(); g.arc(0, r * 0.5, r * 0.1, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'door': {
+      g.fillRect(-r * 0.5, -r * 0.9, r * 1.0, r * 1.8);
+      g.fillStyle = bg; g.beginPath(); g.arc(r * 0.28, 0, r * 0.09, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'none': break;
+  }
+  g.restore();
+}
+
+/**
+ * Habitat wayfinding plaque: warm-white satin enamel, a coloured band with a white pictogram, dark humanist lettering
+ * IN THE CASE GIVEN ("Biological Systems →"), optional arrow (same parsing as `directional`: `→ ← > < ↑ ↓` at the start
+ * or end), extra lines smaller. Wide quads (aspect ≥ 1.6) put the band on the left; square / tall ones (totems) on top.
+ * Returns the base roughness (0..255) for the roughness canvas.
+ */
+function drawWayfinding(g: Ctx, rg: Ctx, W: number, H: number, raw: string, rand: () => number): number {
+  const { picto, text: t0 } = wayPictogram(raw);
+  // an arrow on a line of its own (a totem: "Biological Systems\nDeck 2\n→") counts as a trailing arrow
+  const { text, dir, side } = parseArrow(t0.replace(/\n\s*([→←↑↓<>^])\s*$/, " $1"));
+  const band = WAY_COLOURS[picto];
+  const ink = '#25292c', plate = '#efe9dc';
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#f3eee3'); bg.addColorStop(1, '#e6dfd0');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const lines = text.split('\n');
+  const wide = W / H >= 1.6;
+  const arrowCol = picto === 'none' ? ink : band;
+  if (wide) {
+    // band: a square with the pictogram, or a slim stripe when there is none
+    const bw = picto === 'none' ? H * 0.1 : H;
+    const bx = 0;
+    g.fillStyle = band; g.fillRect(bx, 0, bw, H);
+    rg.fillStyle = 'rgb(95,95,95)'; rg.fillRect(bx, 0, bw, H);
+    if (picto !== 'none') pictogram(g, picto, bx + bw / 2, H / 2, H * 0.6, plate, band);
+    let x0 = bw + H * 0.22, x1 = W - H * 0.22;
+    if (dir) {
+      const asz = H * 0.5;
+      const ax = side === 'left' ? x0 + asz / 2 : x1 - asz / 2;
+      g.save(); g.fillStyle = arrowCol; g.beginPath(); g.arc(ax, H / 2, asz * 0.62, 0, Math.PI * 2); g.fill(); g.restore();
+      arrow(g, ax, H / 2, asz * 0.72, dir, plate);
+      if (side === 'left') x0 = ax + asz * 0.8; else x1 = ax - asz * 0.8;
+    }
+    g.fillStyle = ink; g.textBaseline = 'middle'; g.textAlign = 'left';
+    const main = lines[0], subs = lines.slice(1);
+    const mainH = subs.length ? H * 0.34 : H * 0.42;
+    const ms = fitText(g, main, x1 - x0, mainH, '600', WAY);
+    const total = ms + subs.length * ms * 0.75;
+    let y = H / 2 - total / 2 + ms * 0.5;
+    g.fillText(main, x0, y + ms * 0.04);
+    y += ms * 0.62;
+    for (const sub of subs) {
+      g.fillStyle = '#4c5257';
+      const ss = fitText(g, sub, x1 - x0, ms * 0.58, '500', WAY);
+      y += ss * 0.62; g.fillText(sub, x0, y); y += ss * 0.55;
+    }
+    // a hairline in the band colour along the bottom of the text field
+    g.fillStyle = band; g.fillRect(bw, H - H * 0.045, W - bw, H * 0.045);
+  } else {
+    const bh = picto === 'none' ? H * 0.08 : Math.min(H * 0.5, W * 0.8);
+    g.fillStyle = band; g.fillRect(0, 0, W, bh);
+    rg.fillStyle = 'rgb(95,95,95)'; rg.fillRect(0, 0, W, bh);
+    if (picto !== 'none') pictogram(g, picto, W / 2, bh / 2, bh * 0.62, plate, band);
+    const y0 = bh + H * 0.06;
+    if (dir) {
+      const asz = Math.min(W * 0.32, (H - bh) * 0.3);
+      g.save(); g.fillStyle = arrowCol; g.beginPath(); g.arc(W / 2, H - asz * 0.85, asz * 0.62, 0, Math.PI * 2); g.fill(); g.restore();
+      arrow(g, W / 2, H - asz * 0.85, asz * 0.72, dir, plate);
+    }
+    const room = (dir ? H * 0.72 : H * 0.94) - y0;
+    const lh = room / Math.max(1, lines.length);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    lines.forEach((ln, i) => {
+      g.fillStyle = i === 0 ? ink : '#4c5257';
+      fitText(g, ln, W * 0.86, Math.min(lh * (i === 0 ? 0.62 : 0.5), W * 0.2), i === 0 ? '600' : '500', WAY);
+      g.fillText(ln, W / 2, y0 + lh * (i + 0.5));
+    });
+  }
+  // printed vinyl lettering is a little glossier than the enamel
+  // (roughness: the plate is satin; the weather pass below is gentle: a habitat that is cleaned)
+  for (let i = 0; i < 6; i++) {
+    const x = rand() * W, y = rand() * H, r = (0.15 + rand() * 0.3) * Math.max(W, H);
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, `rgba(60,50,40,${0.03 + rand() * 0.03})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  }
+  const dust = g.createLinearGradient(0, 0, 0, H * 0.25);
+  dust.addColorStop(0, 'rgba(120,110,95,0.08)'); dust.addColorStop(1, 'rgba(120,110,95,0)');
+  g.fillStyle = dust; g.fillRect(0, 0, W, H);
+  // bevelled edge of the plate
+  g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = Math.max(2, H * 0.015); g.strokeRect(0, 0, W, H);
+  return 115;
+}
+
 export function createSign(text: string, style: SignStyle, aspect: number, maxAniso: number): THREE.MeshStandardMaterial {
   const H = aspect >= 4 ? 192 : 256;
   const W = Math.min(2048, Math.max(64, Math.round(H * aspect)));
@@ -239,6 +449,8 @@ export function createSign(text: string, style: SignStyle, aspect: number, maxAn
     });
     roughBase = 110;
     weather(g, rg, W, H, rand, 0.7);
+  } else if (style === 'wayfinding') {
+    roughBase = drawWayfinding(g, rg, W, H, text, rand);
   } else { // stencil — transparent spray paint
     transparent = true;
     g.clearRect(0, 0, W, H);

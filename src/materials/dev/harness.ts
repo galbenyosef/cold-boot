@@ -4,10 +4,12 @@
  *   ?mat=name               close-up of one material at grazing light (&dist=m &yaw=deg &tex=albedo|normal|orm)
  *   ?view=decals|signs|screens
  *   &env=0                  no environment reflections; &time=s advances screens
+ *   ?view=habitat|booth|wayfinding|screens3   stage 3a habitat gallery (see ./habitat.ts)
  */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createMaterials } from '../index';
+import { habitatGallery, HABITAT_VIEWS } from './habitat';
 import { SPECS, EMISSIVE } from '../defs';
 import type { DecalName, GameContext, MaterialName, ScreenKind, SignStyle } from '../../core/types';
 
@@ -55,7 +57,9 @@ function darkRoom() {
 
 async function main() {
   const t0 = performance.now();
-  const lib = await createMaterials({ renderer } as unknown as GameContext);
+  // the stage 3a gallery bakes the habitat set at load, as level 3 does
+  const habView = HABITAT_VIEWS.includes(q.get('view') ?? '');
+  const lib = await createMaterials({ renderer, levelId: habView ? 3 : undefined } as unknown as GameContext);
   const genMs = performance.now() - t0;
 
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -71,7 +75,12 @@ async function main() {
   const rim = new THREE.PointLight(0x9fc4ff, 15, 30, 2);
   scene.add(key, rim, new THREE.AmbientLight(0xffffff, 0.03));
 
-  if (mat) {
+  let splitRender: (() => void) | undefined;
+  if (habView) {
+    scene.clear();
+    const g = habitatGallery({ renderer, scene, camera, lib, q }, view!);
+    animate = g.step; splitRender = g.render;
+  } else if (mat) {
     const m = lib.get(mat);
     const texMode = q.get('tex');
     let useMat: THREE.Material = m;
@@ -174,7 +183,7 @@ async function main() {
     const dt = (t - last) / 1000; last = t; acc += dt; cnt++;
     if (acc > 0.5) { debug.fps = Math.round(cnt / acc); acc = 0; cnt = 0; }
     animate?.(t / 1000);
-    renderer.render(scene, camera);
+    if (splitRender) splitRender(); else renderer.render(scene, camera);
     if (++frames === 3) (window as unknown as { __game: unknown }).__game = { ready: true, renderer, debug, lib, genMs };
   };
   requestAnimationFrame(loop);

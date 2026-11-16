@@ -9,8 +9,8 @@
 import * as THREE from 'three';
 import type { DecalName, GameContext, MaterialLibrary, MaterialName, ScreenKind, SignStyle } from '../core/types';
 import { Baker, type BakedTextures } from './baker';
-import { SPECS, EMISSIVE, type MatSpec } from './defs';
-import { applyMacro, macroConfigOf } from './macro';
+import { SPECS, EMISSIVE, HABITAT_FROM, type MatSpec } from './defs';
+import { advanceWater, applyMacro, macroConfigOf } from './macro';
 import { DecalFactory, DECAL_COUNT } from './decals';
 import { createSign } from './signs';
 import { ScreenManager } from './screens';
@@ -20,6 +20,18 @@ import { levelOf } from '../core/progress';
 export const TILE_SIZES: Partial<Record<MaterialName, number>> = Object.fromEntries(
   Object.entries(SPECS).map(([k, s]) => [k, s.tex?.tile ?? 1]),
 );
+
+/**
+ * Stage 3a leaf atlas (`leaf` material): UV rectangles [u0, v0, u1, v1] of the four cells. The plant's base is at
+ * v0 (a card's foot), its tip at v1; each cell is drawn to fill its square (the card should be square in metres
+ * per cell, e.g. 0.12 × 0.12 m for a fig leaf, 0.6 × 0.6 m for a frond).
+ */
+export const LEAF_ATLAS = {
+  broadleaf: [0, 0, 0.5, 0.5],
+  frond: [0.5, 0, 1, 0.5],
+  blade: [0, 0.5, 0.5, 1],
+  flower: [0.5, 0.5, 1, 1],
+} as const;
 
 export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary> {
   const t0 = performance.now();
@@ -42,17 +54,26 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
 
   // ── bake every textured material
   const baked = new Map<string, BakedTextures>();
-  const names = Object.keys(SPECS) as (keyof typeof SPECS)[];
+  const allNames = Object.keys(SPECS) as (keyof typeof SPECS)[];
+  // the habitat set (stage 3a) is baked at load only where it is used; elsewhere on first `get` (dev pages)
+  const habitatNow = (ctx.levelId ?? 1) >= HABITAT_FROM;
+  const names = allNames.filter((n) => habitatNow || !(SPECS[n] as MatSpec).habitat);
   await baker.precompile(names.map((n) => ({ key: n, ...SPECS[n].tex! })).filter((d) => d.glsl));
   const tCompile = performance.now();
-  let i = 0;
-  for (const n of names) {
-    const spec = SPECS[n];
-    if (!spec.tex) continue;
-    const tex = baker.bake({ key: n, ...spec.tex });
+  // on `low` the habitat set bakes its 1024² sets at 512² (140 → 56 MiB); the plant's set is unchanged
+  const lowQ = ctx.render?.quality === 'low';
+  const bakeOne = (n: keyof typeof SPECS) => {
+    const spec = SPECS[n] as MatSpec;
+    if (!spec.tex) return;
+    const size = spec.habitat && lowQ ? Math.min(spec.tex.size, 512) : spec.tex.size;
+    const tex = baker.bake({ key: n, ...spec.tex, size });
     const rep = 1 / spec.tex.tile;
     for (const t of [tex.map, tex.normalMap, tex.orm, tex.emissiveMap]) if (t) t.repeat.set(rep, rep);
     baked.set(n, tex);
+  };
+  let i = 0;
+  for (const n of names) {
+    bakeOne(n);
     if (++i % 6 === 0) await new Promise((r) => setTimeout(r, 0));
   }
   // Decals: bake every variant now — the first bake compiles GPU pipelines, which would hitch in gameplay.
@@ -97,9 +118,12 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
       metalness: 1,
       ...spec.params,
     });
-    if (spec.macro || spec.glass) applyMacro(m, { albedo: spec.macro?.[0] ?? 0, rough: spec.macro?.[1] ?? 0, glass: !!spec.glass });
+    if (spec.macro || spec.glass || spec.kind) applyMacro(m, { albedo: spec.macro?.[0] ?? 0, rough: spec.macro?.[1] ?? 0, glass: !!spec.glass, kind: spec.kind });
+    if (spec.kind === 'water') waters.push(new WeakRef(m));
     return track(m, spec.env);
   };
+  /** Live water materials (library instance + clones) whose ripples `update` advances. */
+  const waters: WeakRef<THREE.MeshStandardMaterial>[] = [];
   for (const n of [...names, ...(Object.keys(EMISSIVE) as MaterialName[])]) cache.set(n, build(n as MaterialName));
   // REVISION 5.1 (z-fight): materials that are always a thin layer ON another surface (chevron strips, emissive
   // lenses / strips / lamps) win their depth test deterministically against the surface under them, like decals do
@@ -116,6 +140,16 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   const get = (name: MaterialName): THREE.MeshStandardMaterial => {
     const m = cache.get(name);
     if (m) return m;
+    // a habitat material on a level that did not bake the set: bake it now (one-off hitch, dev pages / tests)
+    if (name in SPECS && !baked.has(name)) {
+      const tl = performance.now();
+      bakeOne(name as keyof typeof SPECS);
+      baker.releaseTransient();
+      const lm = build(name);
+      cache.set(name, lm);
+      console.info(`[materials] baked "${name}" on demand in ${(performance.now() - tl).toFixed(0)} ms`);
+      return lm;
+    }
     if (!warned.has(name)) { warned.add(name); console.warn(`[materials] unknown material "${name}"`); }
     return cache.get('painted_dark')!;
   };
@@ -130,6 +164,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
       const m = src.clone();
       const cfg = macroConfigOf(src);
       if (cfg) applyMacro(m, cfg);
+      if (cfg?.kind === 'water') { m.userData.flow = src.userData.flow ?? 1; waters.push(new WeakRef(m)); }
       if (overrides) m.setValues(overrides);
       return track(m, envMul.get(src) ?? 1);
     },
@@ -166,6 +201,11 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
     },
     update(dt: number) {
       screens.update(dt);
+      for (let k = waters.length - 1; k >= 0; k--) {
+        const w = waters[k].deref();
+        if (!w) { waters.splice(k, 1); continue; }
+        advanceWater(w, dt);
+      }
     },
   };
   return lib;

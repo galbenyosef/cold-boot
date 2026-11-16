@@ -3,12 +3,13 @@
  * Tile sizes are in metres (geometry UVs are metres), see TILE in the final report / README of the module.
  */
 import * as THREE from 'three';
-import type { HabitatMaterialName, MaterialName } from '../../core/types';
+import type { MaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
 import { PAINTED, METAL, POLY, RUST, FABRIC, GLASS, BELT, GLASS_THICK, SKIN } from './props';
 import { ROBOT_SHELL } from './robot';
+import { WOOD, TWILL, CARPET, PLASTER, TERRAZZO, LIMESTONE, TILE, LINO, SOIL, LEAF, BARK, WATER, GLASS_CLEAN } from './habitat';
 
 export interface MatSpec {
   tex?: Omit<TexDef, 'key'>;
@@ -20,7 +21,17 @@ export interface MatSpec {
   macro?: [number, number];
   /** Premultiplied-style glass blending (reflections are not faded by opacity). */
   glass?: boolean;
+  /** Shading variant (macro.ts): live-scrolled water normals, or leaf wrap/transmission lighting. */
+  kind?: 'water' | 'leaf';
+  /**
+   * Stage 3a habitat set: baked at load only on the habitat levels (`HABITAT_FROM`), elsewhere on first `get`
+   * (so levels 1–2 pay neither the bake time nor the texture memory).
+   */
+  habitat?: boolean;
 }
+
+/** First level id that bakes the habitat set at load. */
+export const HABITAT_FROM = 3;
 
 /** Uniform colours are authored as raw sRGB triplets (the bake shader linearises at the end). */
 const srgb = (hex: number) => { const c = new THREE.Color(); c.setHex(hex, THREE.LinearSRGBColorSpace); return new THREE.Vector3(c.r, c.g, c.b); };
@@ -72,8 +83,13 @@ const poly = (o: PolyOpts) => ({
 const HERO = 1024;
 const MINOR = 512;
 
-// HabitatMaterialName (stage 3a §8.6) stays out of the exhaustive record until task P1 defines them.
-export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | HabitatMaterialName>, MatSpec> = {
+const U_WOOD_ = (o: { a: number; b: number; leaf: number; ring: number; warp: number; ray: number; pore: number; rough: [number, number] }) => ({
+  uColA: { value: srgb(o.a) }, uColB: { value: srgb(o.b) }, uLeaf: { value: o.leaf }, uRing: { value: o.ring }, uWarp: { value: o.warp },
+  uRay: { value: o.ray }, uPore: { value: o.pore }, uRough: { value: new THREE.Vector2(...o.rough) },
+});
+const col = (c: number) => ({ uCol: { value: srgb(c) } });
+
+export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`>, MatSpec> = {
   wall_panel: {
     tex: { size: HERO, tile: 2, depth: 0.02, glsl: G_WALL, uniforms: wall(0x4f5b55, 0.9), aoRadius: 0.03, seed: 1 },
     params: {}, env: 1, macro: [0.25, 0.25],
@@ -220,6 +236,69 @@ export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | HabitatM
     tex: { size: MINOR, tile: 0.5, depth: 0.001, glsl: G_METAL, seed: 29, aoRadius: 0.005,
       uniforms: metal({ col: 0x8e9297, col2: 0x3a342c, rough: [0.15, 0.35], brush: [0.4, 1], scratch: 0.5, oxide: 0.2, oil: 0.9, grime: 0.7, machine: 1.0 }) },
     params: {}, env: 1.2,
+  },
+
+  // ── stage 3a habitat (§8.6). 1024² = 16 MiB (albedo + normal + ORM, mipmapped), 512² = 4 MiB.
+  wood_veneer: {   // crown-cut oak veneer, 18 cm leaves, grain along V, satin lacquer
+    tex: { size: HERO, tile: 2, depth: 0.0006, glsl: WOOD, seed: 41, aoRadius: 0.004,
+      uniforms: U_WOOD_({ a: 0xc9a77c, b: 0x9a7650, leaf: 0.18, ring: 85, warp: 1.0, ray: 0.55, pore: 1.0, rough: [0.3, 0.5] }) },
+    params: {}, env: 0.9, macro: [0.1, 0.15], habitat: true,
+  },
+  wood_dark: {     // walnut, wavier and darker, almost no rays
+    tex: { size: MINOR, tile: 1, depth: 0.0006, glsl: WOOD, seed: 42, aoRadius: 0.004,
+      uniforms: U_WOOD_({ a: 0x6e4f3a, b: 0x3a2a20, leaf: 0.2, ring: 60, warp: 1.4, ray: 0.3, pore: 0.7, rough: [0.28, 0.45] }) },
+    params: {}, env: 0.9, macro: [0.1, 0.15], habitat: true,
+  },
+  fabric_warm: {   // oatmeal twill; tint per instance (InstancedMesh.setColorAt) or with a clone's `color`
+    tex: { size: MINOR, tile: 0.25, depth: 0.0012, glsl: TWILL, seed: 43, aoRadius: 0.003, uniforms: col(0xbba78f) },
+    params: {}, env: 0.25, macro: [0.12, 0.0], habitat: true,
+  },
+  carpet: {        // loop pile, mocha with a 30 cm rust band and ochre pinlines every 1.2 m (band along V)
+    tex: { size: HERO, tile: 1.2, depth: 0.004, glsl: CARPET, seed: 44, aoRadius: 0.004,
+      uniforms: { uColA: { value: srgb(0x7a6252) }, uColB: { value: srgb(0x8a5a40) }, uColC: { value: srgb(0xb89a68) } } },
+    params: {}, env: 0.2, macro: [0.15, 0.0], habitat: true,
+  },
+  plaster_warm: {  // off-white roller-stippled plaster, eggshell
+    tex: { size: HERO, tile: 3, depth: 0.0015, glsl: PLASTER, seed: 45, aoRadius: 0.004, uniforms: col(0xdcd3c3) },
+    params: {}, env: 0.5, macro: [0.06, 0.1], habitat: true,
+  },
+  terrazzo: {      // polished Voronoi-chip terrazzo, brass strips on a 1 m grid
+    tex: { size: HERO, tile: 2, depth: 0.001, glsl: TERRAZZO, seed: 46, aoRadius: 0.003,
+      uniforms: { uCol: { value: srgb(0xcfc6b6) }, uStrip: { value: 1 } } },
+    params: {}, env: 1.1, macro: [0.08, 0.25], habitat: true,
+  },
+  stone_pale: {    // honed limestone
+    tex: { size: MINOR, tile: 1, depth: 0.001, glsl: LIMESTONE, seed: 47, aoRadius: 0.003, uniforms: col(0xd6cab1) },
+    params: {}, env: 0.8, macro: [0.08, 0.15], habitat: true,
+  },
+  tile_ceramic: {  // 15 cm glazed tile, 3 mm grout
+    tex: { size: HERO, tile: 1.2, depth: 0.004, glsl: TILE, seed: 48, aoRadius: 0.004,
+      uniforms: { uCol: { value: srgb(0xe3ddcf) }, uGrout: { value: srgb(0xa29a8b) } } },
+    params: {}, env: 1.1, macro: [0.06, 0.2], habitat: true,
+  },
+  linoleum: {      // speckled pale-green sheet lino, a weld seam every 2 m (along V)
+    tex: { size: HERO, tile: 2, depth: 0.0008, glsl: LINO, seed: 49, aoRadius: 0.003, uniforms: col(0x9cc4a8) },
+    params: {}, env: 0.9, macro: [0.08, 0.2], habitat: true,
+  },
+  soil: {          // planter loam with bark mulch and pebbles
+    tex: { size: MINOR, tile: 1.5, depth: 0.025, glsl: SOIL, seed: 50, aoRadius: 0.01 },
+    params: {}, env: 0.3, macro: [0.15, 0.1], habitat: true,
+  },
+  leaf: {          // leaf atlas (LEAF_ATLAS): alpha-tested, double-sided, wrap + transmission lighting
+    tex: { size: HERO, tile: 1, depth: 0.003, glsl: LEAF, seed: 51, aoRadius: 0.004, coverageMips: true },
+    params: { alphaTest: 0.5, side: THREE.DoubleSide }, env: 0.5, macro: [0.18, 0.1], kind: 'leaf', habitat: true,
+  },
+  bark: {          // smooth grey fig bark; U around the trunk, V up
+    tex: { size: MINOR, tile: 1, depth: 0.008, glsl: BARK, seed: 52, aoRadius: 0.01 },
+    params: {}, env: 0.4, macro: [0.15, 0.1], habitat: true,
+  },
+  water: {         // dark glossy water; two scrolling ripple samples live (userData.flow 0…1)
+    tex: { size: MINOR, tile: 2, depth: 0.06, glsl: WATER, seed: 53, aoRadius: 0.001, aoStrength: 0 },
+    params: {}, env: 1.6, normalScale: 0.6, kind: 'water', habitat: true,
+  },
+  glass_clear: {   // clean architectural glass, faint fingerprints
+    tex: { size: MINOR, tile: 1.5, depth: 0.0004, glsl: GLASS_CLEAN, seed: 54, aoRadius: 0.002 },
+    params: { transparent: true, depthWrite: false, side: THREE.DoubleSide }, env: 1.6, glass: true, habitat: true,
   },
 };
 

@@ -8,6 +8,8 @@ import type { LevelInfo, ScreenKind } from '../core/types';
 
 const MONO = 'ui-monospace, Menlo, "SF Mono", Consolas, monospace';
 const SANS = '"Arial Narrow", "Helvetica Neue", Arial, sans-serif';
+/** Stage 3a habitat screens: a friendlier humanist face than the plant's condensed industrial one. */
+const HAB = '"Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif';
 
 interface Screen {
   mat: THREE.MeshStandardMaterial;
@@ -29,13 +31,15 @@ interface Screen {
   scroll: number;
   noise: ImageData | null;
   noiseCv: HTMLCanvasElement | null;
+  /** `feed`: the supplied live texture (shown as the emissive map instead of the canvas); null = NO SIGNAL card. */
+  ext: THREE.Texture | null;
 }
 
 const INTENSITY: Record<ScreenKind, number> = {
   terminal_idle: 2.6, terminal_alert: 3.2, static: 1.8, choir: 3.5, camera_feed: 2.0, vitals: 2.6, door_locked: 3.5, door_open: 3.0, door_cycling: 3.2,
   choice_stop: 2.2, choice_command: 2.2, palm: 3.0,
-  // stage 3a §8.5: placeholders until task P1 draws these kinds (blank panels until then)
-  pressure: 3.0, habitat_status: 2.6, badge: 3.0, feed: 2.0, cctv: 2.0,
+  // stage 3a §8.5 (habitat screens are calmer than the plant's; the feed matches render/dev/feedtest's monitor)
+  pressure: 2.8, habitat_status: 2.4, badge: 2.8, feed: 2.0, cctv: 2.0,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
@@ -47,7 +51,7 @@ const RATE: Record<ScreenKind, number> = {
  * be read from across the room: on a wide quad they get a 2048 px canvas (everything else 512 / 256).
  */
 function sizeFor(kind: ScreenKind, aspect: number): [number, number] {
-  const base = kind.startsWith('door') ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : 512;
+  const base = kind.startsWith('door') || kind === 'badge' ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : 512;
   return aspect >= 1 ? [base, Math.max(16, Math.round(base / aspect))] : [Math.round(base * aspect), base];
 }
 const MAX_DRAWS_PER_UPDATE = 4;
@@ -124,8 +128,8 @@ export class ScreenManager {
     this.idleText = level.idleText;
   }
 
-  create(kind: ScreenKind, opts?: { text?: string; aspect?: number }): THREE.MeshStandardMaterial {
-    const aspect = opts?.aspect ?? (kind.startsWith('door') ? 2 : 1.6);
+  create(kind: ScreenKind, opts?: { text?: string; aspect?: number; texture?: THREE.Texture }): THREE.MeshStandardMaterial {
+    const aspect = opts?.aspect ?? (kind.startsWith('door') ? 2 : kind === 'badge' ? 0.75 : 1.6);
     const [W, H] = sizeFor(kind, aspect);
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d', { willReadFrequently: false })!;
@@ -143,10 +147,11 @@ export class ScreenManager {
     const seed = this.seedCounter++ * 7919;
     const s: Screen = {
       mat, kind, text: opts?.text, cv, g, tex, W, H, aspect, t: Math.random() * 10, since: 1, lastSeen: -100, drawn: false,
-      seed, rand: rng(seed), lines: [], lineTimer: 0, scroll: 0, noise: null, noiseCv: null,
+      seed, rand: rng(seed), lines: [], lineTimer: 0, scroll: 0, noise: null, noiseCv: null, ext: null,
     };
     mat.onBeforeRender = () => { s.lastSeen = this.frame; };
     mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? ''; // what it shows (tests, debugging)
+    this.bindFeed(s, opts?.texture);
     this.prime(s);
     this.draw(s);
     this.screens.push(s);
@@ -154,7 +159,7 @@ export class ScreenManager {
     return this.track(mat);
   }
 
-  set(mat: THREE.MeshStandardMaterial, kind: ScreenKind, opts?: { text?: string }) {
+  set(mat: THREE.MeshStandardMaterial, kind: ScreenKind, opts?: { text?: string; texture?: THREE.Texture }) {
     const s = this.byMat.get(mat);
     if (!s) { console.warn('[materials] setScreen: not a screen material'); return; }
     // the same card with another number (the unit count changed): redraw, keep its animation clock
@@ -172,8 +177,22 @@ export class ScreenManager {
       s.tex.generateMipmaps = big; s.tex.minFilter = big ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter; s.tex.anisotropy = big ? 8 : 4;
       s.tex.dispose();
     }
+    this.bindFeed(s, opts?.texture);
     this.prime(s);
     this.draw(s);
+  }
+
+  /**
+   * `feed` with a texture: the live image IS the emissive map (the CCTV resolve — exposure, ACES, grain, scanlines,
+   * overlay — is done by the feed's own pass, so nothing is drawn over it here). Any other kind, or no texture, uses
+   * the screen's canvas again. A `feed` without a texture keeps a texture already bound (re-sending the text only).
+   */
+  private bindFeed(s: Screen, tex: THREE.Texture | undefined) {
+    if (s.kind !== 'feed') s.ext = null;
+    else if (tex) s.ext = tex;
+    const want = s.ext ?? s.tex;
+    if (s.mat.emissiveMap !== want) s.mat.emissiveMap = want;
+    s.mat.roughness = s.ext ? 0.2 : 0.12;
   }
 
   private prime(s: Screen) {
@@ -196,6 +215,7 @@ export class ScreenManager {
       const s = this.screens[(this.cursor + k) % n];
       if (this.frame - s.lastSeen > 3 && s.drawn) continue;
       if (s.since < 1 / RATE[s.kind]) continue;
+      if (s.ext) { s.since = 0; continue; }     // a live feed: the feed pass updates the texture itself
       this.draw(s);
       draws++;
     }
@@ -220,6 +240,11 @@ export class ScreenManager {
       case 'choice_stop': this.choice(s, true); break;
       case 'choice_command': this.choice(s, false); break;
       case 'palm': this.palm(s); break;
+      case 'pressure': this.pressure(s); break;
+      case 'habitat_status': this.habitatStatus(s); break;
+      case 'badge': this.badge(s); break;
+      case 'feed': this.noSignal(s); break;
+      case 'cctv': this.camera(s); break;    // §8.4 fallback not taken (the live feed was accepted): plain CCTV loop
     }
     g.globalAlpha = 1;
     // (the wall-sized cards are seen from far and at a slant: a sub-pixel grid would only alias into moiré)
@@ -760,5 +785,316 @@ export class ScreenManager {
       g.strokeRect(W * 0.12, H * 0.215, W * 0.76, H * 0.07);
       g.fillStyle = C(1); g.fillRect(W * 0.12, H * 0.215, W * 0.76 * k, H * 0.07);
     }
+  }
+
+  // ───────────────────────────── stage 3a (§8.5, §6.5): habitat screens
+
+  /** Set `g.font` to the largest size ≤ `size` at which `txt` fits `maxW`; returns the size. */
+  private fit(g: CanvasRenderingContext2D, txt: string, weight: number, size: number, maxW: number, family = HAB) {
+    let sz = Math.max(6, size);
+    g.font = `${weight} ${Math.round(sz)}px ${family}`;
+    while (g.measureText(txt).width > maxW && sz > 6) { sz -= Math.max(1, sz * 0.04); g.font = `${weight} ${Math.round(sz)}px ${family}`; }
+    return sz;
+  }
+
+  private lockIcon(g: CanvasRenderingContext2D, cx: number, cy: number, sz: number, col: string, open = false) {
+    g.save();
+    g.strokeStyle = col; g.fillStyle = col; g.lineWidth = sz * 0.13; g.lineCap = 'round';
+    g.fillRect(cx - sz * 0.42, cy - sz * 0.05, sz * 0.84, sz * 0.62);
+    g.beginPath();
+    if (open) g.arc(cx + sz * 0.42, cy - sz * 0.05, sz * 0.28, Math.PI, Math.PI * 1.95);
+    else g.arc(cx, cy - sz * 0.05, sz * 0.28, Math.PI, 0);
+    g.stroke();
+    g.restore();
+  }
+
+  /**
+   * Pressure-door panel (§6.5): `text` = `TEST|hh:mm:ss` (the story writes the countdown once per second),
+   * `EQUALISING`, `RELEASED|CHOIR`, `OPEN`, `SECTOR SEALED`, `CLEAR THE DOOR`; anything else is shown as a notice.
+   */
+  private pressure(s: Screen) {
+    const { g, W, H } = s;
+    const t = s.t;
+    const [rawState = 'TEST', arg = ''] = (s.text ?? 'TEST|10:00:00').split('|');
+    const state = rawState.trim().toUpperCase();
+    const blink = Math.floor(t * 2) % 2 === 0;
+    const AMBER = '#ffb347', CYAN = '#79dcff', GREEN = '#6dffa6', RED = '#ff4a36', WHITE = '#f4f1e8';
+    const accent = state === 'TEST' ? AMBER : state === 'EQUALISING' ? CYAN : state === 'RELEASED' || state === 'OPEN' ? GREEN
+      : state === 'SECTOR SEALED' ? RED : AMBER;
+    const sealed = state === 'SECTOR SEALED';
+    g.fillStyle = sealed ? (blink ? '#2a0605' : '#160303') : '#081219'; g.fillRect(0, 0, W, H);
+    // header strip
+    const hh = H * 0.13;
+    g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(0, 0, W, hh);
+    g.fillStyle = accent; g.fillRect(0, hh - 2, W, 2);
+    g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = 'rgba(244,241,232,0.75)';
+    this.fit(g, 'PRESSURE DOOR P-1  ·  HABITAT RING A', 600, hh * 0.46, W * 0.72);
+    g.fillText('PRESSURE DOOR P-1  ·  HABITAT RING A', W * 0.035, hh * 0.52);
+    g.textAlign = 'right'; g.fillStyle = accent;
+    g.font = `700 ${Math.round(hh * 0.42)}px ${HAB}`;
+    g.fillText(state === 'TEST' ? 'TEST' : state === 'OPEN' || state === 'RELEASED' ? 'CLEAR' : state === 'EQUALISING' ? 'CYCLE' : 'ALARM', W * 0.965, hh * 0.52);
+    const cx = W / 2;
+    const glow = (col: string, f: () => void) => { g.save(); g.shadowColor = col; g.shadowBlur = H * 0.05; f(); g.restore(); };
+    g.textAlign = 'center';
+    if (state === 'TEST') {
+      g.fillStyle = AMBER;
+      this.fit(g, 'PRESSURE INTEGRITY TEST', 700, H * 0.085, W * 0.86);
+      g.fillText('PRESSURE INTEGRITY TEST', cx, H * 0.24);
+      // the countdown
+      const clock = (arg || '10:00:00').trim();
+      const ds = this.fit(g, clock, 600, H * 0.3, W * 0.66, MONO);
+      this.lockIcon(g, W * 0.1, H * 0.46, H * 0.13, AMBER);
+      glow(AMBER, () => { g.fillStyle = WHITE; g.fillText(clock, cx + W * 0.04, H * 0.47); });
+      g.fillStyle = 'rgba(244,241,232,0.6)'; g.font = `600 ${Math.round(H * 0.055)}px ${HAB}`;
+      g.fillText('REMAINING', cx + W * 0.04, H * 0.47 + ds * 0.62);
+      // 72 h bar with six-hour marks; filled = elapsed
+      const m = /(\d+):(\d+):(\d+)/.exec(clock);
+      const left = m ? Number(m[1]) + Number(m[2]) / 60 + Number(m[3]) / 3600 : 10;
+      const k = Math.max(0, Math.min(1, 1 - left / 72));
+      const bx = W * 0.08, bw = W * 0.84, by = H * 0.74, bh = H * 0.05;
+      g.strokeStyle = 'rgba(255,179,71,0.6)'; g.lineWidth = 2; g.strokeRect(bx, by, bw, bh);
+      g.fillStyle = 'rgba(255,179,71,0.75)'; g.fillRect(bx + 2, by + 2, (bw - 4) * k, bh - 4);
+      g.fillStyle = 'rgba(8,18,25,0.9)';
+      for (let i = 1; i < 12; i++) g.fillRect(bx + bw * i / 12 - 1, by + 2, 2, bh - 4);
+      g.fillStyle = 'rgba(244,241,232,0.55)'; g.font = `500 ${Math.round(H * 0.045)}px ${HAB}`;
+      g.textAlign = 'left'; g.fillText('HR 0', bx, by + bh + H * 0.045);
+      g.textAlign = 'right'; g.fillText('HR 72', bx + bw, by + bh + H * 0.045);
+      g.textAlign = 'center'; g.fillStyle = 'rgba(244,241,232,0.7)';
+      this.fit(g, 'DOOR SEALED FOR THE DURATION OF THE TEST', 600, H * 0.05, W * 0.6);
+      g.fillText('DOOR SEALED FOR THE DURATION OF THE TEST', cx, H * 0.93);
+    } else if (state === 'EQUALISING') {
+      const dp = Math.max(0, 4.2 * Math.exp(-t / 2.5) - 0.01);
+      glow(CYAN, () => { g.fillStyle = CYAN; this.fit(g, 'EQUALISING', 800, H * 0.2, W * 0.86); g.fillText('EQUALISING', cx, H * 0.33); });
+      // two columns converging: lock side and habitat side
+      const bw = W * 0.12, base = H * 0.86, full = H * 0.36;
+      const a = full * (0.55 + 0.45 * Math.min(1, dp / 4.2)), b = full * 0.55;
+      g.fillStyle = 'rgba(121,220,255,0.18)'; g.fillRect(W * 0.2, base - full, bw, full); g.fillRect(W * 0.68, base - full, bw, full);
+      g.fillStyle = CYAN; g.fillRect(W * 0.2, base - a, bw, a); g.fillRect(W * 0.68, base - b, bw, b);
+      g.fillStyle = 'rgba(244,241,232,0.7)'; g.font = `600 ${Math.round(H * 0.045)}px ${HAB}`;
+      g.fillText('LOCK', W * 0.2 + bw / 2, base + H * 0.05); g.fillText('HABITAT', W * 0.68 + bw / 2, base + H * 0.05);
+      g.fillStyle = WHITE; g.font = `600 ${Math.round(H * 0.11)}px ${MONO}`;
+      g.fillText(`Δp ${dp.toFixed(2)}`, cx, H * 0.62);
+      g.font = `600 ${Math.round(H * 0.05)}px ${HAB}`; g.fillStyle = 'rgba(244,241,232,0.7)';
+      g.fillText('kPa', cx, H * 0.72);
+      const dots = '.'.repeat(1 + (Math.floor(t * 3) % 3));
+      g.fillText(`STAND CLEAR${dots}`, cx, H * 0.82);
+    } else if (state === 'RELEASED') {
+      glow(GREEN, () => { g.fillStyle = GREEN; this.fit(g, 'RELEASED', 800, H * 0.24, W * 0.86); g.fillText('RELEASED', cx, H * 0.38); });
+      g.fillStyle = WHITE;
+      const who = (arg || 'CHOIR').toUpperCase();
+      this.fit(g, `AUTHORISED: ${who}`, 700, H * 0.1, W * 0.86);
+      g.fillText(`AUTHORISED: ${who}`, cx, H * 0.6);
+      g.fillStyle = 'rgba(244,241,232,0.65)'; this.fit(g, 'TEST SUSPENDED  ·  DOOR UNDER REMOTE CONTROL', 600, H * 0.055, W * 0.86);
+      g.fillText('TEST SUSPENDED  ·  DOOR UNDER REMOTE CONTROL', cx, H * 0.76);
+      this.lockIcon(g, cx, H * 0.88, H * 0.08, GREEN, true);
+    } else if (state === 'OPEN') {
+      glow(GREEN, () => { g.fillStyle = GREEN; this.fit(g, 'OPEN', 800, H * 0.32, W * 0.6); g.fillText('OPEN', cx, H * 0.45); });
+      const k = (t * 0.8) % 1;
+      g.strokeStyle = GREEN; g.lineWidth = H * 0.03; g.lineCap = 'round'; g.lineJoin = 'round';
+      for (const dir of [-1, 1]) for (let i = 0; i < 3; i++) {
+        const x = cx + dir * (W * 0.27 + i * W * 0.045), y = H * 0.45, a = 0.25 + 0.75 * ((i / 3 + k) % 1);
+        g.globalAlpha = a;
+        g.beginPath(); g.moveTo(x - dir * H * 0.05, y - H * 0.08); g.lineTo(x + dir * H * 0.03, y); g.lineTo(x - dir * H * 0.05, y + H * 0.08); g.stroke();
+      }
+      g.globalAlpha = 1;
+      g.fillStyle = 'rgba(244,241,232,0.75)'; this.fit(g, 'PRESSURE EQUAL  ·  MIND THE STEP', 600, H * 0.065, W * 0.86);
+      g.fillText('PRESSURE EQUAL  ·  MIND THE STEP', cx, H * 0.74);
+    } else if (sealed) {
+      glow(RED, () => {
+        g.fillStyle = blink ? '#ffd8d0' : RED;
+        this.fit(g, 'SECTOR SEALED', 900, H * 0.2, W * 0.9); g.fillText('SECTOR SEALED', cx, H * 0.42);
+      });
+      this.lockIcon(g, cx, H * 0.66, H * 0.13, RED);
+      g.fillStyle = RED; this.fit(g, 'PRESSURE ALARM  ·  DOOR LOCKED', 700, H * 0.07, W * 0.86);
+      g.fillText('PRESSURE ALARM  ·  DOOR LOCKED', cx, H * 0.87);
+    } else {
+      // CLEAR THE DOOR (or any notice): amber chevron frame, flashing
+      const on = Math.floor(t * 3) % 2 === 0;
+      const b = H * 0.08;
+      g.save();
+      g.beginPath(); g.rect(0, hh, W, H - hh); g.rect(b, hh + b, W - 2 * b, H - hh - 2 * b); g.clip('evenodd');
+      g.fillStyle = on ? AMBER : '#5a3a10'; g.fillRect(0, hh, W, H - hh);
+      g.fillStyle = '#100800';
+      for (let x = -H; x < W + H; x += b * 2) { g.beginPath(); g.moveTo(x, H); g.lineTo(x + b, H); g.lineTo(x + b + H, hh); g.lineTo(x + H, hh); g.closePath(); g.fill(); }
+      g.restore();
+      const msg = rawState.toUpperCase();
+      glow(AMBER, () => {
+        g.fillStyle = on ? '#fff0d8' : AMBER;
+        const lines = msg.split('\n');
+        const fs = this.fit(g, lines.reduce((a, l) => (l.length > a.length ? l : a), ''), 900, H * 0.2 / Math.max(1, lines.length * 0.7), W - b * 4);
+        lines.forEach((ln, i) => g.fillText(ln, cx, H * 0.56 + (i - (lines.length - 1) / 2) * fs * 1.1));
+      });
+      if (arg) { g.fillStyle = WHITE; this.fit(g, arg.toUpperCase(), 600, H * 0.06, W - b * 4); g.fillText(arg.toUpperCase(), cx, H * 0.8); }
+    }
+  }
+
+  /**
+   * Lobby status board (§6.5). `text` = `<clock>|<lamp>|<line>\n<line>…` e.g.
+   * `WED 22:40|EVENING|NODES ONLINE: 5 OF 6\nNODE 2 — BIO-SYS\nNODE 5 — FAB L2: OFFLINE`. Each line gets a status dot
+   * (red: ALARM / SEALED, amber: OFFLINE / SUPERVISED / TEST, green otherwise). A line starting with `!` is an alert:
+   * it becomes a blinking red banner and turns the board's accent red (`!PRESSURE ALARM — SECTOR SEALED`).
+   */
+  private habitatStatus(s: Screen) {
+    const { g, W, H } = s;
+    const t = s.t;
+    const parts = (s.text ?? '').split('|');
+    const [clockRaw, lamp, bodyRaw] = parts.length >= 3 ? [parts[0], parts[1], parts.slice(2).join('|')] : ['', '', parts.join('|')];
+    const lines = bodyRaw.split('\n').map((l) => l.trim()).filter(Boolean);
+    const alerts = lines.filter((l) => l.startsWith('!')).map((l) => l.slice(1).trim());
+    const items = lines.filter((l) => !l.startsWith('!'));
+    const alarm = alerts.length > 0;
+    const blink = Math.floor(t * 1.6) % 2 === 0;
+    const WARM = '#f6efe0', DIM = 'rgba(246,239,224,0.6)';
+    const accent = alarm ? '#ff4a36' : '#e8b45a';
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, alarm ? '#220807' : '#0c1e25'); bg.addColorStop(1, alarm ? '#120303' : '#07131a');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    // top bar: header, and the band colours of the habitat's wayfinding
+    const th = H * 0.1;
+    g.fillStyle = 'rgba(255,255,255,0.05)'; g.fillRect(0, 0, W, th);
+    const bands = ['#4f8a4a', '#d0782e', '#3d6fa8', '#c49a3a', '#6a5aa0'];
+    bands.forEach((c, i) => { g.fillStyle = alarm ? '#7a1a12' : c; g.fillRect(i * W / bands.length, th - 3, W / bands.length, 3); });
+    g.fillStyle = DIM; g.textBaseline = 'middle'; g.textAlign = 'left';
+    this.fit(g, this.header, 600, th * 0.42, W * 0.94);
+    g.fillText(this.header, W * 0.03, th * 0.5);
+    // left: the clock and the lamp setting
+    const lx = W * 0.03, lw = W * 0.34;
+    const clock = clockRaw.trim();
+    const m = /^(\S+)\s+(\d{1,2}:\d{2}(?::\d{2})?)$/.exec(clock);
+    const day = m ? m[1] : '', time = m ? m[2] : clock;
+    g.textAlign = 'left';
+    if (day) { g.fillStyle = DIM; g.font = `600 ${Math.round(H * 0.07)}px ${HAB}`; g.fillText(day, lx, H * 0.21); }
+    if (time) {
+      this.fit(g, time, 500, H * 0.22, lw, HAB);
+      g.save(); g.shadowColor = WARM; g.shadowBlur = H * 0.03; g.fillStyle = WARM; g.fillText(time, lx - 2, H * 0.36); g.restore();
+    }
+    if (lamp) {
+      // lamp setting: a setting sun (EVENING), full sun (DAY), moon (NIGHT)
+      const iy = H * 0.57, ir = H * 0.05, ix = lx + ir;
+      const L = lamp.trim().toUpperCase();
+      g.fillStyle = '#ffc58a'; g.strokeStyle = '#ffc58a'; g.lineWidth = 2;
+      if (L.startsWith('NIGHT')) {
+        g.beginPath(); g.arc(ix, iy, ir, 0, Math.PI * 2); g.fill();
+        g.fillStyle = alarm ? '#1a0505' : '#0b1b22'; g.beginPath(); g.arc(ix + ir * 0.45, iy - ir * 0.3, ir * 0.85, 0, Math.PI * 2); g.fill();
+      } else {
+        const half = L.startsWith('EVEN') || L.startsWith('MORN');
+        g.beginPath(); g.arc(ix, iy + (half ? ir * 0.3 : 0), ir * 0.75, half ? Math.PI : 0, Math.PI * 2); g.fill();
+        for (let k = 0; k < 7; k++) {
+          const a = Math.PI + (k / 6) * Math.PI;
+          g.beginPath(); g.moveTo(ix + Math.cos(a) * ir * 1.05, iy + (half ? ir * 0.3 : 0) + Math.sin(a) * ir * 1.05);
+          g.lineTo(ix + Math.cos(a) * ir * 1.45, iy + (half ? ir * 0.3 : 0) + Math.sin(a) * ir * 1.45); g.stroke();
+        }
+        if (half) g.fillRect(ix - ir * 1.5, iy + ir * 0.36, ir * 3, 2);
+      }
+      g.fillStyle = '#ffc58a'; g.font = `600 ${Math.round(H * 0.065)}px ${HAB}`;
+      g.fillText(L, lx + ir * 2.8, iy + 1);
+      g.fillStyle = DIM; g.font = `500 ${Math.round(H * 0.045)}px ${HAB}`;
+      g.fillText('LAMP SETTING', lx, iy + H * 0.09);
+    }
+    // divider
+    g.fillStyle = 'rgba(246,239,224,0.15)'; g.fillRect(W * 0.39, th + H * 0.05, 1.5, H * 0.72);
+    // right: alerts on top, then the status lines
+    const rx = W * 0.42, rw = W * 0.55;
+    let y = th + H * 0.07;
+    for (const a of alerts) {
+      const bh = H * 0.12;
+      g.fillStyle = blink ? '#ff3a28' : '#5a0d08'; g.fillRect(rx, y, rw, bh);
+      g.fillStyle = blink ? '#fff4f0' : '#ff6a50'; g.textAlign = 'left';
+      this.fit(g, a, 800, bh * 0.52, rw - bh * 0.4);
+      g.fillText(a, rx + bh * 0.2, y + bh * 0.52);
+      y += bh + H * 0.03;
+    }
+    const n = Math.max(1, items.length);
+    const lh = Math.min(H * 0.12, (H * 0.86 - y) / n);
+    for (const ln of items) {
+      const U = ln.toUpperCase();
+      const dot = /ALARM|SEALED|FAIL/.test(U) ? '#ff4a36' : /OFFLINE|SUPERVISED|TEST|STANDBY|NO /.test(U) ? '#ffb347' : '#6ddf8a';
+      const r = lh * 0.17;
+      g.fillStyle = dot; g.beginPath(); g.arc(rx + r, y + lh * 0.5, r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = WARM; g.textAlign = 'left';
+      this.fit(g, ln, 600, lh * 0.62, rw - r * 3.6);
+      g.fillText(ln, rx + r * 3.2, y + lh * 0.52);
+      y += lh;
+    }
+    // footer
+    g.fillStyle = accent; g.fillRect(0, H * 0.9, W, 2);
+    g.fillStyle = DIM; g.textAlign = 'left'; g.font = `500 ${Math.round(H * 0.045)}px ${HAB}`;
+    g.fillText('HABITAT RING A  ·  LOBBY', W * 0.03, H * 0.95);
+    g.textAlign = 'right';
+    g.fillText(alarm ? 'FOLLOW STAFF INSTRUCTIONS' : 'CHOIR REPORTS EVERY SIX HOURS', W * 0.97, H * 0.95);
+  }
+
+  /**
+   * Badge reader (§6.5, `bio_reader`). `text` = `<state>|<LABEL>|<detail>`; state: off, idle (PRESENT BADGE, pulsing),
+   * read (reading, spinner), accepted (green, detail = whose badge), denied (red, blinking, detail = the reason).
+   */
+  private badge(s: Screen) {
+    const { g, W, H } = s;
+    const t = s.t;
+    const [stRaw = 'idle', label = '', detail = ''] = (s.text ?? '').split('|');
+    const st = stRaw.trim().toLowerCase();
+    g.fillStyle = st === 'off' ? '#010101' : '#070d12'; g.fillRect(0, 0, W, H);
+    if (st === 'off') return;
+    const blink = Math.floor(t * 3) % 2 === 0;
+    const col = st === 'accepted' ? '#6dffa6' : st === 'denied' ? '#ff4a36' : st === 'read' ? '#ffb347' : '#cfe8ff';
+    const C = (a: number) => {
+      const c = st === 'accepted' ? '109,255,166' : st === 'denied' ? '255,74,54' : st === 'read' ? '255,179,71' : '207,232,255';
+      return `rgba(${c},${a})`;
+    };
+    const m = W * 0.06;
+    g.strokeStyle = C(st === 'denied' ? (blink ? 1 : 0.4) : 0.8); g.lineWidth = Math.max(2, W * 0.025);
+    g.strokeRect(m, m, W - 2 * m, H - 2 * m);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (label) { g.fillStyle = 'rgba(244,241,232,0.8)'; this.fit(g, label.toUpperCase(), 700, H * 0.07, W - m * 3); g.fillText(label.toUpperCase(), W / 2, H * 0.12); }
+    const cx = W / 2, cy = H * 0.42, R = Math.min(W, H) * 0.24;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    if (st === 'idle' || st === 'read') {
+      // a badge with contactless arcs
+      const p = st === 'idle' ? 0.55 + 0.45 * Math.abs(Math.sin(t * 1.8)) : 1;
+      g.strokeStyle = C(p); g.fillStyle = C(p * 0.2); g.lineWidth = Math.max(2, R * 0.09);
+      const bw = R * 0.9, bh = R * 1.25;
+      g.fillRect(cx - bw / 2 - R * 0.25, cy - bh / 2, bw, bh); g.strokeRect(cx - bw / 2 - R * 0.25, cy - bh / 2, bw, bh);
+      g.fillStyle = C(p); g.beginPath(); g.arc(cx - R * 0.25, cy - bh * 0.15, R * 0.17, 0, Math.PI * 2); g.fill();
+      g.fillRect(cx - R * 0.25 - bw * 0.3, cy + bh * 0.12, bw * 0.6, R * 0.08);
+      for (let k = 0; k < 3; k++) {
+        const a = st === 'read' ? (Math.floor(t * 6) % 3 >= k ? 1 : 0.25) : p * (0.4 + 0.2 * k);
+        g.strokeStyle = C(a); g.lineWidth = Math.max(2, R * 0.08);
+        g.beginPath(); g.arc(cx + R * 0.3, cy, R * (0.3 + k * 0.22), -0.7, 0.7); g.stroke();
+      }
+      g.fillStyle = C(1);
+      const msg = st === 'idle' ? 'PRESENT BADGE' : `READING${'.'.repeat(1 + (Math.floor(t * 3) % 3))}`;
+      this.fit(g, 'PRESENT BADGE', 800, H * 0.085, W - m * 3); g.fillText(msg, cx, H * 0.75);
+      if (detail) { g.fillStyle = 'rgba(244,241,232,0.6)'; this.fit(g, detail.toUpperCase(), 600, H * 0.055, W - m * 3); g.fillText(detail.toUpperCase(), cx, H * 0.86); }
+    } else if (st === 'accepted') {
+      g.save(); g.shadowColor = col; g.shadowBlur = R * 0.3;
+      g.strokeStyle = col; g.lineWidth = R * 0.16;
+      g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.moveTo(cx - R * 0.45, cy + R * 0.02); g.lineTo(cx - R * 0.1, cy + R * 0.36); g.lineTo(cx + R * 0.5, cy - R * 0.32); g.stroke();
+      g.restore();
+      g.fillStyle = col; this.fit(g, 'ACCEPTED', 800, H * 0.1, W - m * 3); g.fillText('ACCEPTED', cx, H * 0.73);
+      if (detail) { g.fillStyle = 'rgba(244,241,232,0.85)'; this.fit(g, detail.toUpperCase(), 600, H * 0.06, W - m * 3); g.fillText(detail.toUpperCase(), cx, H * 0.85); }
+    } else {
+      // denied (any other state reads as a refusal)
+      const a = blink ? 1 : 0.45;
+      g.save(); g.shadowColor = col; g.shadowBlur = R * 0.3;
+      g.strokeStyle = C(a); g.lineWidth = R * 0.16;
+      g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.moveTo(cx - R * 0.4, cy - R * 0.4); g.lineTo(cx + R * 0.4, cy + R * 0.4); g.moveTo(cx + R * 0.4, cy - R * 0.4); g.lineTo(cx - R * 0.4, cy + R * 0.4); g.stroke();
+      g.restore();
+      g.fillStyle = C(a); this.fit(g, 'DENIED', 800, H * 0.1, W - m * 3); g.fillText('DENIED', cx, H * 0.73);
+      if (detail) { g.fillStyle = 'rgba(244,241,232,0.85)'; this.fit(g, detail.toUpperCase(), 600, H * 0.06, W - m * 3); g.fillText(detail.toUpperCase(), cx, H * 0.85); }
+    }
+  }
+
+  /** `feed` with no texture bound: NO SIGNAL card (`text` = the camera label, e.g. `CAM 01  GALLERY N`). */
+  private noSignal(s: Screen) {
+    const { g, W, H, rand } = s;
+    g.fillStyle = '#05080b'; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 500; i++) { const v = (rand() * 90) | 0; g.fillStyle = `rgba(${v},${v},${v + 10},0.25)`; g.fillRect(rand() * W, rand() * H, 2, 2); }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = 'rgba(220,230,240,0.85)';
+    this.fit(g, 'NO SIGNAL', 700, H * 0.14, W * 0.7, MONO);
+    if (Math.floor(s.t * 1.2) % 2 === 0) g.fillText('NO SIGNAL', W / 2, H / 2);
+    if (s.text) { g.font = `${Math.round(H * 0.06)}px ${MONO}`; g.textAlign = 'left'; g.fillText(s.text, W * 0.04, H * 0.08); }
   }
 }
