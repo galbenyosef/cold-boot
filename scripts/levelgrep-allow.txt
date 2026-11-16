@@ -41,3 +41,6 @@ src/player/dev/fpview.ts :: if (zoom !== 1) {
 src/player/viewmodels/grip.ts :: const t = s === 2 ?
 src/player/viewmodels/hands.ts :: f.r[s + 1], s === 2, s < 2,
 src/player/viewmodels/hands.ts :: THUMB_R[s + 1], s === 2, s < 2,
+
+# ── dev-only test driver for the feed spike (runs only with ?feedtest on level 2)
+src/render/dev/feedtest.ts :: needs ?level=2
