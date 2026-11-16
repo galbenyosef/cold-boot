@@ -289,6 +289,7 @@ export abstract class EnemyBase implements Enemy {
    * Replans at ≤ 2 Hz, string-pulls at 4 Hz. Returns false when there is nowhere to go.
    */
   protected navigate(dt: number, rayH = 0.35): boolean {
+    if (this.world.nav.decks) return this.navigateDecks(dt, rayH);
     const w = this.world, p = this.body.position, nav = w.nav;
     this.directTimer -= dt;
     if (this.directTimer <= 0) {
@@ -329,12 +330,77 @@ export abstract class EnemyBase implements Enemy {
   }
 
   /**
+   * §8.10 (nav v2, multi-deck levels only): `navigate` in 3-D. Paths are planned from / to nodes on the right floor;
+   * a node counts as reached only on its own floor; walk tests need floor under the line for ground walkers (no
+   * string-pulling off a balcony or across a stairwell); direct chase keeps its |dy| < 1.2 rule. When the player
+   * cannot be reached (locked door, a ledge with no nav), the machine walks the partial path to the reachable node
+   * nearest the player and holds there facing them (`holdUntil`) — it never walks to the spot under the player and
+   * keeps re-planning, so it comes as soon as a way opens (story gates using `rouse` / `fightOut` never wait on a
+   * machine that gave up). Returns false while holding.
+   */
+  protected navigateDecks(dt: number, rayH: number): boolean {
+    const w = this.world, p = this.body.position, nav = w.nav;
+    const walker = this.type !== 'sentry';
+    this.directTimer -= dt;
+    if (this.directTimer <= 0) {
+      this.directTimer = 0.25 + w.rand() * 0.05;
+      this.direct = nav.count === 0 ||
+        (this.dist < 16 && Math.abs(w.playerPos.y - p.y) < 1.2 && this.seesPlayer && nav.walkable(p, w.playerPos, rayH, walker));
+    }
+    if (this.direct) { this.waypoint.copy(w.playerPos); this.path.length = 0; this.partial = false; return true; }
+    this.replanTimer -= dt;
+    if (this.replanTimer <= 0 || this.path.length === 0) {
+      this.replanTimer = 0.6 + w.rand() * 0.4;
+      const start = nav.nearestNode(p, true, walker);
+      const goal = nav.playerNode(w.time, w.playerPos);
+      nav.findPath(start, goal, this.path, true);
+      this.partial = nav.lastPartial;
+      this.pathIdx = 0;
+      // skip the first node if we are already past it toward the second (on its floor)
+      if (this.path.length > 1) {
+        const a = nav.nodePos(this.path[0]), b = nav.nodePos(this.path[1]);
+        const abx = b.x - a.x, abz = b.z - a.z;
+        if ((p.x - a.x) * abx + (p.z - a.z) * abz > 0 && (!walker || Math.abs(a.y - p.y) < 1.0) && nav.walkable(p, b, rayH, walker)) this.pathIdx = 1;
+      }
+    }
+    if (this.path.length === 0) return this.hold();
+    this.pullTimer -= dt;
+    if (this.pullTimer <= 0) {
+      this.pullTimer = 0.25;
+      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH, walker)) this.pathIdx++;
+    }
+    let node = nav.nodePos(this.path[this.pathIdx]);
+    if (Math.hypot(node.x - p.x, node.z - p.z) < 0.55 && (!walker || Math.abs(node.y - p.y) < 1.0)) {
+      if (this.pathIdx < this.path.length - 1) { this.pathIdx++; node = nav.nodePos(this.path[this.pathIdx]); }
+      else if (!this.partial && Math.abs(w.playerPos.y - p.y) < 1.2) { this.waypoint.copy(w.playerPos); return true; }
+      else return this.hold();
+    }
+    this.waypoint.copy(node);
+    return true;
+  }
+
+  /** The last plan ended short of the player (partial path, §8.10). */
+  protected partial = false;
+  /** World time until which the machine stands its ground (stand-off, §8.10): `moveGround` / `watchdog` honour it. */
+  protected holdUntil = -1;
+  /** Stand off: no travel for a moment, face the player (the waypoint is a step toward them). */
+  protected hold(): boolean {
+    const w = this.world, p = this.body.position;
+    this.holdUntil = w.time + 0.25;
+    const dx = w.playerPos.x - p.x, dz = w.playerPos.z - p.z, l = Math.hypot(dx, dz) || 1;
+    this.waypoint.set(p.x + (dx / l) * 0.3, p.y, p.z + (dz / l) * 0.3);
+    return false;
+  }
+  protected get holding(): boolean { return this.world.time < this.holdUntil; }
+
+  /**
    * No-progress watchdog. Call every frame with whether the machine is trying to move.
    * Returns a lateral steering bias (-1..1) to apply while unsticking; may hop the body.
    */
   protected watchdog(dt: number, wantsMove: boolean, hop: number): number {
     const p = this.body.position;
     if (this.unstickTime > 0) this.unstickTime -= dt;
+    if (this.holding) wantsMove = false;
     if (!wantsMove) { this.stuckTimer = 0; this.lastProgress.copy(p); this.stuckCount = 0; return 0; }
     this.stuckTimer += dt;
     if (this.stuckTimer > 0.9) {
@@ -352,7 +418,10 @@ export abstract class EnemyBase implements Enemy {
           const node = this.world.nav.nodePos(this.path[Math.min(this.pathIdx, this.path.length - 1)]);
           _n.copy(node).sub(p); _n.y = 0;
           const l = _n.length();
-          if (l > 0.01 && l < 4) { p.addScaledVector(_n, Math.min(1, 0.6 / l)); p.y += 0.05; }
+          // (multi-deck levels: never through a balustrade / off a ledge — only toward a node on our floor in clear view)
+          const nav = this.world.nav;
+          const safe = !nav.decks || (Math.abs(node.y - p.y) < 0.6 && nav.walkable(p, node, 0.35, this.type !== 'sentry') && nav.walkable(p, node, 1.0));
+          if (safe && l > 0.01 && l < 4) { p.addScaledVector(_n, Math.min(1, 0.6 / l)); p.y += 0.05; }
           this.stuckCount = 0;
         }
       } else {
@@ -365,6 +434,7 @@ export abstract class EnemyBase implements Enemy {
   /** Accelerate the horizontal velocity toward (dx,dz)*speed and run the capsule through physics. */
   protected moveGround(dt: number, dx: number, dz: number, speed: number, accel: number): void {
     const v = this.body.velocity;
+    if (this.holding) speed = 0; // stand-off (§8.10; never set on levels 1–2)
     const tx = dx * speed, tz = dz * speed;
     const k = Math.min(1, accel * dt);
     v.x += (tx - v.x) * k; v.z += (tz - v.z) * k;

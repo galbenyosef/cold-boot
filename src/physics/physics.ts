@@ -23,8 +23,18 @@ export function createPhysics(): Physics {
   const v1 = new THREE.Vector3();
   const tmp = new THREE.Vector3();
   const sphere = new THREE.Sphere();
+  const triN = new THREE.Vector3();
+  /**
+   * Stage 3a §8.10 (stairs / ramps): a capsule resting on a sloped FACE is pushed straight up out of it instead of
+   * along the face normal, so a standing body does not creep downhill (the resting bias pushes it into the slope
+   * every sub-step; the normal push-out had a downhill component: ≈ 0.5 m/s on 28°). Edges, walls, steep faces
+   * (normal y < 0.5) and flat floors resolve as before. Only for levels that declare walkable stairs (collider
+   * meshes carry `userData.holdSlopes`, see LevelBuild.colliderMeshes); levels 1–2 do not, so they are unchanged.
+   */
+  let holdSlopes = false;
 
   function build(colliders: THREE.Mesh[]) {
+    holdSlopes = colliders.some((m) => m.userData.holdSlopes === true);
     // Merge every collider into one non-indexed, world-space position buffer + per-vertex surface id.
     let total = 0;
     const parts: { pos: Float32Array; surf: number }[] = [];
@@ -118,6 +128,16 @@ export function createPhysics(): Physics {
             const depth = radius - dist;
             const dir = capPoint.sub(triPoint);
             if (dir.lengthSq() < 1e-12) tri.getNormal(dir); else dir.normalize();
+            if (holdSlopes && dir.y >= 0.5 && dir.y < 0.97) {
+              // face contact on a walkable slope (not an edge): resolve vertically, no downhill creep
+              tri.getNormal(triN);
+              if (triN.dot(dir) < 0) triN.negate();
+              if (triN.dot(dir) > 0.995) {
+                const up = depth / dir.y;
+                seg.start.y += up; seg.end.y += up;
+                return false;
+              }
+            }
             seg.start.addScaledVector(dir, depth);
             seg.end.addScaledVector(dir, depth);
           }
@@ -245,5 +265,7 @@ export function createPhysics(): Physics {
   }
 
   const physics: Physics = { build, raycast, lineOfSight, moveBody, resolveSphere, addBox, ownerAt, addMover, movers, gravity: GRAVITY };
+  // test hook (scripts/check-nav.mjs: the drift case is run once with the hold off and must fail)
+  Object.defineProperty(physics, '_holdSlopes', { get: () => holdSlopes, set: (v: boolean) => { holdSlopes = !!v; }, enumerable: false });
   return physics;
 }

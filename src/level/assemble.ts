@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import type { Door, GameContext, Level, NavNode, Room } from '../core/types';
 import type { LevelBuild, MachineState } from './context';
 import { makeDoors, type DoorImpl, type DoorSpec } from './doors';
-import { buildNav } from './nav';
+import { buildNav, type NavPortal } from './nav';
 import { TriggerSystem, type TriggerSpec } from './triggers';
 
 /** [room A, room B, door id | null (always open), see-through when shut: true = SEE_RANGE | metres from the door]. */
@@ -23,11 +23,11 @@ export interface LevelDef {
   /** Rooms behind a shut see-through door are drawn only within this distance of that door. */
   seeRange?: number;
   triggers: TriggerSpec[];
-  /** Extra nav portal points (open archways) besides the door centres. */
-  navPortals?: { x: number; z: number }[];
+  /** Extra nav portal points (open archways) besides the door centres; `y` = the opening's floor (default 0). */
+  navPortals?: NavPortal[];
   navStep: (room: string) => number;
-  /** Where nav reachability pruning starts (normally the spawn). */
-  navStart: { x: number; z: number };
+  /** Where nav reachability pruning starts (normally the spawn); give `y` on a multi-deck level. */
+  navStart: { x: number; y?: number; z: number };
   extraProbes?: THREE.Vector3[];
   spawn: { position: THREE.Vector3; yaw: number };
   /** Room the camera is assumed to be in before it first enters one. */
@@ -81,7 +81,8 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
   const colliders = L.colliderMeshes();
   const rooms: readonly Room[] = L.rooms;
 
-  const nav: NavNode[] = buildNav(L, rooms, [...def.doors.map((d) => ({ x: d.x, z: d.z })), ...(def.navPortals ?? [])], def.navStep, def.navStart);
+  // door portal nodes stand on the door's floor (§8.9 `DoorSpec.y`, §8.10)
+  const nav: NavNode[] = buildNav(L, rooms, [...def.doors.map((d) => ({ x: d.x, y: d.y, z: d.z })), ...(def.navPortals ?? [])], def.navStep, def.navStart);
   lap('nav');
   const triggers = new TriggerSystem(ctx, def.triggers);
 

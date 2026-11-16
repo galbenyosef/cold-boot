@@ -13,6 +13,11 @@
  *
  * `scripts/check-reach.mjs --greybox` runs the phases below (one is EXPECTED to fail: a forbidden Deck-2 region
  * that is reachable) and `level.selfTest()` (doors, triggers, rooms, regions, pit assertion, cab / lift floors).
+ *
+ * Nav v2 (§8.10, K4; `scripts/check-nav.mjs`, cases in NAV_CASES_GB): the ramp is a declared `navStair`; a 1.2 m gap
+ * in the balcony balustrade at its south end (z −29.6 … −28.4) is a declared one-way `navDrop` into the garden; an
+ * "island" deck (x −6…−4, z −30…−26, y 2.4, walled, on a solid block) is a floor nothing links — the deliberate
+ * failing case (check-nav must report it unlinked and a husk on it must not reach the player).
  */
 import * as THREE from 'three';
 import type { GameContext, Level } from '../../core/types';
@@ -27,6 +32,42 @@ import { installPhaseTable, type Phase, type PhaseCheck } from '../phases';
 
 const D2 = 4.8; // Deck-2 floor
 const PI = Math.PI;
+/** Balustrade gap of the declared drop (balcony south end, x = 3). */
+const DROP_Z0 = -29.6, DROP_Z1 = -28.4;
+/** The deliberately unlinked island deck (check-nav's failing case): plan box + floor. */
+const ISLAND = [-6, -4, -30, -26] as const;
+const ISLAND_Y = 2.4;
+
+/**
+ * §8.10 test cases for `scripts/check-nav.mjs` (real husks, real physics, simulated in page). `spawn` = husk feet,
+ * `player` = where the player stands, `within` = time bound (s), `via` = what the route must include, `expect:
+ * 'fail'` = a deliberate failure the check must report.
+ */
+export const NAV_CASES_GB = {
+  reach: [
+    { id: 'balcony_to_pool', label: 'husk on the balcony (north) → player at the pool, down the ramp', spawn: [4.5, D2, -14], player: [0, 0, -24], within: 25, via: ['stair'] },
+    { id: 'balcony_drop', label: 'husk on the balcony (south) → player in the garden, takes the declared drop', spawn: [4.5, D2, -27.5], player: [-1, 0, -27], within: 20, via: ['drop'] },
+    { id: 'garden_to_balcony', label: 'husk in the garden → player on the balcony (up the ramp; drops are one-way)', spawn: [-1.5, 0, -26], player: [4.5, D2, -22], within: 35, via: ['stair'] },
+    { id: 'under_player', label: 'husk under the gallery strip → player right above it on Deck 2', spawn: [1.5, 0, -13.5], player: [1.5, D2, -11], within: 25, via: ['stair'] },
+    { id: 'south_to_upper', label: 'husk in TEST SOUTH (Deck 1) → player in TEST UPPER (Deck 2), two doors', spawn: [0, 0, -34], player: [0, D2, -5], within: 40, via: ['stair'] },
+    { id: 'upper_to_garden', label: 'husk in TEST UPPER (Deck 2) → player in the garden', spawn: [-3, D2, -4], player: [1, 0, -22], within: 35, via: ['stair'] },
+    { id: 'ramp_to_south', label: 'husk half-way up the ramp → player in TEST SOUTH', spawn: [-4.5, 2.4, -16.5], player: [0, 0, -34], within: 25 },
+    { id: 'island', label: 'EXPECTED FAIL: husk on the unlinked island deck → player in the garden', spawn: [-5, ISLAND_Y, -28], player: [1, 0, -20], within: 15, expect: 'fail' },
+  ],
+  /** Player out of reach (dg_up locked): the husk stands off without drifting, then comes once the door opens. */
+  standOff: { id: 'standoff', label: 'dg_up locked, player in TEST UPPER: husk stands off, comes when it opens', door: 'dg_up', spawn: [0, 0, -24], player: [0, D2, -5], hold: 30, within: 25 },
+  /**
+   * A sentry low in the garden finds the player on the balcony (it hovers at the player's height + 1.9 under the
+   * ceiling and flies; it seeks line of sight along nav when it has none, then fires). Sentries do not pass doors
+   * (their hover height is above a 2.4 m opening, as on levels 1–2); level 3's sentry stays in the atrium.
+   */
+  sentry: { id: 'sentry', label: 'sentry low in the garden → player on the balcony behind the glass: rises, sees, fires', spawn: [-2, 2.2, -27], player: [4.5, D2, -14], within: 25 },
+  /** Ramp tests: idle drift (husk, player) and 5 walks up and down. Island floor: must be reported unlinked. */
+  ramp: { stair: 0, standAt: [-4.5, 2.4, -16.5], top: [-4.5, D2, -10.6], bottom: [-4.5, 0, -23], trips: 5 },
+  unlinkedFloors: ['gb_atr:2'],
+  /** Built for the K3 self-test only (level 2's service lift, off to the side): not part of the walkable layout. */
+  ignoreFloors: ['lift:main'],
+};
 
 const DOORS: DoorSpec[] = [
   { id: 'dg_low', x: 0, z: -30, wall: 'z', kind: 'std', locked: false, labelFront: 'TEST SOUTH', labelBack: 'TEST ATRIUM', rooms: ['gb_south', 'gb_atr'] },
@@ -79,7 +120,9 @@ function solid(L: LevelBuild, name: string, mat: Parameters<ReturnType<LevelBuil
 
 function buildAtrium(L: LevelBuild) {
   const H = 9;
-  L.room('gb_atr', 'TEST ATRIUM', -6, 6, -30, -10, H, { floors: [{ y: D2, box: [3, 6, -30, -12] }, { y: D2, box: [-6, 6, -12, -10] }] });
+  L.room('gb_atr', 'TEST ATRIUM', -6, 6, -30, -10, H, {
+    floors: [{ y: D2, box: [3, 6, -30, -12] }, { y: D2, box: [-6, 6, -12, -10] }, { y: ISLAND_Y, box: [...ISLAND] }],
+  });
   const n = 'gb_atr_static';
   solid(L, n, 'floor_concrete', -6, -0.3, -30, 6, 0, -10);
   solid(L, n, 'wall_panel', -6.3, -0.3, -30.3, -6, H, -9.8); // west
@@ -97,17 +140,28 @@ function buildAtrium(L: LevelBuild) {
   // Deck-2 slabs: gallery strip + east balcony (soffit 4.5, top 4.8)
   solid(L, n, 'floor_plate', -6, D2 - 0.3, -12, 6, D2, -10.2);
   solid(L, n, 'floor_plate', 3, D2 - 0.3, -30, 6, D2, -12);
-  // glass balustrade 1.1 m (collider the same height: NOT containment) along the balcony and the strip
+  // glass balustrade 1.1 m (collider the same height: NOT containment) along the balcony and the strip; a 1.2 m
+  // gap at the balcony's south end (z −29.6 … −28.4) is a declared one-way drop for enemies (§8.10, K4)
   const g = L.namedBuilder(n);
-  g.bx('glass', 2.97, D2, -30, 3.03, D2 + 1.1, -12).collide(2.97, D2, -30, 3.03, D2 + 1.1, -12, 'glass', true);
+  for (const [z0, z1] of [[-30, DROP_Z0], [DROP_Z1, -12]] as const) {
+    g.bx('glass', 2.97, D2, z0, 3.03, D2 + 1.1, z1).collide(2.97, D2, z0, 3.03, D2 + 1.1, z1, 'glass', true);
+    g.bx('trim_steel', 2.94, D2 + 1.1, z0, 3.06, D2 + 1.14, z1);
+  }
   g.bx('glass', -3, D2, -12.03, 2.97, D2 + 1.1, -11.97).collide(-3, D2, -12.03, 2.97, D2 + 1.1, -11.97, 'glass', true);
-  for (const z of [-29.9, -21, -12.1]) g.bx('trim_steel', 2.94, D2 + 1.1, z - 0.05, 3.06, D2 + 1.16, z + 0.05);
-  g.bx('trim_steel', 2.94, D2 + 1.1, -30, 3.06, D2 + 1.14, -12);
-  // ramp x −6…−3: (z −21.03, y 0) → (z −12, y 4.8); 28°, visual slab = collider
+  for (const z of [-29.9, DROP_Z0 + 0.06, DROP_Z1 - 0.06, -21, -12.1]) g.bx('trim_steel', 2.94, D2 + 1.1, z - 0.05, 3.06, D2 + 1.16, z + 0.05);
+  L.navDrop([3.45, D2, (DROP_Z0 + DROP_Z1) / 2], [2.0, 0, (DROP_Z0 + DROP_Z1) / 2]);
+  // ramp x −6…−3: (z −21.03, y 0) → (z −12, y 4.8); 28°, visual slab = collider (open on its east side)
   const run = D2 / Math.tan((28 * PI) / 180), len = Math.hypot(D2, run), a = Math.atan2(D2, run);
   g.push(-4.5, D2 / 2, -12 - run / 2, 0, -a);
   g.bx('painted_yellow', -1.5, -0.2, -len / 2, 1.5, 0, len / 2).collide(-1.5, -0.2, -len / 2, 1.5, 0, len / 2, 'metal', false);
   g.pop();
+  L.navStair('gb_atr', [-4.5, 0, -12 - run], [-4.5, D2, -12], 3);
+  // the island deck (DELIBERATE nav failure): a solid 2.4 m block in the south-west corner with a 1.2 m wall round its
+  // open sides — a declared floor that no stair, ramp, door or drop links (check-nav must report it and fail on it)
+  const [ix0, ix1, iz0, iz1] = ISLAND;
+  solid(L, n, 'painted_dark', ix0, -0.3, iz0, ix1, ISLAND_Y, iz1);
+  solid(L, n, 'wall_panel', ix1 - 0.1, ISLAND_Y, iz0, ix1, ISLAND_Y + 1.2, iz1);
+  solid(L, n, 'wall_panel', ix0, ISLAND_Y, iz1 - 0.1, ix1 - 0.1, ISLAND_Y + 1.2, iz1);
   L.point('gb', 0, 7.5, -20, 0xfff0d8, 30, 18);
   L.point('gb', 4.5, D2 + 2.6, -20, 0xd8e8ff, 8, 8);
 }
@@ -165,13 +219,14 @@ export async function createGreyboxDeck2(ctx: GameContext): Promise<Level> {
     portals: PORTALS,
     triggers: TRIGGERS_GB,
     navStep: () => 1.2,
-    navStart: { x: 0, z: -20 },
+    navStart: { x: 0, y: 0, z: -20 },
     spawn: { position: new THREE.Vector3(0, 0, -20), yaw: 0 },
     startRoom: 'gb_atr',
     regions: REGIONS(),
   });
   installPhaseTable(ctx, level, PHASES_GB);
   (level as unknown as { selfTest: () => { ok: boolean; lines: string[] } }).selfTest = () => selfTest(ctx, L, level);
+  (level as unknown as { navCases: typeof NAV_CASES_GB }).navCases = NAV_CASES_GB;
   return level;
 }
 

@@ -40,6 +40,16 @@ const SHARED_MARGIN = 0.1, OUTER_MARGIN = 0.42;
 export interface Obstacle { box: THREE.Box3 }
 
 /**
+ * Stage 3a §8.10 (nav v2): a stair or ramp an enemy can walk. `a` = bottom end of the walking line (where the slope
+ * meets the lower floor), `b` = top end (meets the upper floor), `width` across. Nav puts a chain of nodes every
+ * 1.0 m along the slope (y on the slope), one floor node 0.6 m past each end, and nothing else links to the chain
+ * (no side entries). The footprint is also a headroom blocker for nodes / links of the floors under the slope.
+ */
+export interface NavStair { room: string; a: THREE.Vector3; b: THREE.Vector3; width: number }
+/** §8.10: a one-way drop the level allows enemies to take (walk off the ledge at `from`, land at `to`). */
+export interface NavDrop { from: THREE.Vector3; to: THREE.Vector3 }
+
+/**
  * Stage 3a §8.9 (Deck 2): a room's floor height and the walkable floors inside it besides that floor
  * (balconies, landings — `box` = [x0, x1, z0, z1] in plan view).
  */
@@ -78,8 +88,17 @@ export class LevelBuild {
   readonly machines = new Map<string, (s: MachineState) => void>();
   readonly updaters: ((dt: number, t: number) => void)[] = [];
   readonly instDefs = new Map<string, { geo: THREE.BufferGeometry; mat: THREE.Material; cast: boolean }>();
-  /** Nav obstacles (AABBs of colliders intersecting the walking height band). */
+  /** Nav obstacles on floor y 0 (AABBs of colliders intersecting the 0.2 … 1.5 walking band, + hand-placed ones). */
   readonly obstacles: THREE.Box3[] = [];
+  /**
+   * §8.10: AABB of every nav collider at any height. Nav v2 takes a floor's obstacles from here (those overlapping
+   * floor + 0.2 … floor + 1.5); floor 0 keeps using `obstacles` (same set, so levels 1–2 build the same graph).
+   */
+  readonly navSolids: THREE.Box3[] = [];
+  /** §8.10: stairs / ramps enemies walk (`navStair`). */
+  readonly navStairs: NavStair[] = [];
+  /** §8.10: one-way drops enemies may take (`navDrop`). */
+  readonly navDrops: NavDrop[] = [];
   /** World AABB of every static collider (build-time assertions: a sinking door leaf needs a solid pit). */
   readonly solids: THREE.Box3[] = [];
   /** Extra hand-placed nav nodes. */
@@ -198,6 +217,7 @@ export class LevelBuild {
     this.solids.push(box);
     if (nav) {
       if (box.max.y > 0.2 && box.min.y < 1.5) this.obstacles.push(box.clone());
+      this.navSolids.push(box.clone());
     }
   }
 
@@ -210,6 +230,9 @@ export class LevelBuild {
       const mesh = new THREE.Mesh(geo);
       mesh.name = `collider:${surface}`;
       mesh.userData.surface = surface;
+      // §8.10: a level with walkable stairs / ramps asks physics to hold standing bodies on slopes (no idle drift);
+      // levels without (1, 2) keep the old push-out everywhere
+      if (this.navStairs.length) mesh.userData.holdSlopes = true;
       mesh.visible = false;
       mesh.matrixAutoUpdate = false;
       out.push(mesh);
@@ -398,4 +421,22 @@ export class LevelBuild {
   }
   /** Hand-placed nav node; y defaults to the room's floor (Deck 2). */
   navNode(x: number, z: number, room: string, y = this.floorOf(room)) { this.navExtra.push({ p: new THREE.Vector3(x, y, z), room }); }
+  /**
+   * §8.10: a stair / ramp enemies walk — bottom end `a` (on the lower floor), top end `b` (on the upper floor), as
+   * [x, y, z] of the walking line's centre; `width` across. Use for every flight (visual steps on a ramp collider
+   * included); without it nav never links two floors. Build the slope's collider with `nav = false`
+   * (`collide(…, surface, false)`): its AABB would block every node under it; the stair's own footprint does that
+   * job (nodes / links under it with < 2 m headroom are dropped). Declaring a stair also turns on the physics slope
+   * hold for the level (standing bodies do not creep down slopes).
+   */
+  navStair(room: string, a: readonly [number, number, number], b: readonly [number, number, number], width: number) {
+    this.navStairs.push({ room, a: new THREE.Vector3(...a), b: new THREE.Vector3(...b), width });
+  }
+  /**
+   * §8.10: a one-way drop enemies may take: walk off the ledge at `from` (feet, on the upper floor, at the edge)
+   * and land at `to` (feet, lower floor). Only where nothing stops a body going over (no balustrade).
+   */
+  navDrop(from: readonly [number, number, number], to: readonly [number, number, number]) {
+    this.navDrops.push({ from: new THREE.Vector3(...from), to: new THREE.Vector3(...to) });
+  }
 }

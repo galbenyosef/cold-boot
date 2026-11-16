@@ -1,14 +1,29 @@
 /**
  * Navigation: A* over the level's nav graph (`Level.nav`) with precomputed neighbour tables, door-aware links,
  * and a tiny shared cache for "which node is the player at". No allocations per query.
+ *
+ * Nav v2 (stage 3a §8.10): costs and the heuristic are 3-D; one-way drop links (`NavNode.drops`) are followed
+ * downward only and cost a penalty (stairs are preferred unless the drop saves a lot); on a multi-deck level
+ * (`decks`) a walk test can also require floor under the whole line, and a search can return a partial path
+ * (to the reachable node nearest the goal) for standing off when the player cannot be reached.
  */
 import * as THREE from 'three';
 import type { Door, GameContext, NavNode } from '../core/types';
 
-const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+const DOWN = new THREE.Vector3(0, -1, 0);
+/** Extra cost (m) of a drop link over its length: walking down a stair wins unless the drop saves more. */
+const DROP_PENALTY = 8;
 
 export class NavGraph {
   readonly count: number;
+  /**
+   * §8.10: the level has more than one walkable floor (extra floors, floors off y 0, stairs or drops). Only then do
+   * the multi-deck rules apply (ground under walk lines, partial paths, stand-off); levels 1–2 run the classic code.
+   */
+  readonly decks: boolean;
+  /** The last `findPath(…, partial = true)` returned a path that ends short of the goal. */
+  lastPartial = false;
   private pos: THREE.Vector3[] = [];
   private adj: Int32Array[] = [];
   private cost: Float32Array[] = [];
@@ -31,6 +46,7 @@ export class NavGraph {
     const nodes: readonly NavNode[] = ctx.level.nav ?? [];
     this.doors = ctx.level.doors ?? [];
     this.count = nodes.length;
+    this.decks = nodes.some((n) => n.floor !== undefined || n.stair || (n.drops?.length ?? 0) > 0 || Math.abs(n.position.y) > 0.3);
     const idToIndex = new Map<number, number>();
     nodes.forEach((n, i) => idToIndex.set(n.id, i));
     for (let i = 0; i < nodes.length; i++) this.pos.push(nodes[i].position);
@@ -47,13 +63,24 @@ export class NavGraph {
     const extra: number[][] = nodes.map(() => []);
     for (let i = 0; i < nodes.length; i++) for (const j of this.adj[i]) if (!this.adj[j].includes(i)) extra[j].push(i);
     for (let i = 0; i < nodes.length; i++) if (extra[i].length) this.adj[i] = Int32Array.from([...this.adj[i], ...extra[i]]);
+    // one-way drops (after symmetrising: never mirrored)
+    const dropFrom: number[] = this.adj.map((a) => a.length);
+    for (let i = 0; i < nodes.length; i++) {
+      const ds = nodes[i].drops;
+      if (!ds?.length) continue;
+      const add: number[] = [];
+      for (const l of ds) { const j = idToIndex.get(l); if (j !== undefined && j !== i && !this.adj[i].includes(j)) add.push(j); }
+      if (add.length) this.adj[i] = Int32Array.from([...this.adj[i], ...add]);
+    }
     for (let i = 0; i < nodes.length; i++) {
       const c = new Float32Array(this.adj[i].length), d = new Int16Array(this.adj[i].length).fill(-1);
       for (let k = 0; k < c.length; k++) {
         const j = this.adj[i][k];
-        c[k] = this.pos[i].distanceTo(this.pos[j]);
+        c[k] = this.pos[i].distanceTo(this.pos[j]) + (k >= dropFrom[i] ? DROP_PENALTY : 0);
+        // a door governs a link that passes within 0.9 m of it on the door's own floor
+        const ly = this.decks ? (this.pos[i].y + this.pos[j].y) / 2 : this.pos[i].y;
         for (let di = 0; di < this.doors.length; di++) {
-          if (distPointSegXZ(this.doors[di].position, this.pos[i], this.pos[j]) < 0.9 && Math.abs(this.doors[di].position.y - this.pos[i].y) < 2.5) { d[k] = di; break; }
+          if (distPointSegXZ(this.doors[di].position, this.pos[i], this.pos[j]) < 0.9 && Math.abs(this.doors[di].position.y - ly) < (this.decks ? 2 : 2.5)) { d[k] = di; break; }
         }
       }
       this.cost.push(c); this.linkDoor.push(d);
@@ -65,8 +92,11 @@ export class NavGraph {
 
   nodePos(i: number): THREE.Vector3 { return this.pos[i]; }
 
-  /** Nearest node to p, preferring one reachable in a straight walk. -1 if the graph is empty. */
-  nearestNode(p: THREE.Vector3, checkWalk = true): number {
+  /**
+   * Nearest node to p, preferring one reachable in a straight walk. -1 if the graph is empty.
+   * `ground` (multi-deck levels): the walk must also have floor under it (see `walkable`).
+   */
+  nearestNode(p: THREE.Vector3, checkWalk = true, ground = false): number {
     if (this.count === 0) return -1;
     const K = this.nearest.length;
     for (let k = 0; k < K; k++) { this.nearest[k] = -1; this.nearestD[k] = Infinity; }
@@ -83,32 +113,46 @@ export class NavGraph {
       for (let k = 0; k < K; k++) {
         const i = this.nearest[k];
         if (i < 0) break;
-        if (this.walkable(p, this.pos[i])) return i;
+        if (this.walkable(p, this.pos[i], 0.35, ground)) return i;
       }
     }
     return this.nearest[0];
   }
 
-  /** Straight-line walk test (thin ray at shin height). */
-  walkable(a: THREE.Vector3, b: THREE.Vector3, h = 0.35): boolean {
+  /**
+   * Straight-line walk test (thin ray at shin height). With `ground` on a multi-deck level, every ~0.5 m of the
+   * line must also have floor under it within 1.1 m of the line (no walking off a balcony / over a stairwell).
+   */
+  walkable(a: THREE.Vector3, b: THREE.Vector3, h = 0.35, ground = false): boolean {
     _a.set(a.x, a.y + h, a.z); _b.set(b.x, b.y + h, b.z);
-    return this.ctx.physics.lineOfSight(_a, _b);
+    if (!this.ctx.physics.lineOfSight(_a, _b)) return false;
+    if (!ground || !this.decks) return true;
+    const len = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(len / 0.5);
+    for (let i = 1; i < n; i++) {
+      const t = i / n, y = a.y + (b.y - a.y) * t;
+      _c.set(a.x + (b.x - a.x) * t, y + 0.5, a.z + (b.z - a.z) * t);
+      const hit = this.ctx.physics.raycast(_c, DOWN, 1.6);
+      if (!hit || hit.normal.y < 0.5) return false;
+    }
+    return true;
   }
 
   /** Node nearest the player, cached for a short time (shared by all enemies). */
   playerNode(time: number, playerPos: THREE.Vector3): number {
     if (time - this.goalTime > 0.3 || this.goalNode < 0) {
-      this.goalNode = this.nearestNode(playerPos, true);
+      this.goalNode = this.nearestNode(playerPos, true, this.decks);
       this.goalTime = time;
     }
     return this.goalNode;
   }
 
   /**
-   * A*. Writes node indices start→goal into `out` and returns the length (0 if no path).
+   * A*. Writes node indices start→goal into `out` and returns the length (0 if no path). With `partial`, an
+   * unreachable goal yields the path to the explored node nearest it (3-D) instead (`lastPartial` = true).
    */
-  findPath(start: number, goal: number, out: number[]): number {
+  findPath(start: number, goal: number, out: number[], partial = false): number {
     out.length = 0;
+    this.lastPartial = false;
     if (start < 0 || goal < 0) return 0;
     if (start === goal) { out.push(start); return 1; }
     const s = ++this.search;
@@ -117,6 +161,7 @@ export class NavGraph {
     this.g[start] = 0; this.f[start] = this.pos[start].distanceTo(goalP);
     this.parent[start] = -1; this.stamp[start] = s;
     this.open[openN++] = start;
+    let best = start, bestH = this.f[start];
     while (openN > 0) {
       let bi = 0, bf = this.f[this.open[0]];
       for (let k = 1; k < openN; k++) { const ff = this.f[this.open[k]]; if (ff < bf) { bf = ff; bi = k; } }
@@ -124,6 +169,7 @@ export class NavGraph {
       this.open[bi] = this.open[--openN];
       if (cur === goal) break;
       this.closed[cur] = s;
+      if (partial) { const h = this.pos[cur].distanceTo(goalP); if (h < bestH) { bestH = h; best = cur; } }
       const adj = this.adj[cur], cost = this.cost[cur], doors = this.linkDoor[cur];
       for (let k = 0; k < adj.length; k++) {
         const nb = adj[k];
@@ -139,8 +185,13 @@ export class NavGraph {
         }
       }
     }
-    if (this.stamp[goal] !== s) return 0;
-    let n = goal, len = 0;
+    let n = goal;
+    if (this.stamp[goal] !== s) {
+      if (!partial) return 0;
+      n = best;
+      this.lastPartial = true;
+    }
+    let len = 0;
     while (n >= 0) { out.push(n); n = this.parent[n]; if (++len > this.count) break; }
     out.reverse();
     return out.length;

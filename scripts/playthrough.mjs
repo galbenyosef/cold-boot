@@ -1385,7 +1385,11 @@ async function runLevel2() {
       while (Date.now() < end) { heard = (await dbg()).heard; if (all(heard)) break; await hurry(); await wait(300); }
       if (!all(heard)) bad(`backstory never completed in the idle slots: heard ${heard.filter((id) => BACKSTORY.includes(id))}`);
       const said = (await spokenIds()).map((x) => x.id);
-      const dup = BACKSTORY.filter((id) => said.filter((x) => x === id).length > 1);
+      // A backstory line cut short by entering the room (less than 70 % out) is not "heard" and is rightly said again
+      // in the idle slots: one start on the way in and one inside is by design. Twice on the same side is not.
+      const i1 = said.indexOf('l2_choir_core_1');
+      const before = i1 < 0 ? said : said.slice(0, i1), inside = i1 < 0 ? [] : said.slice(i1);
+      const dup = BACKSTORY.filter((id) => before.filter((x) => x === id).length > 1 || inside.filter((x) => x === id).length > 1);
       if (dup.length) bad(`backstory line(s) spoken twice: ${dup}`);
       if (said.includes('l2_choir_core_7') && said.includes('l2_choir_core_7_killed')) bad('both variants of core_7 were spoken');
       const i14 = said.indexOf('l2_choir_core_14');

@@ -814,6 +814,11 @@ export interface NavNode {
   floor?: number;
   /** §8.10: a stair link-chain node (explicit links every 1.0 m). */
   stair?: boolean;
+  /**
+   * §8.10 (K4): one-way links from this node (node ids) — a drop off a ledge the level declared
+   * (`LevelBuild.navDrop`). Never symmetrised: enemies may go down them, never up.
+   */
+  drops?: number[];
 }
 
 /** §8.10 (stage 3a): one walkable floor of a room (nav v2: nodes per floor). */
