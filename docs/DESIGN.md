@@ -1296,7 +1296,9 @@ source, recorded in `docs/ASSETS.md`. Everyone else is covered (hoods, helmets).
 - **Keypad.** Fixed code in one recorded line (no per-run digits): the panel has no power until she gives it,
   so knowing the code early does nothing. She repeats it on request (use the radio).
 - **Trunk.** Fixed order by layout: head-end → cable vault → moon pool. The ending beats happen at the moon pool.
-- **Parked for the user:** the Clasp as a non-lethal weak spot ("released" soldiers).
+- **Taken soldiers are enemies, nothing more** (user decision): no non-lethal weak spot, no "released" state,
+  no counts. They cannot be saved. Wherever REVISION 7 says otherwise (the soldier row in "New systems", the
+  "Taken soldiers" row in the rules table), this wins.
 - **Hands in chapter 3 (review B5).** Rosters are per area. Navy systems (armoury, dock, the submersible,
   Post 4's doors) take navy palms; CHOIR gets those through the Clasp. That is why it needed Reyes below, where
   no sailor is rostered, and does not need him here. The trunk objectives are **physical and irreversible**
