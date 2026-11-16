@@ -22,6 +22,9 @@ import {
   type LightRow, type Look, type RoomId3,
 } from './grey';
 import { REGIONS3, applyPhaseTo, installPhases3, type PhaseId3 } from './phases';
+import { NORTH_DRESS } from './north';
+import { OFFICE_DRESS } from './office';
+import { ATRIUM_DRESS } from './atrium';
 
 const PI = Math.PI;
 
@@ -39,7 +42,7 @@ export interface RoomDress {
   label?: boolean;
 }
 /** Dressing tables, merged in order (later wins per room). P3a / P3b / P3c add theirs here. */
-const DRESSING: Partial<Record<RoomId3, RoomDress>>[] = [];
+const DRESSING: Partial<Record<RoomId3, RoomDress>>[] = [NORTH_DRESS, OFFICE_DRESS, ATRIUM_DRESS];
 
 // ───────────────────────────────────────────────────────────── doors (§2.2)
 
