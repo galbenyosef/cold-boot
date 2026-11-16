@@ -2,10 +2,12 @@
  * Scripted camera work that must run AFTER player.update (which owns the camera while simulating):
  *  - the slow cinematic drift behind the main menu (state 'menu' — player.update doesn't run then)
  *  - the wake-up "lying on the bed" offset + roll during the opening cutscene.
+ *  - the first-person cutscenes (stage 3a §8.2, ./cutscene.ts: `rig.cutscene.play(id, shots, opts)`).
  * Driven from `story.lateUpdate`, which the UI calls at the end of `ui.update` every frame.
  */
 import * as THREE from 'three';
 import type { GameContext, LevelId } from '../core/types';
+import { Cutscene } from './cutscene';
 
 interface Shot { from: THREE.Vector3; to: THREE.Vector3; lookFrom: THREE.Vector3; lookTo: THREE.Vector3; dur: number; fov?: number }
 
@@ -49,11 +51,19 @@ export class CameraRig {
 
   private shots: Shot[];
 
+  /** §8.2 (stage 3a): first-person cutscenes (shot lists), driven from `lateUpdate` below. */
+  readonly cutscene: Cutscene;
+
   constructor(private ctx: GameContext) {
     const shots = SHOTS[ctx.levelId];
     if (!shots) throw new Error(`[story] no menu shots for level ${ctx.levelId}`);
     this.shots = shots;
     this.baseFov = ctx.camera.fov;
+    this.cutscene = new Cutscene(ctx);
+    // dev only (stage 3a P4): `?cutdev=1` installs the cutscene test scene (lazy chunk; not a level)
+    let dev = false;
+    try { dev = new URLSearchParams(location.search).has('cutdev'); } catch { /* ignore */ }
+    if (dev) void import('./dev/cutscene').then((m) => m.installCutsceneDev(ctx, this.cutscene)).catch((e) => console.error('[story] cutdev failed', e));
   }
 
   startMenu(): void {
@@ -100,6 +110,7 @@ export class CameraRig {
   lateUpdate(dt: number): void {
     const ctx = this.ctx;
     const cam = ctx.camera;
+    this.cutscene.lateUpdate(dt);
     if (ctx.state === 'menu' && this.menuActive) {
       this.menuShot(dt);
       return;

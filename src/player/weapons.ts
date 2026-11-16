@@ -159,11 +159,36 @@ export class Weapons {
    * takes no input; a reload is cancelled. Un-stowing raises it again.
    */
   private stowed = false;
-  setStowed(on: boolean) {
+  /** How far down the stowed weapon is held: 1 = out of view (palm scan), < 1 = visibly lowered (§8.2 / §8.3). */
+  private stowLevel = 1;
+  get isStowed() { return this.stowed; }
+  setStowed(on: boolean, level = 1) {
+    if (on) this.stowLevel = clamp(level, 0, 1);
     if (on === this.stowed) return;
     this.stowed = on;
-    if (on) { this.cancelReload(); this.fireQueued = 0; }
-    else if (this.phase !== 'lowering') this.phase = this.current ? 'raising' : 'idle';
+    if (on) { this.cancelReload(); this.fireQueued = 0; this.emptyClicked = false; }
+    else {
+      if (this.phase !== 'lowering') this.phase = this.current ? 'raising' : 'idle';
+      // coming out of a visibly lowered stow (cinematic 'lowered', safe state) the weapon starts at the 0.3 "can fire"
+      // mark: no shot until it is back up (the palm scan's full stow keeps its old timing)
+      this.unstowGate = this.stowLevel < 1;
+    }
+  }
+  private unstowGate = false;
+
+  /** §8.2: forget a queued / buffered shot (nothing queued before a scene goes off after it). */
+  clearQueued() { this.fireQueued = 0; this.emptyClicked = false; }
+
+  /** §8.2 `topUp`: refill every owned weapon's clip from its reserve, quietly (no events, no animation). */
+  topUp() {
+    for (const id of ['pistol', 'shotgun'] as const) {
+      const s = this.states[id];
+      if (!s.owned) continue;
+      const k = Math.min(s.clipSize - s.clip, s.reserve);
+      if (k > 0) { s.clip += k; s.reserve -= k; }
+    }
+    if (this.states.pistol.clip > 0) this.vm.pistol.slideLocked = false;
+    this.syncSaddle();
   }
 
   /** Holster everything (death). */
@@ -302,11 +327,15 @@ export class Weapons {
 
     // stowed (palm scan): held down; a switch that was under way still completes out of sight
     if (this.stowed) {
-      this.lower = Math.min(1, this.lower + dt / 0.2);
+      // a switch under way still goes all the way down (and swaps out of sight) before settling at the stow level
+      const goal = this.phase === 'lowering' ? 1 : this.stowLevel;
+      if (this.lower < goal) this.lower = Math.min(goal, this.lower + dt / 0.2);
+      else this.lower = Math.max(goal, this.lower - dt / 0.34);
       if (this.phase === 'lowering' && this.lower >= 1) {
         if (this.pending) this.equipPending();
         else { this.current = null; this.vm.setActive(null); this.phase = 'idle'; }
       }
+      this.fireQueued = 0;
       return;
     }
     // switching animation
@@ -343,6 +372,7 @@ export class Weapons {
     this.firedRecently = 0.35;
     if (sprintBlend > 0.35) return; // lowering out of sprint first
     if (this.phase === 'raising' && this.lower > 0.3) return;
+    if (this.unstowGate) { if (this.lower > 0.05) return; this.unstowGate = false; }
     if (this.phase === 'lowering') return;
 
     if (id === 'shotgun' && s.reloading) {

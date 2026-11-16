@@ -15,6 +15,7 @@ import { resolveMats } from './viewmodels/mats';
 import { setVmLight } from './viewmodels/vmlight';
 import { clamp, damp, wrapAngle } from './math';
 import { PalmHand } from './palm';
+import { LOWER_CINEMATIC, LOWER_SAFE, clearJump, settle, standNow } from './cinematic';
 
 const SENSITIVITY = 0.0022;
 const PITCH_LIMIT = THREE.MathUtils.degToRad(88);
@@ -27,6 +28,15 @@ export interface PlayerExtras {
   applyLoadout(save: Partial<PlayerSave>): void;
   readonly viewmodel: Viewmodel;
   readonly pickups: Pickups;
+  /**
+   * §8.2: while `cinematic(true)` the camera belongs to the cutscene; the player's own camera feel (breathing, springs,
+   * fov) keeps running for the body and its result is published here instead of being written to `ctx.camera`, so a
+   * scene can end exactly on the view the player gets on the first interactive frame. Outside a scene: the camera's
+   * pose of this frame.
+   */
+  readonly view: { readonly position: THREE.Vector3; readonly quaternion: THREE.Quaternion; readonly fov: number };
+  /** §8.2: true while `cinematic(true)` holds. */
+  readonly inCinematic: boolean;
   debug: Record<string, (...a: any[]) => any>;
 }
 
@@ -67,6 +77,32 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
   weapons.onHit = () => { hitMarker = 1; };
 
+  // ── cinematic mode (§8.2), safe state (§8.3), consumed keys ──
+  let cine: { vm: 'hidden' | 'lowered' } | null = null;
+  let safe = false;
+  /** The palm scan's hands-off-the-gun hold (from `palm()` until the hand has left the view). */
+  let palmStow = false;
+  /** Keys forgotten until released (`consumeKey`): neither `down` nor `pressed` reach movement / weapons. */
+  const consumed = new Set<string>();
+  const view = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), fov: ctx.camera.fov };
+  const _camP = new THREE.Vector3(), _camQ = new THREE.Quaternion();
+  /** One owner of the weapon's stow: the strongest reason wins (a scene, the safe state, a palm scan). */
+  function syncStow() {
+    const level = cine ? (cine.vm === 'hidden' ? 1 : LOWER_CINEMATIC) : safe ? LOWER_SAFE : palmStow ? 1 : -1;
+    if (level >= 0) weapons.setStowed(true, palmStow && !cine ? Math.max(level, 1) : level);
+    else weapons.setStowed(false);
+  }
+  const isDown = (c: string) => !consumed.has(c) && ctx.input.down(c);
+  const isPressed = (c: string) => !consumed.has(c) && ctx.input.pressed(c);
+  const mouseHeld = (b: number) => !consumed.has(`Mouse${b}`) && ctx.input.mouseDown(b);
+  const mousePress = (b: number) => !consumed.has(`Mouse${b}`) && ctx.input.mousePressed(b);
+  function releaseConsumed() {
+    for (const c of consumed) {
+      const m = /^Mouse(\d)$/.exec(c);
+      if (!(m ? ctx.input.mouseDown(+m[1]) : ctx.input.down(c))) consumed.delete(c);
+    }
+  }
+
   // ── palm scan (REVISION 6.1): the free left hand flat on a plate for a moment; see Player.palm ──
   const PALM_START = 1.0, PALM_CANCEL = 1.3;
   /** How much of the mouse still reaches the view while the hand is on the plate, and how hard the view is drawn to it. */
@@ -84,6 +120,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     if (alive) palmHand.release(result === 'done'); else palmHand.hide();
     // the weapon comes back up as the hand leaves the view
     unstowIn = result === 'done' ? 0.42 : 0.14;
+    if (cine) { unstowIn = -1; palmStow = false; syncStow(); }
     // the head comes back up to where it was looking (any mouse movement takes over at once)
     headUp = alive && pitch < p.pitch0 - 0.12 ? { by: p.pitch0 - pitch, t: 0, k: 0 } : null;
     p.resolve(result);
@@ -218,6 +255,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
     damage(amount: number, from?: THREE.Vector3) {
       if (!alive || ctx.debug.god || amount <= 0) return;
+      // §8.2: a scene plays only with no hostile alive; anything that still lands on the frozen body is dropped
+      if (cine) { console.warn(`[player] ${amount} damage during a cinematic ignored`); return; }
       health = Math.max(0, health - amount);
       ctx.events.emit('player:damaged', { amount, health, from: from ? from.clone() : null });
       ctx.render.post.damage(clamp(amount / 35, 0.25, 1));
@@ -271,19 +310,67 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     },
     palm(plate: PalmPlate, seconds: number): Promise<PalmResult> {
       return new Promise<PalmResult>((resolve) => {
-        if (palm || !alive || !controlsEnabled || ctx.state !== 'playing') { resolve('refused'); return; }
+        if (palm || cine || !alive || !controlsEnabled || ctx.state !== 'playing') { resolve('refused'); return; }
         // within reach, and in front of the plate (its normal leans toward the user)
         const p = ctrl.body.position;
         const front = (p.x - plate.position.x) * plate.normal.x + (p.z - plate.position.z) * plate.normal.z;
         if (palmDist(plate) > PALM_START || front <= 0) { resolve('refused'); return; }
         palm = { plate: { position: plate.position.clone(), normal: plate.normal.clone().normalize(), up: plate.up.clone().normalize() }, dur: Math.max(0.05, seconds), t: 0, pitch0: Math.min(pitch, 0.1), resolve };
-        weapons.setStowed(true);
+        palmStow = true;
+        syncStow();
         unstowIn = -1;
         look.active = false;
         palmHand.begin(palm.plate);
       });
     },
     cancelPalm() { endPalm('cancelled'); },
+    cinematic(on: boolean, o?: { viewmodel?: 'hidden' | 'lowered'; topUp?: boolean }) {
+      if (on) {
+        const first = !cine;
+        cine = { vm: o?.viewmodel ?? cine?.vm ?? 'hidden' };
+        if (first) {
+          if (palm) endPalm('cancelled');
+          palmHand.hide();
+          unstowIn = -1; palmStow = false;
+          look.active = false; headUp = null;
+          weapons.cancelReload();
+          weapons.clearQueued();
+          settle(ctrl, ctx.physics);
+          noSprintT = 0;
+          dbgMove.fwd = 0; dbgMove.strafe = 0; dbgMove.sprint = false; dbgMove.jump = false; dbgMove.crouch = false;
+          dbgFire = false; dbgReload = false; dbgSlot = null;
+        }
+        if (o?.topUp) weapons.topUp();
+        syncStow();
+        vm.root.visible = cine.vm !== 'hidden';
+      } else {
+        if (!cine) return;
+        if (o?.topUp) weapons.topUp();
+        cine = null;
+        standNow(ctrl);
+        ctrl.body.velocity.set(0, 0, 0);
+        clearJump(ctrl);
+        weapons.clearQueued();
+        // whatever is held across the hand-back (fire, the skip key) is ignored until released
+        for (const c of ['Space', 'KeyE', 'KeyR', 'KeyF', 'KeyC']) if (ctx.input.down(c)) consumed.add(c);
+        if (ctx.input.mouseDown(0)) consumed.add('Mouse0');
+        syncStow();
+        vm.root.visible = true;
+      }
+    },
+    get inCinematic() { return !!cine; },
+    view,
+    setSafe(on: boolean) {
+      if (on === safe) return;
+      safe = on;
+      if (on) weapons.clearQueued();
+      syncStow();
+    },
+    get safe() { return safe; },
+    consumeKey(code: string) {
+      consumed.add(code);
+      if (code === 'Space') clearJump(ctrl);
+    },
     get palmProgress() { return palm ? clamp(palm.t / palm.dur, 0, 1) : -1; },
     shake(a: number) { camRig.shake(a); },
     setCarry(v: THREE.Vector3 | null) { ctrl.setCarry(v); },
@@ -365,7 +452,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       lastMainUpdate = performance.now();
       time += dt;
       const inp = ctx.input;
-      const active = controlsEnabled && alive && ctx.state === 'playing';
+      const active = controlsEnabled && alive && ctx.state === 'playing' && !cine;
+      if (consumed.size) releaseConsumed();
 
       // ── look
       lastLookX = 0; lastLookY = 0;
@@ -374,7 +462,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         if (!active || palmDist(palm.plate) > PALM_CANCEL) endPalm('cancelled');
         else { palm.t += dt; if (palm.t >= palm.dur) endPalm('done'); }
       }
-      if (unstowIn >= 0 && !palm) { unstowIn -= dt; if (unstowIn < 0) weapons.setStowed(false); }
+      if (unstowIn >= 0 && !palm) { unstowIn -= dt; if (unstowIn < 0) { palmStow = false; syncStow(); } }
       if (active) {
         const k = palm ? PALM_LOOK : 1;
         const dx = inp.mouseDX * SENSITIVITY * k, dy = inp.mouseDY * SENSITIVITY * k;
@@ -418,12 +506,12 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       // ── movement
       noSprintT = Math.max(0, noSprintT - dt);
       if (active) {
-        const f = (inp.down('KeyW') ? 1 : 0) - (inp.down('KeyS') ? 1 : 0) + dbgMove.fwd;
-        const s = (inp.down('KeyD') ? 1 : 0) - (inp.down('KeyA') ? 1 : 0) + dbgMove.strafe;
+        const f = (isDown('KeyW') ? 1 : 0) - (isDown('KeyS') ? 1 : 0) + dbgMove.fwd;
+        const s = (isDown('KeyD') ? 1 : 0) - (isDown('KeyA') ? 1 : 0) + dbgMove.strafe;
         moveIn.fwd = clamp(f, -1, 1); moveIn.strafe = clamp(s, -1, 1);
-        moveIn.sprint = inp.down('ShiftLeft') || inp.down('ShiftRight') || dbgMove.sprint;
-        moveIn.jump = inp.pressed('Space') || dbgMove.jump;
-        moveIn.crouchToggle = inp.pressed('KeyC');
+        moveIn.sprint = isDown('ShiftLeft') || isDown('ShiftRight') || dbgMove.sprint;
+        moveIn.jump = isPressed('Space') || dbgMove.jump;
+        moveIn.crouchToggle = isPressed('KeyC');
         moveIn.crouchHold = dbgMove.crouch; // crouch is C only: Ctrl+W would close the tab mid-fight
         moveIn.noSprint = noSprintT > 0 || weapons.reloading || weapons.firedRecently > 0;
         dbgMove.jump = false;
@@ -435,12 +523,21 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       // ── camera
       const bobAmp = ctrl.grounded ? clamp(ctrl.speed / MOVE.walk, 0, 1.4) : 0;
       const carrySpeed = Math.hypot(ctrl.carryVel.x, ctrl.carryVel.z);
+      const cam = ctx.camera;
+      // §8.2: in a scene the camera is the cutscene's; the body's own view still runs (published as `view`)
+      const camFov = cam.fov;
+      if (cine) { _camP.copy(cam.position); _camQ.copy(cam.quaternion); }
       camRig.update(dt, {
         eye, yaw, pitch, bobPhase: ctrl.bobPhase, bobAmp, sprint: ctrl.sprintBlend, crouch: ctrl.crouchBlend,
         eyeHeight: ctrl.eyeHeight, strafe: ctrl.strafeSpeed, time,
         shudder: ctrl.grounded && alive ? clamp(carrySpeed / 1.2, 0, 1) : 0, carrySpeed,
       });
-      ctx.camera.updateMatrixWorld();
+      view.position.copy(cam.position); view.quaternion.copy(cam.quaternion); view.fov = cam.fov;
+      if (cine) {
+        cam.position.copy(_camP); cam.quaternion.copy(_camQ);
+        if (cam.fov !== camFov) { cam.fov = camFov; cam.updateProjectionMatrix(); }
+      }
+      cam.updateMatrixWorld();
       computeBasis();
       palmHand.update(dt, ctx.camera, yaw);
 
@@ -454,13 +551,16 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
       // ── weapons
       if (active) {
-        wIn.firePressed = inp.mousePressed(0) || dbgFire;
-        wIn.fireHeld = inp.mouseDown(0);
-        wIn.reload = inp.pressed('KeyR') || dbgReload;
-        wIn.slot = inp.pressed('Digit1') ? 'pistol' : inp.pressed('Digit2') ? 'shotgun' : dbgSlot;
+        wIn.firePressed = mousePress(0) || dbgFire;
+        wIn.fireHeld = mouseHeld(0);
+        wIn.reload = isPressed('KeyR') || dbgReload;
+        wIn.slot = isPressed('Digit1') ? 'pistol' : isPressed('Digit2') ? 'shotgun' : dbgSlot;
         wIn.wheel = inp.wheel;
         if (wIn.firePressed && ctrl.sprinting) noSprintT = 0.4;
         dbgFire = false; dbgReload = false; dbgSlot = null;
+      } else if (cine) {
+        // §8.2: nothing asked for during a scene is kept for after it
+        dbgFire = false; dbgReload = false; dbgSlot = null; dbgMove.jump = false;
       }
       aim.moving = clamp(ctrl.speed / MOVE.sprint, 0, 1);
       aim.airborne = !ctrl.grounded;
@@ -486,7 +586,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       mats.wristLed.emissive.setHex(health > 30 ? 0x30e0ff : 0xff3020);
 
       // ── flashlight
-      if (active && inp.pressed('KeyF')) {
+      if (active && isPressed('KeyF')) {
         flash.set(!flash.on);
         ctx.events.emit('player:flashlight', { on: flash.on });
       }
@@ -496,8 +596,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       setVmLight(flash.level);
 
       // ── interaction
-      focus = alive && !palm ? pickVisible() : null;
-      if (active && focus && inp.pressed('KeyE')) ctx.interactables.use(focus);
+      focus = alive && !palm && !cine ? pickVisible() : null;
+      if (active && focus && isPressed('KeyE')) ctx.interactables.use(focus);
 
       // ── pickups + HUD state
       pickups.update(dt, time, feet, alive);
@@ -523,6 +623,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       grounded: ctrl.grounded, crouched: ctrl.crouched, eyeHeight: +ctrl.eyeHeight.toFixed(3), yaw: +yaw.toFixed(3), pitch: +pitch.toFixed(3),
       health, alive, weapon: weapons.current, weapons: JSON.parse(JSON.stringify(weapons.states)), flashlight: flash.on,
       focus: focus?.id ?? null, lower: +weapons.lower.toFixed(2), clip: vm.active?.player.name ?? '',
+      cinematic: cine ? cine.vm : null, safe, stowed: weapons.isStowed, vmVisible: vm.root.visible, consumed: [...consumed],
     }),
     setPose: (id: 'pistol' | 'shotgun', x: number, y: number, z: number, rx: number, ry: number, rz: number) =>
       (id === 'pistol' ? vm.pistol : vm.shotgun).setBase(x, y, z, rx, ry, rz),
