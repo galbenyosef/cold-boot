@@ -1066,6 +1066,60 @@ the General's people later):
 - Default on; the story may pin a target for a beat (`look(obj)`) and must release it.
 - Verified from frame sequences: player walking a half-circle around him at both windows and at the hall glass.
 
+## REVISION 6.1 — decisions after the plan review (authoritative; overrides REVISION 6 where they differ)
+
+Review evidence (file:line) is in the reviewer's report, summarised in `docs/reviews/rev6-7-review.md`.
+
+### Core
+- **Backstory (review B1, B2, H6).** It is flavour, not a gate; the choice itself carries what must be known
+  (offer lines + cards: the people are in the units). The approach monologue (`_2`…`_8`) starts when the foreman
+  dies, under a new rule `foremanDead && !choice` (anywhere, not `inCore`), **pauses while any hostile is awake**
+  (Unit 14 at the door gets `next: true`), and is cut by entering the room. **Whatever was not heard is said in
+  the idle slots** after line 5 (6 s apart) while the player decides; a completed scan ends it. `term2_core` is
+  rewritten to carry the same facts in writing. Test oracle updated with the same rule.
+- **Focus (B3, H1).** Measured to two points per option: the plate centre and the card centre. Enter at 16°,
+  leave at 22°, must hold 0.25 s; only while the player is inside the room (z < −72.2). **Latched:** the last
+  focused option stays until the other is focused. Only the **pedestal and the eye** mirror the latched option;
+  the north and south walls stay CHOIR's waveform. The story computes focus and tells the level
+  (`core_focus_stop` / `core_focus_command`); the level only shows it. Cards are switched on in the `l2_core`
+  consequence (so a load draws them); before entry the side walls show the waveform; after a completed scan the
+  focus updater stops.
+- **One count (B4).** One function `unitsLeft()` in the story = 32 − every unit destroyed or removed in level 2,
+  used by both cards (redrawn whenever it changes), the ending card, and the `_7` / `_7_killed` variant
+  (`_killed` when 4 or more are gone).
+- **Lines (H2, H3, H4).** Scanners go live when line 2 starts **or** 8 s after `t2_core`, whichever is first
+  (`#core_offered` keeps meaning "live" and replays on load). Lines 3/4 may be triggered by focus only after
+  line 2 has started; guarded at queue time (not by `heard`); `when`: that option not yet described, no choice,
+  in the room. Leaving and re-entering resumes from the first line not heard. Restoring `cp2_core`: scanners
+  live at once, lines resume the same way.
+- **Who owns the scan (H5).** The `interact` press goes to the story. The story starts the scan
+  (`player.palm(true)`, level vignette `core_scan_stop|command`), watches the cancel conditions (distance 1.3 m,
+  35°, damage taken → cancel; `core_scan_cancel`, `player.palm(false)`), and only on completion calls `choose()`.
+  Level animations never run on the raw press. The cells going out stay on CHOIR's count (`core_cells_out`).
+- **Wording (H7).** `l2_choir_rewrite_1` → "Authorised. Supervisor: Reyes, S. Headcount: one."
+  Objective → "Choose: STOP or COMMAND". End cards → "You stopped the line." / "You took the line."
+  Removed line ids are removed everywhere at once (script, rules, oracle, tests, mp3s).
+- **Colour (H8).** STOP amber. COMMAND **plain white** (no cyan). While the cards are on, the pedestal's cyan
+  floor rings dim to neutral so the two options are the only coloured things at floor level.
+- **Geometry.** Move the PATTERN LIBRARY terminal and sign off the west card to the north wall west of the door.
+  Station rings: raised torus, r ≤ 0.75 (clear of the floor seams and the pedestal rings). Card headline in the
+  north/centre part (the south end is foreshortened from the door); a separate layout for the eye/pedestal
+  aspect. Interact point outside the console collider. The cells keep "CELL n" signs, lose the breaker housings.
+  Run `check:zfight`, `check:reach` (phase I uses both scanners; phase H leaks neither).
+
+### People react to you
+- **Three states** on a human actor: `auto` (default: the player when seen, else rest), `pinned`
+  (`lookAt(point | object)`, live when given an object), `rest`. `lookAt(null)` returns to `auto`.
+  Existing story calls that pass the player's eye become redundant and are removed.
+- **Body turns only in `idle` and `talk`.** Never in `back_away`, `wave`, `bang_glass`, `write`, sitting, held,
+  carried. The story's facing is the rest facing; 2 s after sight is lost the body returns to it.
+- Range **16 m**. Head limits stay as built (±66° yaw, about ±32° pitch). Carried/lying: eyes and head within ±40°.
+  While walking: head toward the player within ±50°, otherwise along the path.
+- Sight passes through `glass` (re-cast past a glass hit, at most 3 times); the mesh partition blocks it.
+  Last seen position is held 0.8 s. Sight rays at ≤ 10 Hz.
+- Flinch at an impact within 3 m only with sight of the impact point.
+- Scope: story actors (`human`). Enemy soldiers (chapter 3) have their own AI.
+
 ## Text changes in levels 1–2
 Small, from the text audit (no story change):
 - One order id everywhere: **0031-H** (today also `7-114`: `src/story/l2/text.ts`, booth, core).
@@ -1200,3 +1254,27 @@ source, recorded in `docs/ASSETS.md`. Everyone else is covered (hoods, helmets).
    camera, safe room, keypad, radio, level chain, outdoors, soldier enemy, Reyes/Halvorsen/Kessler voices.
 3. Stage 3a: detailed plan (coordinates, phases, doors, triggers, lines with rules) → reviewer → build →
    checklist → the user plays. Then 3b, 3c, 3d the same way.
+
+## REVISION 7.1 — decisions after the plan review (outline level; details per stage)
+
+- **Whose units (B1).** "This line" means Line Two. Eridu Deep has other lines and nodes (level 1's own hall is
+  Hall Three). The units that walk out in 3a belong to them. STOP's promise holds: Line Two's units are dark on
+  the feeds while others walk past.
+- **COMMAND in this chapter (B2).** Friendly helper units are **dropped** (they needed enemy-vs-enemy targeting,
+  doubled every route check and bent R2). The choice changes CHOIR's voice toward Reyes and what the feeds show
+  of Line Two (dark and still / lit and waiting). Line Two's units stay where they are, for later chapters.
+- **Facts carried (B3, B4):** choice, units left, soldiers killed, armour, first-view flags. No Unit 32 fact
+  (it is always gone by the core). First system task: one save/carry schema, `LevelId` 1…6 with no binary
+  `=== 2` branches left, and debug defaults (`?level=4&choice=stop`).
+- **One place for the door.** The pressure door at the top of the service lift. The camera Halvorsen turns to
+  is that door's. He meets Reyes at the habitat lobby's inner door (the cutscene trigger).
+- **Halvorsen and Tomas.** With the 61-hour canon Tomas is simply one of the people "sealed in for the test".
+- **Cutscenes.** First-person only (no Reyes body). Before the camera is taken: no hostile alive in the area and
+  the way back latched shut. After: fixed placement, weapon lowered and loaded, checkpoint saved at once (a death
+  never replays it). In 3c the two units enter from the far door ≥ 8 m away, 2.5 s after control returns.
+- **Kessler's link.** A hard line from the command module to Post 4's repeater. CHOIR hears every word; she
+  says so. Civilians were never in the Clasp programme; why she has none stays open.
+- **Keypad.** Fixed code in one recorded line (no per-run digits): the panel has no power until she gives it,
+  so knowing the code early does nothing. She repeats it on request (use the radio).
+- **Trunk.** Fixed order by layout: head-end → cable vault → moon pool. The ending beats happen at the moon pool.
+- **Parked for the user:** the Clasp as a non-lethal weak spot ("released" soldiers).

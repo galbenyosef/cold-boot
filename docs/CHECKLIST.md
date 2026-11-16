@@ -8,6 +8,7 @@ Run everything here and fix what it finds. When the user finds a new class of de
   - `check:zfight` — overlapping coplanar surfaces (flickering "double layer" walls). Zero findings.
   - `check:doors` — parts left hanging when a door / moving machine part moves (e.g. bolts in mid-air).
   - `check:reach` — per story phase, the player cannot reach what must be sealed and can reach what is needed.
+  - `check:decals` — bullet holes / decals shot onto every door leaf (and registered movers) ride with it or vanish when it opens; none left hanging in mid-air.
 - `node scripts/playthrough.mjs <url>` (level 1), `--checkpoints`, `--level2`, `--level2 --checkpoints`,
   `--level2 --impatient` — on a static build (`vite build` + `vite preview`), not the dev server.
 - `npm run voice:check` after any change to `voice/lines.*.json` (and `npm run voice` before it).
