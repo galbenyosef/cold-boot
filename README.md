@@ -15,3 +15,6 @@ npm run dev
 
 Tomas's head is based on "Infinite, 3D Head Scan" by Lee Perry-Smith (www.ir-ltd.net), licensed
 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), modified. Details: `docs/ASSETS.md`.
+
+Halvorsen's head is built from MakeHuman assets (base mesh, morph targets, skin, eyebrows) by the MakeHuman team,
+www.makehumancommunity.org, released CC0 1.0, modified.
