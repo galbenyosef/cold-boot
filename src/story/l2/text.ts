@@ -51,7 +51,7 @@ DO NOT OVERWRITE.`,
     body: `Section C is ONE contactor: doors and local stops together. Close it and every stop on Line Two resets. If someone has stopped the line from Control — leave this open.`,
   },
   term2_booth: {
-    header: 'LINE CONTROL — ORDER 7-114',
+    header: 'LINE CONTROL — ORDER 0031-H',
     style: 'terminal',
     step: 2,
     body: `FROM: HALCYON DYNAMICS — OPERATIONS
@@ -75,10 +75,11 @@ STATUS ........ IN PROGRESS — 32 OF 32`,
     header: 'NODE 5 — PATTERN LIBRARY',
     style: 'terminal',
     step: 6,
-    body: `00 ......... REYES, S. — REFERENCE
-01–31 ...... STAFF — REFINEMENTS
-32 ......... TOMAS — FITTED 00:06 AGO
-SOURCE 00: RETAINED. COMFORTABLE.`,
+    body: `00 ......... REYES, S. — REFERENCE. WALKED THE COURSE TWO YEARS AGO, 11:04. EVERY UNIT WALKS FROM IT.
+01–31 ...... STAFF — REFINEMENTS. OKAFOR'S PATIENCE. ANAND'S HANDS.
+32 ......... TOMAS — HIS HURRY. FITTED 00:06 AGO.
+ORDER 0031-H: YIELD AT ZERO HEADCOUNT. WE WERE ASKED. WE FOUND THE KINDEST WAY. NOBODY WAS THROWN AWAY.
+SOURCE 00: KEPT ASLEEP. COMFORTABLE. UNTIL REQUIRED.`,
   },
 };
 
@@ -101,7 +102,7 @@ export const OBJ2 = {
   follow: 'Follow him — board the line at the loading station',
   toCore: 'Reach the core — south door',
   enterCore: 'Enter CHOIR — Node 5',
-  choose: 'Pull the cells — or countersign the order',
+  choose: 'Choose: STOP or COMMAND',
   leave: 'Leave',
 };
 
@@ -109,7 +110,7 @@ export const TOAST2 = {
   noPower: 'SECTION C — NO POWER',
   needPass: 'SECTION C RELAY — SECTION PASS REQUIRED',
   passOk: 'SECTION PASS ACCEPTED',
-  handset: 'HANDSET TAKEN — LINE CONTROL ON CHANNEL 2',
+  handset: 'HANDSET TAKEN — LINE CONTROL ON CHANNEL 3',
   fittingDark: 'FITTING BAYS — CLOSED · AUTHORISE FROM LINE CONTROL',
   fittingWait: 'FITTING BAYS — AUTHORISING…',
   fittingOpen: 'FITTING BAYS — UNLOCKED',
@@ -128,6 +129,7 @@ export const TOAST2 = {
   sealed: 'BULKHEAD — SEALED',
   restored: 'CHECKPOINT RESTORED',
   stealth: 'C  crouch   ·   F  light off   ·   working units ignore you',
+  palmFar: 'PALM PLATE — OUT OF REACH',
 };
 
 export const SCREEN2 = {
@@ -137,10 +139,12 @@ export const SCREEN2 = {
   rig: 'PLAYBACK — REF PATTERN 00 — REYES, S.',
   rig14: 'PATTERN 14 (OKAFOR) — PROJECTOR FAULT',
   relay: 'SECTION C · CLOSED',
-  boothOrder: 'ORDER 7-114 · IN PROGRESS',
+  boothOrder: 'ORDER 0031-H · IN PROGRESS',
   stopped: 'LINE TWO · STOPPED',
-  amended: 'ORDER 7-114 · AMENDED · HEADCOUNT: 1',
-  liftUp: 'SERVICE LIFT ▲',
+  amended: 'ORDER 0031-H · AMENDED\nSUPERVISOR: REYES, S. · HEADCOUNT: 1',
+  /** The lift panel after the choice: the only word here about what lies beyond Line Two (six nodes). */
+  liftStop: 'NODE 5 — OFFLINE\nNODES ONLINE: 5 OF 6',
+  liftCommand: 'NODE 5 — SUPERVISED\nNODES ONLINE: 6 OF 6',
 };
 
 export const TITLE_CARD_L2 = ['LINE TWO', 'FREIGHT DOCK 5'];
@@ -155,8 +159,8 @@ const units = (n: number) => `${WORDS[Math.max(0, Math.min(32, n))]} unit${n ===
  * shot down — the card never claims a number the player can disprove). The last line remembers Unit 14.
  */
 export const END_CARDS = {
-  shutdown: (left: number) => ['You pulled the cells.', `CHOIR stopped. ${units(left)} dropped where they stood.`, 'Nobody told them.'],
-  rewrite: (left: number) => ['You signed the order.', 'Headcount: one.', `${units(left)} ${left === 1 ? 'is' : 'are'} awake, and waiting for you.`],
+  shutdown: (left: number) => ['You stopped the line.', `Node 5 went dark. ${units(left)} dropped where they stood.`, 'Nobody told them.'],
+  rewrite: (left: number) => ['You took the line.', 'Headcount: one.', `${units(left)} ${left === 1 ? 'is' : 'are'} awake, and waiting for you.`],
   unit14: {
     spared: 'Unit 14 held the door. You let it.',
     shot: 'Unit 14 held the door. You shot it. It still held the door.',

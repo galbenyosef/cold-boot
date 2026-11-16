@@ -139,7 +139,7 @@ export const CHOIR = {
   paHold: [{ text: 'Fab access is on hold, Technician. The console in Security Three will release it.', duration: 5.4, id: 'l1_choir_pa_hold' }],
   paHusk: [{ text: 'Please be careful with the units, Technician. They were careful with you.', duration: 5.0, id: 'l1_choir_pa_husk' }],
   fabReveal: [
-    { text: 'This is Line Two, Technician. It has been still for sixty-one hours.', duration: 5.0, id: 'l1_choir_fab_1' },
+    { text: 'This is Hall Three, Technician. It has been still for sixty-one hours.', duration: 5.0, id: 'l1_choir_fab_1' },
     { text: 'Power Distribution is through the east door. We would be grateful.', duration: 4.6, id: 'l1_choir_fab_2' },
   ],
   paLockout: [{ text: 'Engineer Hale kept the key. She is in the pump room. She will not mind.', duration: 5.4, id: 'l1_choir_pa_lockout' }],

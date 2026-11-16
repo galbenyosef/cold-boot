@@ -3,7 +3,7 @@
  * Public surface = `Player` from core/types plus a few extras (`revive`, `debug`, `viewmodel`).
  */
 import * as THREE from 'three';
-import type { GameContext, Interactable, PickupKind, Player, PlayerSave, Surface, WeaponId, WeaponState } from '../core/types';
+import type { GameContext, Interactable, PalmPlate, PalmResult, PickupKind, Player, PlayerSave, Surface, WeaponId, WeaponState } from '../core/types';
 import { Controller, MOVE, type MoveInput } from './controller';
 import { CameraRig } from './camera';
 import { Flashlight } from './flashlight';
@@ -13,6 +13,7 @@ import { Viewmodel, type RigMotion } from './viewmodels/rig';
 import { resolveMats } from './viewmodels/mats';
 import { setVmLight } from './viewmodels/vmlight';
 import { clamp, damp, wrapAngle } from './math';
+import { PalmHand } from './palm';
 
 const SENSITIVITY = 0.0022;
 const PITCH_LIMIT = THREE.MathUtils.degToRad(88);
@@ -64,6 +65,29 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   const look = { active: false, t: 0, dur: 1, y0: 0, p0: 0, y1: 0, p1: 0 };
 
   weapons.onHit = () => { hitMarker = 1; };
+
+  // ── palm scan (REVISION 6.1): the free left hand flat on a plate for a moment; see Player.palm ──
+  const PALM_START = 1.0, PALM_CANCEL = 1.3;
+  /** How much of the mouse still reaches the view while the hand is on the plate, and how hard the view is drawn to it. */
+  const PALM_LOOK = 0.15, PALM_PULL = 7;
+  let palm: { plate: PalmPlate; dur: number; t: number; pitch0: number; resolve: (r: PalmResult) => void } | null = null;
+  let unstowIn = -1;
+  let headUp: { by: number; t: number; k: number } | null = null;
+  const palmHand = new PalmHand(worldMats);
+  ctx.scene.add(palmHand.root);
+  const palmDist = (plate: PalmPlate) => { const p = ctrl.body.position; return Math.hypot(p.x - plate.position.x, p.z - plate.position.z); };
+  function endPalm(result: PalmResult) {
+    const p = palm;
+    if (!p) return;
+    palm = null;
+    if (alive) palmHand.release(result === 'done'); else palmHand.hide();
+    // the weapon comes back up as the hand leaves the view
+    unstowIn = result === 'done' ? 0.42 : 0.14;
+    // the head comes back up to where it was looking (any mouse movement takes over at once)
+    headUp = alive && pitch < p.pitch0 - 0.12 ? { by: p.pitch0 - pitch, t: 0, k: 0 } : null;
+    p.resolve(result);
+  }
+  ctx.events.on('game:state', (e) => { if (palm && e.state !== 'playing') endPalm('cancelled'); });
 
   // The story flips state to 'dead' on player:died, which stops main-loop updates; keep the
   // collapse animating with a private rAF loop while the main loop isn't ticking us.
@@ -206,8 +230,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         front = (-dx * s - dz * c) / l; // + = from the front
       }
       camRig.damage(side, front, amount);
+      if (palm) endPalm('cancelled');
       if (health <= 0) {
         alive = false;
+        palmHand.hide();
         weapons.holster();
         camRig.die();
         ctx.render.post.setLowHealth(1);
@@ -239,7 +265,25 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       if (y !== undefined) yaw = y;
       if (pi !== undefined) pitch = clamp(pi, -PITCH_LIMIT, PITCH_LIMIT);
       look.active = false;
+      if (palm) endPalm('cancelled');
+      headUp = null;
     },
+    palm(plate: PalmPlate, seconds: number): Promise<PalmResult> {
+      return new Promise<PalmResult>((resolve) => {
+        if (palm || !alive || !controlsEnabled || ctx.state !== 'playing') { resolve('refused'); return; }
+        // within reach, and in front of the plate (its normal leans toward the user)
+        const p = ctrl.body.position;
+        const front = (p.x - plate.position.x) * plate.normal.x + (p.z - plate.position.z) * plate.normal.z;
+        if (palmDist(plate) > PALM_START || front <= 0) { resolve('refused'); return; }
+        palm = { plate: { position: plate.position.clone(), normal: plate.normal.clone().normalize(), up: plate.up.clone().normalize() }, dur: Math.max(0.05, seconds), t: 0, pitch0: Math.min(pitch, 0.1), resolve };
+        weapons.setStowed(true);
+        unstowIn = -1;
+        look.active = false;
+        palmHand.begin(palm.plate);
+      });
+    },
+    cancelPalm() { endPalm('cancelled'); },
+    get palmProgress() { return palm ? clamp(palm.t / palm.dur, 0, 1) : -1; },
     shake(a: number) { camRig.shake(a); },
     setCarry(v: THREE.Vector3 | null) { ctrl.setCarry(v); },
     lookAt(point: THREE.Vector3, seconds: number) {
@@ -327,9 +371,16 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
       // ── look
       lastLookX = 0; lastLookY = 0;
+      // ── palm scan: its clock and what ends it (walking away; death / loss of control / not playing)
+      if (palm) {
+        if (!active || palmDist(palm.plate) > PALM_CANCEL) endPalm('cancelled');
+        else { palm.t += dt; if (palm.t >= palm.dur) endPalm('done'); }
+      }
+      if (unstowIn >= 0 && !palm) { unstowIn -= dt; if (unstowIn < 0) weapons.setStowed(false); }
       if (active) {
-        const dx = inp.mouseDX * SENSITIVITY, dy = inp.mouseDY * SENSITIVITY;
-        if (dx || dy) { look.active = false; }
+        const k = palm ? PALM_LOOK : 1;
+        const dx = inp.mouseDX * SENSITIVITY * k, dy = inp.mouseDY * SENSITIVITY * k;
+        if (dx || dy) { look.active = false; headUp = null; }
         yaw -= dx;
         const np = clamp(pitch - dy, -PITCH_LIMIT, PITCH_LIMIT);
         lastLookY = np - pitch; lastLookX = -dx;
@@ -342,6 +393,27 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         lastLookX = ny - yaw; lastLookY = np - pitch;
         yaw = ny; pitch = np;
         if (look.t >= 1) look.active = false;
+      }
+      if (headUp && dt > 0) {
+        if (palm) headUp = null;
+        else {
+          headUp.t = Math.min(1, headUp.t + dt / 0.55);
+          const k = headUp.t * headUp.t * (3 - 2 * headUp.t);
+          const np = clamp(pitch + headUp.by * (k - headUp.k), -PITCH_LIMIT, PITCH_LIMIT);
+          headUp.k = k;
+          lastLookY += np - pitch; pitch = np;
+          if (headUp.t >= 1) headUp = null;
+        }
+      }
+      if (palm && dt > 0) {
+        // the view eases onto the plate (a little above its centre: the hand sits low in the frame, the arm below it)
+        const pl = palm.plate;
+        const tx = pl.position.x + pl.up.x * 0.07 - eye.x, ty = pl.position.y + pl.up.y * 0.07 - eye.y, tz = pl.position.z + pl.up.z * 0.07 - eye.z;
+        const k = 1 - Math.exp(-PALM_PULL * dt);
+        const ny = yaw + wrapAngle(Math.atan2(-tx, -tz) - yaw) * k;
+        const np = pitch + (clamp(Math.atan2(ty, Math.hypot(tx, tz)), -PITCH_LIMIT, PITCH_LIMIT) - pitch) * k;
+        lastLookX += ny - yaw; lastLookY += np - pitch;
+        yaw = ny; pitch = np;
       }
       yaw = wrapAngle(yaw);
 
@@ -372,6 +444,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       });
       ctx.camera.updateMatrixWorld();
       computeBasis();
+      palmHand.update(dt, ctx.camera, yaw);
 
       // ── wall proximity (viewmodel pull-back), throttled
       wallCheck -= dt;
@@ -425,7 +498,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       setVmLight(flash.level);
 
       // ── interaction
-      focus = alive ? pickVisible() : null;
+      focus = alive && !palm ? pickVisible() : null;
       if (active && focus && inp.pressed('KeyE')) ctx.interactables.use(focus);
 
       // ── pickups + HUD state
@@ -460,6 +533,12 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     tracerSpeed: (v = 190) => { weapons.tracers.speed = v; return v; },
     tracers: () => ({ visible: weapons.tracers.mesh.visible, count: weapons.tracers.mesh.geometry.drawRange.count / 6, layer: weapons.tracers.mesh.layers.mask }),
     grips: () => ({ pistol: vm.pistol.report, shotgun: vm.shotgun.report }),
+    /** REVISION 6.1: the palm scan — its clock, the hand's state, and the solved clearance (mm) of the flat pose over the plate. */
+    palm: () => ({
+      active: !!palm, t: palm ? +palm.t.toFixed(3) : 0, progress: palm ? +(palm.t / palm.dur).toFixed(3) : -1,
+      hand: palmHand.mode, s: +palmHand.s.toFixed(3), down: palmHand.down, visible: palmHand.root.visible,
+      wrist: palmHand.hand.root.position.toArray().map((v) => +v.toFixed(3)), clearance: palmHand.report, contact: palmHand.contact(), lower: +weapons.lower.toFixed(2),
+    }),
   };
 
   if (ctx.debug.giveAll) {

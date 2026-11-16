@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import type { CapsuleBody, DynamicBox, Physics, RayHit, Surface } from '../core/types';
+import type { CapsuleBody, DynamicBox, HitOwner, Physics, RayHit, Surface } from '../core/types';
 
 const SURFACES: Surface[] = ['metal', 'concrete', 'glass', 'rubber', 'robot', 'flesh'];
 const GRAVITY = -19;
@@ -10,6 +10,9 @@ export function createPhysics(): Physics {
   let surfAttr: Uint8Array | null = null;
   let posAttr: THREE.BufferAttribute | null = null;
   const boxes: DynamicBox[] = [];
+  const movers: THREE.Object3D[] = [];
+  /** REVISION 5.2: a dynamic box stands for something that moves or goes away: 'transient' unless it says otherwise. */
+  const ownerOf = (b: DynamicBox, p: THREE.Vector3): HitOwner => (typeof b.owner === 'function' ? b.owner(p) : b.owner) ?? 'transient';
 
   const ray = new THREE.Ray();
   const seg = new THREE.Line3();
@@ -85,7 +88,7 @@ export function createPhysics(): Physics {
       if (ax >= ay && ax >= az) n.set(Math.sign(n.x), 0, 0);
       else if (ay >= az) n.set(0, Math.sign(n.y), 0);
       else n.set(0, 0, Math.sign(n.z));
-      best = { point: p.clone(), normal: n, distance: d, surface: b.surface };
+      best = { point: p.clone(), normal: n, distance: d, surface: b.surface, owner: ownerOf(b, p) };
     }
     return best;
   }
@@ -99,6 +102,8 @@ export function createPhysics(): Physics {
     return raycast(a, d, len - 0.05) === null;
   }
 
+  /** Highest low obstacle (`DynamicBox.walkable`) a body steps onto. */
+  const STEP_OVER = 0.55;
   function resolveSegment(radius: number): void {
     // Push `seg` (capsule axis) out of static triangles.
     if (bvh) {
@@ -131,6 +136,12 @@ export function createPhysics(): Physics {
       let dx = px - cx, dz = pz - cz;
       const d2 = dx * dx + dz * dz;
       if (d2 >= radius * radius) continue;
+      if (b.walkable) {
+        // A wreck on the floor is stepped onto, not walked into: lift the body to its top (the eye smooths it).
+        const feet = seg.start.y - radius, rise = bb.max.y - feet;
+        if (rise <= 0) continue;
+        if (rise <= STEP_OVER) { seg.start.y += rise; seg.end.y += rise; continue; }
+      }
       let push: number;
       if (d2 > 1e-10) {
         const d = Math.sqrt(d2);
@@ -217,6 +228,22 @@ export function createPhysics(): Physics {
     return b;
   }
 
-  const physics: Physics = { build, raycast, lineOfSight, moveBody, resolveSphere, addBox, gravity: GRAVITY };
+  function ownerAt(p: THREE.Vector3): HitOwner | undefined {
+    const e = 0.015;
+    for (const b of boxes) {
+      if (!b.enabled) continue;
+      const mn = b.box.min, mx = b.box.max;
+      if (p.x < mn.x - e || p.x > mx.x + e || p.y < mn.y - e || p.y > mx.y + e || p.z < mn.z - e || p.z > mx.z + e) continue;
+      return ownerOf(b, p);
+    }
+    return undefined;
+  }
+
+  function addMover(obj: THREE.Object3D) {
+    if (!movers.includes(obj)) movers.push(obj);
+    return () => { const i = movers.indexOf(obj); if (i >= 0) movers.splice(i, 1); };
+  }
+
+  const physics: Physics = { build, raycast, lineOfSight, moveBody, resolveSphere, addBox, ownerAt, addMover, movers, gravity: GRAVITY };
   return physics;
 }

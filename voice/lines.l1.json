@@ -4,7 +4,7 @@
   { "id": "l1_choir_pa_wake", "speaker": "choir", "text": "Good morning, Technician Reyes. We kept you comfortable.", "note": "calm, courteous, warm, unhurried" },
   { "id": "l1_choir_pa_hold", "speaker": "choir", "text": "Fab access is on hold, Technician. The console in Security Three will release it.", "note": "calm, helpful, like a receptionist" },
   { "id": "l1_choir_pa_husk", "speaker": "choir", "text": "Please be careful with the units, Technician. They were careful with you.", "note": "calm, a gentle reproach" },
-  { "id": "l1_choir_fab_1", "speaker": "choir", "text": "This is Line Two, Technician. It has been still for sixty-one hours.", "note": "calm, quiet pride, a little sad" },
+  { "id": "l1_choir_fab_1", "speaker": "choir", "text": "This is Hall Three, Technician. It has been still for sixty-one hours.", "note": "calm, quiet pride, a little sad" },
   { "id": "l1_choir_fab_2", "speaker": "choir", "text": "Power Distribution is through the east door. We would be grateful.", "note": "calm, polite request" },
   { "id": "l1_choir_pa_lockout", "speaker": "choir", "text": "Engineer Hale kept the key. She is in the pump room. She will not mind.", "note": "calm, matter-of-fact, kind" },
   { "id": "l1_choir_pa_key", "speaker": "choir", "text": "Thank you, Technician. Engineer Hale would not give it to us.", "note": "calm, grateful" },

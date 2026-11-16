@@ -110,6 +110,15 @@ export class DoorImpl implements Door {
     // leaf blockers (0, 1) + the full-opening blocker that is solid while the door is closing (2)
     this.boxes.push(ctx.physics.addBox(new THREE.Box3(), 'metal'), ctx.physics.addBox(new THREE.Box3(), 'metal'), ctx.physics.addBox(new THREE.Box3(), 'metal'));
     this.boxes[2].enabled = false;
+    // REVISION 5.2: decals shot onto a blocker belong to the leaf it stands for (they ride along when it opens).
+    // The closing blocker spans the whole opening: the leaf on the hit point's side (fx drops the decal if no
+    // leaf surface is actually there).
+    this.boxes[0].owner = this.leaves[0];
+    this.boxes[1].owner = this.leaves[1];
+    this.boxes[2].owner = (p: THREE.Vector3) => {
+      if (this.spec.kind === 'std') return (this.spec.wall === 'z' ? p.x - this.position.x : this.position.z - p.z) < 0 ? this.leaves[0] : this.leaves[1];
+      return p.y - this.y0 > this.leaves[0].position.y + 1.25 ? this.leaves[0] : this.leaves[1];
+    };
     this.prompt = ctx.interactables.add({
       id: `door_${spec.id}`, kind: 'door', prompt: 'Locked', position: new THREE.Vector3(spec.x, this.y0 + 1.3, spec.z), radius: 2.0,
       enabled: this.locked, onUse: () => this.deny(),

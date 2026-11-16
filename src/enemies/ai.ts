@@ -175,6 +175,8 @@ export abstract class EnemyBase implements Enemy {
   puppetMove(_point: THREE.Vector3, _speed: number | undefined, done: () => void): void { done(); }
   puppetPose(_pose: string): void { /* per type */ }
   puppetLook(_point: THREE.Vector3 | null): void { /* per type */ }
+  /** REVISION 6.1: attention mode for human actors ('auto' | 'rest'); other types ignore it. */
+  puppetLookMode(_mode: 'auto' | 'rest'): void { /* per type */ }
   puppetEyes(_on: boolean): void { /* per type */ }
   /** Abort a pending move (resolves it). */
   puppetStop(): void { /* per type */ }

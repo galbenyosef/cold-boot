@@ -17,6 +17,7 @@ interface Screen {
   g: CanvasRenderingContext2D;
   tex: THREE.CanvasTexture;
   W: number; H: number;
+  aspect: number;
   t: number;
   since: number;
   lastSeen: number;
@@ -32,10 +33,20 @@ interface Screen {
 
 const INTENSITY: Record<ScreenKind, number> = {
   terminal_idle: 2.6, terminal_alert: 3.2, static: 1.8, choir: 3.5, camera_feed: 2.0, vitals: 2.6, door_locked: 3.5, door_open: 3.0, door_cycling: 3.2,
+  choice_stop: 2.2, choice_command: 2.2, palm: 3.0,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
+  choice_stop: 6, choice_command: 6, palm: 24,
 };
+/**
+ * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must
+ * be read from across the room: on a wide quad they get a 2048 px canvas (everything else 512 / 256).
+ */
+function sizeFor(kind: ScreenKind, aspect: number): [number, number] {
+  const base = kind.startsWith('door') ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : 512;
+  return aspect >= 1 ? [base, Math.max(16, Math.round(base / aspect))] : [Math.round(base * aspect), base];
+}
 const MAX_DRAWS_PER_UPDATE = 4;
 
 function rng(seed: number) {
@@ -110,9 +121,7 @@ export class ScreenManager {
 
   create(kind: ScreenKind, opts?: { text?: string; aspect?: number }): THREE.MeshStandardMaterial {
     const aspect = opts?.aspect ?? (kind.startsWith('door') ? 2 : 1.6);
-    const base = kind.startsWith('door') ? 256 : 512;
-    const W = aspect >= 1 ? base : Math.round(base * aspect);
-    const H = aspect >= 1 ? Math.max(16, Math.round(base / aspect)) : base;
+    const [W, H] = sizeFor(kind, aspect);
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d', { willReadFrequently: false })!;
     const tex = new THREE.CanvasTexture(cv);
@@ -128,10 +137,11 @@ export class ScreenManager {
     });
     const seed = this.seedCounter++ * 7919;
     const s: Screen = {
-      mat, kind, text: opts?.text, cv, g, tex, W, H, t: Math.random() * 10, since: 1, lastSeen: -100, drawn: false,
+      mat, kind, text: opts?.text, cv, g, tex, W, H, aspect, t: Math.random() * 10, since: 1, lastSeen: -100, drawn: false,
       seed, rand: rng(seed), lines: [], lineTimer: 0, scroll: 0, noise: null, noiseCv: null,
     };
     mat.onBeforeRender = () => { s.lastSeen = this.frame; };
+    mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? ''; // what it shows (tests, debugging)
     this.prime(s);
     this.draw(s);
     this.screens.push(s);
@@ -142,8 +152,21 @@ export class ScreenManager {
   set(mat: THREE.MeshStandardMaterial, kind: ScreenKind, opts?: { text?: string }) {
     const s = this.byMat.get(mat);
     if (!s) { console.warn('[materials] setScreen: not a screen material'); return; }
-    s.kind = kind; s.text = opts?.text; s.t = 0;
-    mat.emissiveIntensity = INTENSITY[kind];
+    // the same card with another number (the unit count changed): redraw, keep its animation clock
+    const same = s.kind === kind && kind.startsWith('choice');
+    s.kind = kind; s.text = opts?.text;
+    mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? '';
+    if (!same) { s.t = 0; mat.emissiveIntensity = INTENSITY[kind]; }
+    // a kind with another canvas size (waveform ↔ option card on the core's side walls): re-allocate
+    const [W, H] = sizeFor(kind, s.aspect);
+    if (W !== s.W || H !== s.H) {
+      s.cv.width = W; s.cv.height = H; s.W = W; s.H = H;
+      s.noise = null; s.noiseCv = null;
+      // mip-mapped when wall-sized (read at a slant from the door); the GL texture is re-created on the next upload
+      const big = W > 1024;
+      s.tex.generateMipmaps = big; s.tex.minFilter = big ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter; s.tex.anisotropy = big ? 8 : 4;
+      s.tex.dispose();
+    }
     this.prime(s);
     this.draw(s);
   }
@@ -189,11 +212,17 @@ export class ScreenManager {
       case 'door_locked': this.door(s, false); break;
       case 'door_open': this.door(s, true); break;
       case 'door_cycling': this.door(s, 'cycling'); break;
+      case 'choice_stop': this.choice(s, true); break;
+      case 'choice_command': this.choice(s, false); break;
+      case 'palm': this.palm(s); break;
     }
     g.globalAlpha = 1;
-    g.globalCompositeOperation = 'multiply';
-    g.drawImage(overlay(W, H), 0, 0);
-    g.globalCompositeOperation = 'source-over';
+    // (the wall-sized cards are seen from far and at a slant: a sub-pixel grid would only alias into moiré)
+    if (W <= 1024) {
+      g.globalCompositeOperation = 'multiply';
+      g.drawImage(overlay(W, H), 0, 0);
+      g.globalCompositeOperation = 'source-over';
+    }
     glare(g, W, H);
     s.tex.needsUpdate = true;
   }
@@ -453,7 +482,7 @@ export class ScreenManager {
     g.font = `800 ${fs * 0.85}px ${SANS}`; g.textAlign = 'center';
     g.fillText(s.text ?? 'ASYSTOLE  ·  NO PATIENT RESPONSE', W / 2, H * 0.93);
     g.font = `${fs * 0.45}px ${MONO}`; g.fillStyle = 'rgba(160,220,190,0.7)'; g.textAlign = 'left';
-    g.fillText('MED-3A  BED 2   REYES, S.   SEDATION PUMP: EMPTY', W * 0.02, H * 0.04 + fs * 0.3);
+    g.fillText('MED-3A  BED 4   REYES, S.   SEDATION PUMP: EMPTY', W * 0.02, H * 0.04 + fs * 0.3);
   }
 
   private door(s: Screen, mode: boolean | 'cycling') {
@@ -485,5 +514,246 @@ export class ScreenManager {
     while (g.measureText(label).width > W - H * 1.1 && sz2 > 8) { sz2 -= 2; g.font = `800 ${Math.round(sz2)}px ${SANS}`; }
     g.fillText(label, H * 0.98, H / 2);
     label = '';
+  }
+  // ───────────────────────────── REVISION 6: the core's option cards and palm plates
+
+  /**
+   * One service unit as a pictogram, feet at (x, y), `h` tall. `up`: awake, head up, lit (filled); otherwise
+   * switched off: head on its chest, arms hanging, a dim outline. `dir` = which way it faces (+1 right, −1 left).
+   */
+  private unit(g: CanvasRenderingContext2D, x: number, y: number, h: number, up: boolean, dir: number, col: string, dim: string) {
+    const hw = h * 0.15, legW = h * 0.105;
+    g.lineWidth = Math.max(1, h * 0.035);
+    g.fillStyle = col; g.strokeStyle = up ? col : dim;
+    const part = (px: number, py: number, w: number, hh: number) => { if (up) g.fillRect(px, py, w, hh); else g.strokeRect(px, py, w, hh); };
+    // legs, torso, arms
+    part(x - hw, y - h * 0.4, legW, h * 0.4); part(x + hw - legW, y - h * 0.4, legW, h * 0.4);
+    part(x - hw, y - h * 0.74, hw * 2, h * 0.32);
+    const drop = up ? 0 : h * 0.05;
+    part(x - hw - legW * 0.95, y - h * 0.73 + drop, legW * 0.7, h * 0.34); part(x + hw + legW * 0.25, y - h * 0.73 + drop, legW * 0.7, h * 0.34);
+    // head: up and looking `dir`, or dropped forward onto the chest
+    const hr = h * 0.105;
+    const hx = up ? x : x + dir * h * 0.07, hy = up ? y - h * 0.88 : y - h * 0.775;
+    g.beginPath(); g.arc(hx, hy, hr, 0, Math.PI * 2);
+    if (up) {
+      g.fill();
+      // the visor: a dark slot on the side it faces
+      g.fillStyle = 'rgba(0,0,0,0.85)';
+      g.fillRect(hx + (dir > 0 ? hr * 0.1 : -hr * 0.95), hy - hr * 0.22, hr * 0.85, hr * 0.44);
+    } else g.stroke();
+  }
+
+  /**
+   * Option card of the core (REVISION 6 / 6.1). `text` = the number of units left on the line.
+   * Two layouts: WIDE (the 12 × 3.6 m side walls) — headline block at the card's NORTH end (the end the door sees
+   * head-on: right on the west wall = STOP, left on the east wall = COMMAND), pictogram toward the south — and
+   * COMPACT (the eye above the pedestal, the pedestal screen), everything stacked.
+   */
+  private choice(s: Screen, stop: boolean) {
+    const { g, W, H } = s;
+    const t = s.t;
+    const nRaw = parseInt(s.text ?? '32', 10);
+    const n = Math.max(0, Math.min(32, Number.isFinite(nRaw) ? nRaw : 32));
+    const rgb = stop ? '255,158,44' : '244,247,250';
+    const C = (a: number) => `rgba(${rgb},${a})`;
+    const bg = stop ? '#0d0702' : '#06070a';
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const wide = W / H >= 2.4;
+    const head = stop ? 'STOP' : 'COMMAND';
+    const sub = stop ? 'NODE 5 OFF' : 'SUPERVISOR: REYES, S.';
+    const fate = stop ? 'THEY DO NOT WAKE' : 'THEY STAY AWAKE';
+    const count = stop ? `UNITS ON THIS LINE: ${n} → 0` : `UNITS AWAITING ORDERS: ${n}`;
+    const plate = stop ? 'AMBER PLATE' : 'WHITE PLATE';
+    // The pictogram's clock: the units go dark one after another (STOP) / a glance runs down the row (COMMAND).
+    const P = 8, ph = (t % P) / P;
+    const litCount = !stop ? n : ph < 0.14 ? n : ph < 0.68 ? Math.round(n * (1 - (ph - 0.14) / 0.54)) : 0;
+    const fit = (txt: string, weight: number, size: number, maxW: number) => {
+      let sz = size; g.font = `${weight} ${Math.round(sz)}px ${SANS}`;
+      while (g.measureText(txt).width > maxW && sz > 8) { sz -= Math.max(1, sz * 0.03); g.font = `${weight} ${Math.round(sz)}px ${SANS}`; }
+      return sz;
+    };
+    /** n units in rows inside a box; `toward` = the side (+1 right / −1 left) the awake ones look to. */
+    const rows = (x0: number, y0: number, w: number, h: number, toward: number) => {
+      const perRow = n > 16 ? 16 : Math.max(1, n), nRows = n > 16 ? 2 : 1;
+      const cell = w / (n > 16 ? 16 : Math.max(8, perRow));
+      const fh = Math.min(h / nRows * 0.88, cell * 2.5);
+      const rowW = cell * perRow;
+      for (let i = 0; i < n; i++) {
+        // column 0 stands next to the node / the supervisor (the side they face); a short row closes up to it.
+        // STOP: the ones furthest away go dark first. COMMAND: a glance runs out from the supervisor.
+        const r = Math.floor(i / perRow), c = i % perRow;
+        const k = toward > 0 ? perRow - 1 - c : c;
+        const x = x0 + (w - rowW) / 2 + (k + 0.5) * cell;
+        const y = y0 + (h / nRows) * (r + 1) - (h / nRows - fh) * 0.5;
+        const idx = r * perRow + c;
+        const up = stop ? idx < litCount : true;
+        let a = 1;
+        if (!stop) { const wave = ((ph * 2.2 - c / perRow * 0.7 - r * 0.08) % 1 + 1) % 1; a = 0.72 + 0.28 * Math.max(0, 1 - Math.abs(wave - 0.1) * 6); }
+        this.unit(g, x, y, fh, up, toward, C(a), C(0.34));
+      }
+    };
+    /** The thing the row answers to: NODE 5 (a box that goes dark) / one larger outlined person. */
+    const anchor = (cx: number, y0: number, h: number) => {
+      g.lineWidth = Math.max(2, h * 0.022);
+      if (stop) {
+        const on = litCount > 0;
+        const bw = h * 0.62, bh = h * 0.62, bx = cx - bw / 2, by = y0 + h * 0.1;
+        g.strokeStyle = C(on ? 1 : 0.4); g.strokeRect(bx, by, bw, bh);
+        if (on) { g.fillStyle = C(0.16); g.fillRect(bx, by, bw, bh); }
+        // power symbol
+        const r = bh * 0.24, py = by + bh * 0.56;
+        g.beginPath(); g.arc(cx, py, r, -Math.PI * 0.32, Math.PI * 1.32); g.stroke();
+        g.beginPath(); g.moveTo(cx, py - r * 1.35); g.lineTo(cx, py - r * 0.2); g.stroke();
+        g.fillStyle = C(on ? 1 : 0.5); g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.font = `800 ${Math.round(h * 0.13)}px ${SANS}`;
+        g.fillText('NODE 5', cx, by + bh + h * 0.13);
+      } else {
+        // a person, outlined, taller than the units: head, shoulders, body — and a raised open hand
+        const ph2 = h * 0.86, fy = y0 + h * 0.94, hw = ph2 * 0.17;
+        g.strokeStyle = C(1);
+        g.beginPath(); g.arc(cx, fy - ph2 * 0.88, ph2 * 0.11, 0, Math.PI * 2); g.stroke();
+        g.strokeRect(cx - hw, fy - ph2 * 0.74, hw * 2, ph2 * 0.34);
+        g.strokeRect(cx - hw, fy - ph2 * 0.4, hw * 0.8, ph2 * 0.4); g.strokeRect(cx + hw * 0.2, fy - ph2 * 0.4, hw * 0.8, ph2 * 0.4);
+        g.fillStyle = C(1); g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.font = `800 ${Math.round(h * 0.1)}px ${SANS}`;
+        g.fillText('YOU', cx, fy - ph2 * 0.57);
+      }
+    };
+    g.textBaseline = 'middle';
+    if (wide) {
+      const m = H * 0.06;
+      g.strokeStyle = C(0.85); g.lineWidth = Math.max(3, H * 0.012);
+      g.strokeRect(m * 0.5, m * 0.5, W - m, H - m);
+      // north-origin spans → canvas x (the west wall's north end is on the right of its screen)
+      // (seen from inside the room, north is on the LEFT of the west wall's screen and on the RIGHT of the east wall's)
+      const span = (u0: number, u1: number): [number, number] => (stop ? [u0 * W, u1 * W] : [(1 - u1) * W, (1 - u0) * W]);
+      // pictogram at the north end, the words from the centre on: what the door sees without turning (z < −78.7)
+      const [px0, px1] = span(0.03, 0.385);
+      const [hx0, hx1] = span(0.42, 0.965);
+      const hw = hx1 - hx0;
+      // divider
+      const dx = stop ? hx0 - W * 0.0175 : hx1 + W * 0.0175;
+      g.fillStyle = C(0.5); g.fillRect(dx - 1.5, m * 1.6, 3, H - m * 3.2);
+      // headline block
+      g.textAlign = 'left';
+      g.fillStyle = C(1); g.fillRect(hx0, H * 0.085, H * 0.07, H * 0.07);
+      g.font = `700 ${Math.round(H * 0.075)}px ${SANS}`; g.fillStyle = C(0.9);
+      g.fillText(plate, hx0 + H * 0.1, H * 0.123);
+      // both cards use the size at which COMMAND fits: the two words weigh the same
+      const hs = fit('COMMAND', 900, H * 0.42, hw * 0.98);
+      g.font = `900 ${Math.round(hs)}px ${SANS}`;
+      g.save(); g.shadowColor = C(0.9); g.shadowBlur = H * 0.05; g.fillStyle = C(1);
+      g.fillText(head, hx0 - hs * 0.03, H * 0.385);
+      g.restore();
+      fit(sub, 700, H * 0.105, hw * 0.98); g.fillStyle = C(0.92);
+      g.fillText(sub, hx0, H * 0.635);
+      // the consequence, inverted: the line that must be read
+      const fs = fit(fate, 900, H * 0.115, hw * 0.9);
+      const fw = g.measureText(fate).width;
+      g.fillStyle = C(1); g.fillRect(hx0, H * 0.745, fw + fs * 0.7, H * 0.165);
+      g.fillStyle = bg; g.fillText(fate, hx0 + fs * 0.35, H * 0.832);
+      // pictogram block: the anchor on the headline's side, the row beyond it
+      const pw = px1 - px0, aw = pw * 0.2;
+      const ax = stop ? px1 - aw / 2 : px0 + aw / 2;
+      anchor(ax, H * 0.09, H * 0.6);
+      rows(stop ? px0 : px0 + aw + pw * 0.02, H * 0.1, pw - aw - pw * 0.02, H * 0.58, stop ? 1 : -1);
+      fit(count, 800, H * 0.115, pw * 0.98); g.fillStyle = C(1); g.textAlign = 'left';
+      g.fillText(count, px0, H * 0.832);
+    } else {
+      const m = H * 0.05;
+      g.strokeStyle = C(0.85); g.lineWidth = Math.max(2, H * 0.014);
+      g.strokeRect(m * 0.5, m * 0.5, W - m, H - m);
+      g.textAlign = 'center';
+      const hs = fit('COMMAND', 900, H * 0.3, W * 0.8);
+      g.font = `900 ${Math.round(hs)}px ${SANS}`;
+      g.save(); g.shadowColor = C(0.9); g.shadowBlur = H * 0.05; g.fillStyle = C(1);
+      g.fillText(head, W / 2, H * 0.2);
+      g.restore();
+      fit(sub, 700, H * 0.085, W * 0.86); g.fillStyle = C(0.92);
+      g.fillText(sub, W / 2, H * 0.385);
+      rows(W * 0.07, H * 0.45, W * 0.86, H * 0.3, stop ? 1 : -1);
+      fit(count, 800, H * 0.08, W * 0.88); g.fillStyle = C(1);
+      g.fillText(count, W / 2, H * 0.825);
+      const fs = fit(fate, 900, H * 0.08, W * 0.8);
+      const fw = g.measureText(fate).width;
+      g.fillStyle = C(1); g.fillRect(W / 2 - fw / 2 - fs * 0.4, H * 0.875, fw + fs * 0.8, H * 0.095);
+      g.fillStyle = bg; g.fillText(fate, W / 2, H * 0.925);
+    }
+  }
+
+  /**
+   * Palm plate (REVISION 6). `text` = "<amber|white>|<state>|<LABEL>|<scan seconds>"; state: off, standby (not
+   * yet armed), idle (armed: outline of a left hand, a slow scan line), scan (a bar fills over the scan time),
+   * done (REYES, S. — LIVING — ROSTERED), fail (SCAN INCOMPLETE). The top of the canvas is the far edge of the
+   * plate, so the fingers of the outline point away from whoever stands in front of it.
+   */
+  private palm(s: Screen) {
+    const { g, W, H } = s;
+    const t = s.t;
+    const [colour = 'amber', state = 'idle', label = '', secs = '1.6'] = (s.text ?? '').split('|');
+    const rgb = colour === 'amber' ? '255,158,44' : '244,247,250';
+    const C = (a: number) => `rgba(${rgb},${a})`;
+    const bg = colour === 'amber' ? '#0b0602' : '#05060a';
+    g.fillStyle = state === 'off' ? '#010101' : bg; g.fillRect(0, 0, W, H);
+    if (state === 'off') return;
+    const live = state !== 'standby';
+    const blink = Math.floor(t * 3) % 2 === 0;
+    const edge = state === 'standby' ? 0.3 : state === 'fail' ? (blink ? 1 : 0.35) : state === 'idle' ? 0.75 + 0.2 * Math.sin(t * 2.2) : 1;
+    g.strokeStyle = C(edge); g.lineWidth = H * 0.018;
+    g.strokeRect(H * 0.03, H * 0.03, W - H * 0.06, H - H * 0.06);
+    // the hand (left, palm down, seen from above: thumb on the right). Units: plate height = 0.32 m.
+    const u = H / 0.42, cx = W * 0.5, wy = H * 0.86;
+    const shape = (grow: number) => {
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      const fingers: [number, number, number, number][] = [[0.031, 0.163, 0.020, 0.06], [0.010, 0.178, 0.021, 0.02], [-0.011, 0.170, 0.020, -0.03], [-0.031, 0.146, 0.018, -0.09]];
+      for (const [fx, len, w, lean] of fingers) {
+        g.lineWidth = w * u + grow;
+        g.beginPath(); g.moveTo(cx + fx * u, wy - 0.07 * u); g.lineTo(cx + (fx + lean * 0.35) * u, wy - len * u); g.stroke();
+      }
+      // thumb
+      g.lineWidth = 0.023 * u + grow;
+      g.beginPath(); g.moveTo(cx + 0.03 * u, wy - 0.035 * u); g.lineTo(cx + 0.079 * u, wy - 0.088 * u); g.stroke();
+      // palm
+      g.lineWidth = 0.03 * u + grow;
+      g.beginPath(); g.moveTo(cx - 0.027 * u, wy - 0.02 * u); g.lineTo(cx + 0.027 * u, wy - 0.02 * u); g.lineTo(cx + 0.027 * u, wy - 0.085 * u); g.lineTo(cx - 0.027 * u, wy - 0.085 * u); g.closePath(); g.stroke(); g.fill();
+    };
+    const handA = state === 'standby' ? 0.3 : state === 'fail' ? (blink ? 0.9 : 0.3) : state === 'idle' ? 0.8 : 1;
+    g.save(); g.shadowColor = C(0.9); g.shadowBlur = live ? H * 0.05 : 0;
+    g.strokeStyle = C(handA); g.fillStyle = C(handA); shape(H * 0.034);
+    g.restore();
+    // an opaque inner pass over the bright outer one leaves an outline; reading / read: the inside fills
+    const fillA = state === 'done' ? 0.5 : state === 'scan' ? 0.16 : 0;
+    g.strokeStyle = bg; g.fillStyle = bg; shape(0);
+    if (fillA > 0) { g.strokeStyle = C(fillA); g.fillStyle = C(fillA); shape(-1); }
+    // scan line across the hand
+    if (state === 'idle' || state === 'scan') {
+      const k = state === 'scan' ? (t * 1.9) % 1 : 0.5 + 0.5 * Math.sin(t * 1.3);
+      const y = H * 0.36 + k * H * 0.5;
+      const lg = g.createLinearGradient(0, y - H * 0.05, 0, y + H * 0.05);
+      lg.addColorStop(0, C(0)); lg.addColorStop(0.5, C(state === 'scan' ? 0.95 : 0.55)); lg.addColorStop(1, C(0));
+      g.globalCompositeOperation = 'lighter';
+      g.fillStyle = lg; g.fillRect(W * 0.12, y - H * 0.05, W * 0.76, H * 0.1);
+      g.globalCompositeOperation = 'source-over';
+    }
+    // the far edge of the plate stays in sight above the fingers: which option this is, and the status line
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = C(live ? 1 : 0.4);
+    g.font = `900 ${Math.round(H * 0.125)}px ${SANS}`;
+    g.fillText(label, cx, H * 0.125);
+    g.font = `800 ${Math.round(H * 0.06)}px ${SANS}`;
+    const line = (txt: string, a = 1) => { g.fillStyle = C(a); g.fillText(txt, cx, H * 0.25); };
+    if (state === 'standby') line('STANDBY', 0.45);
+    else if (state === 'idle') line('PLACE PALM', 0.6 + 0.4 * Math.abs(Math.sin(t * 1.6)));
+    else if (state === 'fail') line('SCAN INCOMPLETE', blink ? 1 : 0.4);
+    else if (state === 'done') {
+      g.fillStyle = C(1); g.fillRect(H * 0.07, H * 0.2, W - H * 0.14, H * 0.1);
+      g.fillStyle = bg; g.font = `900 ${Math.round(H * 0.054)}px ${SANS}`;
+      g.fillText('REYES, S. — LIVING — ROSTERED', cx, H * 0.252);
+    } else if (state === 'scan') {
+      const dur = Math.max(0.2, Number(secs) || 1.6), k = Math.min(1, t / dur);
+      g.strokeStyle = C(1); g.lineWidth = H * 0.008;
+      g.strokeRect(W * 0.12, H * 0.215, W * 0.76, H * 0.07);
+      g.fillStyle = C(1); g.fillRect(W * 0.12, H * 0.215, W * 0.76 * k, H * 0.07);
+    }
   }
 }

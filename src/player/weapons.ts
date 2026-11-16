@@ -154,6 +154,18 @@ export class Weapons {
     }
   }
 
+  /**
+   * REVISION 6.1: both hands off the weapon for a moment (palm scan). While stowed the weapon is held lowered and
+   * takes no input; a reload is cancelled. Un-stowing raises it again.
+   */
+  private stowed = false;
+  setStowed(on: boolean) {
+    if (on === this.stowed) return;
+    this.stowed = on;
+    if (on) { this.cancelReload(); this.fireQueued = 0; }
+    else if (this.phase !== 'lowering') this.phase = this.current ? 'raising' : 'idle';
+  }
+
   /** Holster everything (death). */
   holster() { this.cancelReload(); this.phase = 'lowering'; this.pending = null; }
 
@@ -288,6 +300,15 @@ export class Weapons {
     this.cam.kickPitch.target = gl ? gl.x : 0;
     this.cam.kickYaw.target = gl ? gl.y : 0;
 
+    // stowed (palm scan): held down; a switch that was under way still completes out of sight
+    if (this.stowed) {
+      this.lower = Math.min(1, this.lower + dt / 0.2);
+      if (this.phase === 'lowering' && this.lower >= 1) {
+        if (this.pending) this.equipPending();
+        else { this.current = null; this.vm.setActive(null); this.phase = 'idle'; }
+      }
+      return;
+    }
     // switching animation
     if (this.phase === 'lowering') {
       this.lower = Math.min(1, this.lower + dt / 0.22);
@@ -407,7 +428,7 @@ export class Weapons {
       this.onHit(dmg);
       return eh.distance;
     } else if (wh) {
-      ctx.events.emit('bullet:impact', { point: wh.point, normal: wh.normal, surface: wh.surface });
+      ctx.events.emit('bullet:impact', { point: wh.point, normal: wh.normal, surface: wh.surface, owner: wh.owner });
       return wh.distance;
     }
     return range;

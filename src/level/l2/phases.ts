@@ -107,7 +107,8 @@ export const PHASES2: Phase[] = [
   {
     id: 'I', label: 'foreman dead: the core is open',
     doors: with_({ ...P_D, d2_bulkhead_s: 'locked', d2_booth: 'locked', d2_booth_hall: 'locked', d2_mouth: 'locked', d2_relay: 'auto', d2_spine: 'auto', d2_core: 'auto' }), machines: { l2_line: 'active' },
-    check: { start: [-3, 0, -64], forbid: ['tunnel_roof', 'lift'], goal: ['core'] },
+    // both palm scanners usable (their use radius = the scan's start distance); the PATTERN LIBRARY terminal too
+    check: { start: [-3, 0, -64], forbid: ['tunnel_roof', 'lift'], goal: ['core'], use: ['core_shutdown', 'core_rewrite', 'term2_core'] },
   },
   {
     id: 'I2', label: 'choice made: the lift is open',

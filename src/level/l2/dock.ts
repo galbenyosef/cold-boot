@@ -68,7 +68,7 @@ export function buildDock(L: LevelBuild) {
     b.box('painted_dark', 0, 1.65, 0.04, 1.36, 0.86, 0.08);
     bolts4(b, -0.68, 1.22, 0.68, 2.08, 0.08);
   });
-  L.screen('dock_board', 'terminal_idle', 1.24, 0.74, -3.9, 1.65, -6.6, '+x', { text: 'DOCK 5 — OUTBOUND\nLINE TWO: 31 UNITS DISPATCHED\nINBOUND: NONE EXPECTED' });
+  L.screen('dock_board', 'terminal_idle', 1.24, 0.74, -3.9, 1.65, -6.6, '+x', { text: 'DOCK 5 — OUTBOUND\nLINE TWO: 31 UNITS DISPATCHED\nINBOUND: NONE EXPECTED\nFAB SUBLEVELS — SEALED:\nPRESSURE TEST 72 H — REPORTED BY CHOIR' });
   b.sign('DISPATCH BOARD', 'label', -3.95, 2.2, -6.6, 0.8, 0.12, '+x');
   b.at(-4, 0, -1.2, PI / 2, () => {
     fireExtinguisher(b);
@@ -128,7 +128,7 @@ export function buildDock(L: LevelBuild) {
   L.objects.get('dock_polisher')!.position.set(ux + 1, 0, uz);
 
   // pickups
-  b.at(-3.3, 0, -7.25, 0.1, () => crate(b, 0.7, 0.5, 0.5, 'painted_dark', 'RETURNS', false));
+  b.at(-3.3, 0, -7.25, 0.1, () => crate(b, 0.7, 0.5, 0.5, 'painted_dark', 'RETURNS —\nHALCYON BIO-SYSTEMS DIV.', false));
   b.collide(-3.65, 0, -7.5, -2.95, 0.5, -7.0);
   L.pickup('p2_dock_ammo', 'ammo_pistol', -3.35, 0.5, -7.25, 12, 0.3);
 

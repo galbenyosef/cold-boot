@@ -61,12 +61,14 @@ export interface Flags {
   workersKilled: number;
   /** Every husk the player shot dead (the ending's head count). */
   husksKilled: number;
+  /** REVISION 6.1: husks the story removed from the player's world while alive (a stranded unit's last resort). */
+  husksRemoved: number;
 }
 export const FLAGS0: Flags = {
   arrived: false, hall: false, seen: false, met: false, fitOpen: false, rig: false, pass: false, power: false, relayClear: false,
   trapped: false, taken: false, boothOpen: false, loaded: false, escort: false, escortDead: false, apron: false, unit32Dead: false,
   foremanDead: false, ghostIntro: false, unit14Shot: false, unit14Dead: false, core: false, offered: false, choice: '',
-  workersKilled: 0, husksKilled: 0,
+  workersKilled: 0, husksKilled: 0, husksRemoved: 0,
 };
 export function emptyProgressL2(): ProgressL2 {
   return { beats: [], read: [], visited: [], flags: { ...FLAGS0 }, triggered: [], cleared: [], checkpoints: [], heard: [] };
@@ -294,8 +296,12 @@ export abstract class Base {
     if (this.prog.cleared.includes(g)) return true;
     return this.now - (this.triggeredAt.get(g) ?? -1e9) > minDelay && this.w.alive(g) === 0;
   }
-  /** Delete a group without a trace (it is out of the player's world for good). */
-  protected removeSilently(group: string): void {
+  /**
+   * Delete a group without a trace (it is out of the player's world for good). `gone` (default): its living units
+   * no longer count as units on the line (`unitsLeft`) — false for the groups that merely stay behind the partition.
+   */
+  protected removeSilently(group: string, gone = true): void {
+    if (gone) this.f.husksRemoved = (this.f.husksRemoved ?? 0) + this.members(group).filter((e) => e.type === 'husk').length;
     try { this.ctx.enemies.removeGroup(group); } catch (e) { console.warn(`[story] removeGroup ${group} failed`, e); }
     this.removedGroups.add(group);
     if (!this.prog.triggered.includes(group)) this.prog.triggered.push(group);
@@ -305,6 +311,50 @@ export abstract class Base {
     try { return this.ctx.enemies.all.filter((e) => e.group === group && e.alive); } catch { return []; }
   }
   protected awakeIn(group: string): Enemy[] { return this.members(group).filter((e) => e.state !== 'dormant'); }
+  /**
+   * REVISION 6.1 — the ONE count: units still on this line = 32 − every unit destroyed or removed in this level.
+   * Both option cards, the ending card and CHOIR's `_7` / `_7_killed` variant read it.
+   */
+  protected unitsLeft(): number { return Math.max(0, 32 - (this.f.husksKilled ?? 0) - (this.f.husksRemoved ?? 0)); }
+  /**
+   * Every living member of `group` comes for the player: dormant ones wake, awake-but-idle ones are alerted
+   * (an idle machine only notices by sight, in its front cone — a gate must never wait on one that was looking
+   * the other way). Never for working units or Unit 14 (they wake only when provoked).
+   */
+  protected rouse(group: string): void {
+    let sleeping = false;
+    for (const e of this.members(group)) {
+      if (e.state === 'dormant') sleeping = true;
+      else if (e.state === 'idle') { try { this.ctx.enemies.alertNoise(e.position, 0.4); } catch { /* ignore */ } }
+    }
+    // (wakeGroup skips the awake and the already waking — an emerging 'drop' / 'hoist' keeps its own clock)
+    if (sleeping) this.w.wakeGroup(group, 0.4);
+  }
+  /** The player is near `e` or can see it: a fight with it is going on. */
+  protected engaged(e: Enemy, near = 9): boolean {
+    return this.distTo(e.position) < near || this.los(this.tmp2.copy(e.position).setY(e.position.y + 1.1).clone());
+  }
+  /**
+   * Until every member of `group` is dead (or `stop()`). Meanwhile they are roused every second, so the gate
+   * waiting on this never depends on a machine that is asleep, idle or facing away. Last resort only: if for
+   * `stranded` s no member has been near or in view of the player (stuck where nobody can get at it), the group is
+   * removed silently — never while one is seen, and never while a `keep` member (a boss) is still alive.
+   */
+  protected async fightOut(group: string, stranded = 60, opts: { stop?: () => boolean; keep?: (e: Enemy) => boolean } = {}): Promise<void> {
+    let lost = 0, last = this.now, nextRouse = 0;
+    await this.until(() => {
+      if (this.w.alive(group) === 0 || opts.stop?.()) return true;
+      const dt = Math.min(1, this.now - last); last = this.now;
+      if (this.now >= nextRouse) { this.rouse(group); nextRouse = this.now + 1; }
+      const m = this.members(group);
+      lost = this.ctx.state !== 'playing' || m.some((e) => this.engaged(e)) ? 0 : lost + dt;
+      if (lost > stranded && !(opts.keep && m.some(opts.keep))) {
+        console.warn(`[story] ${group}: ${m.length} unit(s) out of the player's reach for ${stranded} s — removed`);
+        this.removeSilently(group);
+      }
+      return false;
+    });
+  }
 
   // ── where the player is ──
 
@@ -394,7 +444,8 @@ export abstract class Base {
   }
   protected gait(a: EnemyActor | null, gait: string): void { try { a?.setGait?.(gait); } catch { /* ignore */ } }
   protected eyes(a: EnemyActor | null, on: boolean): void { try { a?.setEyes(on); } catch { /* ignore */ } }
-  protected lookAt(a: EnemyActor | null, p: THREE.Vector3 | null): void { try { a?.lookAt(p); } catch { /* ignore */ } }
+  /** A point pins a frozen point, an object pins it live, null = back to `auto` (humans: the player when seen). */
+  protected lookAt(a: EnemyActor | null, p: THREE.Vector3 | THREE.Object3D | null): void { try { a?.lookAt(p); } catch { /* ignore */ } }
   /** Walk an actor through points (straight segments); gives up after a generous timeout. */
   protected async walk(a: EnemyActor | null, points: THREE.Vector3[], speed = 1.0): Promise<void> {
     if (!a) return;
@@ -492,6 +543,8 @@ export abstract class Base {
     calm: (g) => { const m = self.members(g); return m.length > 0 && m.every((e) => e.state === 'dormant'); },
     get awakeWorkers() { let n = 0; for (const g of WORKER_GROUPS) n += self.awakeIn(g).length; return n; },
     get workersKilled() { return self.f.workersKilled; },
+    get unitsGone() { return 32 - self.unitsLeft(); },
+    get foremanDead() { return self.f.foremanDead; },
     workerKilledWithin: (s) => self.now - self.workerKilledAt <= s,
     provokedWithin: (s) => self.now - self.provokedAt <= s,
     killedByPlayer: (g) => !self.removedGroups.has(g) && self.members(g).length === 0 && (self.diedIn.get(g) ?? 0) > 0,

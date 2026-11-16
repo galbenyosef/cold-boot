@@ -1152,6 +1152,27 @@ Small, from the text audit (no story change):
 
 ---
 
+## REVISION 6.2 — as built (ids for other modules)
+
+- **Interactables** `core_shutdown` / `core_rewrite`: kind `palm`, use point above the plate, radius 1.05. Cells and
+  pedestal: none. `term2_core` moved to the north wall west of the door.
+- **Vignettes** (story-fired): `core_cards_on`, `core_live`, `core_focus_stop|command`, `core_scan_stop|command`,
+  `core_scan_cancel`, `core_scan_done`, `core_cell_out` (one cell per call), `core_cells_out`.
+- **Screen kinds**: `choice_stop`, `choice_command` (wide + compact layouts; `n` as text), `palm`
+  (off / standby / idle / scan / done / fail).
+- **Player**: `palm(plate, seconds)` → `'done' | 'cancelled' | 'refused'`, `cancelPalm()`, `palmProgress`,
+  `debug.palm()`. The hand is a true-scale left hand in the world, posed onto the plate by IK.
+- **Deviations accepted:** card layout puts the pictogram at the north end and the words centre-to-south (both
+  headlines read from the door); the wall displays stand 0.1 m proud of the walls; the lift panel is larger;
+  no look-away cancel (view eased, look damped instead); units north of the partition still count as on the line;
+  after STOP the screens end dark; `term2_core` is ~55 words.
+- **Other fixes in the same pass:** robot wrecks are walked over (`DynamicBox.walkable`, `check:wreck`); bullet
+  decals ride door leaves and other movers (`HitOwner`, `check:decals`); the level's old stick-figure outline on the
+  reference rig is retired (only the `holo_tech` actor); humans track the player (attention `auto | pinned | rest`);
+  Unit 32 and every other "wait until dead" gate rouse their group (`rouse`, `fightOut`).
+
+---
+
 # REVISION 7 — CHAPTER 3 "THE QUIET SIDE" (PLAN — story, stages, systems; each stage gets its own detailed plan + review before it is built)
 
 One long chapter, played as four stages loaded one after another (separate worlds, like levels 1→2; technical

@@ -1,6 +1,11 @@
 /**
  * Persistent surface decals. One InstancedMesh per (decal name, variant) material, each a ring buffer.
  * All batches + materials are created at load so placing a decal never compiles or allocates.
+ *
+ * REVISION 5.2: a decal may be anchored to a moving Object3D (door leaf, mover). Its matrix is then kept in
+ * the anchor's local space and re-derived only on frames where the anchor's world matrix or visibility
+ * changed; it is hidden (zero matrix) while the anchor or a parent is hidden and released for good once the
+ * anchor has left the scene. Static decals are untouched (same batches, same ring budget).
  */
 import * as THREE from 'three';
 import type { DecalName, MaterialLibrary } from '../core/types';
@@ -23,6 +28,21 @@ interface Batch {
   next: number;
   used: number;
   cap: number;
+  /** Anchor per slot (null = static world decal). */
+  anchor: (Anchor | null)[];
+  /** Decal matrix in its anchor's local space, 16 floats per slot (anchored slots only). */
+  local: Float32Array;
+  /** Placement serial per slot (checks / debug: which decal is new). */
+  serial: Uint32Array;
+  dirty: boolean;
+}
+
+interface Anchor {
+  obj: THREE.Object3D;
+  slots: { b: Batch; i: number }[];
+  /** Anchor world matrix the slots were last written with. */
+  last: Float32Array;
+  shown: boolean;
 }
 
 const m4 = new THREE.Matrix4();
@@ -35,11 +55,25 @@ const qRoll = new THREE.Quaternion();
 const xAx = new THREE.Vector3();
 const yAx = new THREE.Vector3();
 const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+const inv = new THREE.Matrix4();
+const lm = new THREE.Matrix4();
+
+/** Attached to a scene and visible all the way up (null = detached / gone). */
+function chainState(o: THREE.Object3D): 'shown' | 'hidden' | null {
+  let vis = true;
+  let p: THREE.Object3D | null = o;
+  let top: THREE.Object3D = o;
+  while (p) { if (!p.visible) vis = false; top = p; p = p.parent; }
+  if (!(top as THREE.Scene).isScene) return null;
+  return vis ? 'shown' : 'hidden';
+}
 
 export class Decals {
   readonly root = new THREE.Group();
   private batches = new Map<DecalName, Batch[]>();
   private geo = new THREE.PlaneGeometry(1, 1);
+  private anchors = new Map<THREE.Object3D, Anchor>();
+  private serial = 0;
 
   constructor(materials: MaterialLibrary) {
     this.root.name = 'fx_decals';
@@ -76,7 +110,7 @@ export class Decals {
       mesh.name = name;
       mesh.visible = false;
       this.root.add(mesh);
-      return { mesh, singles: null, next: 0, used: 0, cap };
+      return { mesh, singles: null, next: 0, used: 0, cap, anchor: new Array(cap).fill(null), local: new Float32Array(cap * 16), serial: new Uint32Array(cap), dirty: false };
     }
     const singles: THREE.Mesh[] = [];
     const n = Math.min(cap, 24);
@@ -86,7 +120,7 @@ export class Decals {
       this.root.add(m);
       singles.push(m);
     }
-    return { mesh: null, singles, next: 0, used: 0, cap: n };
+    return { mesh: null, singles, next: 0, used: 0, cap: n, anchor: new Array(n).fill(null), local: new Float32Array(n * 16), serial: new Uint32Array(n), dirty: false };
   }
 
   /** Make all batches visible once (shader warm-up), call `settle()` afterwards. */
@@ -96,7 +130,8 @@ export class Decals {
     }
   }
 
-  place(name: DecalName, point: THREE.Vector3, normal: THREE.Vector3, size: number, roll = Math.random() * Math.PI * 2, offset = 0.006) {
+  /** `anchor`: the moving thing the surface belongs to (see class doc); omit for static world. */
+  place(name: DecalName, point: THREE.Vector3, normal: THREE.Vector3, size: number, roll = Math.random() * Math.PI * 2, offset = 0.006, anchor: THREE.Object3D | null = null) {
     const list = this.batches.get(name);
     if (!list || list.length === 0) return;
     const b = list[(Math.random() * list.length) | 0];
@@ -122,6 +157,19 @@ export class Decals {
     const i = b.next;
     b.next = (b.next + 1) % b.cap;
     b.used = Math.min(b.cap, b.used + 1);
+    this.unanchor(b, i);
+    b.serial[i] = ++this.serial;
+    if (anchor) {
+      anchor.updateWorldMatrix(true, false);
+      lm.copy(inv.copy(anchor.matrixWorld).invert()).multiply(m4);
+      lm.toArray(b.local, i * 16);
+      let a = this.anchors.get(anchor);
+      if (!a) { a = { obj: anchor, slots: [], last: new Float32Array(anchor.matrixWorld.elements), shown: true }; this.anchors.set(anchor, a); }
+      a.slots.push({ b, i });
+      b.anchor[i] = a;
+      // placed on something hidden (should not happen: it was just hit) — let update() decide
+      if (!a.shown) m4.copy(zero);
+    }
     if (b.mesh) {
       b.mesh.setMatrixAt(i, m4);
       b.mesh.count = b.used;
@@ -136,8 +184,80 @@ export class Decals {
     }
   }
 
-  clear() {
+  private unanchor(b: Batch, i: number) {
+    const a = b.anchor[i];
+    if (!a) return;
+    b.anchor[i] = null;
+    const k = a.slots.findIndex((s) => s.b === b && s.i === i);
+    if (k >= 0) a.slots.splice(k, 1);
+    if (a.slots.length === 0) this.anchors.delete(a.obj);
+  }
+
+  private write(b: Batch, i: number, m: THREE.Matrix4) {
+    if (b.mesh) { b.mesh.setMatrixAt(i, m); b.dirty = true; }
+    else if (b.singles) { const s = b.singles[i]; s.matrix.copy(m); s.matrixWorldNeedsUpdate = true; s.visible = m !== zero; }
+  }
+
+  /** Anchored decals follow their anchors (only those whose anchor moved / changed visibility). */
+  update() {
+    if (this.anchors.size === 0) return;
+    let touched = false;
+    for (const a of this.anchors.values()) {
+      const st = chainState(a.obj);
+      if (st === null) {
+        // the thing is gone: its decals go with it (slots stay in the ring, zeroed, until recycled)
+        for (const s of a.slots) { s.b.anchor[s.i] = null; this.write(s.b, s.i, zero); }
+        a.slots.length = 0;
+        this.anchors.delete(a.obj);
+        touched = true;
+        continue;
+      }
+      a.obj.updateWorldMatrix(true, false);
+      const e = a.obj.matrixWorld.elements, L = a.last;
+      const shown = st === 'shown';
+      let moved = false;
+      for (let k = 0; k < 16; k++) if (L[k] !== e[k]) { moved = true; break; }
+      if (!moved && shown === a.shown) continue;
+      a.shown = shown;
+      for (let k = 0; k < 16; k++) L[k] = e[k];
+      for (const s of a.slots) {
+        if (shown) { lm.fromArray(s.b.local, s.i * 16); m4.multiplyMatrices(a.obj.matrixWorld, lm); this.write(s.b, s.i, m4); }
+        else this.write(s.b, s.i, zero);
+      }
+      touched = true;
+    }
+    if (!touched) return;
     for (const list of this.batches.values()) for (const b of list) {
+      if (!b.dirty || !b.mesh) continue;
+      b.dirty = false;
+      b.mesh.instanceMatrix.clearUpdateRanges();
+      b.mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** Debug / checks: world matrices + anchors of the live decals. */
+  debugList(): { name: string; slot: number; serial: number; anchor: THREE.Object3D | null; matrix: THREE.Matrix4; visible: boolean }[] {
+    const out: { name: string; slot: number; serial: number; anchor: THREE.Object3D | null; matrix: THREE.Matrix4; visible: boolean }[] = [];
+    const seen = new Set<Batch>();
+    for (const [name, list] of this.batches) for (const b of list) {
+      if (seen.has(b)) continue;
+      seen.add(b);
+      const bn = `${name}/${seen.size - 1}`;
+      for (let i = 0; i < b.used; i++) {
+        const m = new THREE.Matrix4();
+        if (b.mesh) b.mesh.getMatrixAt(i, m); else if (b.singles) m.copy(b.singles[i].matrix);
+        const sx = new THREE.Vector3().setFromMatrixColumn(m, 0).length();
+        const vis = sx > 1e-6 && (b.mesh ? b.mesh.visible : !!b.singles?.[i].visible);
+        out.push({ name: bn, slot: i, serial: b.serial[i], anchor: b.anchor[i]?.obj ?? null, matrix: m, visible: vis });
+      }
+    }
+    return out;
+  }
+
+  clear() {
+    this.anchors.clear();
+    for (const list of this.batches.values()) for (const b of list) {
+      b.anchor.fill(null);
       b.used = 0; b.next = 0;
       if (b.mesh) { b.mesh.count = 0; b.mesh.visible = false; }
       if (b.singles) for (const m of b.singles) m.visible = false;

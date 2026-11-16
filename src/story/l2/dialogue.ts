@@ -302,6 +302,10 @@ export interface Facts {
   readonly awakeWorkers: number;
   /** Working units (dock, intake, treadmills) and Unit 14 shot dead by the player. */
   readonly workersKilled: number;
+  /** REVISION 6.1: 32 − the units left on the line (every unit destroyed or removed in this level). */
+  readonly unitsGone: number;
+  /** The supervisor is dead (phase I: the core door answers). */
+  readonly foremanDead: boolean;
   workerKilledWithin(seconds: number): boolean;
   /** A working unit was made hostile or shot within the last `seconds`. */
   provokedWithin(seconds: number): boolean;
@@ -388,7 +392,13 @@ const C = (when: (F: Facts) => boolean, why: string, otherwise?: string): Rule =
 const preSwitch = (F: Facts) => !F.power;
 const inRelay = (F: Facts) => F.room === 'relay' && !F.power;
 const treadCalm = (F: Facts) => F.room === 'fitting' && F.calm('g2_fit_tread');
-const inCore = (F: Facts) => F.core && !F.choice;
+/** REVISION 6.1 — in the core room, before the choice: the entry lines (leaving and coming back resumes them). */
+const inCore = (F: Facts) => F.room === 'core' && !F.choice;
+/**
+ * REVISION 6.1 — the backstory (`_2`…`_8`): flavour, never a gate. Said over the hall PA from the supervisor's
+ * death on, wherever the player is — and what was not heard then, in the idle slots inside. Never over a fight.
+ */
+const backstory = (F: Facts) => F.foremanDead && !F.choice && F.hostiles === 0;
 
 export const RULES: Record<string, Rule> = {
   // ── arrival, the tidy place ──
@@ -513,33 +523,29 @@ export const RULES: Record<string, Rule> = {
   l2_unit14_die: U('Unit 14 dying'),
   l2_choir_unit14_shot: C((F) => F.unit14ShotWithin(12), 'Unit 14 was shot in the last 12 s'),
 
-  // ── the core ──
-  l2_choir_core_1: C((F) => F.room === 'core' && !F.choice, '"Come in": the player is inside'),
-  l2_choir_core_2: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_3: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_4: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_5: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_6: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_7: C((F) => inCore(F) && F.workersKilled === 0, 'count: the player shot no working unit', 'l2_choir_core_7_killed'),
-  l2_choir_core_7_killed: C((F) => inCore(F) && F.workersKilled > 0, 'count: the player shot working units'),
-  l2_choir_core_8: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_9: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_10: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_11: C((F) => inCore(F) && F.workersKilled === 0, 'count: the player shot no working unit', 'l2_choir_core_11_killed'),
-  l2_choir_core_11_killed: C((F) => inCore(F) && F.workersKilled > 0, 'count: the player shot working units'),
-  l2_choir_core_12: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_13: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_14: C(inCore, 'in conversation, no choice made'),
-  l2_choir_core_idle_1: C((F) => F.offered && !F.choice, 'both choices offered, none made'),
-  l2_choir_core_idle_2: C((F) => F.offered && !F.choice && F.met, 'both choices offered, none made; the player knew Tomas'),
-  l2_choir_shutdown_1: U('pulling the cells'),
-  l2_choir_shutdown_2: U('pulling the cells — the line stops on this line; states no count'),
-  l2_choir_shutdown_3: U('pulling the cells'),
-  l2_choir_rewrite_1: U('countersigning the order'),
-  l2_choir_rewrite_2: U('countersigning the order — the line stops on this line; states no count'),
-  l2_choir_rewrite_3: U('countersigning the order'),
+  // ── the core (REVISION 6 / 6.1) ──
+  l2_choir_core_2: C(backstory, 'backstory: supervisor dead, no choice made, nothing hostile awake'),
+  l2_choir_core_3: C(backstory, 'backstory: supervisor dead, no choice made, nothing hostile awake'),
+  l2_choir_core_4: C(backstory, 'backstory: supervisor dead, no choice made, nothing hostile awake'),
+  l2_choir_core_6: C(backstory, 'backstory: supervisor dead, no choice made, nothing hostile awake'),
+  l2_choir_core_7: C((F) => backstory(F) && F.unitsGone < 4, 'count: fewer than four units are gone (unitsLeft)', 'l2_choir_core_7_killed'),
+  l2_choir_core_7_killed: C((F) => backstory(F) && F.unitsGone >= 4, 'count: four or more units are gone (unitsLeft)'),
+  l2_choir_core_8: C(backstory, 'backstory: supervisor dead, no choice made, nothing hostile awake'),
+  l2_choir_core_1: C(inCore, '"Come in": the player is inside, no choice made'),
+  l2_choir_offer: C(inCore, 'describes the two plates: the player is in the room, no choice made'),
+  l2_choir_offer_stop: C(inCore, 'describes the amber plate: in the room, no choice made (queued once: script)'),
+  l2_choir_offer_command: C(inCore, 'describes the white plate: in the room, no choice made (queued once: script)'),
+  l2_choir_core_14: C(inCore, 'in the room, no choice made'),
+  l2_choir_core_idle_1: C((F) => F.offered && !F.choice, 'both scanners live, no choice made'),
+  l2_choir_core_idle_2: C((F) => F.offered && !F.choice && F.met, 'both scanners live, no choice made; the player knew Tomas'),
+  l2_choir_shutdown_1: U('the STOP scan completed'),
+  l2_choir_shutdown_2: U('the STOP scan completed — the line stops on this line; states no count'),
+  l2_choir_shutdown_3: U('the STOP scan completed'),
+  l2_choir_rewrite_1: U('the COMMAND scan completed'),
+  l2_choir_rewrite_2: U('the COMMAND scan completed — the line stops on this line; states no count'),
+  l2_choir_rewrite_3: U('the COMMAND scan completed'),
   l2_unit14_wait: C((F) => F.unit14Alive, "Okafor's voice only while Unit 14 stands", 'l2_unit_wait'),
-  l2_unit_wait: U('countersigning the order — another unit answers'),
+  l2_unit_wait: U('the COMMAND scan completed — another unit answers'),
   l2_unit_lift: U('the lift button'),
 
   // ── barks (Tomas reacting; all need the handset) ──

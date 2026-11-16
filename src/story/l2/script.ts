@@ -14,14 +14,14 @@
  * line it queues is dropped by its own rule if the world has moved on.
  */
 import * as THREE from 'three';
-import type { Enemy, EnemyType, GameContext } from '../../core/types';
+import type { Enemy, EnemyType, GameContext, PalmPlate } from '../../core/types';
 import type { Sequencer } from '../sequencer';
 import type { MusicDirector } from '../director';
 import type { World } from '../world';
 import type { Fragment } from '../text';
 import { CHECKPOINT_IDS_L2, type CheckpointIdL2, type ProgressL2 } from '../save';
 import { hasSay, speak } from '../voice';
-import { DEAD_DOORS, GLASS, TOMAS_AT_GLASS, TOMAS_DESK, V, WORKER_GROUPS, emptyProgressL2, face, type HooksL2 } from './base';
+import { DEAD_DOORS, DEG, GLASS, TOMAS_AT_GLASS, TOMAS_DESK, V, WORKER_GROUPS, emptyProgressL2, face, type HooksL2 } from './base';
 import { Taking } from './taking';
 import { applyPhase } from './phases';
 import { FRAGMENTS_L2, OBJ2, SCREEN2, TOAST2 } from './text';
@@ -31,7 +31,30 @@ export type { HooksL2 };
 
 /** One-shot level vignettes that leave the place visibly changed (re-applied silently on load). */
 const LASTING = ['intake_gauge', 'intake_shoe', 'booth_write_1', 'booth_write_2'];
-export const VIGNETTES_L2 = ['dock_polisher', 'intake_shoe', 'intake_gauge', 'hall_hooks_sway', 'hall_screen_count', 'booth_write_1', 'booth_write_2', 'booth_wipe', 'booth_light_fail', 'fitting_sync', 'fitting_rig_wake', 'relay_arc', 'line_start', 'load_scan', 'tunnel_press', 'foreman_arrive', 'core_bow', 'core_cells_out'] as const;
+export const VIGNETTES_L2 = ['dock_polisher', 'intake_shoe', 'intake_gauge', 'hall_hooks_sway', 'hall_screen_count', 'booth_write_1', 'booth_write_2', 'booth_wipe', 'booth_light_fail', 'fitting_sync', 'fitting_rig_wake', 'relay_arc', 'line_start', 'load_scan', 'tunnel_press', 'foreman_arrive', 'core_bow', 'core_cells_out',
+  'core_cards_on', 'core_live', 'core_focus_stop', 'core_focus_command', 'core_scan_stop', 'core_scan_command', 'core_scan_cancel', 'core_scan_done', 'core_cell_out'] as const;
+
+// ── the core (REVISION 6 / 6.1) ──
+type Option = 'stop' | 'command';
+/** The palm scan: seconds on the plate (the level's plate shows a bar of the same length). */
+const SCAN_SECONDS = 1.6;
+/** Focus: enter within 16°, stay within 22°, hold 0.25 s; then latched until the other option is focused. */
+const FOCUS_IN = 16 * DEG, FOCUS_OUT = 22 * DEG, FOCUS_HOLD = 0.25;
+/** Scanners live when line 2 starts, and in any case this long after entering. */
+const LIVE_AFTER = 8;
+/** On entering: the offer. Resumed from the first line not heard (walking out and back in, a load). */
+const ENTRY = ['l2_choir_core_1', 'l2_choir_offer', 'l2_choir_offer_stop', 'l2_choir_offer_command', 'l2_choir_core_14'];
+const OFFER_ID: Record<Option, string> = { stop: 'l2_choir_offer_stop', command: 'l2_choir_offer_command' };
+/**
+ * The backstory: flavour, never a gate. Said over the PA from the supervisor's death until the player enters;
+ * whatever was not heard is said in the idle slots inside. (`_7` may be spoken as its `_killed` variant.)
+ */
+const BACKSTORY = ['l2_choir_core_2', 'l2_choir_core_3', 'l2_choir_core_4', 'l2_choir_core_6', 'l2_choir_core_7', 'l2_choir_core_8'];
+/** Fallbacks for a level build without the markers (DESIGN.md → REVISION 6). */
+const FOCUS_POINTS: Record<Option, { plate: string; card: string; at: THREE.Vector3[] }> = {
+  stop: { plate: 'core_plate_stop', card: 'core_card_stop', at: [V(-5.13, 1.03, -80), V(-7.9, 3.3, -80)] },
+  command: { plate: 'core_plate_command', card: 'core_card_command', at: [V(5.13, 1.03, -80), V(7.9, 3.3, -80)] },
+};
 
 /**
  * What Tomas still has to tell, delivered over the handset whenever the channel is free and nothing is
@@ -70,6 +93,23 @@ export class ScriptL2 extends Taking {
   private backlogHoldUntil = 0;
   private fittingDeniedAt = -1e9;
   private barkHoldUntil = 0;
+
+  // ── the core (REVISION 6.1) ──
+  /** The latched option (what the eye and the pedestal mirror); '' until the first focus. Not persisted. */
+  private coreFocus: Option | '' = '';
+  private focusCand: Option | '' = '';
+  private focusCandT = 0;
+  private focusChanges = 0;
+  /** The count the cards were last drawn with. */
+  private cardN = -1;
+  /** Line 2 has started: focusing an option may bring its line forward. */
+  private offerStarted = false;
+  private offerPending: Record<Option, boolean> = { stop: false, command: false };
+  /** A palm scan is running on this plate. */
+  private scanning: '' | 'shutdown' | 'rewrite' = '';
+  private scans = { started: 0, abandoned: 0, refused: 0, done: 0 };
+  private approachHoldUntil = 0;
+  private cellsOut = 0;
 
   constructor(ctx: GameContext, seq: Sequencer, director: MusicDirector, w: World, logs: Set<string>, hooks: HooksL2) {
     super(ctx, seq, director, w, logs, hooks);
@@ -159,16 +199,19 @@ export class ScriptL2 extends Taking {
     },
     '#unit14_shot': () => { this.f.unit14Shot = true; },
     '#unit14_dead': () => { this.f.unit14Shot = true; this.f.unit14Dead = true; },
+    // Inside: the option cards are on the side walls from here on (so a load draws them too).
     l2_core: () => {
       this.f.core = true;
-      for (let i = 1; i <= 4; i++) this.w.screen(`core_wall_${i}`, 'choir');
-      this.w.screen('core_pedestal', 'choir');
+      this.showCards();
+      this.w.vignette('core_cards_on');
       if (this.ff) this.w.vignette('core_bow');
     },
+    // "Live": both scanners armed (line 2 started, or 8 s after entering — whichever came first).
     '#core_offered': () => {
       this.f.offered = true;
       this.w.setInteractable('core_shutdown', true);
       this.w.setInteractable('core_rewrite', true);
+      this.w.vignette('core_live');
     },
   };
 
@@ -252,6 +295,7 @@ export class ScriptL2 extends Taking {
   tick(dt: number): void {
     this.talk.update();
     if (!this.started) return;
+    this.coreTick(dt);
     if (this.w.active() > 0) this.lastCombat = this.now;
     this.tickTimer -= dt;
     if (this.tickTimer > 0) return;
@@ -317,6 +361,8 @@ export class ScriptL2 extends Taking {
   private calm(): boolean {
     const ctx = this.ctx, p = ctx.player;
     if (ctx.state !== 'playing' || !this.live || this.ended || this.noteOpen) return false;
+    // No checkpoint is written during a palm scan.
+    if (this.scanning || (p.palmProgress ?? -1) >= 0) return false;
     if (!p.alive || p.health <= 0 || !p.controlsEnabled) return false;
     if (Math.abs(p.velocity.y) > 0.4) return false;
     if (this.w.active() > 0 || this.now - this.lastCombat < 3) return false;
@@ -396,6 +442,7 @@ export class ScriptL2 extends Taking {
     S('apron', () => this.apron());
     S('foreman', () => this.foreman());
     S('unit14_door', () => this.unit14AtDoor());
+    S('approach', () => this.approach());
     S('core', () => this.core());
     S('lift', () => this.lift());
     S('ghost', () => this.ghostLoop());
@@ -447,6 +494,7 @@ export class ScriptL2 extends Taking {
     this.lastMoveAt = this.now;
     this.backlogHoldUntil = this.now + 6;
     this.barkHoldUntil = this.now + 8;
+    this.approachHoldUntil = this.now + 6;
     this.ghostRest(20 + Math.random() * 20);
     this.ctx.ui.setHudVisible(true);
   }
@@ -547,7 +595,6 @@ export class ScriptL2 extends Taking {
     this.writing = true;
     if (this.beat('l2_tomas_seen')) {
       this.pose(this.tomas, 'wave');
-      this.lookAt(this.tomas, this.ctx.player.eye);
     }
     await this.until(() => this.f.met || this.atGlass() || this.distTo(GLASS) < 7);
     if (!this.f.met && this.once('booth_write_1')) {
@@ -599,7 +646,6 @@ export class ScriptL2 extends Taking {
     this.tomasSpot = 'glass';
     this.pose(this.tomas, 'write');
     w.vignette('booth_wipe');
-    this.lookAt(this.tomas, this.ctx.player.eye);
     await this.hold(0.5);
     this.pose(this.tomas, 'talk');
     await this.tomasSays(['l2_tomas_hello_1', 'l2_tomas_hello_2', 'l2_tomas_hello_3']);
@@ -710,7 +756,7 @@ export class ScriptL2 extends Taking {
       }
     }
     if (this.has('#fit_over')) return;
-    await this.until(() => this.f.power || !this.prog.triggered.includes('g2_fit_wake') || this.fought('g2_fit_wake', 3));
+    if (this.prog.triggered.includes('g2_fit_wake')) await this.fightOut('g2_fit_wake', 60, { stop: () => this.f.power });
     this.once('fit_over'); // → cp2_pass
     this.director.setMood('ambient');
     if (!this.has('l2_fit_fight') || this.f.power) return;
@@ -744,7 +790,8 @@ export class ScriptL2 extends Taking {
     this.talk.flush(true);
     await this.hold(0.6);
     void this.say('l2_tomas_hall_fight', { ttl: 4 });
-    await this.until(() => this.f.power || this.fought('g2_hall_mid', 4));
+    // (roused until dead: skitters that came up facing away still come for the player)
+    await this.fightOut('g2_hall_mid', 60, { stop: () => this.f.power });
     if (this.f.power) return;
     this.director.setMood('ambient');
     await this.wait(2);
@@ -779,7 +826,12 @@ export class ScriptL2 extends Taking {
 
   // ───────────────────────────────────────────────────────────── act 4 — he is still in there
 
-  /** Off the belt on the far side (phase H). Then the next unit comes off the line behind the player. */
+  /**
+   * Off the belt on the far side (phase H). Then the next unit comes off the line behind the player — and comes
+   * FOR them, whatever they do: it is spawned seconds after they leave the tunnel (walked, sprinted or carried)
+   * and is roused at once and every second after (an idle husk only notices what is in front of it, and it
+   * stands facing up the line). The supervisor, and so the core door, waits on it: it must never be asleep.
+   */
   private async apron(): Promise<void> {
     if (this.f.unit32Dead) return;
     await this.until(() => this.f.loaded && this.onApron() && !this.inTunnel());
@@ -790,15 +842,23 @@ export class ScriptL2 extends Taking {
       this.director.setMood('silence');
       for (const l of this.loops.splice(0)) { try { l.stop(3); } catch { /* ignore */ } }
       this.talk.flush();
-      await this.wait(2.0);
-      if (this.once('choir_apron')) await this.choir(['l2_choir_apron'], { ttl: 3 });
+      // One breath and CHOIR's remark — on the scene's clock, not the line's: a player who keeps walking is not
+      // left in an empty hall while it talks.
+      await this.hold(0.8);
+      if (this.once('choir_apron')) await Promise.race([this.choir(['l2_choir_apron'], { ttl: 3 }), this.hold(3.2)]);
+      await this.hold(0.6);
     }
-    await this.hold(2.5);
-    if (this.beat('l2_unit32')) {
-      const at = () => { const e = this.unit32(); return e ? this.tmp2.copy(e.position).setY(e.position.y + 1.55).clone() : null; };
+    const fresh = this.beat('l2_unit32');
+    if (fresh || (!this.unit32() && !this.removedGroups.has('g2_unit32') && w.spawns('g2_unit32').length && !this.prog.triggered.includes('g2_unit32'))) {
       // Spawn-mode, inside the tunnel behind the exit shutter: it was never anywhere before this.
       if (w.spawns('g2_unit32').length) this.engage('g2_unit32', 'spawn');
       else { try { this.ctx.enemies.spawn('husk', V(5, 0.55, -60.5), Math.PI, 'g2_unit32'); this.prog.triggered.push('g2_unit32'); this.triggeredAt.set('g2_unit32', this.now); } catch { /* ignore */ } }
+    }
+    // It hunts from the first frame until it is dead (last resort: stranded out of reach for 60 s → removed).
+    this.rouse('g2_unit32');
+    this.S('unit32_hunt', () => this.fightOut('g2_unit32', 60));
+    if (fresh) {
+      const at = () => { const e = this.unit32(); return e ? this.tmp2.copy(e.position).setY(e.position.y + 1.55).clone() : null; };
       await this.hold(0.8);
       // His joke, in his voice, with nothing behind it — if the player ever heard the joke. Then it does its job.
       await this.say('l2_unit32_1', { name: 'UNIT 32', at });
@@ -814,7 +874,7 @@ export class ScriptL2 extends Taking {
         return false;
       });
     }
-    await this.until(() => this.fought('g2_unit32', 2) || (!this.unit32() && this.now - (this.triggeredAt.get('g2_unit32') ?? this.now) > 2));
+    await this.until(() => !this.unit32() && (this.fought('g2_unit32', 2) || this.removedGroups.has('g2_unit32') || this.now - (this.triggeredAt.get('g2_unit32') ?? -1e9) > 2));
     if (!this.once('unit32_dead')) return;
     this.director.setMood('silence');
     this.talk.flush();
@@ -868,7 +928,13 @@ export class ScriptL2 extends Taking {
       await this.hold(1.5);
       if (this.w.spawns('g2_foreman').length) this.engage('g2_foreman', 'both', 1.2);
     }
-    await this.until(() => !this.prog.triggered.includes('g2_foreman') || this.fought('g2_foreman', 6));
+    // Everything it brought hunts the player until it is dead (the husks on the hooks wake when they land; a
+    // machine that lands idle or facing away is roused). Last resort for its husks only: stranded out of reach for
+    // 45 s once the supervisor itself is dead → removed. The supervisor is never removed: it always hunts.
+    if (this.prog.triggered.includes('g2_foreman')) {
+      await this.hold(Math.max(0, 6 - (this.now - (this.triggeredAt.get('g2_foreman') ?? -1e9))));
+      await this.fightOut('g2_foreman', 45, { keep: (e) => e.type === 'foreman' });
+    }
     await this.hold(1.5);
     this.once('foreman_dead'); // phase I: the core door answers
     this.director.setMood('silence');
@@ -881,7 +947,8 @@ export class ScriptL2 extends Taking {
     const at = () => { const e = this.unit14(); return e ? e.position.clone().setY(e.position.y + 1.55) : null; };
     await this.until(() => this.f.core || this.f.unit14Shot || (() => { const p = at(); return !!p && this.distTo(p) < 4.2; })());
     if (this.f.core || this.f.unit14Shot || !this.once('unit14_after_you')) return;
-    await this.say('l2_unit14_door', { name: 'UNIT 14', at, ttl: 4 });
+    // (ahead of whatever CHOIR has queued of its monologue: the unit speaks as the player walks up to it)
+    await this.say('l2_unit14_door', { name: 'UNIT 14', at, ttl: 4, next: true });
   }
 
   private onEnemyDamaged(id: number): void {
@@ -901,40 +968,221 @@ export class ScriptL2 extends Taking {
     });
   }
 
-  // ───────────────────────────────────────────────────────────── act 5 — pattern 00, and the choice
+  // ───────────────────────────────────────────────────────────── act 5 — the core: two palm scanners (REVISION 6 / 6.1)
+
+  private heardEither(id: string): boolean {
+    return this.talk.heard.has(id) || (id === 'l2_choir_core_7' && this.talk.heard.has('l2_choir_core_7_killed'));
+  }
+  private nextBackstory(): string | null { return BACKSTORY.find((id) => !this.heardEither(id)) ?? null; }
+  /** One CHOIR line on the scene channel; true = spoken to the end. */
+  private choirLine(id: string, opts: { when?: () => boolean; onStart?: () => void; glitch?: number; next?: boolean } = {}): Promise<boolean> {
+    return this.talk.say(id, {
+      pri: 'scene', name: 'CHOIR', gap: 0.5, when: opts.when, next: opts.next,
+      onStart: () => { if (opts.glitch) this.w.glitch(opts.glitch, 0.25); opts.onStart?.(); },
+    });
+  }
+
+  /**
+   * The approach monologue: the backstory over the hall PA from the moment the supervisor is dead, wherever the
+   * player is. It gates nothing. It pauses while anything hostile is awake, a note is open or somebody else is
+   * speaking, and it ends the moment the player is inside the room (line 1 cuts it; the rest waits for the idle slots).
+   */
+  private async approach(): Promise<void> {
+    await this.until(() => this.f.foremanDead);
+    const over = () => this.f.core || !!this.f.choice || this.ended;
+    if (over()) return;
+    await this.hold(2.5);
+    for (;;) {
+      if (over()) return;
+      const id = this.nextBackstory();
+      if (!id) return;
+      await this.until(() => over() || (this.live && this.ctx.state === 'playing' && this.w.active() === 0 && !this.noteOpen && !this.talk.busy && this.now >= this.approachHoldUntil));
+      if (over()) return;
+      // (checked on the frame the line would start: not on the frame the player steps in, before `l2_core` is recorded)
+      const ok = await this.choirLine(id, { glitch: 0.12, when: () => !this.f.core && !this.at('t2_core') && !this.inRoom('core') });
+      if (ok) await this.wait(0.7); else await this.hold(1.0);
+    }
+  }
+
+  /** Both scanners armed. Idempotent; replayed on load (`#core_offered`). */
+  private goLive(): void {
+    if (this.f.choice) return;
+    if (this.once('core_offered')) this.stamp('core_live');
+  }
+
+  /** Bring an option's line forward / say it in its turn. Guarded here, at queue time: never queued twice. */
+  private queueOffer(o: Option, next: boolean): Promise<boolean> | null {
+    const id = OFFER_ID[o];
+    if (this.offerPending[o] || this.talk.heard.has(id) || this.f.choice || this.ended || !this.inRoom('core')) return null;
+    this.offerPending[o] = true;
+    const p = this.choirLine(id, { next, when: () => !this.talk.heard.has(id) });
+    void p.then(() => { this.offerPending[o] = false; });
+    return p;
+  }
 
   private async core(): Promise<void> {
     if (this.f.choice) return;
     await this.until(() => this.f.foremanDead && (this.at('t2_core') || this.inRoom('core')));
     const w = this.w;
     const fresh = this.beat('l2_core');
+    this.stamp('core_enter');
     this.director.setMood('silence');
+    const chosen = () => !!this.f.choice || this.ended;
     if (fresh) {
-      this.talk.flush();
+      this.talk.flush(); // the monologue is cut for line 1
       w.vignette('core_bow');
+      // Scanners: live when line 2 starts — and in any case 8 s after entering (here on the scene's clock).
+      this.S('core_live', async () => { await this.untilOr(() => this.f.offered || chosen(), LIVE_AFTER - 0.2); this.goLive(); });
       await this.hold(1.6);
+    } else {
+      // A load: live at once; CHOIR does not speak the moment the game is back.
+      this.goLive();
+      await this.hold(6);
     }
-    if (!this.f.offered) {
-      // (core_7 / core_11 count the units the player shot: dialogue.ts picks the variant.)
-      const first = ['l2_choir_core_1', 'l2_choir_core_2', 'l2_choir_core_3', 'l2_choir_core_4', 'l2_choir_core_5', 'l2_choir_core_6', 'l2_choir_core_7', 'l2_choir_core_8'];
-      // After a load into the middle of it, CHOIR does not start over.
-      if (fresh) for (const id of first) { await this.choir([id], { glitch: 0.12 }); await this.wait(0.7); }
-      else await this.hold(6);
-      await this.choir(['l2_choir_core_9']);
-      this.once('core_offered'); // both are live from here; the first one used wins
-      for (const id of ['l2_choir_core_10', 'l2_choir_core_11', 'l2_choir_core_12', 'l2_choir_core_13', 'l2_choir_core_14']) {
-        if (this.f.choice) return;
-        await this.choir([id]);
-        await this.wait(0.8);
+    this.offerStarted ||= this.talk.heard.has('l2_choir_offer');
+    // ── the offer: five short lines, from the first one not heard ──
+    for (;;) {
+      if (chosen()) return;
+      let next: string | null = null, waitFor = false;
+      for (const id of ENTRY) {
+        if (this.talk.heard.has(id)) continue;
+        const o: Option | null = id === OFFER_ID.stop ? 'stop' : id === OFFER_ID.command ? 'command' : null;
+        if (o && this.offerPending[o]) { waitFor = true; continue; } // brought forward by a look: on its way
+        if (id === 'l2_choir_core_14' && waitFor) break;             // the last line waits for both descriptions
+        next = id;
+        break;
       }
+      if (!next) {
+        if (!waitFor) break;
+        await this.until(() => chosen() || (!this.offerPending.stop && !this.offerPending.command));
+        continue;
+      }
+      await this.until(() => chosen() || (this.inRoom('core') && this.ctx.state === 'playing' && !this.noteOpen));
+      if (chosen()) return;
+      const id = next;
+      let ok = false;
+      if (id === OFFER_ID.stop || id === OFFER_ID.command) {
+        const p = this.queueOffer(id === OFFER_ID.stop ? 'stop' : 'command', false);
+        ok = p ? await p : false;
+      } else if (id === 'l2_choir_offer') {
+        ok = await this.choirLine(id, {
+          onStart: () => {
+            this.offerStarted = true;
+            this.goLive();
+            // Already looking at one of them: that one is described first.
+            if (this.coreFocus) void this.queueOffer(this.coreFocus, true);
+          },
+        });
+      } else ok = await this.choirLine(id);
+      if (chosen()) return;
+      if (ok || this.talk.heard.has(id)) await this.wait(0.6); else await this.hold(0.5);
     }
-    // It waits. Now and then it says so.
+    // ── while the player decides: what was not heard on the way in, one line every 6 s; then it waits ──
+    for (;;) {
+      const id = this.nextBackstory();
+      if (!id) break;
+      const t0 = this.now, gap = this.talk.fast ? 0.5 : 6;
+      await this.until(() => chosen() || (this.now - t0 > gap && this.inRoom('core') && !this.noteOpen && !this.talk.busy && !this.scanning && this.w.active() === 0));
+      if (chosen()) return;
+      await this.choirLine(id, { glitch: 0.12, when: () => this.inRoom('core') && !this.scanning });
+    }
     for (const id of ['l2_choir_core_idle_1', 'l2_choir_core_idle_2']) {
       const t0 = this.now;
-      await this.until(() => !!this.f.choice || (this.now - t0 > 28 && !this.noteOpen));
-      if (this.f.choice) return;
+      await this.until(() => chosen() || (this.now - t0 > 28 && !this.noteOpen && !this.scanning && !this.talk.busy));
+      if (chosen()) return;
       if (this.once(id)) await this.choir([id]);
     }
+  }
+
+  // ── cards, focus, scan ──
+
+  /** Both option cards with the current count; the eye and the pedestal mirror the latched option. */
+  private showCards(): void {
+    const n = this.unitsLeft(), w = this.w;
+    this.cardN = n;
+    w.screen('core_wall_4', 'choice_stop', String(n));
+    w.screen('core_wall_2', 'choice_command', String(n));
+    this.showMirror();
+  }
+  private showMirror(): void {
+    const kind = this.coreFocus === 'stop' ? 'choice_stop' : this.coreFocus === 'command' ? 'choice_command' : null;
+    for (const name of ['core_eye', 'core_pedestal']) {
+      if (kind) this.w.screen(name, kind, String(this.cardN)); else this.w.screen(name, 'choir');
+    }
+  }
+
+  private focusPoints: Record<Option, THREE.Vector3[]> | null = null;
+  private focusAngle(o: Option): number {
+    // (the level's markers, looked up once: they do not move)
+    this.focusPoints ??= {
+      stop: [this.w.objectPos(FOCUS_POINTS.stop.plate, FOCUS_POINTS.stop.at[0]), this.w.objectPos(FOCUS_POINTS.stop.card, FOCUS_POINTS.stop.at[1])],
+      command: [this.w.objectPos(FOCUS_POINTS.command.plate, FOCUS_POINTS.command.at[0]), this.w.objectPos(FOCUS_POINTS.command.card, FOCUS_POINTS.command.at[1])],
+    };
+    const P = this.focusPoints[o];
+    return Math.min(this.angleTo(P[0]), this.angleTo(P[1]));
+  }
+
+  /**
+   * Every frame while the choice is open: keep the cards' count current, compute the focus (the story computes
+   * it, the level only shows it), and end a scan that a note interrupts. Stops for good once a scan completed.
+   */
+  private coreTick(dt: number): void {
+    const f = this.f;
+    if (!f.core || f.choice || this.ended) return;
+    if (this.unitsLeft() !== this.cardN) this.showCards();
+    if (this.scanning && this.noteOpen) { try { this.ctx.player.cancelPalm(); } catch { /* ignore */ } }
+    if (this.ctx.state !== 'playing' || !this.live) return;
+    // Only from inside the room; measured to two points per option: the plate and the card.
+    let cand: Option | '' = '';
+    if (this.inRoom('core') && this.pos.z < -72.2) {
+      const aS = this.focusAngle('stop'), aC = this.focusAngle('command');
+      const inS = aS <= (this.focusCand === 'stop' ? FOCUS_OUT : FOCUS_IN), inC = aC <= (this.focusCand === 'command' ? FOCUS_OUT : FOCUS_IN);
+      cand = inS && inC ? (this.focusCand || (aS <= aC ? 'stop' : 'command')) : inS ? 'stop' : inC ? 'command' : '';
+    }
+    if (cand !== this.focusCand) { this.focusCand = cand; this.focusCandT = 0; return; }
+    if (!cand || cand === this.coreFocus) return;
+    this.focusCandT += dt;
+    if (this.focusCandT < FOCUS_HOLD) return;
+    // Latched: stays until the other option is focused.
+    this.coreFocus = cand;
+    this.focusChanges++;
+    this.showMirror();
+    this.w.vignette(cand === 'stop' ? 'core_focus_stop' : 'core_focus_command');
+    // Looked at for the first time after the offer began: its line now.
+    if (this.offerStarted) void this.queueOffer(cand, true);
+  }
+
+  private plateOf(choice: 'shutdown' | 'rewrite'): PalmPlate | null {
+    try {
+      const o = this.ctx.level.object(choice === 'shutdown' ? 'core_plate_stop' : 'core_plate_command');
+      if (!o) return null;
+      o.updateWorldMatrix(true, false);
+      const q = o.getWorldQuaternion(new THREE.Quaternion());
+      return { position: o.getWorldPosition(new THREE.Vector3()), normal: V(0, 0, 1).applyQuaternion(q), up: V(0, 1, 0).applyQuaternion(q) };
+    } catch { return null; }
+  }
+
+  /**
+   * The press on a plate. The story owns the scan: it starts it (the player module lays the hand on the plate and
+   * runs the clock; it ends it when the player walks away, is hurt, pauses…), tells the level, and only a
+   * COMPLETED scan chooses. An abandoned scan changes nothing and CHOIR says nothing about it.
+   */
+  private async scan(choice: 'shutdown' | 'rewrite'): Promise<void> {
+    const f = this.f, w = this.w, pl = this.ctx.player;
+    if (f.choice || !f.offered || this.scanning || this.noteOpen || this.ended || this.ctx.state !== 'playing') return;
+    const plate = this.plateOf(choice);
+    if (!plate || typeof pl.palm !== 'function') { await this.choose(choice); return; } // a build without plates: the press chooses
+    const run = pl.palm(plate, SCAN_SECONDS);
+    if (pl.palmProgress < 0) { this.scans.refused++; this.toast(TOAST2.palmFar, 2); return; } // not within reach of the plate
+    this.scanning = choice;
+    this.scans.started++;
+    w.vignette(choice === 'shutdown' ? 'core_scan_stop' : 'core_scan_command');
+    const r = await run;
+    this.scanning = '';
+    if (r !== 'done' || f.choice || this.ended) { this.scans.abandoned++; w.vignette('core_scan_cancel'); return; }
+    this.scans.done++;
+    w.vignette('core_scan_done');
+    await this.choose(choice);
   }
 
   private async choose(choice: 'shutdown' | 'rewrite'): Promise<void> {
@@ -944,37 +1192,38 @@ export class ScriptL2 extends Taking {
     this.ui.closeNote?.();
     w.setInteractable('core_shutdown', false);
     w.setInteractable('core_rewrite', false);
-    this.talk.flush();
-    const cells = w.objectPos('core_cells', V(0, 1.4, -84));
+    this.talk.flush(); // a completed scan cuts everything
+    // The eye and the pedestal stay on what was chosen.
+    this.coreFocus = choice === 'shutdown' ? 'stop' : 'command';
+    this.showMirror();
     if (choice === 'shutdown') {
       this.beat('l2_choice_shutdown'); // phase I2: the lift door answers
-      w.vignette('core_cells_out');
+      // The cells die one by one, on CHOIR's count.
       for (const [i, id] of ['l2_choir_shutdown_1', 'l2_choir_shutdown_2', 'l2_choir_shutdown_3'].entries()) {
-        w.play('cell_pull', cells, 1);
-        w.shake(0.2 + i * 0.1);
         await this.hold(0.7);
         if (i === 1) w.machine('l2_line', 'off');
-        await this.choir([id], { glitch: 0.3 + i * 0.25 });
+        const cell = () => { if (this.cellsOut <= i) { this.cellsOut = i + 1; w.vignette('core_cell_out'); w.shake(0.2 + i * 0.1); } };
+        await this.choirLine(id, { glitch: 0.3 + i * 0.25, onStart: cell });
+        cell(); // (a line that could not be spoken still costs a cell)
         await this.hold(0.5);
       }
       w.play('power_down', undefined, 1);
       w.machine('l2_core', 'off');
       w.machine('l2_tunnel', 'idle');
       for (const g of ['line_emergency', 'spine_emergency', 'tunnel']) w.lights(g, { enabled: false });
-      for (let i = 1; i <= 4; i++) w.screen(`core_wall_${i}`, 'static');
-      w.screen('core_pedestal', 'static');
+      // (the room's own screens die with the third cell: the level's `core_cell_out` — static, then dark)
       w.screen('line_bigscreen', 'terminal_alert', SCREEN2.stopped);
       this.dropUnits();
     } else {
       this.beat('l2_choice_rewrite'); // phase I2
-      w.play('terminal_beep', w.objectPos('core_pedestal', V(0, 1.2, -80)), 0.9);
       await this.hold(0.8);
       await this.choir(['l2_choir_rewrite_1']);
       w.machine('l2_line', 'off');
       w.machine('l2_tunnel', 'idle');
       w.play('power_down', V(0, 3, -60), 0.7);
       for (const g of ['line_emergency', 'spine_emergency']) w.lights(g, { enabled: false });
-      for (let i = 1; i <= 4; i++) w.screen(`core_wall_${i}`, 'terminal_idle', SCREEN2.amended);
+      // The walls show the amended order; the COMMAND card stays where it was read.
+      for (const n of ['core_wall_1', 'core_wall_3', 'core_wall_4']) w.screen(n, 'terminal_idle', SCREEN2.amended);
       w.screen('line_bigscreen', 'terminal_idle', SCREEN2.amended);
       await this.hold(0.8);
       await this.choir(['l2_choir_rewrite_2']);
@@ -985,7 +1234,8 @@ export class ScriptL2 extends Taking {
       await this.choir(['l2_choir_rewrite_3']);
     }
     w.setInteractable('lift_button', true);
-    w.screen('lift_panel', 'terminal_idle', SCREEN2.liftUp);
+    // On the way out: the node line (the only word here about what lies beyond Line Two).
+    w.screen('lift_panel', 'terminal_idle', choice === 'shutdown' ? SCREEN2.liftStop : SCREEN2.liftCommand);
     this.once('choice_done');
   }
 
@@ -1036,7 +1286,7 @@ export class ScriptL2 extends Taking {
     ctx.setState('ended');
     ctx.ui.setHudVisible(false);
     // The ending counts what the player left standing: it never claims thirty-two.
-    await this.hooks.ending(this.f.choice, this.f.unit14Dead ? 'killed' : this.f.unit14Shot ? 'shot' : 'spared', Math.max(0, 32 - this.f.husksKilled));
+    await this.hooks.ending(this.f.choice, this.f.unit14Dead ? 'killed' : this.f.unit14Shot ? 'shot' : 'spared', this.unitsLeft());
   }
 
   // ───────────────────────────────────────────────────────────── barks (Tomas reacts to where you are)
@@ -1110,8 +1360,9 @@ export class ScriptL2 extends Taking {
     switch (id) {
       case 'intercom_hall': this.S('intercom', () => this.intercom()); return;
       case 'relay_switch': if (this.f.pass || this.inRoom('relay')) this.S('power', () => this.power()); return;
-      case 'core_shutdown': this.S('choice', () => this.choose('shutdown')); return;
-      case 'core_rewrite': this.S('choice', () => this.choose('rewrite')); return;
+      // The press starts a scan; only a completed scan chooses (REVISION 6.1).
+      case 'core_shutdown': this.S('scan', () => this.scan('shutdown')); return;
+      case 'core_rewrite': this.S('scan', () => this.scan('rewrite')); return;
       case 'lift_button': if (this.f.choice) this.S('end', () => this.end()); return;
       case 'booth_headset': case 'term2_booth': if (!this.f.boothOpen) return; break;
     }
@@ -1236,6 +1487,11 @@ export class ScriptL2 extends Taking {
       restoredFrom: this.restoredFrom, checkpoint: this.lastCheckpoint, pendingCheckpoint: this.pendingCheckpoint,
       checkpoints: [...this.prog.checkpoints], calm: this.started && this.calm(),
       triggered: [...this.prog.triggered], cleared: [...this.prog.cleared], power: this.f.power,
+      core: {
+        focus: this.coreFocus, candidate: this.focusCand, focusChanges: this.focusChanges, live: !!this.f.offered, scanning: this.scanning,
+        units: this.unitsLeft(), cardN: this.cardN, offerStarted: this.offerStarted, pending: { ...this.offerPending }, scans: { ...this.scans },
+        palm: (() => { try { return +this.ctx.player.palmProgress.toFixed(3); } catch { return -1; } })(),
+      },
     };
   }
 }

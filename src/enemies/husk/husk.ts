@@ -10,7 +10,7 @@ import { hv, type HitVolume } from '../shared/hit';
 import { angleDiff, damp, noise1, smooth, solveLimb, spring, type Spring } from '../shared/ik';
 import { Piston } from '../shared/piston';
 import type { Rig } from '../shared/rig';
-import { HUSK_DIM as K, type HuskTemplate } from './model';
+import { HUSK_DIM as K, huskHoloFigure, type HuskTemplate } from './model';
 import { applySpec, HUSK_POSES } from './poses';
 import { sayMutter } from '../voice';
 import { armIK } from '../shared/ik';
@@ -148,6 +148,8 @@ export class Husk extends EnemyBase {
   private tread = false; private treadSpeed = 0; private treadPhase = 0; private treadOff = 0; private treadOffNow = 0;
   /** '' = the machine's own walk (level 1), 'limp' | 'carry' | 'carry_l' | 'carry_r' | 'human'. */
   private gait = '';
+  /** holo_tech: the recorded person — a calmer, human arm swing and pelvis on the same gait machinery. */
+  private refPattern = false;
   private carrySide = 0;
   private speakT = 0; private speakDur = 0;
   private watchYaw = 0; private watchRate = 0; private watchT = 0; private watchDirty = true;
@@ -193,11 +195,13 @@ export class Husk extends EnemyBase {
     const look = this.isActor ? o.look : undefined;
     const holoKind = look === 'holo_ghost' ? 'ghost' : look === 'holo_tech' ? 'tech' : null;
     const holoMat = holoKind ? holoMaterial(holoKind, world.rand() * 10) : null;
-    this.rig = holoMat ? tpl.rig.instantiate(holoOverride(tpl.rig, holoMat)) : tpl.rig.instantiate({ sign });
+    // the reference pattern is a recorded person: a slim human figure on the same skeleton (no shell, pistons, tools)
+    const rigTpl = holoKind === 'tech' ? huskHoloFigure(tpl.rig) : tpl.rig;
+    this.rig = holoMat ? rigTpl.instantiate(holoOverride(rigTpl, holoMat)) : rigTpl.instantiate({ sign });
     this.B = this.rig.byName;
     this.lodRig = this.rig;
     this.object.add(this.rig.root);
-    for (const p of tpl.pistons) this.pistons.push(new Piston(this.rig, p.cyl, p.rod, p.a, p.b));
+    if (holoKind !== 'tech') for (const p of tpl.pistons) this.pistons.push(new Piston(this.rig, p.cyl, p.rod, p.a, p.b));
     this.plates = tpl.plates.map((p) => ({ ...p, gone: false }));
     this.snap = this.rig.newPose();
 
@@ -258,6 +262,7 @@ export class Husk extends EnemyBase {
         this.holo = new Holo(world, holoKind, holoMat, this.rig, this.object, holoKind === 'ghost' ? tpl.rig.instantiate(holoOverride(tpl.rig, holoMat)) : null,
           () => { this.holdHidden = true; });
         this.gait = holoKind === 'ghost' ? 'limp' : 'human';
+        this.refPattern = holoKind === 'tech';
         this.limp = 0;
         this.body.gravityScale = 0;
       }
@@ -1622,7 +1627,7 @@ export class Husk extends EnemyBase {
     let hy = 0.965 - 0.018 * (1 - idle) - 0.085 * rb + (swL + swR) * (0.018 + 0.02 * rb) - limpDip + breathe - this.atkWind * 0.03 - this.atkStrike * 0.05;
     const hxs = (swR - swL) * (0.03 - 0.012 * rb) + noise1(t * 0.4, this.seed) * 0.008 * idle;
     const hz = 0.01 + (L.rig.z + R.rig.z) * 0.32 - 0.02 * rb;
-    const pelvisYaw = -stride * (0.32 + 0.1 * rb);
+    const pelvisYaw = -stride * (0.32 + 0.1 * rb) * (this.refPattern ? 0.45 : 1);
     const pelvisRoll = (swR - swL) * 0.07 + (limpG ? swR * 0.1 - swL * 0.05 : 0);
     const lean = 0.05 + 0.2 * rb + this.atkStrike * 0.25 - this.atkWind * 0.1;
     // keep legs reachable
@@ -1645,7 +1650,7 @@ export class Husk extends EnemyBase {
     B.clav_l.quaternion.identity(); B.clav_r.quaternion.identity();
 
     // arms (FK): counter-swing, reaching when close, melee on top
-    const sw = stride * (0.75 + 0.5 * rb);
+    const sw = stride * (0.75 + 0.5 * rb) * (this.refPattern ? 0.62 : 1);
     const jit = noise1(t * 9, this.seed + 1) * 0.05 * this.reach;
     for (let i = 0; i < 2; i++) {
       const side = i === 0 ? 1 : -1, sfx = i === 0 ? 'l' : 'r';
@@ -1653,7 +1658,7 @@ export class Husk extends EnemyBase {
       let pitch = 0.08 + swing + rb * 0.15;
       let roll = 0.12 + 0.04 * rb;
       let twist = 0;
-      let elbow = 0.28 + 0.75 * rb + Math.max(0, -swing) * 0.5;
+      let elbow = 0.28 + 0.75 * rb + Math.max(0, -swing) * (this.refPattern ? 0.85 : 0.5);
       const reach = this.reach * (side > 0 ? 1 : 0.55);
       pitch += (-1.25 + jit + noise1(t * 0.9, this.seed + i * 9) * 0.15 - pitch) * reach;
       elbow += ((side > 0 ? 0.45 : 0.9) + noise1(t * 1.3, this.seed + 20 + i) * 0.25 - elbow) * reach;

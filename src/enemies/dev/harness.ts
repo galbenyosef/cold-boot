@@ -10,6 +10,7 @@
  *   &pwalk=x0,z0,x1,z1,sec    scripted player walking back and forth between two points (faces travel direction)
  *   &pface=1                  …but always facing the machine (stare)          &pnear=<s> (state=dormant: approach)
  *   &actor=1 [&pose=..] &to=x,y,z [&speed=] [&at=<s>] [&apose=name&aposeat=<s>] [&alook=x,y,z] [&eyes=0|1]
+ *   &look2=holo_ghost|holo_tech  (REVISION 5) the actor as a hologram, e.g. &actor=1&pose=tread&look2=holo_tech
  * Revision 4:
  *   &type=human|foreman   &speak=<s> (actor speaks from t=0.3)  &gait=limp|carry|carry_l|carry_r
  *   &scene=booth          glass pane GLASS_Z in front of the actor, warm light behind it, dim foreground
@@ -193,7 +194,8 @@ async function main() {
   const v3 = (k: string) => { const a = q.get(k)!.split(',').map(Number); return new THREE.Vector3(a[0], a[1], a[2]); };
   let actorArrived = -1;
   if (isActor) {
-    actor = enemies.actor(type, spawnPos, yaw0, pose === 'none' ? undefined : pose);
+    actor = enemies.actor(type, spawnPos, yaw0, pose === 'none' ? undefined : pose, q.get('look2') ? { look: q.get('look2') as any } : undefined);
+    (window as any).__actor = actor;
     if (q.get('eyes')) actor.setEyes(q.get('eyes') === '1');
     if (q.get('alook')) actor.lookAt(v3('alook'));
     if (q.get('gait')) actor.setGait?.(q.get('gait')!);

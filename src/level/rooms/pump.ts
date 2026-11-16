@@ -339,6 +339,7 @@ export function buildPump(L: LevelBuild) {
   for (const m of hatch.children) m.castShadow = false;
   L.root.add(hatch);
   L.objects.set('pump_hatch', hatch);
+  L.ctx.physics.addMover?.(hatch); // REVISION 5.2: decals on the grate flip over with it
   let hatchOpen = false;
   L.ctx.events.on('enemy:spawned', (e) => {
     if (hatchOpen || e.type !== 'skitter' || Math.abs(e.position.x - (GX0 + 0.5)) > 1.4 || Math.abs(e.position.z - (GZ0 + 0.5)) > 1.4) return;

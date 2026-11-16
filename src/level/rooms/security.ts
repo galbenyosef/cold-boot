@@ -54,6 +54,7 @@ export function buildSecurity(L: LevelBuild) {
   for (const m of ventObj.children) (m as THREE.Mesh).castShadow = true;
   L.root.add(ventObj);
   L.objects.set('sec_vent', ventObj);
+  L.ctx.physics.addMover?.(ventObj); // REVISION 5.2: decals on the grille drop with it
   L.vignette('sec_vent_drop', () => {
     const fx = L.ctx.fx, p = new THREE.Vector3();
     const dust = (n: number, y: number) => fx.smoke(p.set(vx + (Math.random() - 0.5) * 0.4, y, vz + (Math.random() - 0.5) * 0.4), { count: n, size: 0.3, color: 0x8d8a80, rise: -0.5, life: 2.2 });

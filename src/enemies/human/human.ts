@@ -3,6 +3,11 @@
  *   base pose (per named pose, with its own life: breathing, weight shifts, fidgets, struggle…)
  *   + walk (distance-driven gait, planted feet, leg IK) + blend between poses
  *   + look (eyes → head → torso, springs; idle glances when nobody tells him where to look)
+ *   + attention (REVISION 6.1 "People react to you"): `auto` by default — he looks at the player whenever he can
+ *     see them (≤ 16 m, through glass, not through walls / closed doors / the partition; rays at 10 Hz; the last
+ *     seen position held 0.8 s), `pinned` (story point, or a live object), `rest`. Eyes → head → body: the body
+ *     turns on the spot only in idle / talk (player > 55° off for 0.7 s); the story's facing is the REST facing
+ *     he returns to 2 s after losing sight. Flinches and looks at a bullet impact he can see within 3 m.
  *   + speech (jaw syllables, nods, brows, small gestures) + blinks + secondary motion (badge, knotted sleeves).
  *
  * Poses: idle, wave, bang_glass, write, talk, sit, sit_floor, back_away, held, carried (see setPose / DESIGN).
@@ -54,7 +59,24 @@ export class Human extends EnemyBase {
   private phase = 0; private walkW = 0; private travel = 1; private stuckT = 0; private lastD = 1e9; private groundT = 0;
   private turnW = 0;
   // look
+  /** Effective look target this frame (set by attention(); null = rest behaviour). */
   private lookPt: THREE.Vector3 | null = null; private readonly lookBuf = new THREE.Vector3();
+  // attention (REVISION 6.1)
+  private attn: 'auto' | 'pinned' | 'rest' = 'auto';
+  private pinObj: THREE.Object3D | null = null;
+  private readonly pinPt = new THREE.Vector3();
+  private seen = false; private sightT = 0; private lastSeenT = -1e9;
+  private readonly lastSeen = new THREE.Vector3();
+  /** True while the look target is the player (auto). */
+  private onPlayer = false;
+  /** Seconds the target has been > 55° off his facing (body turn after 0.7 s). */
+  private offT = 0;
+  /** The story's facing (or his last arrival / spawn facing): what the body returns to when nobody is seen. */
+  private restYaw = 0;
+  /** The pending yawGoal is an attention turn (slower, re-aimed while the player moves), not a story facing. */
+  private attnTurn = false;
+  private impactT = -1e9; private readonly impactPt = new THREE.Vector3();
+  private offImpact: (() => void) | null = null;
   private readonly glance = new THREE.Vector3(); private glanceT = 0;
   private hY: Spring = { x: 0, v: 0 }; private hP: Spring = { x: 0, v: 0 }; private tY: Spring = { x: 0, v: 0 };
   private eY: Spring = { x: 0, v: 0 }; private eP: Spring = { x: 0, v: 0 };
@@ -79,6 +101,21 @@ export class Human extends EnemyBase {
   private flinchK = 0;
   /** REVISION 5: the scanned head's closed lids (blink). */
   private scanLids: THREE.SkinnedMesh | null = null;
+  /**
+   * Facing set from outside: the story places him with `object.rotation.y = yaw` (its yaw convention — the same as
+   * `this.yaw`: 0 faces −Z, +π/2 faces −X). We own `object.rotation.y` (= yaw + π) and rewrite it every frame, so a
+   * foreign value is read as "face this way" before it is overwritten. `rotOut` is the last value we wrote.
+   */
+  private rotOut = NaN;
+  /** Facing he turns to on the spot (≈ 0.4 s for a quarter turn); null = none. Walking cancels it. */
+  private yawGoal: number | null = null;
+  /** bang_glass / write: square up to the pane in front of him once he stands still. */
+  private squarePending = false;
+  /**
+   * Distance (m) from his feet to the visible pane, measured by squareToGlass (NaN = not measured: the pose parameter
+   * / GLASS_Z is used). Glass colliders are 10 cm slabs centred on the pane, so the pane is 5 cm past the hit face.
+   */
+  private glassFace = NaN;
 
   constructor(world: EnemyWorld, private tpl: HumanTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, 0.3, 1.75);
@@ -108,6 +145,8 @@ export class Human extends EnemyBase {
     this.nextBlink = 1 + world.rand() * 3;
     this.glanceT = world.rand() * 2;
     this.prevYaw = yaw;
+    this.restYaw = yaw;
+    try { this.offImpact = world.ctx.events.on('bullet:impact', (e) => this.onImpact(e.point)); } catch { this.offImpact = null; }
     this.setPoseNow(this.poseName(o.pose));
     this.blendT = 1;
     this.tick(0.016);
@@ -133,6 +172,7 @@ export class Human extends EnemyBase {
   }
 
   private setPoseNow(p: HPose): void {
+    if ((p === 'bang_glass' || p === 'write') && p !== this.pose) { this.squarePending = true; this.glassFace = NaN; }
     this.pose = p; this.poseT = 0;
     this.fidget = null; this.fidgetTimer = 4 + this.world.rand() * 6;
     this.bangCount = 0;
@@ -149,6 +189,7 @@ export class Human extends EnemyBase {
     const def = this.pose === 'back_away' ? 0.6 : this.pose === 'held' ? 1.0 : 1.25;
     this.wantSpeed = THREE.MathUtils.clamp(speed ?? def, 0.2, 3.2);
     this.moving = true; this.done = done; this.stuckT = 0; this.lastD = 1e9;
+    this.yawGoal = null; this.attnTurn = false; this.glassFace = NaN;
     // walking poses: sitting / writing / banging get up into a stand first
     if (this.pose === 'sit' || this.pose === 'sit_floor' || this.pose === 'bang_glass' || this.pose === 'write' || this.pose === 'wave') this.puppetPose('idle');
   }
@@ -161,7 +202,18 @@ export class Human extends EnemyBase {
     this.blendDur = n === 'carried' || this.pose === 'carried' ? 0.9 : n === 'sit' || n === 'sit_floor' || this.pose === 'sit' || this.pose === 'sit_floor' ? 0.85 : 0.45;
     this.setPoseNow(n);
   }
-  override puppetLook(point: THREE.Vector3 | null): void { if (point) { this.lookBuf.copy(point); this.lookPt = this.lookBuf; } else this.lookPt = null; }
+  /**
+   * REVISION 6.1: a point pins a frozen copy; null returns to `auto`. The player's own eye vector (what the story
+   * passes to mean "look at the player") is `auto` — pinning a frozen copy of it would stare at where they were.
+   */
+  override puppetLook(point: THREE.Vector3 | null): void {
+    this.pinObj = null;
+    if (!point || point === this.world.ctx.player?.eye) { this.attn = 'auto'; return; }
+    this.pinPt.copy(point); this.attn = 'pinned';
+  }
+  /** REVISION 6.1: pin a live object (its world position, every frame). */
+  puppetLookObject(o: THREE.Object3D): void { this.pinObj = o; this.attn = 'pinned'; }
+  override puppetLookMode(mode: 'auto' | 'rest'): void { this.pinObj = null; this.attn = mode === 'rest' ? 'rest' : 'auto'; }
   override puppetEyes(on: boolean): void { this.eyesOpen = on; }
   override puppetStop(): void { if (this.done) this.arrive(); this.moving = false; }
   override puppetSpeak(seconds: number): void { this.speakT = Math.max(this.speakT, seconds); this.speakDur = this.speakT; }
@@ -169,6 +221,7 @@ export class Human extends EnemyBase {
 
   private arrive(): void {
     this.moving = false;
+    this.restYaw = this.yaw; // where he stopped is where he rests (until the story says otherwise)
     const d = this.done; this.done = null;
     if (d) d();
   }
@@ -197,6 +250,7 @@ export class Human extends EnemyBase {
   }
 
   override dispose(): void {
+    if (this.offImpact) { this.offImpact(); this.offImpact = null; }
     this.rig.skeleton.dispose();
     super.dispose();
   }
@@ -208,7 +262,9 @@ export class Human extends EnemyBase {
   private tick(dt: number): void {
     const w = this.world, p = this.body.position;
     this.stateTime += dt; this.poseT += dt;
+    this.adoptFacing();
     this.locomotion(dt);
+    this.turnToGoal(dt);
     // timers
     this.shiftTimer -= dt;
     if (this.shiftTimer <= 0) { this.shiftTgt = -Math.sign(this.shiftTgt || 1) * (0.6 + w.rand() * 0.4); this.shiftTimer = (this.pose === 'talk' ? 3 : 6) + w.rand() * 6; }
@@ -240,6 +296,7 @@ export class Human extends EnemyBase {
     }
     // overlays
     this.syncWorld();
+    this.attention(dt);
     this.look(dt);
     this.speech(dt);
     this.secondary(dt);
@@ -250,8 +307,68 @@ export class Human extends EnemyBase {
 
   private syncWorld(): void {
     this.object.position.copy(this.body.position);
-    this.object.rotation.y = this.yaw + Math.PI;
+    this.object.rotation.y = this.rotOut = this.yaw + Math.PI;
     this.object.updateMatrixWorld(true);
+  }
+
+  // ───────────────────────────────────────────── facing
+
+  /** A facing written into `object.rotation.y` by the story (see `rotOut`): turn to it (lying / sitting: at once). */
+  private adoptFacing(): void {
+    const r = this.object.rotation.y;
+    if (!Number.isFinite(this.rotOut) || r === this.rotOut) return; // (exact: it holds the very number we wrote)
+    this.object.rotation.y = this.rotOut;
+    this.restYaw = r; this.attnTurn = false; this.offT = 0;
+    if (this.pose === 'carried' || this.pose === 'sit' || this.pose === 'sit_floor') { this.yaw = this.prevYaw = r; this.yawGoal = null; }
+    else this.yawGoal = r;
+    if (this.pose === 'bang_glass' || this.pose === 'write') this.squarePending = true;
+  }
+
+  /**
+   * bang_glass / write: whatever yaw he was given, his palms go flat on the pane — so he squares up to it. Rays at
+   * chest height fan out ±70° round the facing he is turning to; the nearest glass within 1.2 m sets the facing
+   * (straight into the pane, along its normal). No glass in reach: the facing stays as given.
+   */
+  private squareToGlass(): void {
+    const ph = this.world.ctx.physics, p = this.body.position;
+    const base = this.yawGoal ?? this.yaw;
+    _v.set(p.x, p.y + 1.3, p.z);
+    let best: { d: number; nx: number; nz: number } | null = null;
+    for (let k = -7; k <= 7; k++) {
+      const a = base + k * 0.1745;
+      _v2.set(-Math.sin(a), 0, -Math.cos(a));
+      let h: ReturnType<typeof ph.raycast> = null;
+      try { h = ph.raycast(_v, _v2, 1.2); } catch { h = null; }
+      if (!h || h.surface !== 'glass') continue;
+      const nl = Math.hypot(h.normal.x, h.normal.z);
+      if (nl < 0.7) continue;
+      // distance to the pane's plane (not along the slanted ray)
+      const nx = h.normal.x / nl, nz = h.normal.z / nl;
+      const d = (p.x - h.point.x) * nx + (p.z - h.point.z) * nz;
+      if (d > 0 && (!best || d < best.d)) best = { d, nx, nz };
+    }
+    if (best) { this.yawGoal = this.restYaw = Math.atan2(best.nx, best.nz); this.attnTurn = false; this.glassFace = best.d + 0.05; }
+  }
+
+  /**
+   * Where the pose puts its hands (m in front of his feet): measured pane minus what the hand/fingers reach past the
+   * IK point (≈ 4 cm), so palms and the marker tip touch the glass and never go through it.
+   */
+  private gz(): number {
+    return Number.isFinite(this.glassFace) ? THREE.MathUtils.clamp(this.glassFace - 0.038, 0.3, 0.7) : this.glassZ;
+  }
+
+  /** Standing still with a facing to reach: turn on the spot. */
+  private turnToGoal(dt: number): void {
+    if (this.moving) return;
+    if (this.squarePending && (this.pose === 'bang_glass' || this.pose === 'write')) { this.squarePending = false; this.squareToGlass(); }
+    if (this.yawGoal === null) return;
+    const rem = angleDiff(this.yawGoal, this.yaw);
+    // story facings: a quick quarter turn (≈ 0.4 s); attention turns: unhurried, eased into the last 0.4 rad
+    const rate = this.attnTurn ? 2.4 * Math.min(1, 0.35 + Math.abs(rem) / 0.4) : 4.0;
+    const step = Math.sign(rem) * Math.min(Math.abs(rem), rate * dt);
+    this.yaw += step;
+    if (Math.abs(rem - step) < 1e-3) { this.yawGoal = null; this.attnTurn = false; }
   }
 
   // ───────────────────────────────────────────── locomotion
@@ -538,7 +655,7 @@ export class Human extends EnemyBase {
       const key = Math.floor((this.poseT + this.seed) / cyc) * 10 + n;
       if (u > 0.72 && this.lastBang !== key) {
         this.lastBang = key;
-        this.rigPoint(0, 1.43, this.glassZ, _v);
+        this.rigPoint(0, 1.43, this.gz(), _v);
         try { w.ctx.audio.play('glass_bang', { position: _v, volume: 0.9 }); } catch { /* optional */ }
       }
     } else { pull = 0.25 * smooth((ct - BEAT * BURST) / 0.3); }
@@ -548,7 +665,7 @@ export class Human extends EnemyBase {
     this.syncWorld();
     for (const side of [1, -1]) {
       const lag = side > 0 ? 0 : 0.06;
-      const pz = this.glassZ - 0.015 - 0.15 * Math.max(0, pull - lag);
+      const pz = this.gz() - 0.015 - 0.045 * lean - 0.15 * Math.max(0, pull - lag); // (the lean carries the hands on)
       this.rigPoint(side * 0.2, 1.42 + 0.06 * pull, pz, _v);
       this.ikArm(side, _v, -0.65, -0.3, 0.55, 1);
       this.palmTo(side, _fw.set(0, 0.95, 0.3), _lf.set(0, 0, 1));
@@ -575,13 +692,13 @@ export class Human extends EnemyBase {
     this.mulE(B.head, 0.05 + 0.08 * back, -0.1 * x, 0.08);
     this.syncWorld();
     // the marker tip touches the pane; the wrist sits behind / above it
-    this.rigPoint(x, y, this.glassZ - 0.005 - 0.04 * back, this.markerTip);
-    this.rigPoint(x - 0.006, y + 0.05, this.glassZ - 0.11 - 0.04 * back, _v);
+    this.rigPoint(x, y, this.gz() - 0.005 - 0.04 * back, this.markerTip);
+    this.rigPoint(x - 0.006, y + 0.05, this.gz() - 0.11 - 0.04 * back, _v);
     this.ikArm(-1, _v, -0.55, -0.35, 0.6, 1);
     this.palmTo(-1, _fw.set(0, -0.55, 0.55), _lf.set(1, 0, 0.15));
     this.fingers(-1, 1.35, 1.1);
     // left hand flat on the glass, leaning on it
-    this.rigPoint(0.26, 1.47, this.glassZ - 0.015, _v);
+    this.rigPoint(0.26, 1.47, this.gz() - 0.015, _v);
     this.ikArm(1, _v, -0.6, -0.25, 0.6, 1);
     this.palmTo(1, _fw.set(0.1, 0.95, 0.25), _lf.set(0, 0, 1));
     this.fingers(1, 0.1, 0.1);
@@ -808,13 +925,106 @@ export class Human extends EnemyBase {
     hand.quaternion.copy(_q3).multiply(_q2);
   }
 
+  // ───────────────────────────────────────────── attention (REVISION 6.1)
+
+  /** A clear line from a to b, seeing through glass (re-cast past each pane, at most 3 panes). */
+  private sightRay(a: THREE.Vector3, b: THREE.Vector3): boolean {
+    const ph = this.world.ctx.physics;
+    _t.copy(a);
+    for (let k = 0; k < 4; k++) {
+      _s.copy(b).sub(_t);
+      const len = _s.length();
+      if (len < 0.06) return true;
+      _s.multiplyScalar(1 / len);
+      let h: ReturnType<typeof ph.raycast> = null;
+      try { h = ph.raycast(_t, _s, len - 0.05); } catch { return false; }
+      if (!h) return true;
+      if (h.surface !== 'glass' || k === 3) return false;
+      _t.copy(h.point).addScaledVector(_s, 0.12); // through the pane (panes are ≤ 10 cm slabs)
+    }
+    return false;
+  }
+
+  private canSeePlayer(eye: THREE.Vector3): boolean {
+    const w = this.world, pl = w.ctx.player;
+    if (!pl || !pl.alive) return false;
+    const d = eye.distanceTo(w.playerEye);
+    if (d > 16) return false;
+    // he has to be facing roughly that way to notice someone (or hear them close by); once he has them he keeps them
+    if (this.world.time - this.lastSeenT > 0.8 && d > 2.5) {
+      const want = Math.atan2(-(w.playerEye.x - eye.x), -(w.playerEye.z - eye.z));
+      if (Math.abs(angleDiff(want, this.yaw)) > 2.1) return false;
+    }
+    return this.sightRay(eye, w.playerEye);
+  }
+
+  /** A round lands near him: flinch and look at it — only if he can see where it hit (within 3 m). */
+  private onImpact(point: THREE.Vector3): void {
+    if (!this.object.parent) return;
+    _v3.setFromMatrixPosition(this.B.neck.matrixWorld);
+    const p = this.body.position;
+    const dHead = _v3.distanceTo(point), dBody = Math.hypot(point.x - p.x, point.z - p.z);
+    if (Math.min(dHead, dBody) > 3) return;
+    if (!this.sightRay(_v3.clone(), point)) return;
+    if (this.flinchT < 0 || this.flinchT > 0.6) { this.flinchT = 0; }
+    this.blinkSoon();
+    this.impactT = this.world.time;
+    this.impactPt.copy(point);
+  }
+
+  /** Who he looks at this frame: an impact he just saw, the story's pin, the player he can see, or nothing (rest). */
+  private attention(dt: number): void {
+    const w = this.world, t = w.time;
+    _v.setFromMatrixPosition(this.B.neck.matrixWorld);
+    this.sightT -= dt;
+    if (this.attn !== 'auto') this.seen = false;
+    else if (this.sightT <= 0) {
+      this.sightT = 0.1; // ≤ 10 Hz
+      this.seen = this.canSeePlayer(_v);
+    }
+    if (this.seen) { this.lastSeen.copy(w.playerEye); this.lastSeenT = t; }
+    this.onPlayer = false;
+    if (t - this.impactT < 1.2) this.lookPt = this.lookBuf.copy(this.impactPt);
+    else if (this.attn === 'pinned') this.lookPt = this.pinObj ? this.pinObj.getWorldPosition(this.lookBuf) : this.lookBuf.copy(this.pinPt);
+    else if (this.attn === 'auto' && t - this.lastSeenT <= 0.8) { this.lookPt = this.lookBuf.copy(this.lastSeen); this.onPlayer = true; }
+    else this.lookPt = null;
+    // the body: on the spot, only standing free (idle / talk)
+    const bodyFree = !this.moving && (this.pose === 'idle' || this.pose === 'talk');
+    if (!bodyFree) { this.offT = 0; if (this.attnTurn) { this.yawGoal = null; this.attnTurn = false; } return; }
+    const storyTurning = this.yawGoal !== null && !this.attnTurn;
+    if (this.lookPt && t - this.impactT >= 1.2 && !storyTurning) {
+      const p = this.body.position;
+      const want = Math.atan2(-(this.lookPt.x - p.x), -(this.lookPt.z - p.z));
+      const off = angleDiff(want, this.yaw);
+      if (this.attnTurn) { this.yawGoal = want; this.offT = 0; }
+      else if (Math.abs(off) > 0.96) { this.offT += dt; if (this.offT >= 0.7) { this.yawGoal = want; this.attnTurn = true; this.offT = 0; } }
+      else this.offT = 0;
+    } else if (!this.lookPt && !storyTurning) {
+      this.offT = 0;
+      // 2 s without anyone to look at: back to the facing the story gave him
+      if (t - this.lastSeenT > 2.0 && t - this.impactT > 2.0 && Math.abs(angleDiff(this.restYaw, this.yaw)) > 0.05) {
+        if (!this.attnTurn || this.yawGoal !== this.restYaw) { this.yawGoal = this.restYaw; this.attnTurn = true; }
+      } else if (this.attnTurn && this.yawGoal !== this.restYaw) { this.yawGoal = null; this.attnTurn = false; }
+    }
+  }
+
   // ───────────────────────────────────────────── overlays
 
   private look(dt: number): void {
     const w = this.world, B = this.B, t = w.time;
     // where to look: the story's target, or the task at hand, or nervous glances
     let tgt: THREE.Vector3;
-    if (this.lookPt) tgt = this.lookPt;
+    let tracking = !!this.lookPt;
+    // carried / lying: only what is within ±40° of where his face points; walking: the player only within ±50° of the path
+    if (this.lookPt && (this.pose === 'carried' || (this.onPlayer && this.walkW > 0.3))) {
+      _v.setFromMatrixPosition(B.neck.matrixWorld);
+      _q.setFromRotationMatrix(B.spine2.matrixWorld).invert();
+      _v2.copy(this.lookPt).sub(_v).applyQuaternion(_q);
+      const ya = Math.atan2(_v2.x, _v2.z), pa = Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z));
+      const lim = this.pose === 'carried' ? 0.7 : 0.87;
+      if (Math.abs(ya) > lim || (this.pose === 'carried' && Math.abs(pa) > lim)) tracking = false;
+    }
+    if (tracking && this.lookPt) tgt = this.lookPt;
     else if (this.pose === 'write') tgt = this.markerTip;
     else {
       this.glanceT -= dt;
@@ -835,13 +1045,12 @@ export class Human extends EnemyBase {
     _v2.copy(tgt).sub(_v).applyQuaternion(_q);
     const yaw = Math.atan2(_v2.x, _v2.z), pitch = -Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z));
     const behind = Math.abs(yaw) > 2.4;
-    const hyW = behind ? 0 : THREE.MathUtils.clamp(yaw * 0.85, -1.15, 1.15), hpW = THREE.MathUtils.clamp(pitch * 0.75, -0.55, 0.6);
+    const hl = this.pose === 'carried' ? 0.6 : 1.15;
+    const hyW = behind ? 0 : THREE.MathUtils.clamp(yaw * 0.85, -hl, hl), hpW = THREE.MathUtils.clamp(pitch * 0.75, -0.55, 0.6);
     spring(this.hY, hyW * wt, 1.5, 0.78, dt); spring(this.hP, hpW * wt, 1.5, 0.8, dt);
     const tyW = !behind && Math.abs(yaw) > 0.9 ? THREE.MathUtils.clamp((yaw - Math.sign(yaw) * 0.9) * 0.7, -0.5, 0.5) : 0;
     spring(this.tY, tyW * wt, 0.6, 0.9, dt);
-    // turn the whole body when it is far round and he is free to
-    const free = !this.moving && (this.pose === 'idle' || this.pose === 'talk' || this.pose === 'back_away' || this.pose === 'wave');
-    if (free && this.lookPt && Math.abs(yaw) > 1.35) this.faceToward(this.lookPt.x, this.lookPt.z, 1.5 * dt);
+    // (the body turn is attention()'s: idle / talk only)
     this.mulE(B.spine1, 0, this.tY.x * 0.4, 0, 'YXZ'); this.mulE(B.spine2, 0, this.tY.x * 0.6, 0, 'YXZ');
     B.neck.quaternion.premultiply(_q.setFromEuler(_e.set(this.hP.x * 0.35, this.hY.x * 0.35, 0, 'YXZ')));
     B.head.quaternion.premultiply(_q.setFromEuler(_e.set(this.hP.x * 0.65, this.hY.x * 0.65, -this.hY.x * 0.06, 'YXZ')));

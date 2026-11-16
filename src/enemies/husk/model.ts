@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext } from '../../core/types';
-import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
+import { buildRigLods, glowMaterial, RigBuilder, tintOf, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, hlathe, keyLerp, patch, plate, rod, rng, shell, sphere, spow, torus, tube, wedge, xf, type V3 } from '../shared/prims';
 
 export const HUSK_DIM = {
@@ -79,13 +79,66 @@ export function buildHuskTemplate(ctx: GameContext): HuskTemplate {
   return { rig: template, pistons: data.pistons, signs, plates: data.plates };
 }
 
-function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: string; region: string }[] } {
-  const R = rng(417);
-  const pistons: PistonDef[] = [];
-  const plates: { bone: string; region: string }[] = [];
+/**
+ * REVISION 5 — the reference pattern (`holo_tech`) is a recording of a PERSON, not of a unit: a slim, clean human
+ * figure on the HD-7 skeleton (same bones, same rest pose, so the husk locomotion drives it unchanged), with no
+ * shell plates, pistons, tools or sensor. One mesh, one material key ('holo'); the hologram overrides it.
+ */
+const holoFigures = new WeakMap<RigTemplate, RigTemplate>();
+export function huskHoloFigure(machine: RigTemplate): RigTemplate {
+  let t = holoFigures.get(machine);
+  if (t) return t;
+  const b = new RigBuilder();
+  huskSkeleton(b);
   const K = HUSK_DIM;
+  b.mat('holo');
+  /** Elliptic lathe: profile [radius, y], squashed in z (depth / width). */
+  const torso = (bone: string, prof: [number, number][], depth: number, z = 0) => {
+    const g = hlathe(prof, 20);
+    g.applyMatrix4(xf(0, 0, z, 0, 0, 0, 1, 1, depth));
+    b.use(bone).add(g);
+  };
+  const ell = (bone: string, x: number, y: number, z: number, rx: number, ry: number, rz: number, rotX = 0) => {
+    b.use(bone).add(sphere(1, 16, 12), xf(x, y, z, rotX, 0, 0, rx, ry, rz));
+  };
+  // head + neck: an egg, a hint of nose and chin so the facing reads; a slender neck
+  ell('head', 0, 1.705, 0.008, 0.078, 0.108, 0.094);
+  ell('head', 0, 1.655, 0.04, 0.056, 0.05, 0.06);
+  ell('head', 0, 1.7, 0.094, 0.012, 0.022, 0.016);
+  b.use('neck').add(rod([0, 1.49, -0.012], [0, 1.64, 0.0], 0.04, 12, 0.036));
+  // chest (shoulder girdle), waist, pelvis — narrow, shallow
+  torso('spine2', [[0, 1.2], [0.118, 1.21], [0.132, 1.29], [0.15, 1.38], [0.158, 1.44], [0.13, 1.49], [0.06, 1.515], [0, 1.52]], 0.58, -0.012);
+  torso('spine1', [[0, 1.03], [0.112, 1.04], [0.104, 1.12], [0.112, 1.2], [0.11, 1.24], [0, 1.25]], 0.66, -0.006);
+  torso('hips', [[0, 0.84], [0.07, 0.845], [0.128, 0.88], [0.142, 0.94], [0.128, 1.02], [0.114, 1.06], [0, 1.07]], 0.7, 0.0);
+  for (const s of [1, -1]) {
+    const sfx = s > 0 ? 'l' : 'r';
+    const sx = K.shoulderX * s, sy = K.shoulderY, sz = K.shoulderZ;
+    const ey = sy - K.uarm, wy = ey - K.larm;
+    // arm: deltoid cap, upper arm, elbow, forearm, flat hand (palm inward)
+    ell('uarm_' + sfx, sx - 0.006 * s, sy - 0.01, sz, 0.05, 0.058, 0.048);
+    b.use('uarm_' + sfx).add(rod([sx, sy - 0.02, sz], [sx, ey, sz], 0.038, 12, 0.03));
+    ell('larm_' + sfx, sx, ey, sz, 0.03, 0.03, 0.03);
+    b.use('larm_' + sfx).add(rod([sx, ey, sz], [sx, wy + 0.01, sz], 0.031, 12, 0.022));
+    ell('hand_' + sfx, sx, wy - 0.075, sz + 0.004, 0.018, 0.085, 0.042);
+    // leg: thigh (tapering to the knee), knee, shin with a calf, ankle, foot pointing forward
+    const hx = K.hipX * s, ky = K.hipY - K.thigh;
+    b.use('thigh_' + sfx).add(rod([hx, K.hipY + 0.01, -0.004], [hx, ky, 0], 0.058, 14, 0.042));
+    ell('shin_' + sfx, hx, ky, 0.006, 0.043, 0.045, 0.045);
+    const shin = hlathe([[0, K.ankle + 0.01], [0.026, K.ankle + 0.012], [0.032, 0.2], [0.045, 0.34], [0.044, 0.43], [0.04, ky], [0, ky + 0.01]], 14);
+    shin.applyMatrix4(xf(hx, 0, -0.004, 0, 0, 0, 1, 1, 1.05));
+    b.use('shin_' + sfx).add(shin);
+    ell('foot_' + sfx, hx, 0.05, -0.012, 0.033, 0.042, 0.045);
+    ell('foot_' + sfx, hx, 0.034, 0.06, 0.04, 0.032, 0.11);
+  }
+  t = b.build({ holo: new THREE.MeshBasicMaterial({ color: 0x40d8ff }) }, { shadow: [], radius: 1.5, center: new THREE.Vector3(0, 0.95, 0) });
+  holoFigures.set(machine, t);
+  return t;
+}
 
-  // ── skeleton ───────────────────────────────────────────────────────────
+/** The HD-7 skeleton (shared by the machine and the slim reference-pattern hologram). Returns the piston pairs. */
+function huskSkeleton(b: RigBuilder): PistonDef[] {
+  const pistons: PistonDef[] = [];
+  const K = HUSK_DIM;
   b.bone('hips', null, 0, K.hipsY, 0);
   b.bone('spine1', 'hips', 0, 1.07, -0.01);
   b.bone('spine2', 'spine1', 0, 1.22, -0.012);
@@ -137,6 +190,14 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   b.bone('tool_inj', 'hand_r', -K.shoulderX, 0.86, K.shoulderZ);
   b.bone('needle', 'tool_inj', -K.shoulderX, 0.76, K.shoulderZ);
 
+  return pistons;
+}
+
+function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: string; region: string }[] } {
+  const R = rng(417);
+  const pistons: PistonDef[] = huskSkeleton(b);
+  const plates: { bone: string; region: string }[] = [];
+  const K = HUSK_DIM;
   for (const n of ['p_shoulder_l', 'p_shoulder_r', 'p_thigh_l', 'p_thigh_r', 'p_shin_l', 'p_shin_r', 'p_chest_l', 'p_chest_r',
     'p_larm_l', 'p_back', 'p_abdomen', 'p_pelvis', 'p_face', 'p_cranium', 'uarm_l', 'uarm_r', 'larm_l', 'larm_r', 'hand_l', 'head',
     'shin_l', 'shin_r', 'foot_l', 'foot_r']) b.debrisBones.add(n);

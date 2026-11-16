@@ -275,6 +275,7 @@ export function buildQuarters(L: LevelBuild) {
   doorObj.rotation.y = DRY;
   L.root.add(doorObj);
   L.objects.set('quarters_locker', doorObj);
+  L.ctx.physics.addMover?.(doorObj); // REVISION 5.2: holes shot into the closed door swing open with it
   // story markers: where the standing figure goes (facing into the corner), and the curtain that moves
   L.marker('quarters_figure', -8.95, 0, -10.45, PI / 4);
   L.marker('quarters_curtain', BX + 0.5, 1.0, -6.36, -PI / 2);

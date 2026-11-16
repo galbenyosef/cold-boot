@@ -87,7 +87,7 @@ export function buildFitting(L: LevelBuild) {
   const ro = new THREE.Object3D(); ro.name = 'rig_ref'; ro.position.set(REF.x, 0, REF.z); L.root.add(ro); L.objects.set('rig_ref', ro);
   L.screen('fitting_rig_screen', 'terminal_idle', 0.42, 0.28, REF.x - 1.06, 1.37, REF.z, '+x', { tilt: 0, text: 'REF 00 — MASTER\nLOCKED · DO NOT OVERWRITE' });
   // the ring's projection of a walking outline (fitting_rig_wake)
-  const holo = walkingOutline(L, REF.x, 0.22, REF.z);
+  void walkingOutline; // retired, see fitting_rig_wake
 
   // ── supervisor's desk (north-west), the pass, the note ──
   b.at(12.0, 0, -29.4, PI, () => desk(b, 1.6, 0.8, 0.76));
@@ -193,13 +193,13 @@ export function buildFitting(L: LevelBuild) {
   L.vignette('fitting_rig_wake', () => {
     L.sfx('power_up', REF.x, 3.2, REF.z, 0.5, 1.4);
     let spin = 0, t = 0;
-    holo.show(true);
+    // The level's own stick-figure outline is retired (REVISION 5: the pattern is the `holo_tech` actor the story
+    // puts on this rig). Showing both drew a second, mismatched figure through the hologram.
     L.sim((dt) => {
       t += dt;
       spin = Math.min(6, spin + dt * 3);
       refRing.g.rotation.y += spin * dt;
       refRing.mat.emissiveIntensity = refRing.base * Math.min(4, 1 + t * 2) * (0.85 + 0.15 * Math.sin(t * 25));
-      holo.step(dt, Math.min(1, t / 1.2));
       return true;
     });
   });

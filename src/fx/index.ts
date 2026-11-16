@@ -10,7 +10,7 @@
  * coalesced per enemy per frame) and calls sparks()/fluid()/flash() itself.
  */
 import * as THREE from 'three';
-import type { DecalName, FxSystem, GameContext, Quality, Surface } from '../core/types';
+import type { DecalName, FxSystem, GameContext, HitOwner, Quality, Surface } from '../core/types';
 import { Streaks, ST } from './streaks';
 import { Puffs, SHAPE } from './puffs';
 import { Flashes } from './flashes';
@@ -59,7 +59,7 @@ const r = (a: number, b: number) => a + (b - a) * Math.random();
 
 export interface FxStats { streaks: number; puffs: number; debris: number; emitters: number }
 
-export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): FxStats; clearDecals(): void }> {
+export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> }> {
   const root = new THREE.Group();
   root.name = 'fx';
   ctx.scene.add(root);
@@ -89,6 +89,58 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
     if (hit) return streaks.planes.add(hit.normal.x, hit.normal.y, hit.normal.z, hit.point.x, hit.point.y, hit.point.z);
     if (p.y > -0.01) return streaks.planes.add(0, 1, 0, 0, 0, 0); // main floor fallback (y = 0)
     return -1;
+  }
+
+  // ── REVISION 5.2: persistent decals on moving things
+  // A decal on a dynamic blocker (door leaf) is snapped onto the owner's real meshes and rides along with it;
+  // 'transient' owners (wreck boxes, hanging loads, tunnel arms) get none; registered movers (parts whose
+  // surface coincides with a static collider) catch decals within 4 cm of their meshes. Everything else is
+  // static world exactly as before.
+  const _rc = new THREE.Raycaster();
+  const _hits: THREE.Intersection[] = [];
+  const _sp = new THREE.Vector3(), _sn = new THREE.Vector3(), _mb = new THREE.Box3();
+  /** Ray along -normal from `front` m off the point to `back` m behind it onto obj's visible meshes → _sp / _sn. */
+  function snap(obj: THREE.Object3D, point: THREE.Vector3, normal: THREE.Vector3, front: number, back: number): boolean {
+    _rc.ray.origin.copy(point).addScaledVector(normal, front);
+    _rc.ray.direction.copy(normal).negate();
+    _rc.near = 0; _rc.far = front + back;
+    _hits.length = 0;
+    obj.updateWorldMatrix(true, true);
+    _rc.intersectObject(obj, true, _hits);
+    for (const h of _hits) {
+      const m = h.object as THREE.Mesh;
+      if (!m.isMesh || !m.visible) continue;
+      _sp.copy(h.point);
+      if (h.face) _sn.copy(h.face.normal).transformDirection(m.matrixWorld); else _sn.copy(normal);
+      if (_sn.dot(normal) < 0) _sn.negate();
+      if (_sn.dot(normal) < 0.5) _sn.copy(normal); // grazing facet (bevel, tooth edge): keep the hit normal
+      return true;
+    }
+    return false;
+  }
+  /**
+   * Place a persistent decal. `owner`: what the surface belongs to when the caller knows (ray hit on a dynamic
+   * box); `lookup`: ask physics when it does not (false for bullet hits on the static BVH: those are static).
+   */
+  function put(name: DecalName, point: THREE.Vector3, normal: THREE.Vector3, size: number, roll?: number, owner?: HitOwner, lookup = true) {
+    const fromLookup = owner === undefined && lookup;
+    const o = owner ?? (lookup ? ctx.physics.ownerAt?.(point) : undefined);
+    if (o === 'transient') return;
+    if (o) {
+      if (snap(o, point, normal, 0.03, 0.3)) { decals.place(name, _sp, _sn, size, roll, undefined, o); return; }
+      // nothing of the owner behind the blocker face (gap of a closing door, edge of a box): no decal —
+      // unless a floor / ceiling decal merely touched a blocker's foot, then it is the static floor's
+      if (!fromLookup || Math.abs(normal.y) < 0.7) return;
+    } else {
+      const mv = ctx.physics.movers;
+      if (mv) for (let i = 0; i < mv.length; i++) {
+        const m = mv[i];
+        _mb.setFromObject(m).expandByScalar(0.05);
+        if (!_mb.containsPoint(point)) continue;
+        if (snap(m, point, normal, 0.04, 0.04)) { decals.place(name, _sp, _sn, size, roll, undefined, m); return; }
+      }
+    }
+    decals.place(name, point, normal, size, roll);
   }
 
   // ── decal rate limiting (token buckets)
@@ -133,7 +185,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
       _p.set(x, y, z); _n.set(nx, ny, nz);
       const vertical = Math.abs(ny) < 0.5;
       const name: DecalName = type === ST.BLOOD ? (vertical ? 'blood_smear' : 'blood_splat') : (vertical ? 'oil_drip' : 'oil_stain');
-      decals.place(name, _p, _n, vertical ? r(0.22, 0.4) : r(0.1, 0.28), vertical ? NaN : Math.random() * 6.283);
+      put(name, _p, _n, vertical ? r(0.22, 0.4) : r(0.1, 0.28), vertical ? NaN : Math.random() * 6.283);
     }
   };
 
@@ -269,7 +321,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
   // ── impacts by surface
   let flashBudget = 1;
   const _dust = new THREE.Color();
-  function impact(point: THREE.Vector3, normal: THREE.Vector3, surface: Surface) {
+  function impact(point: THREE.Vector3, normal: THREE.Vector3, surface: Surface, owner?: HitOwner) {
     _n.copy(normal).normalize();
     const S = streaks.s;
     const sp = streaks.planes.add(_n.x, _n.y, _n.z, point.x, point.y, point.z);
@@ -292,7 +344,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
       case 'metal':
       case 'robot': {
         sparksImpl(point, _n, r(8, 16), r(4.5, 7.5), true, 1.05);
-        decals.place('bullet_metal', point, normal, r(0.06, 0.09));
+        put('bullet_metal', point, normal, r(0.06, 0.09), undefined, owner, false);
         _dust.setRGB(0.42, 0.42, 0.43);
         _n.copy(normal).normalize();
         dustBurst(point, _n, 3, 0.22, _dust, 0.22, 2.2, sp);
@@ -301,7 +353,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
         break;
       }
       case 'concrete': {
-        decals.place('bullet_concrete', point, normal, r(0.08, 0.12));
+        put('bullet_concrete', point, normal, r(0.08, 0.12), undefined, owner, false);
         _dust.setRGB(0.5, 0.47, 0.43);
         dustBurst(point, _n, 6, 0.35, _dust, 0.42, 3.2, sp);
         smokeImpl(point, 1, 0.3, _dust, 0.1, 2.2, 0.15, 0.5, _n, 0.5, sp);
@@ -311,28 +363,28 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
         break;
       }
       case 'glass': {
-        decals.place('bullet_metal', point, normal, r(0.04, 0.06));
+        put('bullet_metal', point, normal, r(0.04, 0.06), undefined, owner, false);
         spawnChips(10, 0.55, 0.62, 0.65, true);
         _dust.setRGB(0.55, 0.58, 0.6);
         dustBurst(point, _n, 2, 0.15, _dust, 0.12, 1.5, sp);
         break;
       }
       case 'rubber': {
-        decals.place('bullet_concrete', point, normal, r(0.05, 0.07));
+        put('bullet_concrete', point, normal, r(0.05, 0.07), undefined, owner, false);
         _dust.setRGB(0.12, 0.12, 0.12);
         dustBurst(point, _n, 3, 0.18, _dust, 0.3, 1.8, sp);
         spawnChips(3, 0.05, 0.05, 0.05, false);
         break;
       }
       case 'flesh': {
-        decals.place('blood_splat', point, normal, r(0.12, 0.25));
+        put('blood_splat', point, normal, r(0.12, 0.25), undefined, owner, false);
         fluidImpl(point, normal, 6, true);
         break;
       }
     }
   }
 
-  ctx.events.on('bullet:impact', (e) => impact(e.point, e.normal, e.surface));
+  ctx.events.on('bullet:impact', (e) => impact(e.point, e.normal, e.surface, e.owner));
 
   // ── arcs
   const arcTick = (s: ArcSlot, dt: number) => {
@@ -354,7 +406,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
     ctx, streaks, puffs, resetStreak, resetPuff, sparks: sparksImpl, glow, floorPlane,
     flash: (p, c, i, d, dist) => { flashes.fire(p, c, i, d, dist); },
     arc: (a, b, d) => fx.arc(a, b, d),
-    decal: (name, p, n, size) => decals.place(name, p, n, size),
+    decal: (name, p, n, size) => put(name, p, n, size),
     qmul,
   });
 
@@ -380,10 +432,10 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
       fluidImpl(point, direction, count, false);
     },
 
-    decal(name: DecalName, point: THREE.Vector3, normal: THREE.Vector3, size = 0.3) {
+    decal(name: DecalName, point: THREE.Vector3, normal: THREE.Vector3, size = 0.3, owner?: HitOwner) {
       const vertical = Math.abs(normal.y) < 0.5;
       const upright = vertical && (name === 'oil_drip' || name === 'blood_smear' || name === 'water_stain' || name === 'handprint');
-      decals.place(name, point, normal, size, upright ? NaN : Math.random() * Math.PI * 2);
+      put(name, point, normal, size, upright ? NaN : Math.random() * Math.PI * 2, owner);
     },
 
     flash(point: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, duration: number, distance = 6) {
@@ -418,8 +470,8 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
         }
       }
       if (floorPl < 0 && _p.y > -0.01 && _p.y < 3 * s) floorPl = streaks.planes.add(0, 1, 0, 0, 0, 0);
-      if (best && best.distance < 2.5 * s) decals.place('scorch', best.point, best.normal, r(2.0, 2.6) * s);
-      else if (_p.y < 2.5 * s && _p.y > -0.01) { _q.set(_p.x, 0, _p.z); decals.place('scorch', _q, _up, 2.2 * s); }
+      if (best && best.distance < 2.5 * s) put('scorch', best.point, best.normal, r(2.0, 2.6) * s);
+      else if (_p.y < 2.5 * s && _p.y > -0.01) { _q.set(_p.x, 0, _p.z); put('scorch', _q, _up, 2.2 * s); }
 
       flashes.fire(_p, 0xff9248, 70 * s * s, 0.6 + 0.25 * s, 12 * s);
       glow(_p, 1.3 * s, 3.2, 0.14, 1.0, 0.6, 0.3);
@@ -494,6 +546,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
 
     update(dt: number) {
       if (!warmed) { warmed = true; decals.warm(false); debris.warm(false); arcs.mesh.visible = false; }
+      decals.update();
       const cam = ctx.camera;
       const h = ctx.renderer?.domElement?.height || innerHeight;
       pixelScale.value = h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) * 0.5));
@@ -517,6 +570,8 @@ export async function createFx(ctx: GameContext): Promise<FxSystem & { stats(): 
       return { streaks: streaks.count, puffs: puffs.count, debris: debris.activeCount, emitters: emitters.count };
     },
     clearDecals() { decals.clear(); },
+    /** Checks / debug: live decals with their anchors. */
+    decalList() { return decals.debugList(); },
   };
 
   debris.onImpact = (p, n, speed) => {

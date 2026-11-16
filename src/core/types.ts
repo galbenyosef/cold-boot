@@ -118,8 +118,11 @@ export interface GameEvents {
   'weapon:empty': { weapon: WeaponId };
   'weapon:reload': { weapon: WeaponId; duration: number };
   'weapon:switched': { weapon: WeaponId };
-  /** A bullet / pellet hit static world geometry. */
-  'bullet:impact': { point: THREE.Vector3; normal: THREE.Vector3; surface: Surface };
+  /**
+   * A bullet / pellet hit static world geometry. `owner` (REVISION 5.2, optional): set when the ray hit a
+   * dynamic box (door leaf, moving / temporary thing) — see HitOwner; absent = static world.
+   */
+  'bullet:impact': { point: THREE.Vector3; normal: THREE.Vector3; surface: Surface; owner?: HitOwner };
 
   'enemy:spawned': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:woke': { id: number; type: EnemyType; position: THREE.Vector3 };
@@ -183,7 +186,18 @@ export interface RayHit {
   normal: THREE.Vector3;
   distance: number;
   surface: Surface;
+  /** REVISION 5.2: set only when a dynamic box was hit (its resolved `owner`, default 'transient'). */
+  owner?: HitOwner;
 }
+
+/**
+ * REVISION 5.2: what a surface point belongs to, for persistent decals (bullet holes, blood, scorch).
+ *  - an Object3D: a moving part (door leaf); a decal placed there is snapped onto its meshes, follows its
+ *    world transform, hides while it (or a parent) is hidden and is dropped once it leaves the scene;
+ *  - 'transient': something that moves / vanishes with no anchor (wreck boxes, hanging loads, tunnel arms):
+ *    impacts there leave no persistent decal (sparks etc. still play).
+ */
+export type HitOwner = THREE.Object3D | 'transient';
 
 /** A vertical capsule. `position` is the FEET position (bottom of capsule). */
 export interface CapsuleBody {
@@ -201,6 +215,16 @@ export interface DynamicBox {
   enabled: boolean;
   surface: Surface;
   remove(): void;
+  /**
+   * REVISION 5.2: what this blocker stands for (see HitOwner) — a fixed owner or one resolved per hit point.
+   * Unset = 'transient': a dynamic box is by definition something that moves or goes away.
+   */
+  owner?: HitOwner | ((point: THREE.Vector3) => HitOwner);
+  /**
+   * A low obstacle a body walks OVER instead of being stopped by (robot wrecks): a capsule touching it whose feet
+   * are at most a step (0.55 m) below its top is lifted onto the top. Higher than that, it blocks like any box.
+   */
+  walkable?: boolean;
 }
 
 export interface Physics {
@@ -219,6 +243,19 @@ export interface Physics {
   resolveSphere(center: THREE.Vector3, radius: number): boolean;
   /** Axis-aligned dynamic blocker (doors). Toggle `enabled`, or mutate `box` in place. */
   addBox(box: THREE.Box3, surface?: Surface): DynamicBox;
+  /**
+   * REVISION 5.2: owner of the enabled dynamic box a surface point lies on (within ~1.5 cm), or undefined
+   * (static world). Used by decals that do not come from a ray (fluid landing, scorch).
+   */
+  ownerAt?(point: THREE.Vector3): HitOwner | undefined;
+  /**
+   * REVISION 5.2: register a moving part whose visible surface coincides with a STATIC collider (a swinging
+   * locker door in front of its locker's collider, a drop-down grille, a rattling lift cab). Decals placed
+   * within ~4 cm of its meshes follow it. Returns an unregister function.
+   */
+  addMover?(obj: THREE.Object3D): () => void;
+  /** REVISION 5.2: registered movers (see addMover). */
+  readonly movers?: readonly THREE.Object3D[];
   readonly gravity: number;
 }
 
@@ -428,7 +465,11 @@ export type ScreenKind =
   | 'vitals'           // medical monitor traces
   | 'door_cycling'     // REVISION 5: small amber panel, "CYCLING"
   | 'door_locked'      // small red panel
-  | 'door_open';       // small green panel
+  | 'door_open'        // small green panel
+  // REVISION 6 (the core's two palm scanners). `text` of the option cards = the unit count, e.g. "28".
+  | 'choice_stop'      // option card STOP (amber): pictogram of the units going dark + the consequence
+  | 'choice_command'   // option card COMMAND (plain white): the units awake, turned to one supervisor
+  | 'palm';            // palm plate. `text` = "<amber|white>|<off|standby|idle|scan|done|fail>|<LABEL>|<scan seconds>"
 
 export type SignStyle = 'label' | 'warning' | 'danger' | 'directional' | 'stencil';
 
@@ -458,8 +499,11 @@ export interface FxSystem extends Updatable {
   smoke(point: THREE.Vector3, opts?: { count?: number; size?: number; color?: THREE.ColorRepresentation; rise?: number; life?: number }): void;
   /** Dark oil / hydraulic fluid spray (robot "blood"). */
   fluid(point: THREE.Vector3, direction: THREE.Vector3, count?: number): void;
-  /** Persistent surface decal (ring buffer, oldest recycled). */
-  decal(name: DecalName, point: THREE.Vector3, normal: THREE.Vector3, size?: number): void;
+  /**
+   * Persistent surface decal (ring buffer, oldest recycled). REVISION 5.2: `owner` = what the surface belongs
+   * to (HitOwner); when omitted it is looked up (dynamic boxes, registered movers), else static world.
+   */
+  decal(name: DecalName, point: THREE.Vector3, normal: THREE.Vector3, size?: number, owner?: HitOwner): void;
   /** Short-lived dynamic light flash (muzzle, explosion, electric arc). Pooled. */
   flash(point: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, duration: number, distance?: number): void;
   /** Crackling electric arc between two points for `duration` seconds. */
@@ -686,11 +730,35 @@ export interface Player extends Updatable {
   setCarry(velocity: THREE.Vector3 | null): void;
   /** REVISION 4: apply only weapons, ammo, health and flashlight from a save (level-to-level carry). No teleport, no pickups. */
   applyLoadout(save: PlayerSave): void;
+  /**
+   * REVISION 6.1: a palm scan — the free LEFT hand laid flat on a plate for `seconds`. Starts only when the player
+   * is alive, in control, the game is 'playing' and they stand within 1.0 m of the plate (horizontal), on its front
+   * side; otherwise resolves 'refused' at once and nothing happens. While it runs the weapon is lowered (a reload is
+   * cancelled), the view eases onto the plate and look input is damped; movement stays free. Walking more than
+   * 1.3 m away, taking damage, dying, a pause / any state other than 'playing', losing control, a teleport or
+   * `cancelPalm()` ends it with 'cancelled'. Releasing the key does nothing. Not persisted.
+   */
+  palm(plate: PalmPlate, seconds: number): Promise<PalmResult>;
+  /** REVISION 6.1: abandon the running palm scan (no-op when none). */
+  cancelPalm(): void;
+  /** REVISION 6.1: progress 0..1 of the running palm scan; -1 when no scan is running. */
+  readonly palmProgress: number;
   /** Checkpoints: plain-JSON snapshot of everything the player module owns (incl. collected pickups). */
   snapshot(): PlayerSave;
   /** Restore a snapshot: teleport, health, weapons/ammo, keys, flashlight; remove already-collected pickups. Emits no pickup events. */
   restore(save: PlayerSave): void;
 }
+
+/** REVISION 6.1: where a palm goes. All vectors in world space; `normal` and `up` are unit and perpendicular. */
+export interface PalmPlate {
+  /** Centre of the plate's surface. */
+  position: THREE.Vector3;
+  /** Outward normal of the surface. */
+  normal: THREE.Vector3;
+  /** The direction along the surface the fingers point: away from the user standing in front of it. */
+  up: THREE.Vector3;
+}
+export type PalmResult = 'done' | 'cancelled' | 'refused';
 
 /** JSON-serialisable player state for checkpoints. */
 export interface PlayerSave {
@@ -772,8 +840,16 @@ export interface EnemyActor {
   moveTo(point: THREE.Vector3, speed?: number): Promise<void>;
   /** Dormant pose names as in EnemySpawn.pose, plus 'idle' (standing awake). Blends over ~0.5 s. */
   setPose(pose: string): void;
-  /** Head/sensor tracks a world point (null = release). */
-  lookAt(point: THREE.Vector3 | null): void;
+  /**
+   * Head/sensor tracks a world point (null = release).
+   * REVISION 6.1 (human actors): attention is `auto` by default — he looks at the player whenever he can see them
+   * (≤ 16 m, through glass, not through walls / closed doors), otherwise at rest. `lookAt(point)` PINS a frozen point,
+   * `lookAt(object)` pins the object's live world position, `lookAt(null)` returns to `auto`. Passing the player's
+   * own `player.eye` vector is the same as `auto`. Other actor types: an object is read once (its position now).
+   */
+  lookAt(point: THREE.Vector3 | THREE.Object3D | null): void;
+  /** REVISION 6.1 (human actors): 'auto' (default; = lookAt(null)) or 'rest' (ignore the player until set back). */
+  setLookMode?(mode: 'auto' | 'rest'): void;
   /** Eye / sensor glow on or off. */
   setEyes(on: boolean): void;
   /** REVISION 4: animate speech (jaw / head bob / small gestures) for this many seconds. No-op for types that cannot. */

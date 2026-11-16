@@ -251,7 +251,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       // the player (capsule r ≈ 0.35) standing in / on it: try again later
       const pp = world.playerPos, r = 0.38;
       if (pp.x > b.min.x - r && pp.x < b.max.x + r && pp.z > b.min.z - r && pp.z < b.max.z + r && pp.y < b.max.y + 0.05 && pp.y > b.min.y - 1.8) continue;
-      try { e.wreckBody = ctx.physics.addBox(b, 'robot'); } catch { e.wreckChecked = -1; }
+      try { e.wreckBody = ctx.physics.addBox(b, 'robot'); e.wreckBody.walkable = true; } catch { e.wreckChecked = -1; } // walked over, not into
     }
   };
 
@@ -378,7 +378,17 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
           return new Promise<void>((resolve) => e.puppetMove(point, speed, resolve));
         },
         setPose(p) { if (!removed) e.puppetPose(p); },
-        lookAt(p) { if (!removed) e.puppetLook(p); },
+        lookAt(p) {
+          if (removed) return;
+          // humans keep an object live (REVISION 6.1); the machines take its position now
+          if (p && (p as THREE.Object3D).isObject3D) {
+            if (atype === 'human') { (e as unknown as { puppetLookObject(o: THREE.Object3D): void }).puppetLookObject(p as THREE.Object3D); return; }
+            e.puppetLook((p as THREE.Object3D).getWorldPosition(new THREE.Vector3()));
+            return;
+          }
+          e.puppetLook(p as THREE.Vector3 | null);
+        },
+        setLookMode(m) { if (!removed) e.puppetLookMode(m); },
         setEyes(on) { if (!removed) e.puppetEyes(on); },
         speak(seconds) { if (!removed) e.puppetSpeak(seconds); },
         setGait(gait) { if (!removed) e.puppetGait(gait); },

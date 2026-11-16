@@ -174,6 +174,7 @@ export function buildGen(L: LevelBuild) {
   kb.rod('steel_raw', 0.03, -0.06, 0.02, 0.0, -0.165, 0.085, 0.0025, 4);         // tag wire
   const lockout = kb.build(false);
   lockout.name = 'gen_lockout';
+  L.ctx.physics.addMover?.(lockout); // REVISION 5.2: a decal on the hasp falls off with it
   {
     const tag = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.178), tagMat);
     tag.position.set(0.0, -0.25, 0.085); tag.rotation.set(0.12, 0.25, 0.09);

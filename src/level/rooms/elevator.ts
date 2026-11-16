@@ -103,6 +103,7 @@ export function buildCab(L: LevelBuild, o: CabOpts) {
   for (const m of cab.children as THREE.Mesh[]) m.castShadow = true;
   host.add(cab);
   L.objects.set('elevator_cab', cab);
+  L.ctx.physics.addMover?.(cab); // REVISION 5.2: decals on the cab / pedestal rattle with it
   // pedestal top: screen + button (children of the cab so they rattle with it)
   const ped = new THREE.Group();
   ped.position.set(1.85, 0, -62.35); ped.rotation.y = -0.5;

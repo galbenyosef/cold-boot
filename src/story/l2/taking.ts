@@ -56,7 +56,8 @@ export abstract class Taking extends Ghosted {
     this.once('line_running');
     this.once('hall_mid'); // the hall ambush can no longer be sprung
     // Everything north of the partition is out of the player's world: gone, without a trace.
-    for (const g of NORTH_GROUPS) this.removeSilently(g);
+    // (they are still units on the line: not counted as gone)
+    for (const g of NORTH_GROUPS) this.removeSilently(g, false);
     w.play('lever', at, 1);
     w.vignette('relay_arc');
     w.play('contactor_arc', at, 1);
@@ -88,8 +89,12 @@ export abstract class Taking extends Ghosted {
   }
 
   /**
-   * The arc interlock: the relay door stays shut until the room's guard and the hall ambush are dead, so no
-   * fight can follow the player into the scene. Fail-safe at 45 s: survivors nobody can see are removed.
+   * The arc interlock: the relay door stays shut until nothing hostile is left IN the relay room (its guard, the
+   * skitters, and whatever of the hall ambush followed the player in), so no fight follows the player into the
+   * scene. They are roused every second: the gate never waits on a machine asleep or looking the other way. What
+   * is left of the ambush OUTSIDE the locked door cannot get in and is not waited for — it is roused too and meets
+   * the player in the hall when the door opens (the trap only latches once the spine is quiet).
+   * Fail-safe, last resort only: after 45 s, survivors in the room nobody can see are removed.
    */
   private async relayHold(): Promise<void> {
     if (this.f.relayClear) return;
@@ -98,15 +103,25 @@ export abstract class Taking extends Ghosted {
     await this.hold(2);
     if (w.spawns('g2_relay').length) this.engage('g2_relay', 'both', 0.5);
     await this.hold(1.5);
-    const seen = (g: string) => this.members(g).some((e) => !this.notLookingAt(this.tmp2.copy(e.position).setY(e.position.y + 1).clone(), 60));
+    const inRelay = (e: { position: THREE.Vector3 }) => { try { return this.ctx.level.roomAt(e.position)?.id === 'relay'; } catch { return false; } };
+    const left = (g: string) => this.members(g).filter(inRelay);
+    const seen = (g: string) => left(g).some((e) => !this.notLookingAt(this.tmp2.copy(e.position).setY(e.position.y + 1).clone(), 60));
+    let nextRouse = 0;
     await this.until(() => {
-      if (groups.every((g) => w.alive(g) === 0)) return true;
-      if (this.now - t0 > 45) for (const g of groups) if (w.alive(g) > 0 && !seen(g)) this.removeSilently(g);
+      if (groups.every((g) => left(g).length === 0)) return true;
+      if (this.now >= nextRouse) { nextRouse = this.now + 1; for (const g of groups) this.rouse(g); }
+      if (this.now - t0 > 45) for (const g of groups) if (left(g).length > 0 && !seen(g)) this.removeSilently(g);
       return false;
     });
     await this.hold(0.8);
     this.stamp('relay_clear');
     if (this.once('relay_clear')) w.play('door_unlock', V(10, 1.4, -61), 0.7); // phase D2: the door releases
+    // The rest of the ambush (outside) comes for the player. Whatever is left when the bulkhead latches is behind
+    // sealed doors for good (the player never comes back this way before the ride): removed then, unseen.
+    for (const g of groups) if (w.alive(g) > 0) this.S(`hunt_${g}`, async () => {
+      await this.fightOut(g, 60, { stop: () => this.f.trapped });
+      if (this.f.trapped && w.alive(g) > 0) this.removeSilently(g);
+    });
     this.S('dawdle', () => this.dawdle());
   }
 
@@ -123,7 +138,12 @@ export abstract class Taking extends Ghosted {
     if (this.f.trapped || this.tomas !== t) return;
     this.tomasSpot = 'door';
     this.place(t, TOMAS_AT_DOOR, FACE_WEST);
+    // A glance at his own door, then back to whoever he can see (REVISION 6.1: attention is `auto` unless pinned).
     this.lookAt(t, V(-17, 1.5, -46));
+    this.S('door_glance', async () => {
+      await this.hold(1.5);
+      if (this.tomas === t && this.tomasSpot === 'door' && !this.f.trapped) this.lookAt(t, null);
+    });
   }
 
   /** The player takes their time: three lines that claim nothing they can disprove, then he stops asking. */
@@ -150,12 +170,22 @@ export abstract class Taking extends Ghosted {
     return true;
   }
 
+  private rouseSpine(): void {
+    try {
+      for (const e of this.ctx.enemies.all) {
+        if (!e.alive || e.state !== 'idle') continue;
+        if (this.region('spine_south', e.position) || this.region('trap', e.position)) this.ctx.enemies.alertNoise(e.position, 0.4);
+      }
+    } catch { /* ignore */ }
+  }
+
   /** The bulkhead latches behind the player; only then does the scene clock start. */
   protected async trap(): Promise<void> {
     if (this.f.trapped) return;
     await this.until(() => this.f.power && this.live);
     for (;;) {
-      await this.until(() => this.ctx.state === 'playing' && this.inTrapTrigger() && this.spineQuiet());
+      // (a machine idling in the spine is roused: the latch never waits on one that has not seen the player)
+      await this.until(() => this.ctx.state === 'playing' && this.inTrapTrigger() && (this.spineQuiet() || (this.rouseSpine(), false)));
       const ok = await this.closeBehind('d2_bulkhead_s', () => this.pos.z > -55.6 && this.region('trap'));
       if (ok) break;
       // Wrong side (they sprinted back through the closing leaves): reopened — re-arm when they come again.
@@ -177,7 +207,7 @@ export abstract class Taking extends Ghosted {
 
   /** Through thick glass, on its own clock. He does not scream a speech. */
   private async windowScene(): Promise<void> {
-    const w = this.w, eye = this.ctx.player.eye;
+    const w = this.w;
     const T0 = this.now, T = () => this.now - T0;
     const at = (t: number) => this.hold(Math.max(0, t - T()));
     this.beat('l2_window');
@@ -212,7 +242,7 @@ export abstract class Taking extends Ghosted {
           // Palms on the glass, half a metre from it, face to face.
           this.place(t, mark, FACE_WEST);
           this.pose(t, 'bang_glass:0.5');
-          this.lookAt(t, eye);
+          this.lookAt(t, null); // off the hall door: at the player, through the glass (auto)
         }
         await this.hold(0.12);
       }
@@ -247,6 +277,9 @@ export abstract class Taking extends Ghosted {
       if (Math.hypot(t.position.x - mark.x, t.position.z - mark.z) > 0.3) this.place(t, mark, FACE_WEST);
       this.pose(t, 'held:file');
       this.tomasSpot = 'held';
+      // Grabbed (whether or not he ever reached a window): no longer pinned to the hall door — held and on the walk
+      // out his head and eyes go to the player.
+      this.lookAt(t, null);
     }
     this.held = true;
     this.stamp('held');
@@ -439,23 +472,11 @@ export abstract class Taking extends Ghosted {
   /** Until both are dead. An escort the player cannot get at for 60 s is removed. Then the mouth reopens (G2). */
   protected async escortFight(): Promise<void> {
     if (this.f.escortDead) return;
-    const t0 = this.now;
     this.director.setMood('tension');
     await this.hold(1.0);
-    // They know where the player is (they came back for them): never two units idling in the hall.
-    for (let i = 0; i < 3 && this.w.active() === 0 && this.w.alive('g2_escort') > 0; i++) {
-      for (const e of this.members('g2_escort')) { try { this.ctx.enemies.alertNoise(e.position, 3); } catch { /* ignore */ } }
-      await this.hold(1.0);
-    }
-    const reachable = () => this.members('g2_escort').some((e) => this.distTo(e.position) < 8 || this.los(this.tmp2.copy(e.position).setY(e.position.y + 1.2).clone()));
-    let lost = 0, last = this.now;
-    await this.until(() => {
-      if (this.w.alive('g2_escort') === 0) return true;
-      const dt = this.now - last; last = this.now;
-      lost = reachable() ? 0 : lost + dt;
-      if (lost > 60 || this.now - t0 > 240) this.removeSilently('g2_escort');
-      return false;
-    });
+    // They know where the player is (they came back for them): never two units idling in the hall — roused every
+    // second until dead. Last resort: an escort out of the player's reach and sight for 60 s is removed.
+    await this.fightOut('g2_escort', 60);
     await this.hold(1.2);
     this.stamp('escort_dead');
     this.once('escort_dead'); // phase G2: LOADING INTERLOCK releases, the mouth opens
