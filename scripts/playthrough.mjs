@@ -1429,44 +1429,67 @@ async function runLevel2() {
     // ── abandoned scans (on the OTHER plate: the real path each time) choose nothing ──
     {
       const oid = otherId, Q = OTHER;
-      const startScan = async (label) => {
+      // Everything timing-sensitive runs IN THE PAGE on the scan's own progress: the cancelling action, the snapshot of
+      // the hand on the plate and the reading of the plate's (1.8 s) SCAN INCOMPLETE state. This script's wall clock —
+      // slow under a loaded machine — no longer decides whether the 1.6 s scan is cancelled in time.
+      const scanCase = async (label, action, want) => {
         await tp(Q.at[0], 0, Q.at[1], Q.yaw, -10); await wait(500);
         const f = await ev(() => window.__game.player.focus?.id ?? null); if (f !== oid) bad(`${label}: standing at the plate the prompt is "${f}", expected ${oid}`);
-        const r = await use(oid); await wait(450);
+        await ev(([obj, action]) => {
+          const g = window.__game;
+          const R = window.__scan = { started: false, down: null, calm: null, sawFail: false, ended: false, acted: false };
+          let endedAt = null, frames = 0;
+          const act = () => {
+            R.acted = true;
+            if (action === 'walk') g.player.debug.move(-1, 0, false);
+            else if (action === 'hurt') { g.debug.god = false; g.player.damage(3); g.debug.god = true; }
+            else if (action === 'pause') { g.setState('paused'); setTimeout(() => g.setState('playing'), 200); }
+            else if (action === 'note') g.interactables.use(g.interactables.get('term2_core'));
+            else if (action === 'cancel') g.player.cancelPalm();
+          };
+          const tick = () => {
+            frames++;
+            const p = g.player.palmProgress;
+            if (p >= 0) R.started = true;
+            if (p >= 0.45 && !R.down) { R.down = g.player.debug.palm(); try { R.calm = g.story.debugState.calm; } catch { /* ignore */ } }
+            if (p >= 0.6 && !R.acted) act();
+            if (R.started && p < 0) R.ended = true;
+            const m = g.level.screen(obj);
+            if (m && /\|fail\|/.test(m.userData.screenText || '')) R.sawFail = true;
+            if (R.ended) { endedAt ??= performance.now(); if (R.sawFail || performance.now() - endedAt > 2500) { R.finished = true; return; } }
+            if (!R.started && frames > 600) { R.finished = true; return; }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }, [Q.obj, action]);
+        const r = await use(oid);
+        if (action === 'walk' && !fast) await cshot(`33-${choice}-run-scan-other-plate-hand-down`);
+        let R = null;
+        for (const end = Date.now() + 20000; Date.now() < end; ) { R = await ev(() => window.__scan); if (R?.finished) break; await wait(150); }
+        if (action === 'walk') await ev(() => window.__game.player.debug.move(0, 0, false));
+        if (r !== 'ok' || !R?.started) bad(`${label}: the scan did not start (${r}, ${JSON.stringify(R)})`);
         const pm = await palm(); const c = await core();
-        if (r !== 'ok' || !pm.active || c.scanning !== (oid === 'core_shutdown' ? 'shutdown' : 'rewrite')) bad(`${label}: the scan did not start (${r}, ${JSON.stringify(pm)}, scanning "${c.scanning}")`);
-        return pm;
-      };
-      const ended = async (label, want) => {
-        await wait(350);
-        const pm = await palm(); const c = await core(); const pl = await screenOf(Q.obj);
-        console.log(`  ${label}: palm ${pm.active ? 'active' : 'ended'}, scans ${JSON.stringify(c.scans)}, plate "${pl?.text}", choice "${await chosen()}"`);
+        console.log(`  ${label}: palm ${pm.active ? 'active' : 'ended'}, scans ${JSON.stringify(c.scans)}, plate fail seen ${R?.sawFail}, choice "${await chosen()}"`);
         if (pm.active || c.scanning) bad(`${label}: the scan was not cancelled`);
-        if (c.scans.abandoned !== want) bad(`${label}: abandoned scans ${c.scans.abandoned}, expected ${want}`);
+        if (want !== null && c.scans.abandoned !== want) bad(`${label}: abandoned scans ${c.scans.abandoned}, expected ${want}`);
         if (await chosen()) bad(`${label}: an abandoned scan chose`);
-        if (!/\|fail\|/.test(pl?.text ?? '')) bad(`${label}: the plate does not read SCAN INCOMPLETE (${pl?.text})`);
+        if (want !== null && !R?.sawFail) bad(`${label}: the plate never read SCAN INCOMPLETE`);
         const en2 = await ev((oid) => window.__game.interactables.get(oid)?.enabled, oid); if (!en2) bad(`${label}: the plate is not re-armed`);
+        return R;
       };
       const a0 = (await core()).scans.abandoned;
       // 1. walk away (real movement, backwards from the plate)
-      { const pm = await startScan('walk away'); if (!(pm.lower > 0.5)) bad(`weapon not lowered during the scan (lower ${pm.lower})`);
-        // The walk-away is armed IN THE PAGE on the scan's own progress (not on this script's wall clock): under a loaded
-        // machine a slow screenshot used to let the 1.6 s scan run out and choose.
-        await ev(() => { const g = window.__game; const tick = () => { const p = g.player.palmProgress; if (p < 0) return; if (p >= 0.6) { g.player.debug.move(-1, 0, false); return; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
-        await wait(250); const down = await palm();
-        if (!down.down || !down.contact || Math.max(...down.contact.map(Math.abs)) > 3) bad(`the hand does not lie on the plate during the scan (${JSON.stringify(down)})`);
-        if (!fast) await cshot(`33-${choice}-run-scan-other-plate-hand-down`);
-        for (const end = Date.now() + 8000; Date.now() < end; ) { if (!(await palm()).active) break; await wait(100); }
-        await wait(300); await ev(() => window.__game.player.debug.move(0, 0, false));
-        await ended('walk away', a0 + 1); }
+      { const R = await scanCase('walk away', 'walk', a0 + 1); const down = R?.down;
+        if (!down || !(down.lower > 0.5)) bad(`weapon not lowered during the scan (lower ${down?.lower})`);
+        if (!down || !down.down || !down.contact || Math.max(...down.contact.map(Math.abs)) > 3) bad(`the hand does not lie on the plate during the scan (${JSON.stringify(down)})`); }
       // 2. hurt
-      { await startScan('hurt'); await ev(() => { const g = window.__game; g.debug.god = false; g.player.damage(3); g.debug.god = true; }); await ended('hurt', a0 + 2); }
+      await scanCase('hurt', 'hurt', a0 + 2);
       // 3. pause
-      { await startScan('pause'); await ev(() => window.__game.setState('paused')); await wait(200); await ev(() => window.__game.setState('playing')); await ended('pause', a0 + 3); }
+      await scanCase('pause', 'pause', a0 + 3);
       // 4. a note opens
-      { await startScan('note'); await ev(() => { const g = window.__game; g.interactables.use(g.interactables.get('term2_core')); }); await wait(300); await ended('note', a0 + 4); await closeNote(); }
+      { await scanCase('note', 'note', a0 + 4); await closeNote(); }
       // no checkpoint is written during a scan, and nothing of it is persisted
-      { await startScan('checkpoint'); const d = await dbg(); if (d.calm) bad('the story is "calm" (may save) during a palm scan'); await ev(() => window.__game.player.cancelPalm()); await wait(300); }
+      { const R = await scanCase('checkpoint', 'cancel', null); if (R?.calm) bad('the story is "calm" (may save) during a palm scan'); }
     }
     // ── hold to the end on the chosen plate: only completion chooses ──
     await tp(P.at[0], 0, P.at[1], P.yaw, -10); await wait(1500);
