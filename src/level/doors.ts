@@ -44,7 +44,30 @@ export interface DoorSpec {
   auto?: boolean;
   /** Initial status override (see Door.setStatus). */
   status?: 'cycling' | 'dark' | null;
+  /**
+   * Std leaves only: 'industrial' (default — pressed steel panels, chevron band, pull bar) or 'habitat' (stage 3a:
+   * a plain painted / veneered / glazed leaf with moulded panels, a lever pull, a kick plate — no chevrons). Frames are
+   * the same in both (a level dresses them with casings).
+   */
+  style?: 'industrial' | 'habitat';
+  /** Habitat leaves: a narrow vision panel at eye height in each leaf (dark glazing in a brass bead). */
+  vision?: boolean;
+  /** Habitat leaves without a vision panel: brass name plate on the +z / −z face (eye height, one leaf per face). */
+  plates?: [string | null, string | null];
+  /**
+   * Extra leaf detail, called once per leaf after its geometry (leaf-local: x across the opening — the leaf spans
+   * side < 0 ? [−w/2 − 0.02, 0] : [0, w/2 + 0.02] — y up from the sill, z through the door; keep |z| ≤ 0.075).
+   * Rides with the leaf (notes, drawings taped to a door).
+   */
+  leafDetail?: (b: Builder, side: -1 | 1, w: number, h: number) => void;
 }
+
+/**
+ * Per-level door styling: a level (or its dressing) registers `fn` before the doors are built; `makeDoors` merges
+ * what it returns into each spec (null = leave the spec as it is). Levels without a styler build exactly as before.
+ */
+const stylers = new WeakMap<LevelBuild, (s: DoorSpec) => Partial<DoorSpec> | null>();
+export function setDoorStyler(L: LevelBuild, fn: (s: DoorSpec) => Partial<DoorSpec> | null) { stylers.set(L, fn); }
 
 export type DoorStatusShown = 'open' | 'locked' | 'cycling' | 'dark';
 
@@ -362,6 +385,7 @@ export class DoorImpl implements Door {
     const L = this.L, sp = this.spec, { w, h } = this;
     const mat: Mat = sp.leafMat ?? 'wall_panel_dark';
     const finish = (b: Builder) => { const g = b.build(); root.add(g); this.leaves.push(g); };
+    if (sp.kind === 'std' && sp.style === 'habitat' && sp.leafStyle !== 'sheet') { this.buildHabitatLeaves(root, mat); return; }
     if (sp.kind === 'std') {
       const sheet = sp.leafStyle === 'sheet';
       for (const side of [-1, 1]) {
@@ -434,6 +458,73 @@ export class DoorImpl implements Door {
     mk('upper', 1.25, h + 0.25, 1.3);
     mk('lower', -0.3, 1.25, 1.2);
   }
+
+  /**
+   * Habitat std leaves (stage 3a): the slab in the leaf material; glazed leaves get oak rails and a meeting stile
+   * with a brass pull, solid leaves a raised moulding round two panels, a brass lever, a kick plate, an optional
+   * vision panel and name plate. Same leaf box as the industrial leaf (pockets, blockers and decals unchanged).
+   */
+  private buildHabitatLeaves(root: THREE.Group, mat: Mat) {
+    const L = this.L, sp = this.spec, { w, h } = this;
+    const m = L.ctx.materials;
+    const glazed = (typeof mat === 'string' ? m.get(mat) : mat).transparent === true;
+    for (const side of [-1, 1] as const) {
+      const b = L.part(`${sp.id}:leaf${side}`);
+      const x0 = side < 0 ? -w / 2 - 0.02 : 0, x1 = side < 0 ? 0 : w / 2 + 0.02, xc = (x0 + x1) / 2, lw = x1 - x0;
+      // meeting edge (x = 0) and the edge that slides into the pocket
+      const xm = side < 0 ? x1 : x0, xo = side < 0 ? x0 : x1;
+      if (glazed) {
+        // glass between oak rails: bottom rail, top rail, a stile at each edge (all full leaf thickness + 6 mm)
+        // (the pane runs 1 cm into every rail and stile: its edges and faces end inside opaque oak)
+        b.bx(mat, Math.min(xo - side * 0.05, xm + side * 0.04), 0.19, -0.02, Math.max(xo - side * 0.05, xm + side * 0.04), h - 0.05, 0.02);
+        b.cast = false;
+        b.bx('wood_dark', x0, 0.01, -0.056, x1, 0.2, 0.056).bx('wood_dark', x0, h - 0.06, -0.056, x1, h + 0.02, 0.056);
+        b.bx('wood_dark', Math.min(xo, xo - side * 0.06), 0.2, -0.056, Math.max(xo, xo - side * 0.06), h - 0.06, 0.056);
+        b.bx('wood_dark', Math.min(xm, xm + side * 0.05), 0.2, -0.056, Math.max(xm, xm + side * 0.05), h - 0.06, 0.056);
+        for (const s of [1, -1]) {
+          b.bx('brass', xc - lw / 2 + 0.08, 0.13, s * 0.056, xc + lw / 2 - 0.08, 0.16, s * 0.068); // bottom-rail kick strip
+          // vertical pull bar on standoffs by the meeting stile
+          const px = xm + side * 0.12;
+          b.cyl('brass', px, 1.1, s * 0.072, 0.012, 0.55, 'y', 8);
+          for (const y of [0.88, 1.32]) b.cyl('brass', px, y, s * 0.04, 0.007, 0.064, 'z', 6);
+        }
+      } else {
+        b.bx(mat, x0 + (side < 0 ? 0 : 0.012), 0.01, -0.05, x1 - (side < 0 ? 0.012 : 0), h + 0.02, 0.05);
+        b.cast = false;
+        b.bx('wood_dark', Math.min(xm, xm + side * 0.012), 0.01, -0.054, Math.max(xm, xm + side * 0.012), h, 0.054); // meeting edge lip
+        for (const s of [1, -1]) {
+          const z = s * 0.05, f: '+z' | '-z' = s > 0 ? '+z' : '-z';
+          // raised moulding: two panels (lower 0.25 … 1.0, upper 1.2 … h − 0.2); the upper one is a vision slot if asked
+          const mx0 = x0 + 0.1, mx1 = x1 - 0.1;
+          const ring = (y0: number, y1: number) => {
+            const t = 0.025, d = 0.008;
+            b.bx('wood_dark', mx0, y0, z, mx1, y0 + t, z + s * d).bx('wood_dark', mx0, y1 - t, z, mx1, y1, z + s * d);
+            b.bx('wood_dark', mx0, y0 + t, z, mx0 + t, y1 - t, z + s * d).bx('wood_dark', mx1 - t, y0 + t, z, mx1, y1 - t, z + s * d);
+          };
+          ring(0.28, 1.0);
+          if (sp.vision) {
+            const vx0 = xm + side * 0.42, vx1 = xm + side * 0.2;
+            b.bx('brass', Math.min(vx0, vx1) - 0.015, 1.25, z, Math.max(vx0, vx1) + 0.015, 2.05, z + s * 0.006);
+            b.bx('screen_off', Math.min(vx0, vx1), 1.265, z + s * 0.006, Math.max(vx0, vx1), 2.035, z + s * 0.009);
+          } else ring(1.2, h - 0.22);
+          // kick plate, lever on a rose by the meeting edge
+          b.bx('brass', mx0 - 0.05, 0.03, z, mx1 + 0.05, 0.2, z + s * 0.004);
+          const lx = xm + side * 0.09;
+          b.cyl('brass', lx, 1.02, z + s * 0.006, 0.028, 0.012, 'z', 12);
+          b.rod('brass', lx, 1.02, z + s * 0.012, lx, 1.02, z + s * 0.045, 0.008, 6);
+          b.rod('brass', lx, 1.02, z + s * 0.045, lx + side * 0.11, 1.02, z + s * 0.05, 0.009, 6);
+          const plate = sp.plates?.[s > 0 ? 0 : 1];
+          if (plate && !sp.vision && side === (s > 0 ? 1 : -1)) {
+            const pw = Math.min(lw - 0.24, 0.06 * plate.length + 0.16);
+            b.bx('brass', xc - pw / 2, 1.5, z, xc + pw / 2, 1.62, z + s * 0.004);
+            b.sign(plate, 'wayfinding', xc, 1.56, z + s * 0.004, pw - 0.02, 0.1, f);
+          }
+        }
+      }
+      sp.leafDetail?.(b, side, w, h);
+      const g = b.build(); root.add(g); this.leaves.push(g);
+    }
+  }
 }
 
 /** How far the bottom leaf of a wide / cage door sinks below its sill when open (leaf bottom −0.3 − 1.6). */
@@ -481,6 +572,7 @@ export function makeDoors(L: LevelBuild, specs: DoorSpec[], zoneOf: (s: DoorSpec
     const z = zoneOf(s);
     const frames = L.namedBuilder(z.name);
     frames.rooms = z.rooms;
-    return new DoorImpl(L, s, frames);
+    const st = stylers.get(L)?.(s);
+    return new DoorImpl(L, st ? { ...s, ...st } : s, frames);
   });
 }

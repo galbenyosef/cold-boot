@@ -799,3 +799,237 @@ export function hangSign(b: Builder, text: string, x: number, y: number, z: numb
   });
   b.pop();
 }
+
+// ───────────────────────────────────────────────────────────── P3c additions (south half: canteen, clinic, quarters, BIO lock)
+
+/** Café table w × d (top `h`) on two steel pedestals with flat feet; collider = the top's footprint to its height. */
+export function cafeTable(b: Builder, w: number, d: number, top: Mat = 'wood_veneer', h = 0.74, collide = true) {
+  b.bx(top, -w / 2, h - 0.03, -d / 2, w / 2, h, d / 2);
+  b.detail(() => b.bx('wood_dark', -w / 2 - 0.004, h - 0.028, -d / 2 - 0.004, w / 2 + 0.004, h - 0.006, d / 2 + 0.004)); // edge band
+  b.bx('painted_dark', -w / 2 + 0.12, h - 0.06, -0.04, w / 2 - 0.12, h - 0.03, 0.04);
+  for (const sx of [-1, 1]) {
+    const x = sx * (w / 2 - 0.3);
+    b.cyl('painted_dark', x, (h - 0.06) / 2 + 0.02, 0, 0.03, h - 0.1, 'y', 8);
+    b.bx('painted_dark', x - 0.03, 0, -d / 2 + 0.08, x + 0.03, 0.03, d / 2 - 0.08);
+  }
+  if (collide) b.collide(-w / 2, 0, -d / 2, w / 2, h, d / 2, 'concrete', true);
+}
+/** Stacking chair (moulded ply shell on a chrome frame), seat 0.46, facing +z; optional seat pad. No collider. */
+export function stackChair(b: Builder, shell: Mat, pad: Mat | null = null) {
+  for (const sx of [-1, 1]) {
+    b.rod('chrome', sx * 0.2, 0, 0.2, sx * 0.19, 0.44, 0.17, 0.011, 5);
+    b.rod('chrome', sx * 0.2, 0, -0.2, sx * 0.19, 0.44, -0.17, 0.011, 5);
+    b.rod('chrome', sx * 0.19, 0.44, -0.17, sx * 0.19, 0.44, 0.17, 0.011, 5);
+  }
+  b.rbox(shell, 0, 0.46, 0.0, 0.44, 0.022, 0.42, -0.04, 0, 0);
+  b.rbox(shell, 0, 0.7, -0.215, 0.42, 0.3, 0.022, -0.16, 0, 0);
+  for (const sx of [-1, 1]) b.rod('chrome', sx * 0.17, 0.44, -0.17, sx * 0.17, 0.62, -0.2, 0.009, 5);
+  if (pad) b.rbox(pad, 0, 0.476, 0.01, 0.4, 0.012, 0.38, -0.04, 0, 0);
+}
+/**
+ * Drinks vending machine 0.9 × 1.85 × 0.75, front +z: lit window of cans / bottles (`glow`, see vendingMat), coin
+ * panel, delivery flap. Collider.
+ */
+export function vendingMachine(b: Builder, glow: Mat, body: Mat, collide = true) {
+  const w = 0.9, h = 1.85, d = 0.75;
+  b.bx(body, -w / 2, 0.06, -d / 2, w / 2, h, d / 2);
+  b.bx('painted_dark', -w / 2 + 0.03, 0, -d / 2 + 0.03, w / 2 - 0.03, 0.06, d / 2 - 0.05);
+  b.detail(() => {
+    b.bx('plastic_dark', -w / 2 + 0.04, 0.5, d / 2, 0.18, h - 0.08, d / 2 + 0.012);
+    b.quad(glow, (-w / 2 + 0.04 + 0.18) / 2, (0.5 + h - 0.08) / 2, d / 2 + 0.016, 0.18 + w / 2 - 0.08, h - 0.66, '+z');
+    b.bx('plastic_dark', 0.22, 0.95, d / 2, 0.41, 1.45, d / 2 + 0.02);
+    b.bx('chrome', 0.27, 1.32, d / 2 + 0.02, 0.36, 1.4, d / 2 + 0.026);
+    for (let i = 0; i < 9; i++) b.box('plastic_white', 0.29 + (i % 3) * 0.025, 1.24 - Math.floor(i / 3) * 0.035, d / 2 + 0.023, 0.018, 0.022, 0.006);
+    b.bx('plastic_dark', -w / 2 + 0.08, 0.14, d / 2, w / 2 - 0.08, 0.38, d / 2 + 0.02);
+    b.bx('painted_dark', -w / 2 + 0.12, 0.18, d / 2 + 0.02, w / 2 - 0.12, 0.34, d / 2 + 0.024);
+  });
+  if (collide) b.collide(-w / 2, 0, -d / 2, w / 2, h, d / 2 + 0.02, 'metal', true);
+}
+/** The vending window: rows of drinks on a lit back (emissive canvas). */
+export function vendingMat(L: LevelBuild, intensity = 0.9): THREE.MeshStandardMaterial {
+  return canvasMat(L, 'vending_window', 256, 384, (g, W, H) => {
+    const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#f6efe0'); bg.addColorStop(1, '#d9cdb4');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const cols = ['#c0392b', '#2e6fa8', '#e2b65c', '#3f7a58', '#f2f2f2', '#7a4a5a', '#d26b2a'];
+    for (let r = 0; r < 6; r++) {
+      const y = 20 + r * 60;
+      g.fillStyle = '#9a8f80'; g.fillRect(6, y + 46, W - 12, 4);
+      for (let c = 0; c < 5; c++) {
+        const x = 14 + c * 48, col = cols[(r * 3 + c * 2) % cols.length], tall = (r + c) % 3 === 0;
+        if (r === 4 && c === 2) continue; // sold out
+        g.fillStyle = col; g.fillRect(x, y + (tall ? 0 : 12), 30, tall ? 46 : 34);
+        g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x + 4, y + (tall ? 4 : 16), 5, tall ? 36 : 24);
+      }
+    }
+  }, intensity);
+}
+/**
+ * A curtain hanging from a ceiling rail along local x (x0 … x1), top `yTop`, length `drop`, in vertical zig-zag folds
+ * (± depth, 8 mm cloth); `gather` 0 … 1 bunches it toward x0 (the rail still runs `railLen`). No collider.
+ */
+export function curtain(b: Builder, L: LevelBuild, x0: number, x1: number, yTop: number, drop: number, tint: number, gather = 0, railLen = x1 - x0) {
+  const f = paint(L, tint, 0.92); // (cloth read as a flat matt paint: the fabric shader goes too dark on thin folds)
+  b.rod('chrome', x0, yTop + 0.06, 0, x0 + railLen, yTop + 0.06, 0, 0.014, 6);
+  const len = (x1 - x0) * (1 - gather * 0.8);
+  const n = Math.max(4, 2 * Math.round(len / 0.22)), dz = 0.04 + gather * 0.05;
+  const step = len / n;
+  for (let i = 0; i < n; i++) {
+    const a = x0 + i * step;
+    const za = i % 2 ? dz : -dz, zc = i % 2 ? -dz : dz;
+    const ang = Math.atan2(zc - za, step), lenP = Math.hypot(step, zc - za);
+    b.push(a + step / 2, yTop - drop / 2, (za + zc) / 2, -ang);
+    b.bx(f, -lenP / 2, -drop / 2, -0.004, lenP / 2, drop / 2, 0.004);
+    b.pop();
+  }
+  b.detail(() => { for (let i = 0; i <= n; i += 2) b.cyl('chrome', x0 + i * step, yTop + 0.03, 0, 0.012, 0.05, 'y', 6); });
+}
+/** Examination couch 1.9 (local x, head end +x raised) × 0.68, pad top 0.72, paper roll at the foot; collider. */
+export function examCouch(b: Builder, L: LevelBuild, tint = 0x5a7a86, collide = true) {
+  const pad = paint(L, tint, 0.55), white = paint(L, 0xece8df, 0.5), len = 1.9, wd = 0.68, h = 0.72;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.cyl('chrome', sx * (len / 2 - 0.1), 0.3, sz * (wd / 2 - 0.08), 0.022, 0.6, 'y', 8);
+  b.bx(white, -len / 2 + 0.05, 0.6, -wd / 2 + 0.04, len / 2 - 0.05, h - 0.1, wd / 2 - 0.04);
+  b.bx(white, -len / 2 + 0.1, 0.12, -wd / 2 + 0.06, len / 2 - 0.1, 0.16, wd / 2 - 0.06);
+  b.bx(pad, -len / 2, h - 0.1, -wd / 2, len / 2 - 0.55, h, wd / 2);
+  b.rbox(pad, len / 2 - 0.3, h + 0.04, 0, 0.56, 0.1, wd, 0, 0, 0.3);
+  b.detail(() => {
+    const p = paper(L, 0xf4f2ec);
+    b.bx(p, -len / 2 + 0.05, h, -wd / 2 + 0.12, len / 2 - 0.62, h + 0.003, wd / 2 - 0.12);
+    b.cyl(p, -len / 2 - 0.06, h - 0.04, 0, 0.06, wd - 0.16, 'z', 12);
+    for (const s of [-1, 1]) b.rod('chrome', -len / 2 - 0.06, h - 0.04, s * (wd / 2 - 0.05), -len / 2, h - 0.04, s * (wd / 2 - 0.05), 0.008, 5);
+  });
+  if (collide) b.collide(-len / 2 - 0.12, 0, -wd / 2, len / 2, h + 0.1, wd / 2, 'rubber', true);
+}
+/** Snellen eye chart (canvas). */
+export function eyeChartMat(L: LevelBuild): THREE.MeshStandardMaterial {
+  return canvasMat(L, 'eye_chart', 256, 400, (g, W) => {
+    g.fillStyle = '#f7f5ef'; g.fillRect(0, 0, W, 400);
+    g.fillStyle = '#111'; g.textAlign = 'center';
+    const rows = ['E', 'F P', 'T O Z', 'L P E D', 'P E C F D', 'E D F C Z P', 'F E L O P Z D', 'D E F P O T E C'];
+    let y = 70;
+    rows.forEach((r, i) => { const s = Math.max(9, 72 - i * 9); g.font = `700 ${s}px Arial`; g.fillText(r, W / 2, y); y += s + 12; });
+    g.strokeStyle = '#a12a2a'; g.lineWidth = 2; g.beginPath(); g.moveTo(20, y - 8); g.lineTo(W - 20, y - 8); g.stroke();
+  });
+}
+/** Wall-hung medicine cabinet w × h, 0.22 deep (back on local z = 0, face +z), glass doors with a lock; bottles inside. */
+export function medCabinet(b: Builder, L: LevelBuild, w: number, h: number, R: Rng) {
+  const d = 0.22, white = paint(L, 0xece8df, 0.5);
+  b.bx(white, -w / 2, 0, 0, w / 2, h, 0.012);
+  b.bx(white, -w / 2, 0, 0.012, -w / 2 + 0.02, h, d).bx(white, w / 2 - 0.02, 0, 0.012, w / 2, h, d);
+  b.bx(white, -w / 2 + 0.02, 0, 0.012, w / 2 - 0.02, 0.02, d).bx(white, -w / 2 + 0.02, h - 0.02, 0.012, w / 2 - 0.02, h, d);
+  const shelves = Math.max(2, Math.round(h / 0.32));
+  for (let i = 1; i < shelves; i++) b.bx(white, -w / 2 + 0.02, (i * h) / shelves - 0.006, 0.012, w / 2 - 0.02, (i * h) / shelves + 0.006, d - 0.025);
+  b.detail(() => {
+    const cols = [0xf2efe6, 0x8a5a2a, 0xd8e2e8, 0x3f5a78, 0xc0392b];
+    for (let i = 0; i < shelves; i++) {
+      const y = i === 0 ? 0.02 : (i * h) / shelves + 0.006;
+      for (let x = -w / 2 + 0.06; x < w / 2 - 0.06; x += R.range(0.06, 0.1)) {
+        if (R.chance(0.2)) continue;
+        const r = R.range(0.018, 0.03), hh = R.range(0.06, Math.min(0.15, h / shelves - 0.05));
+        if (R.chance(0.4)) b.box(paint(L, R.pick([0xf2efe6, 0xd9e6ef, 0xefe1c7]), 0.7), x, y + hh / 2, 0.1, r * 2.2, hh, r * 3);
+        else { b.cyl(paint(L, R.pick(cols), 0.3), x, y + hh / 2, 0.1, r, hh, 'y', 8); b.cyl('plastic_white', x, y + hh + 0.01, 0.1, r * 0.7, 0.02, 'y', 8); }
+      }
+    }
+  });
+  // glass doors meeting at the middle, a chrome meeting strip, the brass lock
+  b.bx(glassFront(L), -w / 2 + 0.02, 0.02, d - 0.012, w / 2 - 0.02, h - 0.02, d - 0.004);
+  b.bx('chrome', -0.008, 0.02, d - 0.003, 0.008, h - 0.02, d + 0.004);
+  b.cyl('brass', 0.03, h / 2, d + 0.006, 0.012, 0.012, 'z', 8);
+}
+/** Wall sconce (back plate on local z = 0, face +z): brass arm, fabric drum glowing at both openings (`glow`). */
+export function wallSconce(b: Builder, L: LevelBuild, glow: Mat, tint: number = TINT.cream) {
+  b.cyl('brass', 0, 0, 0.008, 0.05, 0.016, 'z', 12);
+  b.rod('brass', 0, 0, 0.016, 0, 0.04, 0.1, 0.008, 6);
+  b.cyl(fabric(L, tint), 0, 0.1, 0.13, 0.1, 0.16, 'y', 14, 0.08);
+  b.cyl(glow, 0, 0.018, 0.13, 0.094, 0.004, 'y', 14);
+  b.cyl(glow, 0, 0.182, 0.13, 0.074, 0.004, 'y', 14);
+}
+/** A pair of shoes on the floor, toes +z (kind 0 shoes, 1 boots, 2 trainers, 3 child's wellies). */
+export function shoes(b: Builder, L: LevelBuild, kind: number, color: number) {
+  const m = paint(L, color, kind === 2 ? 0.7 : 0.45);
+  const s = kind === 3 ? 0.62 : 1;
+  for (const sx of [-1, 1]) {
+    const x = sx * 0.07 * s;
+    b.rbox('rubber', x, 0.012 * s, 0, 0.09 * s, 0.024 * s, 0.27 * s, 0, 0, 0);
+    b.rbox(m, x, 0.054 * s, 0.03 * s, 0.085 * s, 0.06 * s, 0.2 * s, 0.12, 0, 0);
+    const shaft = kind === 1 ? 0.22 : kind === 3 ? 0.3 : 0.06;
+    b.rbox(m, x, (0.05 + shaft / 2) * s, -0.07 * s, 0.084 * s, shaft * s, 0.1 * s, 0, 0, 0);
+    if (kind === 2) b.rbox('plastic_white', x, 0.04, 0.1, 0.087, 0.012, 0.06, 0.2, 0, 0);
+  }
+}
+/** Pram (carrycot with a hood on a chrome chassis), handle toward local −x. No collider by default. */
+export function pram(b: Builder, L: LevelBuild, tint: number, collide = false) {
+  const f = fabric(L, tint);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    b.torus('rubber', sx * 0.32, 0.13, sz * 0.25, 0.12, 0.022, 'z', 16);
+    b.cyl('chrome', sx * 0.32, 0.13, sz * 0.25, 0.02, 0.04, 'z', 6);
+  }
+  for (const sz of [-1, 1]) {
+    b.rod('chrome', -0.32, 0.13, sz * 0.25, 0.05, 0.5, sz * 0.22, 0.012, 5);
+    b.rod('chrome', 0.32, 0.13, sz * 0.25, -0.05, 0.5, sz * 0.22, 0.012, 5);
+    b.rod('chrome', -0.05, 0.5, sz * 0.22, -0.48, 1.0, sz * 0.2, 0.012, 5);
+  }
+  b.rod('plastic_dark', -0.48, 1.0, -0.22, -0.48, 1.0, 0.22, 0.02, 6);
+  b.rbox(f, 0.02, 0.63, 0, 0.72, 0.26, 0.42, 0, 0, 0.04);
+  b.sphere(f, 0.22, 0.78, 0, 0.21, 12, 0.7, 0.75, 1.0);
+  b.detail(() => b.rbox(fabric(L, TINT.cream), -0.08, 0.77, 0, 0.4, 0.02, 0.36, 0, 0, 0.03));
+  if (collide) b.collide(-0.5, 0, -0.3, 0.45, 1.0, 0.3, 'rubber', true);
+}
+/** Child's kick scooter lying against a wall, along local x. */
+export function kidScooter(b: Builder, L: LevelBuild, color: number) {
+  const m = paint(L, color, 0.35);
+  for (const x of [-0.3, 0.3]) b.torus('rubber', x, 0.07, 0, 0.06, 0.015, 'z', 14);
+  b.bx(m, -0.3, 0.08, -0.06, 0.24, 0.11, 0.06);
+  b.rod(m, 0.3, 0.07, 0, 0.25, 0.72, 0, 0.016, 6);
+  b.rod('plastic_dark', 0.25, 0.72, -0.18, 0.25, 0.72, 0.18, 0.016, 6);
+}
+/** Folding clothes airer (A-frame, 0.9 high) along local x with a few things drying. No collider. */
+export function dryingRack(b: Builder, L: LevelBuild, R: Rng, len = 1.1) {
+  for (const sx of [-1, 1]) { b.rod('plastic_white', sx * len / 2, 0, -0.3, sx * len / 2, 0.9, 0.0, 0.01, 5); b.rod('plastic_white', sx * len / 2, 0, 0.3, sx * len / 2, 0.9, 0.0, 0.01, 5); }
+  const yAt = (z: number) => 0.9 * (1 - Math.abs(z) / 0.3);
+  for (const z of [-0.24, -0.15, -0.06, 0.06, 0.15, 0.24]) b.rod('plastic_white', -len / 2, yAt(z), z, len / 2, yAt(z), z, 0.005, 4);
+  const cols = [TINT.slate, TINT.cream, TINT.rust, 0xf2efe6, TINT.sage, TINT.mustard];
+  b.detail(() => {
+    for (let i = 0; i < 5; i++) {
+      const x = -len / 2 + 0.15 + (i * (len - 0.3)) / 4, z = i % 2 ? 0.15 : -0.15, y = yAt(z);
+      const hw = R.range(0.16, 0.26);
+      b.rbox(fabric(L, R.pick(cols)), x, y - 0.13, z + (z > 0 ? 0.008 : -0.008), hw, 0.26, 0.006, 0, 0, 0);
+    }
+  });
+}
+/** Wall clock (back on local z = 0, face +z), hands at hh:mm. */
+export function wallClock(b: Builder, L: LevelBuild, r = 0.16, hh = 10, mm = 40) {
+  b.cyl('wood_dark', 0, 0, 0.02, r + 0.015, 0.04, 'z', 24);
+  b.cyl(paint(L, 0xf4efe2, 0.4), 0, 0, 0.0415, r, 0.003, 'z', 24);
+  b.detail(() => {
+    for (let i = 0; i < 12; i++) { const a = (i / 12) * PI * 2; b.rbox('painted_dark', Math.sin(a) * r * 0.85, Math.cos(a) * r * 0.85, 0.0445, 0.008, i % 3 ? 0.02 : 0.035, 0.002, 0, 0, -a); }
+    const ah = (((hh % 12) + mm / 60) / 12) * PI * 2, am = (mm / 60) * PI * 2;
+    b.rbox('painted_dark', Math.sin(ah) * r * 0.25, Math.cos(ah) * r * 0.25, 0.048, 0.012, r * 0.5, 0.002, 0, 0, -ah);
+    b.rbox('painted_dark', Math.sin(am) * r * 0.36, Math.cos(am) * r * 0.36, 0.051, 0.008, r * 0.72, 0.002, 0, 0, -am);
+  });
+}
+/** Decon spray nozzle on a stub (base on local z = 0, sprays +z). */
+export function nozzle(b: Builder, len = 0.08) {
+  b.cyl('chrome', 0, 0, len / 2, 0.018, len, 'z', 8);
+  b.cyl('steel_raw', 0, 0, len + 0.012, 0.03, 0.024, 'z', 10, 0.022);
+  b.cyl('painted_dark', 0, 0, len + 0.0245, 0.016, 0.002, 'z', 8);
+}
+/** A child's crayon drawing (canvas): a big blue whale under a sun, "for dad". */
+export function childDrawingMat(L: LevelBuild): THREE.MeshStandardMaterial {
+  return canvasMat(L, 'child_whale', 256, 192, (g, W, H) => {
+    g.fillStyle = '#fbf8f0'; g.fillRect(0, 0, W, H);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = '#3a7bc8'; g.lineWidth = 4;
+    for (let y = 132; y < H; y += 16) { g.beginPath(); for (let x = 6; x < W; x += 12) g.lineTo(x, y + Math.sin(x * 0.15 + y) * 4); g.stroke(); }
+    g.fillStyle = '#2f5fa8'; g.beginPath(); g.ellipse(120, 112, 72, 34, -0.08, 0, PI * 2); g.fill();
+    g.beginPath(); g.moveTo(186, 106); g.lineTo(228, 80); g.lineTo(220, 114); g.lineTo(236, 134); g.closePath(); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(78, 102, 6, 0, PI * 2); g.fill();
+    g.fillStyle = '#111'; g.beginPath(); g.arc(79, 103, 3, 0, PI * 2); g.fill();
+    g.strokeStyle = '#7fb4e8'; g.lineWidth = 3;
+    for (const dx of [-8, 0, 8]) { g.beginPath(); g.moveTo(100, 78); g.lineTo(100 + dx, 54); g.stroke(); }
+    g.fillStyle = '#f2c230'; g.beginPath(); g.arc(214, 34, 18, 0, PI * 2); g.fill();
+    g.strokeStyle = '#f2c230';
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * PI * 2; g.beginPath(); g.moveTo(214 + Math.cos(a) * 24, 34 + Math.sin(a) * 24); g.lineTo(214 + Math.cos(a) * 32, 34 + Math.sin(a) * 32); g.stroke(); }
+    g.fillStyle = '#c0392b'; g.font = '700 26px "Marker Felt", "Comic Sans MS", sans-serif'; g.fillText('for dad', 18, 40);
+    g.fillStyle = '#3a8a3a'; g.font = '700 16px "Marker Felt", "Comic Sans MS", sans-serif'; g.fillText('love Mia', 22, 62);
+  });
+}
