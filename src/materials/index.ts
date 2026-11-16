@@ -100,6 +100,12 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
     return track(m, spec.env);
   };
   for (const n of [...names, ...(Object.keys(EMISSIVE) as MaterialName[])]) cache.set(n, build(n as MaterialName));
+  // REVISION 5.1 (z-fight): materials that are always a thin layer ON another surface (chevron strips, emissive
+  // lenses / strips / lamps) win their depth test deterministically against the surface under them, like decals do
+  for (const n of ['hazard_stripes', 'screen_off', ...Object.keys(EMISSIVE)] as MaterialName[]) {
+    const m = cache.get(n);
+    if (m) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }
+  }
   const tEnd = performance.now();
   console.info(`[materials] generated ${baked.size} texture sets + ${cache.size} materials in ${(tEnd - t0).toFixed(0)} ms ` +
     `(compile ${(tCompile - t0).toFixed(0)} ms, bake ${(tBake - tCompile).toFixed(0)} ms incl. ${DECAL_COUNT} decals ${tDecal.toFixed(0)} ms)`);
@@ -132,7 +138,12 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
     sign(text: string, style: SignStyle, aspect = 2) {
       const key = `${style}|${aspect.toFixed(3)}|${text}`;
       let m = signCache.get(key);
-      if (!m) { m = track(createSign(text, style, aspect, renderer.capabilities.getMaxAnisotropy()), 0.8); signCache.set(key, m); }
+      if (!m) {
+        m = track(createSign(text, style, aspect, renderer.capabilities.getMaxAnisotropy()), 0.8);
+        // signs are always printed on / screwed to something: never fight it
+        if (!m.polygonOffset) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }
+        signCache.set(key, m);
+      }
       return m;
     },
     screen(kind: ScreenKind, opts) {

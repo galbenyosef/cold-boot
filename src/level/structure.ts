@@ -214,7 +214,7 @@ export function wallFace(b: Builder, s: WallSpec) {
         b.bx('trim_steel', sp.a, trayY, 0.05, sp.b, trayY + 0.06, 0.06);
         for (let i = 0; i <= n; i++) {
           const px = Math.min(sp.b - 0.02, Math.max(sp.a + 0.02, sp.a + i * bw));
-          b.bx('trim_steel', px - 0.02, trayY - 0.04, 0, px + 0.02, trayY, 0.3);
+          b.bx('trim_steel', px - 0.02, trayY - 0.04, 0.05, px + 0.02, trayY, 0.3); // stands off the raised panels
           b.rbox('trim_steel', px, trayY - 0.12, 0.12, 0.02, 0.02, 0.3, 0.6, 0, 0);
         }
         const nc = 3 + R.int(0, 2);

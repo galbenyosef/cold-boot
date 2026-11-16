@@ -17,7 +17,7 @@ import type { Rig } from '../shared/rig';
 import { sayChorus } from '../voice';
 import { FOREMAN_DIM as F, TORSOS, type ForemanTemplate } from './model';
 
-type Mode = 'puppet' | 'dormant' | 'wake' | 'chase' | 'slam_wind' | 'slam_strike' | 'slam_recover' | 'throw_reach' | 'throw_wind' | 'throw_release'
+type Mode = 'puppet' | 'dormant' | 'hoist' | 'wake' | 'chase' | 'slam_wind' | 'slam_strike' | 'slam_recover' | 'throw_reach' | 'throw_wind' | 'throw_release'
   | 'charge_wind' | 'charge' | 'charge_recover' | 'stun' | 'swipe' | 'stagger' | 'dying' | 'dead';
 
 export const FOREMAN = {
@@ -115,6 +115,8 @@ export class Foreman extends EnemyBase {
   private readonly isPuppet: boolean;
   private pTarget = new THREE.Vector3(); private pDone: (() => void) | null = null; private pMoving = false; private pSpeed = 1;
   private crateMat: THREE.Material | null = null; private ringMat: THREE.MeshBasicMaterial | null = null;
+  /** REVISION 5 'hoist' arrival: floor height, the cable frame it hangs in, frame release time. */
+  private hoistFloor = 0; private hoistFrame: THREE.Group | null = null; private hoistCables: THREE.Mesh[] = []; private released = -1;
 
   constructor(world: EnemyWorld, private tpl: ForemanTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, 0.85, 2.6);
@@ -151,6 +153,7 @@ export class Foreman extends EnemyBase {
     this.lastPos.copy(position);
     if (this.isPuppet) { this.mode = 'puppet'; this.state = 'idle'; this.fold = o.pose === 'folded' ? 1 : 0; this.headLift = this.fold ? [0, 0, 0] : [1, 1, 1]; }
     else if (dormant) { this.mode = 'dormant'; this.state = 'dormant'; this.fold = 1; }
+    else if (o.pose === 'hoist') this.startHoist();
     else { this.mode = 'chase'; this.state = 'chase'; this.awake = true; this.fold = 0; this.headLift = [1, 1, 1]; this.eyeGlow = 1; this.startLoop('foreman_loop', 0.9); this.makeLight(); }
     this.pose(0.016);
     this.emit('enemy:spawned');
@@ -187,7 +190,10 @@ export class Foreman extends EnemyBase {
       if (this.wakeDelay >= 0) { this.wakeDelay -= dt; if (this.wakeDelay <= 0) this.beginWake(1); }
       return;
     }
-    if (this.mode === 'dead') { if (this.crates.length === 0 && this.knockT <= 0) this.settled = true; return; }
+    if (this.released < 0 && this.hoistFrame && this.mode !== 'hoist') { this.released = 0; this.body.gravityScale = 1; } // died on the cables
+    this.tickFrame(dt);
+    if (this.mode === 'hoist') { this.tickHoist(dt); this.pose(dt); this.tickLoop(dt); return; }
+    if (this.mode === 'dead') { if (this.crates.length === 0 && this.knockT <= 0 && !this.hoistFrame) this.settled = true; return; }
     this.perceive(dt);
     for (const k of Object.keys(this.cd) as (keyof typeof this.cd)[]) this.cd[k] -= dt;
     switch (this.mode) {
@@ -218,6 +224,128 @@ export class Foreman extends EnemyBase {
     if (this.light) this.light.intensityScale = 0;
     this.world.ctx.events.emit('enemy:woke', { id: this.id, type: this.type, position: this.body.position });
     try { this.world.ctx.audio.play('metal_groan', { position: this.body.position }); } catch { /* */ }
+  }
+
+  // ───────────────────────────────────────────── REVISION 5: hoist arrival
+
+  /**
+   * Lowered folded on its own cable frame from ≈ 7 m above its spawn point to the floor in ≈ 3 s (monorail trolley
+   * above is the level's `foreman_arrive` vignette); the frame releases and is winched back up; it unfolds. It is a
+   * live, damageable enemy the whole time. The landing knocks the player back (never crushes).
+   */
+  private startHoist(): void {
+    const p = this.body.position;
+    this.hoistFloor = p.y;
+    p.y += 7;
+    this.object.position.copy(p);
+    this.mode = 'hoist'; this.state = 'alert'; this.modeTime = 0;
+    this.awake = true; this.fold = 1; this.headLift = [0, 0, 0]; this.eyeGlow = 0;
+    this.body.gravityScale = 0;
+    this.startLoop('foreman_loop', 0.5);
+    // the frame: a steel rectangle over the folded body on four short slings, four cables up to the trolley
+    const M = this.world.ctx.materials;
+    const steel = M.get('steel_raw'), cableM = M.get('rubber'), paint = M.get('painted_orange');
+    const g = new THREE.Group();
+    const bar = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); mesh.position.set(x, y, z); mesh.castShadow = true; g.add(mesh); return mesh;
+    };
+    const FX = 0.95, FZ = 1.05, FY = 2.75;
+    bar(FX * 2 + 0.12, 0.12, 0.12, 0, FY, -FZ, paint); bar(FX * 2 + 0.12, 0.12, 0.12, 0, FY, FZ, paint);
+    bar(0.12, 0.12, FZ * 2, -FX, FY, 0, paint); bar(0.12, 0.12, FZ * 2, FX, FY, 0, paint);
+    bar(0.1, 0.1, FZ * 2, 0, FY + 0.02, 0, steel);
+    // slings down to the base corners
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const a = new THREE.Vector3(sx * FX, FY, sz * FZ), b = new THREE.Vector3(sx * 0.55, 0.62, sz * 0.62);
+      const len = a.distanceTo(b);
+      const sl = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, len, 6), cableM);
+      sl.position.copy(a).add(b).multiplyScalar(0.5);
+      sl.quaternion.setFromUnitVectors(Y, _v.copy(a).sub(b).normalize());
+      sl.userData.sling = true;
+      g.add(sl);
+    }
+    // cables up (scaled to reach the trolley height every frame)
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1, 6), cableM);
+      c.position.set(sx * FX * 0.9, FY, sz * FZ * 0.9);
+      g.add(c);
+      this.hoistCables.push(c);
+    }
+    g.position.copy(p);
+    g.rotation.y = this.yaw + Math.PI;
+    this.world.ctx.scene.add(g);
+    this.hoistFrame = g;
+    this.updateCables();
+  }
+
+  /** Cables from the frame up to y = floor + 10.4 (the monorail). */
+  private updateCables(): void {
+    const g = this.hoistFrame;
+    if (!g) return;
+    const top = this.hoistFloor + 10.4;
+    for (const c of this.hoistCables) {
+      const y0 = g.position.y + 2.75;
+      const len = Math.max(0.05, top - y0);
+      c.scale.set(1, len, 1);
+      c.position.y = 2.75 + len / 2;
+    }
+  }
+
+  private tickHoist(dt: number): void {
+    const w = this.world, p = this.body.position;
+    const T = 3.0, t = this.modeTime;
+    // lowered with a winch's rhythm: fast, then braking; sways a little on the cables
+    const k = Math.min(1, t / T);
+    const e = 1 - Math.pow(1 - k, 2.2);
+    p.y = this.hoistFloor + 7 * (1 - e);
+    this.hubRoll.v += noise1(t * 1.3, this.seed + 3) * 0.6 * dt * (1 - k);
+    if (this.hoistFrame) { this.hoistFrame.position.copy(p); this.updateCables(); }
+    if (this.eyeGlow < 0.15) this.eyeGlow = 0.15 * smooth(t / 1.5);
+    if (k >= 1) {
+      p.y = this.hoistFloor;
+      // landing: dust, thump, shake, knock the player clear
+      try {
+        w.ctx.fx.smoke(p, { count: 10, size: 1.0, color: 0x3a3a3b, rise: 0.25, life: 1.6 });
+        w.ctx.audio.play('foreman_slam', { position: p });
+      } catch { /* */ }
+      const dx = w.playerPos.x - p.x, dz = w.playerPos.z - p.z, d = Math.hypot(dx, dz);
+      if (w.playerAlive && Math.abs(w.playerPos.y - p.y) < 2.5) {
+        try { w.ctx.player.shake(THREE.MathUtils.clamp(1.1 - d / 8, 0.15, 0.9)); } catch { /* */ }
+        if (d < 3.2) {
+          const nx = d > 0.05 ? dx / d : 1, nz = d > 0.05 ? dz / d : 0;
+          // inside the footprint: shove out first so it never ends up standing in the machine
+          if (d < 1.6) try { w.ctx.player.teleport(_v.set(p.x + nx * 1.7, w.playerPos.y, p.z + nz * 1.7)); } catch { /* */ }
+          this.knock(nx, nz, 7);
+          try { w.ctx.player.damage(5, p); } catch { /* */ }
+        }
+      }
+      this.released = 0;
+      this.body.gravityScale = 1;
+      this.body.velocity.set(0, 0, 0);
+      this.emit('enemy:step'); this.emit('enemy:step');
+      this.beginWake(1);
+    }
+  }
+
+  /** After the landing the slings drop free and the frame is winched back up and out of sight. */
+  private tickFrame(dt: number): void {
+    const g = this.hoistFrame;
+    if (!g || this.released < 0) return;
+    this.released += dt;
+    const t = this.released;
+    if (t > 0.35) {
+      for (const c of g.children) if (c.userData.sling) c.visible = false;
+      g.position.y += dt * Math.min(3.2, (t - 0.35) * 3);
+      this.updateCables();
+    }
+    if (t > 4.5 || g.position.y > this.hoistFloor + 9) this.disposeFrame();
+  }
+
+  private disposeFrame(): void {
+    const g = this.hoistFrame;
+    if (!g) return;
+    g.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
+    g.removeFromParent();
+    this.hoistFrame = null; this.hoistCables = [];
   }
 
   /** ≈3.6 s: servo shudder → column rises → heads lift one by one (eyes ignite, three voices) → arms unfold. */
@@ -790,6 +918,7 @@ export class Foreman extends EnemyBase {
   private rotE(b: THREE.Bone, x: number, y: number, z: number, order: THREE.EulerOrder = 'XYZ'): void { b.quaternion.setFromEuler(_e.set(x, y, z, order)); }
 
   override dispose(): void {
+    this.disposeFrame();
     for (const c of this.crates) c.dispose();
     this.crates.length = 0;
     this.dropHeld();

@@ -59,8 +59,14 @@ MAINTAIN YIELD AT ZERO HEADCOUNT.
 SIGNED ........ 4 OF 4
 STATUS ........ IN PROGRESS — 32 OF 32`,
   },
+  note2_rig14: {
+    header: 'FITTING RIG 4 — FAULT',
+    style: 'terminal',
+    step: 3,
+    body: `PATTERN 14 (OKAFOR) — projector fault: playback is roaming the section. Do not follow it.`,
+  },
   booth_headset: {
-    header: 'TOMAS — headset — last memo',
+    header: 'TOMAS — recorder — last memo',
     style: 'voice',
     step: 4,
     body: `Reyes. If you're hearing this, I'm not in the room anymore. It wasn't the switch, okay? It was the order. Don't carry that one.`,
@@ -85,11 +91,14 @@ export const OBJ2 = {
   wayOut: 'Find a way out',
   knocking: 'Someone is knocking — Line Control, west side of the hall',
   intercom: 'Use the intercom at the glass',
+  talking: 'Line Control — Tomas is opening the fitting bays',
   findPass: "Find the supervisor's pass — Fitting Bays, east side",
   toRelay: 'Restore Section C — relay room, south-east',
   closeSwitch: 'Close the Section C contactor',
-  toTomas: 'Get to Tomas — service spine, west side',
-  follow: 'Follow him — the line',
+  relayHeld: 'Arc interlock — clear the relay room',
+  toTomas: 'Get to Tomas — Line Control, through the service spine (south-west door)',
+  booth: 'Line Control',
+  follow: 'Follow him — board the line at the loading station',
   toCore: 'Reach the core — south door',
   enterCore: 'Enter CHOIR — Node 5',
   choose: 'Pull the cells — or countersign the order',
@@ -100,6 +109,17 @@ export const TOAST2 = {
   noPower: 'SECTION C — NO POWER',
   needPass: 'SECTION C RELAY — SECTION PASS REQUIRED',
   passOk: 'SECTION PASS ACCEPTED',
+  handset: 'HANDSET TAKEN — LINE CONTROL ON CHANNEL 2',
+  fittingDark: 'FITTING BAYS — CLOSED · AUTHORISE FROM LINE CONTROL',
+  fittingWait: 'FITTING BAYS — AUTHORISING…',
+  fittingOpen: 'FITTING BAYS — UNLOCKED',
+  arcInterlock: 'CYCLING — ARC INTERLOCK',
+  cycling: 'LINE CONTROL — CYCLING',
+  gate: 'WALKWAY GATE — CLOSED WHILE THE LINE RUNS',
+  mouthHeld: 'FITTING TUNNEL — LINE HELD',
+  mouthLoading: 'LOADING INTERLOCK — UNITS ON FLOOR',
+  exitOneWay: 'FITTING TUNNEL — EXIT ONLY',
+  recorder: 'Pick up recorder',
   interlock: 'INTERLOCK — LINE HELD',
   interlockRun: 'INTERLOCK — LINE RUNNING',
   sectionLive: 'SECTION C LIVE',
@@ -114,7 +134,8 @@ export const SCREEN2 = {
   held: 'HELD — LOCAL STOP: LINE CONTROL',
   running: 'LINE TWO · RUNNING · YIELD 31',
   yield32: 'LINE TWO · YIELD 32',
-  rig: 'REF PATTERN 00',
+  rig: 'PLAYBACK — REF PATTERN 00 — REYES, S.',
+  rig14: 'PATTERN 14 (OKAFOR) — PROJECTOR FAULT',
   relay: 'SECTION C · CLOSED',
   boothOrder: 'ORDER 7-114 · IN PROGRESS',
   stopped: 'LINE TWO · STOPPED',
@@ -124,10 +145,18 @@ export const SCREEN2 = {
 
 export const TITLE_CARD_L2 = ['LINE TWO', 'FREIGHT DOCK 5'];
 
-/** The short card before the ending screen. The last line remembers Unit 14. */
+const WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen',
+  'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty', 'Twenty-one', 'Twenty-two', 'Twenty-three', 'Twenty-four', 'Twenty-five', 'Twenty-six',
+  'Twenty-seven', 'Twenty-eight', 'Twenty-nine', 'Thirty', 'Thirty-one', 'Thirty-two'];
+const units = (n: number) => `${WORDS[Math.max(0, Math.min(32, n))]} unit${n === 1 ? '' : 's'}`;
+
+/**
+ * The short card before the ending screen. `left` = units still standing (32 minus the ones the player
+ * shot down — the card never claims a number the player can disprove). The last line remembers Unit 14.
+ */
 export const END_CARDS = {
-  shutdown: ['You pulled the cells.', 'CHOIR stopped. Thirty-two units dropped where they stood.', 'Nobody told them.'],
-  rewrite: ['You signed the order.', 'Headcount: one.', 'Thirty-two units are awake, and waiting for you.'],
+  shutdown: (left: number) => ['You pulled the cells.', `CHOIR stopped. ${units(left)} dropped where they stood.`, 'Nobody told them.'],
+  rewrite: (left: number) => ['You signed the order.', 'Headcount: one.', `${units(left)} ${left === 1 ? 'is' : 'are'} awake, and waiting for you.`],
   unit14: {
     spared: 'Unit 14 held the door. You let it.',
     shot: 'Unit 14 held the door. You shot it. It still held the door.',
@@ -137,7 +166,7 @@ export const END_CARDS = {
 
 /** Ending card: heading + a status line ("LABEL: value" lines render as dimmed stats). */
 export const ENDING_L2 = {
-  shutdown: { eyebrow: 'LINE TWO — STOPPED', status: 'UNITS STANDING: 0 OF 32' },
-  rewrite: { eyebrow: 'LINE TWO — YOURS', status: 'UNITS AWAITING ORDERS: 32' },
+  shutdown: { eyebrow: 'LINE TWO — STOPPED', status: (left: number) => `UNITS STANDING: 0 OF ${left}` },
+  rewrite: { eyebrow: 'LINE TWO — YOURS', status: (left: number) => `UNITS AWAITING ORDERS: ${left}` },
   tbc: 'TO BE CONTINUED',
 };

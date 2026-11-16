@@ -14,7 +14,11 @@ import { intercomPanel, shellPallet } from './kit2';
 
 const PI = Math.PI;
 const H = 9;
-export const GLASS = { x: -10, z0: -49.85, z1: -44.15, y0: 0.88, y1: 2.72, mullions: [-49.8, -48.0, -46.1, -44.2] };
+// REVISION 5.1: the north end of the glass stops at -44.75 so the open south leaf of `d2_booth_hall` (to -44.64)
+// slides into solid wall, not into the pane
+export const GLASS = { x: -10, z0: -49.85, z1: -44.85, y0: 0.88, y1: 2.72, mullions: [-49.8, -48.0, -46.1, -44.9] };
+/** d2_booth_hall's centre (REVISION 5.1: 0.1 m south of -43 so its frame clears the booth's north wall face). */
+export const BOOTH_HALL_Z = -43.12;
 
 export function buildHall(L: LevelBuild) {
   L.room('line', 'LINE TWO', -10, 10, -70, -22, H, 1.8);
@@ -22,17 +26,24 @@ export function buildHall(L: LevelBuild) {
   const b = L.builder('hall');
   shell(L, b, R);
   glassFront(L, b);
-  // the foreman first (g2_foreman: 1 foreman + 2 husk on the spur hooks, added by the line)
-  L.enemy('g2_foreman', 'foreman', 'dormant', -3.6, 0, -65.8, PI + 0.3, 'folded', 'still');
+  // g2_foreman (REVISION 5.1): spawn-mode — nothing of it exists before `l2_foreman`. The foreman is lowered
+  // folded by the monorail trolley (vignette `foreman_arrive`) to (-3.5, 0, -66.5): pose 'hoist'. Its two husks
+  // drop from the parking spur's hooks (yokes at y 6.14, see line.ts): pose 'drop'.
+  L.enemy('g2_foreman', 'foreman', 'spawn', -3.5, 0, -66.5, 0, 'hoist');
   buildLine(L, b);
   // the 2.3 m strip between the tunnel and the east wall falls between nav grid columns: hand-placed nodes
-  for (let z = -49.5; z >= -67.5; z -= 1.5) L.navNode(8.65, z, 'line');
+  // (south of the partition only: a link across it would run through the fence)
+  for (let z = -51.0; z >= -67.5; z -= 1.5) L.navNode(8.65, z, 'line');
   // g2_hall_mid: skitters from under the line (beside the tunnel), a sentry from the roof trusses
   L.enemy('g2_hall_mid', 'skitter', 'spawn', 2.05, 0, -52.6, PI / 2);
   L.enemy('g2_hall_mid', 'skitter', 'spawn', 2.05, 0, -55.4, PI / 2);
   L.enemy('g2_hall_mid', 'sentry', 'spawn', -1.0, 7.4, -53.0, 0);
-  // g2_unit32: the next unit off the line, at the tunnel exit (story spawns it after the ride)
-  L.enemy('g2_unit32', 'husk', 'spawn', 5.0, BELT.y, -62.9, 0);
+  // g2_unit32: the next unit off the line, INSIDE the tunnel behind d2_exit (story spawns it after the ride; the
+  // exit opens for it because it is inside within 2 m)
+  L.enemy('g2_unit32', 'husk', 'spawn', 5.0, BELT.y, -60.5, PI);
+  // g2_escort (REVISION 5.1, used when cp2_taken is loaded): the two escorts as real husks in the hall by the booth door
+  L.enemy('g2_escort', 'husk', 'spawn', -7.5, 0, -43.4, -PI / 2);
+  L.enemy('g2_escort', 'husk', 'spawn', -6.5, 0, -44.4, -PI / 2);
   // g2_unit14: Okafor's limp, standing in front of the core door (never wakes unless damaged)
   L.enemy('g2_unit14', 'husk', 'spawn', 1.6, 0, -68.5, PI, 'standing', 'watch');
   dressing(L, b, R);
@@ -43,11 +54,13 @@ export function buildHall(L: LevelBuild) {
 /** Heavier set dressing: the line's motor control centre, shell racks, a pallet truck, overhead signs. */
 function machinery(L: LevelBuild, b: Builder, R: ReturnType<typeof rng>) {
   // motor control centre for line 2 along the east wall, south of the fence
-  for (let i = 0; i < 6; i++) b.at(9.45, 0, -51.0 - i * 0.92, -PI / 2, () => { switchgear(b, R, 0.9, 2.3, 0.6, 0.45); });
-  b.collide(9.1, 0, -56.1, 9.8, 2.3, -50.5);
+  // (REVISION 5.1: kept ≥ 2 m clear of the partition — nothing climbable near it)
+  // (1.9 m tall: its top is no step up onto the tunnel roof, 3.85 m)
+  for (let i = 0; i < 6; i++) b.at(9.45, 0, -53.0 - i * 0.92, -PI / 2, () => { switchgear(b, R, 0.9, 1.9, 0.6, 0.45); });
+  b.collide(9.1, 0, -58.1, 9.8, 1.9, -52.5);
   b.detail(() => {
-    for (let i = 0; i < 8; i++) b.rod(i % 3 ? 'rubber' : 'plastic_dark', 9.5, 2.32, -50.8 - i * 0.65, 9.5, 5.0, -50.8 - i * 0.65 + 0.2, 0.03, 6);
-    b.sign('LINE 2 — MCC', 'label', 9.12, 2.55, -53.3, 1.2, 0.18, '-x', 0, true);
+    for (let i = 0; i < 8; i++) b.rod(i % 3 ? 'rubber' : 'plastic_dark', 9.5, 1.92, -52.8 - i * 0.65, 9.5, 5.0, -52.8 - i * 0.65 + 0.2, 0.03, 6);
+    b.sign('LINE 2 — MCC', 'label', 9.12, 2.55, -55.3, 1.2, 0.18, '-x', 0, true);
   });
   // shell racks: A-frames with torso shells hung on pegs, waiting to be fitted
   for (const [x, z] of [[-1.6, -29.0], [-1.6, -31.6]] as const) b.at(x, 0, z, 0, () => {
@@ -105,7 +118,7 @@ function shell(L: LevelBuild, b: Builder, R: ReturnType<typeof rng>) {
   wallFace(b, { ...common, n: '+z', plane: -69.8, from: -10, to: 10, openings: [{ c: 0, w: 3.0, h: 2.8 }], seed: 232, clear: [[-4.5, 4.5]] });
   wallFace(b, {
     ...common, n: '+x', plane: -9.8, from: -69.8, to: -22.2, seed: 233, features: 0.3, trayY: 0, clearWindows: true,
-    openings: [{ c: (GLASS.z0 + GLASS.z1) / 2, w: GLASS.z1 - GLASS.z0, h: GLASS.y1 - GLASS.y0, y0: GLASS.y0 }, { c: -43, w: 1.6, h: 2.4 }, { c: -66, w: 1.6, h: 2.4 }],
+    openings: [{ c: (GLASS.z0 + GLASS.z1) / 2, w: GLASS.z1 - GLASS.z0, h: GLASS.y1 - GLASS.y0, y0: GLASS.y0 }, { c: BOOTH_HALL_Z, w: 1.6, h: 2.4 }, { c: -66, w: 1.6, h: 2.4 }],
     clear: [[-51, -41]],
   });
   wallFace(b, { ...common, n: '-x', plane: 9.8, from: -69.8, to: -22.2, seed: 234, openings: [{ c: -34, w: 1.6, h: 2.4 }, { c: -61, w: 1.6, h: 2.4 }] });
@@ -125,14 +138,20 @@ function shell(L: LevelBuild, b: Builder, R: ReturnType<typeof rng>) {
   });
   // ── catwalk along the west wall, over the booth, at 4.4 m ──
   const cy = 4.4;
-  b.detail(() => b.quad('floor_grate', -9.1, cy + 0.03, -46, 1.4, 45.6, '+y', 0, 'box'));
-  b.box('trim_steel', -8.37, cy - 0.06, -46, 0.06, 0.18, 45.6);
+  // REVISION 5.1: cut at the partition (z -50.35) — two separate runs, each ends at the partition mesh
+  const CW: [number, number][] = [[-50.5, -68.8], [-23.2, -50.2]];
+  for (const [za, zb] of CW) {
+    const zc = (za + zb) / 2, len = Math.abs(za - zb);
+    b.detail(() => b.quad('floor_grate', -9.1, cy + 0.03, zc, 1.4, len, '+y', 0, 'box'));
+    b.box('trim_steel', -8.37, cy - 0.06, zc, 0.06, 0.18, len);
+    b.collide(-9.8, cy - 0.1, Math.min(za, zb), -8.35, cy + 0.03, Math.max(za, zb), 'metal', false);
+  }
   for (let z = -68; z <= -24; z += 2) {
     b.box('trim_steel', -9.1, cy - 0.04, z, 1.4, 0.1, 0.06);
     if (z % 4 === 0) b.rbox('trim_steel', -9.2, cy - 0.75, z, 0.07, 1.9, 0.07, 0, 0, -0.72);
   }
-  handrail(b, 'painted_yellow', [[-8.4, cy + 0.03, -68.6], [-8.4, cy + 0.03, -23.4]], 1.05, 1.6);
-  b.collide(-9.8, cy - 0.1, -68.8, -8.35, cy + 0.03, -23.2, 'metal', false);
+  handrail(b, 'painted_yellow', [[-8.4, cy + 0.03, -68.6], [-8.4, cy + 0.03, -50.6]], 1.05, 1.6);
+  handrail(b, 'painted_yellow', [[-8.4, cy + 0.03, -50.1], [-8.4, cy + 0.03, -23.4]], 1.05, 1.6);
   b.at(-8.3, 0, -24.4, PI / 2, () => {
     for (const s of [-1, 1]) b.box('painted_yellow', s * 0.24, 2.7, 0.03, 0.05, 5.4, 0.03);
     b.detail(() => { for (let y = 0.3; y < 5.3; y += 0.3) b.rod('steel_raw', -0.24, y, 0.03, 0.24, y, 0.03, 0.012, 5); for (let y = 2.4; y < 5.4; y += 0.65) b.torus('painted_yellow', 0, y, 0.36, 0.36, 0.012, 'y', 14); });
@@ -169,15 +188,15 @@ function glassFront(L: LevelBuild, b: Builder) {
   });
   b.collide(x - 0.05, y0, z0, x + 0.05, y1, z1, 'glass');
   // frame: sill ledge, head, mullions with rubber gaskets; the hall side is the "outside"
-  b.box('trim_steel', x + 0.1, y0 - 0.03, (z0 + z1) / 2, 0.22, 0.06, z1 - z0 + 0.2);
-  b.box('trim_steel', x + 0.08, y1 + 0.06, (z0 + z1) / 2, 0.2, 0.12, z1 - z0 + 0.2);
+  b.box('trim_steel', x + 0.1, y0, (z0 + z1) / 2, 0.22, 0.06, z1 - z0 + 0.2);
+  b.box('trim_steel', x + 0.08, y1 + 0.03, (z0 + z1) / 2, 0.2, 0.12, z1 - z0 + 0.2);
   for (const mz of mullions) {
     b.box('trim_steel', x, (y0 + y1) / 2, mz, 0.2, y1 - y0, mz === mullions[2] ? 0.09 : 0.055);
     b.detail(() => { b.box('rubber', x + 0.105, (y0 + y1) / 2, mz, 0.01, y1 - y0, 0.08); for (let y = y0 + 0.2; y < y1; y += 0.45) b.inst('bolt', x + 0.13, y, mz, 0, PI / 2, 0, 1.6); });
   }
   b.detail(() => {
-    b.box('rubber', x + 0.07, y0 + 0.01, (z0 + z1) / 2, 0.02, 0.03, z1 - z0);
-    b.box('rubber', x + 0.07, y1 - 0.01, (z0 + z1) / 2, 0.02, 0.03, z1 - z0);
+    b.box('rubber', x + 0.07, y0 + 0.045, (z0 + z1) / 2, 0.02, 0.03, z1 - z0);
+    b.box('rubber', x + 0.07, y1 - 0.05, (z0 + z1) / 2, 0.02, 0.03, z1 - z0);
     b.sign('LINE CONTROL', 'label', x + 0.14, y1 + 0.32, (z0 + z1) / 2, 1.8, 0.24, '+x', 0, true);
     b.sign('NO ENTRY — OPERATOR ONLY', 'warning', x + 0.1, 2.05, -41.0, 0.9, 0.2, '+x', 0, true);
     b.sign('INTERLOCK — LINE RUNNING/HELD', 'danger', x + 0.12, 2.75, -43, 1.3, 0.18, '+x', 0, true);
@@ -187,9 +206,9 @@ function glassFront(L: LevelBuild, b: Builder) {
   });
   // the intercom on the mullion between pane 2 and 3
   const mz = mullions[2];
-  b.at(x + 0.12, 0, mz, PI / 2, () => intercomPanel(b, 1.45));
+  b.at(x + 0.135, 0, mz, PI / 2, () => intercomPanel(b, 1.45));
   b.sign('INTERCOM', 'label', x + 0.18, 1.73, mz, 0.22, 0.05, '+x');
-  L.interact('intercom_hall', 'button', 'Use intercom', x + 0.2, 1.4, mz, true, 2.0);
+  L.interact('intercom_hall', 'button', 'Use intercom', x + 0.45, 1.4, mz, true, 2.2); // in front of the panel: never reachable through the glass (R8)
   const o = new THREE.Object3D(); o.name = 'intercom_hall'; o.position.set(x + 0.2, 1.45, mz); L.root.add(o); L.objects.set('intercom_hall', o);
   const g = new THREE.Object3D(); g.name = 'booth_glass'; g.position.set(x + 0.05, (y0 + y1) / 2, (z0 + z1) / 2); L.root.add(g); L.objects.set('booth_glass', g);
 }
@@ -199,11 +218,13 @@ function glassFront(L: LevelBuild, b: Builder) {
 function dressing(L: LevelBuild, b: Builder, R: ReturnType<typeof rng>) {
   // ── floor: walkway lanes, staging boxes, stencils ──
   b.detail(() => {
-    b.box('painted_yellow', 2.0, 0.002, -46, 0.1, 0.004, 47);
-    b.box('painted_yellow', -9.0, 0.002, -46, 0.1, 0.004, 47);
-    for (let z = -25; z > -68; z -= 3) b.box('painted_white', -3.5, 0.002, z, 0.08, 0.004, 1.6);
+    // painted lines: overlay materials (they lie on the concrete; REVISION 5.1 z-fight rule)
+    const Y = L.overlay('painted_yellow'), W = L.overlay('painted_white');
+    b.box(Y, 2.0, 0.002, -46, 0.1, 0.004, 47);
+    b.box(Y, -9.0, 0.002, -46, 0.1, 0.004, 47);
+    for (let z = -25; z > -68; z -= 3) b.box(W, -3.5, 0.002, z, 0.08, 0.004, 1.6);
     // staging box at the south end, where finished units used to stand
-    for (const [x, z, w, d] of [[2.0, -67.8, 3.6, 0.1], [2.0, -64.2, 3.6, 0.1]] as const) b.box('painted_white', x, 0.002, z, w, 0.004, d);
+    for (const [x, z, w, d] of [[2.0, -67.8, 3.6, 0.1], [2.0, -64.2, 3.6, 0.1]] as const) b.box(W, x, 0.002, z, w, 0.004, d);
   });
   b.sign('LINE 2', 'stencil', -5.5, 0.004, -26.0, 3.2, 1.4, '+y', PI);
   b.sign('STAGING', 'stencil', 2.0, 0.004, -66.0, 2.4, 0.5, '+y', PI);
@@ -223,7 +244,7 @@ function dressing(L: LevelBuild, b: Builder, R: ReturnType<typeof rng>) {
   b.at(-9.45, 0, -40.6, PI / 2, () => {
     b.box('painted_dark', 0, 0.9, 0, 0.62, 1.8, 0.6);
     b.detail(() => {
-      b.box('painted_orange', 0, 1.55, 0.302, 0.56, 0.4, 0.01);
+      b.box('painted_orange', 0, 1.55, 0.31, 0.56, 0.4, 0.016);
       b.sign('HOT DRINKS', 'label', 0, 1.55, 0.31, 0.4, 0.09, '+z');
       b.box('painted_dark', 0, 0.85, 0.24, 0.3, 0.3, 0.14);
       b.box('screen_off', 0.18, 1.2, 0.302, 0.12, 0.08, 0.01);
@@ -238,7 +259,7 @@ function dressing(L: LevelBuild, b: Builder, R: ReturnType<typeof rng>) {
   // ── near the glass: an operator's stool knocked over, cable to the intercom ──
   b.push(-8.9, 0.2, -45.4, 0.6, PI / 2, 0); b.cyl('painted_dark', 0, 0, 0, 0.18, 0.05, 'y', 12); b.cyl('chrome', 0, -0.3, 0, 0.025, 0.6, 'y', 8); b.pop();
   // ── middle (hall_mid fight): cover between the gate and the line south ──
-  b.at(-7.0, 0, -52.5, 0.1, () => shellPallet(b, L, 3, 2, 5));
+  b.at(-7.0, 0, -53.2, 0.1, () => shellPallet(b, L, 3, 2, 5)); // ≥ 2 m from the partition
   b.at(-7.4, 0, -55.5, -0.2, () => crate(b, 1.6, 1.2, 1.2, 'painted_white', 'SHELL SET 4-B'));
   b.at(-3.0, 0, -54.0, 0.3, () => { pallet(b, 1.3, 1.1); b.at(0, 0.145, 0, 0, () => crate(b, 1.2, 0.8, 1.0, 'wall_panel_dark', 'JOINTS R2', false)); b.collide(-0.65, 0, -0.55, 0.65, 0.95, 0.55); });
   b.at(-0.3, 0, -57.6, -0.1, () => workTable(b, 2.0, 0.8, 0.92));
@@ -258,9 +279,9 @@ function dressing(L: LevelBuild, b: Builder, R: ReturnType<typeof rng>) {
   L.pickup('p2_hall_med_s1', 'medkit', -9.2, 0, -64.6, 35, 0.3);
   L.pickup('p2_hall_med_s2', 'medkit', -2.6, 0.95, -54.2, 35, 0.2);
   // ── the big status screen over the core door ──
-  b.box('painted_dark', 0, 5.6, -69.62, 8.4, 3.8, 0.3);
+  b.box('painted_dark', 0, 5.6, -69.62, 8.4, 3.76, 0.3);
   b.detail(() => {
-    for (const s of [-1, 1]) { b.box('trim_steel', s * 4.12, 5.6, -69.45, 0.16, 3.8, 0.08); b.box('trim_steel', 0, 5.6 + s * 1.82, -69.45, 8.4, 0.16, 0.08); }
+    for (const s of [-1, 1]) { b.box('trim_steel', s * 4.14, 5.6, -69.45, 0.16, 3.86, 0.08); b.box('trim_steel', 0, 5.6 + s * 1.85, -69.45, 8.44, 0.16, 0.08); }
     for (const x of [-3, -1, 1, 3]) b.rbox('trim_steel', x, 8.0, -69.6, 0.08, 1.2, 0.08, 0.2, 0, 0);
     b.sign('LINE 2 — PRODUCTION STATUS', 'label', 0, 3.55, -69.76, 2.6, 0.14, '+z');
   });
@@ -314,7 +335,7 @@ function lights(L: LevelBuild, b: Builder) {
   // amber wall packs high on the columns (glow only, plus two that really light)
   b.detail(() => {
     for (let z = -26; z >= -66; z -= 8) for (const [x, f] of [[-9.55, 1], [9.55, -1]] as const) {
-      b.box('painted_dark', x, 6.2, z, 0.2, 0.26, 0.36);
+      b.box('painted_dark', x, 6.2, z, 0.2, 0.26, 0.46);
       b.box(gm!, x + f * 0.105, 6.18, z, 0.02, 0.16, 0.26);
     }
   });
@@ -325,9 +346,19 @@ function lights(L: LevelBuild, b: Builder) {
   // big screen wash
   L.point('line', 0, 5.0, -67.4, 0x58e0c8, 8, 11, { flicker: 'fluorescent' });
   // small practical lamps at the doors
-  b.at(9.8, 0, -32.6, -PI / 2, () => bulkhead(b, L, 'line', 0, 2.6, 0, 0x9fd8ff, 4, 4.5, 'emissive_cyan', { flicker: 'fluorescent' }));
-  b.at(-9.8, 0, -64.6, PI / 2, () => bulkhead(b, L, 'line', 0, 2.6, 0, 0xffb070, 3, 4, 'emissive_warm'));
-  b.at(9.8, 0, -59.6, -PI / 2, () => bulkhead(b, L, 'line', 0, 2.6, 0, 0xff4020, 2.5, 4, 'emissive_red', { flicker: 'pulse' }));
+  // the fitting door's blue lamp IS that door's status light (REVISION 5.1): dark until Tomas unlocks it
+  let fitLamp: ReturnType<typeof bulkhead> | null = null;
+  b.at(9.77, 0, -32.6, -PI / 2, () => { fitLamp = bulkhead(b, L, 'fitting_door', 0, 2.6, 0, 0x9fd8ff, 4, 4.5, 'emissive_cyan', { flicker: 'fluorescent', enabled: false }); });
+  L.afterDoors.push(() => {
+    const d = L.doors.get('d2_fitting');
+    if (!d || !fitLamp) return;
+    const h = fitLamp;
+    const set = (st: string) => { h.enabled = st === 'open'; };
+    d.statusListeners.push(set);
+    set(d.shown);
+  });
+  b.at(-9.77, 0, -64.6, PI / 2, () => bulkhead(b, L, 'line', 0, 2.6, 0, 0xffb070, 3, 4, 'emissive_warm'));
+  b.at(9.77, 0, -59.6, -PI / 2, () => bulkhead(b, L, 'line', 0, 2.6, 0, 0xff4020, 2.5, 4, 'emissive_red', { flicker: 'pulse' }));
   workLight(b, L, 'line', -7.8, -29.6, Math.atan2(-(-5 + 7.8), -(-26 + 29.6)), { intensity: 70, distance: 9, angle: 0.8, pitch: 0.4 });
   // emergency beacons on the columns (off until the line starts / story)
   let bm: THREE.Material | undefined;

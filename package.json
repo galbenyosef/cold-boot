@@ -11,6 +11,8 @@
     "shot": "node scripts/shot.mjs",
     "check:zfight": "node scripts/check-zfight.mjs",
     "check:doors": "node scripts/check-doors.mjs",
+    "check:reach": "node scripts/check-reach.mjs",
+    "check": "node scripts/check-zfight.mjs && node scripts/check-doors.mjs && node scripts/check-reach.mjs",
     "voice": "uv run --project tools/voice coldvoice gen",
     "voice:cast": "uv run --project tools/voice coldvoice cast",
     "voice:check": "uv run --project tools/voice coldvoice check",

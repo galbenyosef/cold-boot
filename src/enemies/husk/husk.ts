@@ -15,6 +15,7 @@ import { applySpec, HUSK_POSES } from './poses';
 import { sayMutter } from '../voice';
 import { armIK } from '../shared/ik';
 import { WorkerProps } from './worker';
+import { Holo, holoMaterial, holoOverride } from '../shared/holo';
 
 type Mode = 'puppet' | 'dormant' | 'wake' | 'idle' | 'react' | 'chase' | 'windup' | 'strike' | 'recover' | 'stagger' | 'flail'
   | 'topple' | 'crawl' | 'cwindup' | 'cstrike' | 'crecover' | 'writhe' | 'dying' | 'dead';
@@ -166,6 +167,8 @@ export class Husk extends EnemyBase {
   private pMoving = false; private pSpeed = WALK; private pDone: (() => void) | null = null;
   private readonly pTarget = new THREE.Vector3();
   private pStuck = 0; private pLastD = 0;
+  /** REVISION 5: spawn pose 'drop' — falls from ~4 m, lands, rises. */
+  private dropIn = false;
 
   constructor(world: EnemyWorld, private tpl: HuskTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, 0.35, 1.8);
@@ -187,7 +190,10 @@ export class Husk extends EnemyBase {
     this.twitchTimer = 1 + world.rand() * 2;
     this.dormantTwitch = 4 + world.rand() * 14;
     const sign = tpl.signs[this.id % tpl.signs.length];
-    this.rig = tpl.rig.instantiate({ sign });
+    const look = this.isActor ? o.look : undefined;
+    const holoKind = look === 'holo_ghost' ? 'ghost' : look === 'holo_tech' ? 'tech' : null;
+    const holoMat = holoKind ? holoMaterial(holoKind, world.rand() * 10) : null;
+    this.rig = holoMat ? tpl.rig.instantiate(holoOverride(tpl.rig, holoMat)) : tpl.rig.instantiate({ sign });
     this.B = this.rig.byName;
     this.lodRig = this.rig;
     this.object.add(this.rig.root);
@@ -247,7 +253,14 @@ export class Husk extends EnemyBase {
     }
     if (this.isActor) {
       this.mode = 'puppet'; this.state = 'idle';
-      this.pPose = pose && (POSE_KEY[pose] || HUSK_POSES[pose]) ? pose : 'idle';
+      this.pPose = pose && (POSE_KEY[pose] || HUSK_POSES[pose] || pose === 'tread') ? pose : holoKind === 'tech' ? 'tread' : 'idle';
+      if (holoKind && holoMat) {
+        this.holo = new Holo(world, holoKind, holoMat, this.rig, this.object, holoKind === 'ghost' ? tpl.rig.instantiate(holoOverride(tpl.rig, holoMat)) : null,
+          () => { this.holdHidden = true; });
+        this.gait = holoKind === 'ghost' ? 'limp' : 'human';
+        this.limp = 0;
+        this.body.gravityScale = 0;
+      }
       if (this.pPose === 'slumped') this.snapToWall();
       this.rig.apply(this.keys.get(this.puppetKey())!);
       this.setEye(false);
@@ -271,6 +284,17 @@ export class Husk extends EnemyBase {
         this.workT = world.rand() * this.workDur;
         this.workPose();
       }
+    } else if (pose === 'drop') {
+      // REVISION 5 emerge 'drop': out of sight above, falls ~4 m after its stagger delay, lands crouched, rises
+      this.dropIn = true;
+      this.pose = 'rack';
+      this.body.position.y += 4;
+      this.object.position.copy(this.body.position);
+      this.mode = 'dormant'; this.state = 'dormant';
+      this.rig.apply(this.keys.get('fall')!);
+      this.setEye(false);
+      this.holdHidden = true;
+      this.wakeDelay = Math.max(0, o.delay ?? 0);
     } else {
       this.mode = 'idle'; this.state = 'idle';
       this.awake = true;
@@ -358,6 +382,17 @@ export class Husk extends EnemyBase {
     }
     this.startLoop('husk_loop', 0.8);
     this.world.ctx.events.emit('enemy:woke', { id: this.id, type: this.type, position: this.body.position });
+    if (this.dropIn) {
+      // straight into the fall (skip the hook thrash)
+      this.holdHidden = false;
+      this.phase = 1; this.modeTime = 0; this.startBlend(0.2);
+      this.body.velocity.set(0, -1, 0); this.body.onGround = false;
+      this.eyeFlicker = 0;
+    }
+    this.addEyeLight();
+  }
+
+  private addEyeLight(): void {
     if (!this.light) {
       try {
         this.light = this.world.ctx.render.lights.add({ type: 'point', position: new THREE.Vector3().copy(this.body.position).setY(this.body.position.y + 1.6), color: 0xff2412, intensity: 0.5, distance: 2.6, priority: 0.2 });
@@ -974,7 +1009,7 @@ export class Husk extends EnemyBase {
   // ───────────────────────────────────────────────────────── REVISION 4: puppet gait + speech
 
   override puppetGait(gait: string): void {
-    const g = gait === 'limp' || gait === 'carry' || gait === 'carry_l' || gait === 'carry_r' || gait === 'human' ? gait : '';
+    const g = gait === 'limp' || gait === 'carry' || gait === 'carry_l' || gait === 'carry_r' || gait === 'human' || gait === 'lead' || gait === 'push' ? gait : '';
     this.gait = g;
     this.carrySide = g === 'carry_l' ? 1 : g === 'carry_r' ? -1 : 0;
   }
@@ -986,6 +1021,7 @@ export class Husk extends EnemyBase {
 
   /** 'carry': one arm held out to the side at shoulder height, gently — leading someone by the arm. */
   private carryArm(): void {
+    if (this.gait === 'lead' || this.gait === 'push') { this.fileArms(); return; }
     if (this.gait !== 'carry' && this.gait !== 'carry_l' && this.gait !== 'carry_r') return;
     let side = this.carrySide;
     if (side === 0) {
@@ -1010,11 +1046,62 @@ export class Husk extends EnemyBase {
     B['uarm_' + o].quaternion.slerp(_q.setFromEuler(_e.set(0.05, 0, 0.12 * -side, 'XYZ')), 0.6);
   }
 
+  /**
+   * REVISION 5 single file through a door: 'lead' walks in front of the human and holds his left wrist behind it with
+   * its right hand; 'push' walks behind him, left hand clamped on his right upper arm, right hand on his shoulder blade.
+   * Hands go to his actual grip points (world-space arm IK) when he is within reach, otherwise a plausible FK hold.
+   */
+  private fileArms(): void {
+    const B = this.B, p = this.body.position, t = this.world.time;
+    type Grip = { gripPoint?(part: string, out: THREE.Vector3): THREE.Vector3 };
+    let man = null as Grip | null;
+    let bd = 2.2 * 2.2;
+    for (const a of this.world.actors) {
+      if ((a.type as string) !== 'human') continue;
+      const dx = a.position.x - p.x, dz = a.position.z - p.z, d = dx * dx + dz * dz;
+      if (d < bd) { bd = d; man = a as unknown as Grip; }
+    }
+    const sway = noise1(t * 0.8, this.seed + 33) * 0.04;
+    if (this.gait === 'lead') {
+      if (man?.gripPoint) {
+        man.gripPoint('wrist_l', _T);
+        this.handsTo(null, _T, 0.3, -0.6);
+      } else {
+        B.uarm_r.quaternion.setFromEuler(_e.set(0.55 + sway, 0, -0.22, 'XYZ'));
+        B.larm_r.quaternion.setFromEuler(_e.set(-0.15, 0, 0));
+      }
+      B.hand_r.quaternion.multiply(_q.setFromEuler(_e.set(0.2, 0, 0)));
+      B.uarm_l.quaternion.slerp(_q.setFromEuler(_e.set(0.05, 0, 0.1, 'XYZ')), 0.5);
+    } else {
+      if (man?.gripPoint) {
+        man.gripPoint('uarm_r', _T);
+        man.gripPoint('back', _v2);
+        this.handsTo(_T, _v2, 0.65, 0.35);
+      } else {
+        B.uarm_l.quaternion.setFromEuler(_e.set(-0.95 + sway, 0, 0.1, 'XYZ'));
+        B.larm_l.quaternion.setFromEuler(_e.set(-0.55, 0, 0));
+        B.uarm_r.quaternion.setFromEuler(_e.set(-0.9 - sway, 0, -0.12, 'XYZ'));
+        B.larm_r.quaternion.setFromEuler(_e.set(-0.6, 0, 0));
+      }
+      B.fing_l.quaternion.setFromEuler(_e.set(-0.9, 0, 0)); B.fing2_l.quaternion.setFromEuler(_e.set(-1.05, 0, 0));
+    }
+  }
+
   // ───────────────────────────────────────────────────────── puppet (EnemyManager.actor)
 
   private tickPuppet(dt: number): void {
     const w = this.world, p = this.body.position, v = this.body.velocity, B = this.B;
-    const loco = this.pMoving || this.pPose === 'idle';
+    const treadIn = !this.pMoving && this.pPose === 'tread';
+    this.tread = treadIn;
+    if (treadIn) {
+      // walking in place, perfectly looping (reference pattern / ghost on the rig)
+      this.treadSpeed = TREAD_SPEED;
+      const ph = w.time / TREAD_CYCLE + (this.seed % 1);
+      if (Math.floor(this.treadPhase * 2) !== Math.floor(ph * 2) && this.dist < 25) this.emit('enemy:step');
+      this.treadPhase = ph;
+      v.set(0, 0, 0);
+    }
+    const loco = this.pMoving || this.pPose === 'idle' || treadIn;
     if (this.pMoving) {
       const dx = this.pTarget.x - p.x, dz = this.pTarget.z - p.z, d = Math.hypot(dx, dz);
       this.pStuck += dt;
@@ -1056,6 +1143,7 @@ export class Husk extends EnemyBase {
     }
     this.lookW = damp(this.lookW, this.lookPt ? 1 : 0, 5, dt);
     this.finishPose(dt);
+    if (this.holo) this.holo.update(dt);
   }
 
   private arrive(): void {
@@ -1070,15 +1158,17 @@ export class Husk extends EnemyBase {
     this.pSpeed = THREE.MathUtils.clamp(speed ?? WALK, 0.3, RUN);
     this.pMoving = true; this.pDone = done;
     this.pStuck = 0; this.pLastD = 1e9;
-    if (this.pPose !== 'idle') { this.startBlend(0.5); this.pPose = 'idle'; this.resetFeet(); this.hipsY = this.B.hips.position.y; }
+    if (this.pPose !== 'idle') { this.startBlend(this.pPose === 'tread' ? 0.3 : 0.5); this.pPose = 'idle'; this.tread = false; this.resetFeet(); this.hipsY = this.B.hips.position.y; }
   }
 
   override puppetPose(pose: string): void {
-    const n = pose === 'idle' || POSE_KEY[pose] || HUSK_POSES[pose] ? pose : 'idle';
+    const n = pose === 'idle' || pose === 'tread' || POSE_KEY[pose] || HUSK_POSES[pose] ? pose : 'idle';
     if (this.pMoving && n !== 'idle') this.arrive();
     if (n === this.pPose) return;
     this.startBlend(0.5);
+    const wasTread = this.pPose === 'tread';
     this.pPose = n;
+    if (wasTread) this.tread = false;
     if (n === 'idle') { this.resetFeet(); this.hipsY = this.B.hips.position.y; }
   }
 
@@ -1092,6 +1182,38 @@ export class Husk extends EnemyBase {
   }
 
   override puppetStop(): void { if (this.pDone) this.arrive(); this.pMoving = false; }
+
+  /**
+   * REVISION 5: this puppet becomes a live hostile machine of `group` in place — same instance, rig, feet, velocity
+   * and gait phase, so nothing jumps. The caller (manager) moves it from `actors` to `all`.
+   */
+  promoteTo(group: string): void {
+    (this as unknown as { group: string }).group = group;
+    const wasMoving = this.pMoving;
+    this.puppetStop();
+    this.isActor = false;
+    this.mode = 'puppet'; // so setMode below always runs its bookkeeping
+    this.awake = true; this.wakeDelay = -1;
+    this.pose = ''; this.tread = false;
+    this.lookPt = null;
+    this.body.gravityScale = 1;
+    if (!this.eyeOn) { this.setEye(true); this.eyeFlicker = 0.3; }
+    this.addEyeLight();
+    this.startLoop('husk_loop', 0.8);
+    // a static pose (or a carry arm) eases into its own walk; a walking puppet just keeps walking
+    if (this.pPose !== 'idle' && this.pPose !== 'tread') { this.startBlend(0.5); this.resetFeet(); }
+    else if (this.gait === 'carry' || this.gait === 'carry_l' || this.gait === 'carry_r' || this.gait === 'lead' || this.gait === 'push') this.startBlend(0.45);
+    this.hipsY = this.B.hips.position.y;
+    this.gait = '';
+    this.running = false; this.rage = 0; this.hitch = 0; this.lurch = 0;
+    this.directTimer = 0; this.replanTimer = 0;
+    this.setMode('chase');
+    if (!wasMoving) this.lurch = 0.15;
+    this.roomTagAt = -1;
+    this.emit('enemy:spawned');
+    this.emit('enemy:woke');
+    this.emit('enemy:alerted');
+  }
 
   private finishWake(): void {
     this.pose = '';
@@ -1856,6 +1978,7 @@ export class Husk extends EnemyBase {
   }
 
   override dispose(): void {
+    if (this.holo) { this.holo.dispose(); this.holo = null; }
     if (this.light) { this.light.remove(); this.light = null; }
     if (this.props) { this.props.dispose(); this.props = null; }
     this.rig.skeleton.dispose();

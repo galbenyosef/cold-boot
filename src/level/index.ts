@@ -22,6 +22,7 @@ import { buildGen } from './rooms/gen';
 import { buildLobby } from './rooms/lobby';
 import { buildElevator } from './rooms/elevator';
 import { TRIGGERS } from './triggers';
+import { installPhases1 } from './phases';
 
 const DOORS: DoorSpec[] = [
   { id: 'd_med', x: 0, z: 0, wall: 'z', kind: 'std', locked: false, labelFront: 'SERVICE CORRIDOR A', labelBack: 'MEDICAL 3-A', rooms: ['med', 'corr_a'] },
@@ -69,7 +70,7 @@ async function createLevel1(ctx: GameContext): Promise<Level> {
   buildRooms(L, ([['med', buildMed], ['corr', buildCorridor], ['quarters', buildQuarters], ['junction', buildJunction], ['sec', buildSecurity], ['storage', buildStorage],
     ['airlock', buildAirlock], ['fab', buildFab], ['pump', buildPump], ['gen', buildGen], ['lobby', buildLobby], ['elevator', buildElevator]] as const).map(([k, fn]) => [ROOM_OF[k], fn] as const), lap);
 
-  return assembleLevel(ctx, L, {
+  const level = assembleLevel(ctx, L, {
     doors: DOORS,
     portals: PORTALS,
     seeRange: 22,
@@ -84,4 +85,6 @@ async function createLevel1(ctx: GameContext): Promise<Level> {
     machineLoops: MACHINE_LOOPS,
     timings, t0,
   });
+  installPhases1(ctx, L, level);
+  return level;
 }

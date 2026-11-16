@@ -38,7 +38,7 @@ export function buildSecurity(L: LevelBuild) {
   b.box('painted_dark', vx, H - 0.2, vz, 0.9, 0.4, 0.9);
   b.detail(() => {
     b.box('screen_off', vx, H - 0.405, vz, 0.74, 0.012, 0.74);
-    for (const s of [-1, 1]) { b.box('trim_steel', vx + s * 0.41, H - 0.41, vz, 0.08, 0.03, 0.9); b.box('trim_steel', vx, H - 0.41, vz + s * 0.41, 0.9, 0.03, 0.08); }
+    for (const s of [-1, 1]) { b.box('trim_steel', vx + s * 0.4, H - 0.41, vz, 0.08, 0.03, 0.88); b.box('trim_steel', vx, H - 0.41, vz + s * 0.4, 0.88, 0.03, 0.08); }
     b.decal('scratches', 1, vx - 0.9, H - 0.001, vz, 0.8, 0.8, '-y');
     b.decal('oil_drip', 1, vx, 0.002, vz + 0.2, 0.7, 0.7, '+y');
   });
@@ -174,7 +174,7 @@ export function buildSecurity(L: LevelBuild) {
     locker(b, 1.95, 'wall_panel_dark', 0.9, 2.0, 0.5);
     b.detail(() => {
       b.box('emissive_red', 0, 1.97, 0.2, 0.5, 0.012, 0.012);
-      b.box('rubber', 0, 1.105, 0, 0.8, 0.008, 0.4);
+      b.box('rubber', 0, 1.112, 0, 0.8, 0.008, 0.4);
       for (let i = 0; i < 3; i++) b.box('painted_dark', -0.25 + i * 0.2, 0.5, -0.05, 0.12, 0.08, 0.2);
       b.rod('steel_raw', -0.4, 1.75, -0.1, 0.4, 1.75, -0.1, 0.008, 5);
     });

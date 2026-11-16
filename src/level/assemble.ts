@@ -35,6 +35,8 @@ export interface LevelDef {
   machineLoops?: Record<string, MachineLoop>;
   timings?: string[];
   t0?: number;
+  /** REVISION 5: named regions besides the per-room ones (each room id is a region by default). */
+  regions?: Record<string, THREE.Box3[]>;
 }
 
 export type LevelImpl = Level & { settle(seconds?: number): void; setSilent(on: boolean): void };
@@ -133,7 +135,11 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
   };
   const machineState = new Map<string, MachineState>();
 
-  const fallbackDoor: Door = { id: '?', position: new THREE.Vector3(), locked: false, isOpen: false, auto: false, open() {}, close() {}, lock() {}, unlock() {} };
+  const fallbackDoor: Door = { id: '?', position: new THREE.Vector3(), locked: false, isOpen: false, closed: true, auto: false, open() {}, close() {}, lock() {}, unlock() {}, setStatus() {} };
+  // ── regions (REVISION 5.1): one per room + the level's named ones ──
+  const regions: Record<string, THREE.Box3[]> = {};
+  for (const r of rooms) (regions[r.id] ??= []).push(r.bounds.clone());
+  for (const [k, v] of Object.entries(def.regions ?? {})) regions[k] = v;
   const updaters = L.updaters;
   let time = 0;
 
@@ -181,6 +187,7 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
     },
     screen: (name) => L.screens.get(name),
     vignette(id) { L.fireVignette(id); },
+    regions,
     update(dt) {
       time += dt;
       for (let i = 0; i < doors.length; i++) doors[i].update(dt, ctx);

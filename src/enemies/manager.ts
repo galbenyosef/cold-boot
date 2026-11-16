@@ -3,7 +3,7 @@
  * separation between bodies, update LOD, corpse cap.
  */
 import * as THREE from 'three';
-import type { Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySpawn, EnemyType, GameContext } from '../core/types';
+import type { ActorLook, ActorType, Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySpawn, EnemyType, GameContext } from '../core/types';
 import { EnemyBase, type EnemyWorld } from './ai';
 import { NavGraph } from './nav';
 import { raycastVolumes, volumeNormal, type HitVolume, type VolumeHit } from './shared/hit';
@@ -15,6 +15,20 @@ export interface FactoryOpts {
   idle?: string;
   /** Build a scripted puppet (EnemyManager.actor) instead of a live machine. */
   actor?: boolean;
+  /** REVISION 5: actor look (holograms: husk actors only). */
+  look?: ActorLook;
+}
+
+/**
+ * REVISION 5 — what `enemies.actor()` returns beyond the contract's EnemyActor (holograms):
+ *   present  — false while a hologram is collapsed (shot / stared at) or after remove(); true otherwise.
+ *   collapse — glitch hard and collapse to a point (ghost); a tech hologram only flickers.
+ *   appear   — bring a collapsed hologram back (flickers on where it stands).
+ */
+export interface ActorHandle extends EnemyActor {
+  readonly present: boolean;
+  collapse(): void;
+  appear(): void;
 }
 export type EnemyFactory = (world: EnemyWorld, group: string, position: THREE.Vector3, yaw: number, opts: FactoryOpts) => EnemyBase;
 /** Actor-only types (never enemies): REVISION 4 `human` (Tomas). */
@@ -104,13 +118,61 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     return n;
   }
 
+  /** Groups deleted by removeGroup (spawnGroup / wakeGroup / provoke are no-ops for them afterwards). */
+  const removedGroups = new Set<string>();
+
   // Workers: a shot fired within 14 m provokes their group (gunfire noise never wakes ordinary dormant machines).
-  ctx.events.on('weapon:fired', ({ origin }) => {
+  // Each group is provoked once per shot; dead members and removed groups are skipped.
+  const provokedNow = new Set<string>();
+  ctx.events.on('weapon:fired', ({ weapon, origin, direction }) => {
+    provokedNow.clear();
     for (let i = 0; i < all.length; i++) {
       const e = all[i];
-      if (e.isWorker && e.alive && !e.awake && e.position.distanceToSquared(origin) < 14 * 14) world.provoke(e.group, e);
+      if (!e.isWorker || !e.alive || e.awake || e.wakeDelay >= 0) continue;
+      if (e.group && (removedGroups.has(e.group) || provokedNow.has(e.group))) continue;
+      if (e.position.distanceToSquared(origin) < 14 * 14) { if (e.group) provokedNow.add(e.group); world.provoke(e.group, e); }
     }
+    shootActors(weapon, origin, direction);
   });
+
+  // ── R2: shots at actors. One ray (pistol) or the pellet cone (shotgun) against each actor's hit volumes, cut at the
+  // world hit (glass / walls stop it), → one `actor:shot` per actor per shot. Holograms react by themselves.
+  const _ray = new THREE.Vector3(), _right = new THREE.Vector3(), _up = new THREE.Vector3(), _pt = new THREE.Vector3();
+  const actorBest: VolumeHit = { t: 0, volume: null };
+  const shotThisFire = new Set<EnemyBase>();
+  const shootActors = (weapon: string, origin: THREE.Vector3, dir: THREE.Vector3): void => {
+    if (actors.length === 0) return;
+    shotThisFire.clear();
+    const rays = weapon === 'shotgun' ? 9 : 1;
+    _right.set(dir.z, 0, -dir.x);
+    if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0);
+    _right.normalize(); _up.crossVectors(_right, dir).normalize();
+    for (let r = 0; r < rays; r++) {
+      _ray.copy(dir);
+      if (r > 0) { const a = (r - 1) / 8 * Math.PI * 2; _ray.addScaledVector(_right, Math.cos(a) * 0.045).addScaledVector(_up, Math.sin(a) * 0.045).normalize(); }
+      let wall = 200;
+      let wallDone = false;
+      for (let i = 0; i < actors.length; i++) {
+        const e = actors[i];
+        if (shotThisFire.has(e) || e.volumes.length === 0 || !e.object.visible || e.holdHidden) continue;
+        if (e.holo && !e.holo.present) continue;
+        e.boundCenter(_c);
+        _oc.copy(_c).sub(origin);
+        const tca = _oc.dot(_ray), d2 = _oc.lengthSq() - tca * tca, br = e.boundRadius;
+        if (d2 > br * br || tca < -br || tca - br > 200) continue;
+        if (!wallDone) { wallDone = true; const h = ctx.physics.raycast(origin, _ray, 200); wall = h ? h.distance : 200; }
+        actorBest.t = wall; actorBest.volume = null;
+        if (!raycastVolumes(e.volumes, origin, _ray, actorBest)) continue;
+        shotThisFire.add(e);
+        _pt.copy(origin).addScaledVector(_ray, actorBest.t);
+        const handle = handles.get(e);
+        if (e.holo) e.holo.shot(_pt);
+        else if (ctx.debug.verbose) console.warn(`[enemies] R2: a solid ${String(e.type)} actor was shot in the open at`, _pt.toArray().map((v) => v.toFixed(2)).join(', '));
+        if (handle) ctx.events.emit('actor:shot', { actor: handle, type: handle.type, look: handle.look, point: _pt.clone() });
+      }
+    }
+  };
+  const handles = new Map<EnemyBase, ActorHandle>();
 
   if (!ctx.debug.noEnemies) {
     for (const s of ctx.level.enemySpawns ?? []) {
@@ -141,13 +203,19 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     const inert = !e.awake || e.settled;
     let show = !e.holdHidden && d < (inert ? INERT_CULL : AWAKE_CULL);
     if (show && (inert || e.isActor)) {
-      // dormant / settled machines do not move: cache which room they are in (puppets: refresh at ~4 Hz)
-      if (e.roomTagAt < 0 || (e.settled && e.roomTagAt < e.diedAt + 0.01) || (e.isActor && world.time - e.roomTagAt > 0.25)) {
-        const r = ctx.level?.roomAt?.(e.position);
-        e.roomTag = r ? roomTag(r.id) : e.isActor ? e.roomTag : null;
-        e.roomTagAt = world.time;
+      const rv = ctx.level?.root?.userData?.roomVisible as ((x: number, z: number) => boolean) | undefined;
+      if (rv) {
+        // the level's own portal culling answer for the room at this point (true outside any room)
+        if (!rv(e.position.x, e.position.z)) show = false;
+      } else {
+        // dormant / settled machines do not move: cache which room they are in (puppets: refresh at ~4 Hz)
+        if (e.roomTagAt < 0 || (e.settled && e.roomTagAt < e.diedAt + 0.01) || (e.isActor && world.time - e.roomTagAt > 0.25)) {
+          const r = ctx.level?.roomAt?.(e.position);
+          e.roomTag = r ? roomTag(r.id) : e.isActor ? e.roomTag : null;
+          e.roomTagAt = world.time;
+        }
+        if (e.roomTag && !e.roomTag.visible) show = false;
       }
-      if (e.roomTag && !e.roomTag.visible) show = false;
     }
     if (o.visible !== show) o.visible = show;
     const rig = e.lodRig;
@@ -195,7 +263,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
   const _c = new THREE.Vector3(), _oc = new THREE.Vector3();
   let frame = 0;
 
-  const manager: EnemyManager & { world: EnemyWorld; actors: EnemyBase[]; syncTreadmills(seconds: number): void } = {
+  const manager: EnemyManager & { world: EnemyWorld; actors: EnemyBase[]; syncTreadmills(seconds: number): void; timeScale: number; spawnPose(type: EnemyType, position: THREE.Vector3, yaw?: number, group?: string, pose?: string): Enemy } = {
     world, actors,
     /** Extra (REVISION 4, for the `fitting_sync` vignette): all treadmill workers walk in exactly the same step. */
     syncTreadmills(seconds) { world.treadSyncUntil = world.time + Math.max(0, seconds); },
@@ -208,8 +276,12 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     spawn(type, position, yaw = 0, group = '') {
       return create(type, position, yaw, group, { dormant: false });
     },
+    /** Extra (debug / dev pages): spawn with an emerge pose, as a spawn-mode level entry would ('hoist', 'drop'). */
+    spawnPose(type: EnemyType, position: THREE.Vector3, yaw = 0, group = '', pose?: string): Enemy {
+      return create(type, position, yaw, group, { dormant: false, pose, emerge: true });
+    },
     spawnGroup(group) {
-      if (ctx.debug.noEnemies) return;
+      if (ctx.debug.noEnemies || removedGroups.has(group)) return;
       let k = 0;
       for (let i = pending.length - 1; i >= 0; i--) {
         const s = pending[i];
@@ -274,7 +346,9 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     },
     aliveInGroup,
     removeGroup(group) {
-      // Checkpoints: silent — no events, fx or sound. dispose() frees the audio loop, light and wreck box.
+      // Checkpoints: silent — no events, fx or sound. dispose() frees the audio loop, light, props and wreck box —
+      // also for provoked workers still in their beat of stillness (they are out of `all`, so nothing ticks them).
+      removedGroups.add(group);
       for (let i = pending.length - 1; i >= 0; i--) if (pending[i].group === group) pending.splice(i, 1);
       for (let i = corpses.length - 1; i >= 0; i--) if (corpses[i].group === group) corpses.splice(i, 1);
       for (let i = all.length - 1; i >= 0; i--) {
@@ -284,12 +358,19 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         try { e.dispose(); } catch (err) { console.warn('[enemies] removeGroup dispose failed', err); }
       }
     },
-    actor(type, position, yaw = 0, pose) {
+    actor(type, position, yaw = 0, pose, opts) {
+      let look: ActorLook = opts?.look ?? 'solid';
+      if (look !== 'solid' && type !== 'husk') { console.warn(`[enemies] actor look '${look}' is only built for husk actors — using 'solid'`); look = 'solid'; }
       const f = type === 'human' ? (actorFactories?.human ?? factories.husk) : (factories[type] ?? factories.husk);
-      const e = f(world, '', position, yaw, { dormant: false, pose, actor: true });
+      const e = f(world, '', position, yaw, { dormant: false, pose, actor: true, look });
       actors.push(e);
       let removed = false;
-      const handle: EnemyActor = {
+      const atype: ActorType = type;
+      const handle: ActorHandle = {
+        type: atype, look,
+        get present() { return !removed && (!e.holo || e.holo.present); },
+        collapse() { if (!removed) e.holo?.collapse(); },
+        appear() { if (!removed && e.holo) { e.holdHidden = false; e.holo.appear(); } },
         object: e.object,
         get position() { return e.position; },
         moveTo(point, speed) {
@@ -307,12 +388,30 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
           e.puppetStop();
           const i = actors.indexOf(e);
           if (i >= 0) actors.splice(i, 1);
+          handles.delete(e);
           e.dispose();
         },
       };
+      if (type === 'husk' && look === 'solid') {
+        handle.promote = (group: string): Enemy => {
+          if (removed) throw new Error('[enemies] promote on a removed actor');
+          removed = true;
+          const i = actors.indexOf(e);
+          if (i >= 0) actors.splice(i, 1);
+          handles.delete(e);
+          (e as unknown as { promoteTo(g: string): void }).promoteTo(group);
+          all.push(e);
+          removedGroups.delete(group);
+          return e;
+        };
+      }
+      handles.set(e, handle);
       return handle;
     },
+    /** Extra (dev): slow-motion factor for the enemies module only (frame-by-frame review of holograms, promote, hoist). */
+    timeScale: 1,
     update(dt) {
+      dt *= manager.timeScale;
       if (dt <= 0) return;
       world.time += dt;
       frame++;

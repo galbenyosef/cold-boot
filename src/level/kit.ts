@@ -144,7 +144,9 @@ export function cable(b: Builder, mat: Mat, p: P3, q: P3, sag: number, r = 0.02,
 /** Bundle of sagging cables with slightly different sag / offsets. */
 export function cableBundle(b: Builder, p: P3, q: P3, n: number, sag: number, r: number, spread: number, R: Rng, mats: Mat[] = ['rubber', 'rubber', 'plastic_dark']) {
   for (let i = 0; i < n; i++) {
-    const ox = R.range(-spread, spread), oz = R.range(-spread, spread), oy = R.range(-spread, spread) * 0.5;
+    // fanned out across the bundle (+ a little jitter), so no two tubes run through each other
+    const lane = n > 1 ? (i / (n - 1)) * 2 - 1 : 0;
+    const ox = lane * spread + R.range(-spread, spread) * 0.15, oz = -lane * spread * 0.4 + R.range(-spread, spread) * 0.15, oy = R.range(-spread, spread) * 0.5;
     cable(b, mats[i % mats.length], [p[0] + ox, p[1] + oy, p[2] + oz], [q[0] + ox, q[1] + oy, q[2] + oz], sag * R.range(0.75, 1.25), r * R.range(0.7, 1.3), 10, 5);
   }
 }
@@ -182,7 +184,7 @@ export function ductRound(b: Builder, mat: Mat, axis: Axis, cx: number, cy: numb
 /** Louvred vent on a +Z facing surface. */
 export function louvre(b: Builder, x0: number, y0: number, x1: number, y1: number, z0: number, d = 0.045, frameMat: Mat = 'trim_steel') {
   const f = 0.035;
-  b.bx('painted_dark', x0 + f, y0 + f, z0, x1 - f, y1 - f, z0 + 0.004);
+  b.bx('painted_dark', x0 + f, y0 + f, z0, x1 - f, y1 - f, z0 + 0.012); // dark backing 12 mm proud of what it is mounted on
   b.bx(frameMat, x0, y0, z0, x1, y0 + f, z0 + d).bx(frameMat, x0, y1 - f, z0, x1, y1, z0 + d);
   b.bx(frameMat, x0, y0 + f, z0, x0 + f, y1 - f, z0 + d).bx(frameMat, x1 - f, y0 + f, z0, x1, y1 - f, z0 + d);
   const n = Math.max(2, Math.floor((y1 - y0 - 2 * f) / 0.065));
@@ -195,14 +197,15 @@ export function grate(b: Builder, x0: number, z0: number, x1: number, z1: number
   const f = 0.045;
   b.detail(() => {
     b.quad('floor_grate', (x0 + x1) / 2, y + 0.002, (z0 + z1) / 2, x1 - x0 - f, z1 - z0 - f, '+y', 0, 'box');
-    b.bx('trim_steel', x0, y - 0.03, z0, x1, y + 0.005, z0 + f).bx('trim_steel', x0, y - 0.03, z1 - f, x1, y + 0.005, z1);
-    b.bx('trim_steel', x0, y - 0.03, z0 + f, x0 + f, y + 0.005, z1 - f).bx('trim_steel', x1 - f, y - 0.03, z0 + f, x1, y + 0.005, z1 - f);
+    const t = y + 0.012; // frame and bars stand 1 cm proud of the mesh (never coplanar-ish with it or the floor)
+    b.bx('trim_steel', x0, y - 0.03, z0, x1, t, z0 + f).bx('trim_steel', x0, y - 0.03, z1 - f, x1, t, z1);
+    b.bx('trim_steel', x0, y - 0.03, z0 + f, x0 + f, t, z1 - f).bx('trim_steel', x1 - f, y - 0.03, z0 + f, x1, t, z1 - f);
     if (x1 - x0 > z1 - z0) {
       const n = Math.round((x1 - x0) / barEvery);
-      for (let i = 1; i < n; i++) { const x = x0 + (i * (x1 - x0)) / n; b.bx('trim_steel', x - f / 2, y - 0.03, z0 + f, x + f / 2, y + 0.005, z1 - f); }
+      for (let i = 1; i < n; i++) { const x = x0 + (i * (x1 - x0)) / n; b.bx('trim_steel', x - f / 2, y - 0.03, z0 + f, x + f / 2, t, z1 - f); }
     } else {
       const n = Math.round((z1 - z0) / barEvery);
-      for (let i = 1; i < n; i++) { const z = z0 + (i * (z1 - z0)) / n; b.bx('trim_steel', x0 + f, y - 0.03, z - f / 2, x1 - f, y + 0.005, z + f / 2); }
+      for (let i = 1; i < n; i++) { const z = z0 + (i * (z1 - z0)) / n; b.bx('trim_steel', x0 + f, y - 0.03, z - f / 2, x1 - f, t, z + f / 2); }
     }
   });
 }

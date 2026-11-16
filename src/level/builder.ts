@@ -16,7 +16,21 @@ export type UvMode = 'box' | 'keep' | 'unit';
 export type Axis = 'x' | 'y' | 'z';
 export type Face = '+x' | '-x' | '+y' | '-y' | '+z' | '-z';
 
-interface Item { geo: THREE.BufferGeometry; m: THREE.Matrix4; uv: UvMode; su: number; sv: number; /** atlas sub-rectangle (resolved before merging) */ uvr?: UvRect }
+interface Item { geo: THREE.BufferGeometry; m: THREE.Matrix4; uv: UvMode; su: number; sv: number; /** atlas sub-rectangle (resolved before merging) */ uvr?: UvRect; /** ?zdebug=1: where it was authored */ src?: string }
+
+/** ?zdebug=1 (checks): remember the authoring call site of every primitive (merged meshes get userData.srcRanges). */
+const ZDEBUG = typeof location !== 'undefined' && /[?&]zdebug=1/.test(location.search);
+function callSite(): string {
+  const st = (new Error().stack ?? '').split('\n').slice(2);
+  const out: string[] = [];
+  for (const l of st) {
+    const m = /\/src\/(level\/[^?:)]+)(?:\?[^:)]*)?:(\d+)/.exec(l);
+    if (!m || /level\/builder\.ts/.test(m[1])) continue;
+    out.push(`${m[1].replace('level/', '')}:${m[2]}`);
+    if (out.length >= 3) break;
+  }
+  return out.join(' < ');
+}
 interface Batch { mat: THREE.Material; cast: boolean; items: Item[] }
 
 const _p = new THREE.Vector3();
@@ -201,7 +215,7 @@ export class Builder {
   geo(m: Mat, g: THREE.BufferGeometry, uv: UvMode = 'box', local?: THREE.Matrix4, su = 1, sv = 1): this {
     const mm = this.m.clone();
     if (local) mm.multiply(local);
-    this.batch(m, this.cast).items.push({ geo: g, m: mm, uv, su, sv });
+    this.batch(m, this.cast).items.push({ geo: g, m: mm, uv, su, sv, src: ZDEBUG ? callSite() : undefined });
     return this;
   }
 
@@ -335,6 +349,11 @@ export class Builder {
     }
     for (const [mat, items] of byMat) {
       const geo = mergeItems(items);
+      if (ZDEBUG) {
+        const r: [number, number, string][] = []; let t0 = 0;
+        for (const it of items) { const n = (it.geo.index ? it.geo.index.count : it.geo.getAttribute('position').count) / 3; r.push([t0, n, it.src ?? '?']); t0 += n; }
+        geo.userData.srcRanges = r;
+      }
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = `${this.name}:${mat.name || 'mat'}`;
       mesh.castShadow = !!(items as any).cast;

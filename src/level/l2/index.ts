@@ -19,6 +19,9 @@ import { buildFitting } from './fitting';
 import { buildRelay } from './relay';
 import { buildSpine } from './spine';
 import { buildCore } from './core';
+import { BELT, GATE, PARTITION_Z, SHUTTER } from './line';
+import { REGIONS2, installPhases } from './phases';
+import { BOOTH_HALL_Z } from './hall';
 
 const PI = Math.PI;
 
@@ -26,15 +29,23 @@ export const DOORS2: DoorSpec[] = [
   { id: 'd2_cab', x: 0, z: 0, wall: 'z', kind: 'cage', locked: true, labelFront: 'FREIGHT DOCK 5', labelBack: 'FREIGHT ELEVATOR', rooms: ['cab', 'dock'] },
   { id: 'd2_intake', x: 0, z: -8, wall: 'z', kind: 'wide', locked: false, labelFront: 'INTAKE', labelBack: 'FREIGHT DOCK 5', leafMat: 'painted_white', rooms: ['dock', 'intake'] },
   { id: 'd2_line', x: 0, z: -22, wall: 'z', kind: 'wide', locked: false, labelFront: 'LINE TWO', labelBack: 'INTAKE', leafMat: 'painted_white', windows: true, rooms: ['intake', 'line'] },
-  { id: 'd2_fitting', x: 10, z: -34, wall: 'x', kind: 'std', locked: false, labelFront: 'LINE TWO', labelBack: 'FITTING BAYS', rooms: ['line', 'fitting'] },
+  // REVISION 5.1: locked and dark at load; Tomas unlocks it in the first talk (its blue lamp is its status light)
+  { id: 'd2_fitting', x: 10, z: -34, wall: 'x', kind: 'std', locked: true, status: 'dark', labelFront: 'LINE TWO', labelBack: 'FITTING BAYS', rooms: ['line', 'fitting'] },
   { id: 'd2_relay', x: 10, z: -61, wall: 'x', kind: 'std', locked: true, labelFront: 'LINE TWO', labelBack: 'SECTION C RELAY', leafMat: 'painted_yellow', rooms: ['line', 'relay'] },
   { id: 'd2_spine', x: -10, z: -66, wall: 'x', kind: 'std', locked: true, labelFront: 'SERVICE SPINE', labelBack: 'LINE TWO', rooms: ['line', 'spine'] },
   { id: 'd2_bulkhead_s', x: -19, z: -56, wall: 'z', kind: 'std', locked: true, labelFront: 'SPINE — SOUTH', labelBack: 'SPINE — LINE CONTROL', leafMat: 'painted_yellow', rooms: ['spine', 'spine'] },
   { id: 'd2_bulkhead_n', x: -19, z: -36, wall: 'z', kind: 'std', locked: true, labelFront: 'SPINE — LINE CONTROL', labelBack: 'SECTION B', leafMat: 'painted_yellow', rooms: ['spine', 'spine'] },
   { id: 'd2_booth', x: -17, z: -46, wall: 'x', kind: 'std', locked: true, labelFront: 'SERVICE SPINE', labelBack: 'LINE CONTROL', rooms: ['booth', 'spine'] },
-  { id: 'd2_booth_hall', x: -10, z: -43, wall: 'x', kind: 'std', locked: true, labelFront: 'LINE CONTROL', labelBack: 'LINE TWO', rooms: ['line', 'booth'] },
+  { id: 'd2_booth_hall', x: -10, z: BOOTH_HALL_Z, wall: 'x', kind: 'std', locked: true, labelFront: 'LINE CONTROL', labelBack: 'LINE TWO', rooms: ['line', 'booth'] },
   { id: 'd2_core', x: 0, z: -70, wall: 'z', kind: 'wide', locked: true, labelFront: 'NODE 5', labelBack: 'LINE TWO', leafMat: 'painted_white', rooms: ['line', 'core'] },
   { id: 'd2_lift', x: 0, z: -88, wall: 'z', kind: 'std', locked: true, labelFront: 'SERVICE LIFT', labelBack: 'NODE 5', leafMat: 'painted_white', rooms: ['core', 'lift'] },
+  // ── REVISION 5.1: the hall partition's barriers are real doors (non-auto; scripts / phases.ts drive them) ──
+  { id: 'd2_gate', x: GATE.x, z: PARTITION_Z, wall: 'z', kind: 'std', w: GATE.w, h: GATE.h, duration: 2.4, frame: false, leafStyle: 'sheet', auto: false,
+    panel: [GATE.w / 2 + 0.55, 1.45, 0.15], locked: false, labelFront: '', labelBack: '', leafMat: 'painted_yellow', rooms: ['line', 'line'] },
+  { id: 'd2_mouth', x: 5, z: SHUTTER.mouthZ, wall: 'z', kind: 'std', w: SHUTTER.w, h: SHUTTER.h - 0.035, y0: BELT.y + 0.035, duration: 1.6, frame: false, leafStyle: 'sheet', auto: false,
+    panel: [1.85, 1.0, 0.15], locked: true, labelFront: '', labelBack: '', leafMat: 'wall_panel_dark', rooms: ['line', 'line'] },
+  { id: 'd2_exit', x: 5, z: SHUTTER.exitZ, wall: 'z', kind: 'std', w: SHUTTER.w, h: SHUTTER.h - 0.035, y0: BELT.y + 0.035, duration: 1.2, frame: false, leafStyle: 'sheet', auto: false,
+    panel: [1.85, 1.0, 0.15], locked: true, labelFront: '', labelBack: '', leafMat: 'wall_panel_dark', rooms: ['line', 'line'] },
 ];
 
 const FRAME_ZONE: Record<string, { name: string; rooms: string[] }> = {
@@ -57,16 +68,19 @@ export const TRIGGERS2: TriggerSpec[] = [
   { id: 't2_intake', x0: -5, x1: 5, z0: -22, z1: -8.25 },
   { id: 't2_intake_arch', x0: -5, x1: 5, z0: -22, z1: -19 },
   { id: 't2_line_enter', x0: -10, x1: 10, z0: -26, z1: -22.25 },
-  { id: 't2_glass', x0: -10, x1: -6, z0: -51, z1: -41 },
+  { id: 't2_glass', x0: -10, x1: -6, z0: -50, z1: -41 },
   { id: 't2_fitting', x0: 10.25, x1: 20, z0: -40, z1: -28 },
   { id: 't2_fitting_rig', x0: 12.0, x1: 15.0, z0: -39.6, z1: -35.4 },
   { id: 't2_line_south', x0: -10, x1: 2.5, z0: -70, z1: -54 },
   { id: 't2_relay', x0: 10.25, x1: 18, z0: -66, z1: -56 },
   { id: 't2_spine', x0: -21, x1: -17, z0: -68, z1: -30 },
   { id: 't2_spine_window', x0: -21, x1: -17, z0: -52, z1: -44 },
+  // REVISION 5.1: the trap latch — spine, fully north of d2_bulkhead_s (its leaves are at z -56 ± 0.11)
+  { id: 't2_spine_trap', x0: -21, x1: -17, z0: -55.4, z1: -51 },
   { id: 't2_booth', x0: -17, x1: -10.25, z0: -50, z1: -42 },
   { id: 't2_load', x0: 1, x1: 8, z0: -47, z1: -42 },
-  { id: 't2_belt', x0: 4.05, x1: 5.95, z0: -63.5, z1: -36.5 },
+  // the belt up to the exit shutter (the tail past the exit, beside the apron, is not "on the belt")
+  { id: 't2_belt', x0: 4.05, x1: 5.95, z0: SHUTTER.exitZ, z1: -36.5 },
   { id: 't2_tunnel_in', x0: 2.5, x1: 7.5, z0: -52, z1: -50 },
   { id: 't2_tunnel_mid', x0: 2.5, x1: 7.5, z0: -57, z1: -55 },
   { id: 't2_tunnel_out', x0: 2.5, x1: 7.5, z0: -66, z1: -62.5 },
@@ -118,10 +132,22 @@ export async function createLevel2(ctx: GameContext): Promise<Level> {
     spawn: { position: new THREE.Vector3(0, 0, 3.2), yaw: 0 },
     startRoom: 'cab',
     machineLoops: MACHINE_LOOPS,
+    regions: REGIONS2(),
     timings, t0,
   });
 
   L.setMachine = (n, s) => level.setMachine(n, s);
+  // nostory (REVISION 5.1): line held, gate open, mouth and exit shut, every other door unlocked
+  if (ctx.debug.noStory) {
+    const g = L.doors.get('d2_gate');
+    if (g) { g.unlock(); g.open(); g.snap(); }
+    for (const id of ['d2_fitting', 'd2_booth', 'd2_booth_hall']) L.doors.get(id)?.setStatus(null);
+  } else {
+    // at load the gate stands open (line held); the shutters are shut
+    const g = L.doors.get('d2_gate');
+    if (g) { g.open(); g.snap(); }
+  }
+  installPhases(ctx, L, level);
   // ── defaults (REVISION 4 → light groups / machines): nothing else may need to call these ──
   level.setMachine('l2_treadmills', 'active');
   level.setMachine('l2_core', 'active');

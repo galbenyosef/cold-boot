@@ -147,7 +147,7 @@ export class RobotArm {
     let b = L.part('arm:turret');
     b.cyl(Y, 0, 0.14, 0, 0.44, 0.28, 'y', 18);
     b.box(Y, 0, 0.44, -0.08, 0.62, 0.36, 0.78);
-    for (const s of [-1, 1]) { b.box(Y, s * 0.27, 0.62, 0.1, 0.08, 0.5, 0.5); b.cyl(Y, s * 0.27, 0.62, 0.1, 0.25, 0.08, 'x', 14); }
+    for (const s of [-1, 1]) { b.box(Y, s * 0.29, 0.62, 0.1, 0.08, 0.5, 0.5); b.cyl(Y, s * 0.3, 0.62, 0.1, 0.25, 0.08, 'x', 14); } // cheeks stand proud of the turret sides
     b.cyl(D, 0.42, 0.62, 0.1, 0.17, 0.24, 'x', 12);
     b.cyl(D, -0.36, 0.62, 0.1, 0.1, 0.1, 'x', 10);
     b.box(D, 0, 0.5, -0.5, 0.4, 0.4, 0.12);
@@ -399,7 +399,7 @@ function cableOn(b: Builder, i: number) {
 export class Conveyor {
   state: MachineState = 'off';
   private amp = 0;
-  private hangers: { obj: THREE.Object3D; phase: number; still: boolean; rx: number; rz: number }[] = [];
+  private hangers: { obj: THREE.Object3D; phase: number; still: boolean; rx: number; rz: number; load: HookLoad; kx: number; kz: number }[] = [];
   private sprockets: THREE.Object3D[] = [];
   private spin = 0;
   private lurch = 0;
@@ -469,7 +469,7 @@ export class Conveyor {
       bones.push(bone);
       parts.push({ b: hb, bone: k });
       const rx = (k * 0.37 % 1 - 0.5) * 0.05, rz = (k * 0.61 % 1 - 0.5) * 0.07;
-      this.hangers.push({ obj: bone, phase: k * 2.1, still: load === 'husk', rx, rz });
+      this.hangers.push({ obj: bone, phase: k * 2.1, still: load === 'husk', rx, rz, load, kx: 0, kz: 0 });
     }
     L.root.add(root);
     // only the bodies / frames throw shadows (cables, joints and visors are inside their silhouettes)
@@ -479,6 +479,10 @@ export class Conveyor {
   }
 
   addSprocket(o: THREE.Object3D) { this.sprockets.push(o); }
+  /** REVISION 5.1: the hanger bones (for colliders that follow them) with what each carries. */
+  hangerObjects(): { obj: THREE.Object3D; load: HookLoad }[] { return this.hangers.map((h) => ({ obj: h.obj, load: h.load })); }
+  /** Extra swing (radians, about the rail-local x / z axes) added on top of the conveyor's own motion. */
+  setKick(i: number, x: number, z: number) { const h = this.hangers[i]; if (h) { h.kx = x; h.kz = z; } }
 
   /** Move every travelling hanger (not the ones carrying enemies) along the rail by ds metres. */
   private advance(ds: number) {
@@ -518,8 +522,8 @@ export class Conveyor {
       // hooks that carry a husk only rotate about the rail, and only by a fraction: the android hanging
       // there belongs to the enemies module and must stay lined up with its yoke (≤ ~1 cm at the yoke)
       if (h.still) { h.obj.rotation.x = Math.sin(time * 0.9 + h.phase) * 0.006 + n * 0.02; continue; }
-      h.obj.rotation.x = h.rx + Math.sin(time * 1.9 * fast + h.phase) * this.amp + n * (0.8 + (i % 3) * 0.15);
-      h.obj.rotation.z = h.rz + Math.sin(time * 2.3 * fast + h.phase * 1.7) * this.amp * 1.4;
+      h.obj.rotation.x = h.rx + Math.sin(time * 1.9 * fast + h.phase) * this.amp + n * (0.8 + (i % 3) * 0.15) + h.kx;
+      h.obj.rotation.z = h.rz + Math.sin(time * 2.3 * fast + h.phase * 1.7) * this.amp * 1.4 + h.kz;
     }
   }
 }

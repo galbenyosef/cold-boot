@@ -131,7 +131,16 @@ export const CARRY_KEY = 'coldboot.carry';
 /** sessionStorage flag: BEGIN was chosen on a level-2 page — the reloaded level-1 page starts a new run behind one click. */
 export const BEGIN_KEY = 'coldboot.begin';
 
-export const CHECKPOINT_IDS_L2 = ['cp2_start', 'cp2_hall', 'cp2_pass', 'cp2_relay', 'cp2_apron', 'cp2_foreman', 'cp2_core'] as const;
+/**
+ * REVISION 5: `cp2_talk` (fitting door unlocked), `cp2_taken` (fixed instant: he is through the mouth, the
+ * escorts have not turned yet), `cp2_escort` (escorts dead, before the ride). `cp2_apron` is gone.
+ */
+export const CHECKPOINT_IDS_L2 = ['cp2_start', 'cp2_hall', 'cp2_talk', 'cp2_pass', 'cp2_relay', 'cp2_taken', 'cp2_escort', 'cp2_foreman', 'cp2_core'] as const;
+/**
+ * Revision of level 2's story record. A save written by an older flow (other beats, other flags, removed
+ * checkpoint ids) cannot be fast-forwarded into the new one: it is discarded on load, like any invalid save.
+ */
+export const STORY_REV_L2 = 5;
 export type CheckpointIdL2 = typeof CHECKPOINT_IDS_L2[number];
 
 /** Level 2's progress record: same shape as level 1's, with free-form flags (owned by `src/story/l2`). */
@@ -143,10 +152,14 @@ export interface ProgressL2 {
   triggered: string[];
   cleared: string[];
   checkpoints: string[];
+  /** REVISION 5: ids of spoken lines the player heard (later lines may only refer back to these). */
+  heard?: string[];
 }
 
 export interface SaveDataL2 {
   v: number;
+  /** `STORY_REV_L2` at the time of writing. */
+  rev: number;
   level: 2;
   id: CheckpointIdL2;
   place: string;
@@ -158,13 +171,14 @@ export interface SaveDataL2 {
 }
 
 function validL2(s: any): s is SaveDataL2 {
-  if (!s || typeof s !== 'object' || s.v !== SAVE_VERSION) return false;
+  if (!s || typeof s !== 'object' || s.v !== SAVE_VERSION || s.rev !== STORY_REV_L2) return false;
   if (!(CHECKPOINT_IDS_L2 as readonly string[]).includes(s.id)) return false;
   const p = s.player, st = s.story;
   if (!p || !Array.isArray(p.position) || p.position.length !== 3 || !p.position.every(num) || !num(p.yaw) || !num(p.health)) return false;
   if (!p.weapons || !p.weapons.pistol || !p.weapons.shotgun || !strings(p.keys) || !strings(p.pickups)) return false;
   if (!st || !strings(st.beats) || !strings(st.read) || !strings(st.visited) || !strings(st.triggered) || !strings(st.cleared) || !strings(st.checkpoints)) return false;
   if (!st.flags || typeof st.flags !== 'object') return false;
+  if (st.heard !== undefined && !strings(st.heard)) return false;
   if (!strings(s.logs) || !strings(s.cleared) || !s.stats || !num(s.stats.time) || !num(s.stats.kills)) return false;
   return true;
 }

@@ -68,20 +68,20 @@ export function buildCab(L: LevelBuild, o: CabOpts) {
   // ── the cab (dynamic so it can rattle) ──
   const cb = L.part('elevator_cab');
   const cg = L.doubleSided('floor_grate');
-  for (const x of [-2.53, 2.53]) for (const z of [-63.03, -58.26]) cb.box('painted_yellow', x, H / 2, z, 0.12, H, 0.12);
+  for (const x of [-2.53, 2.53]) for (const z of [-63.03, -58.26]) cb.box('painted_yellow', x, H / 2, z, 0.1, H, 0.12);
   for (const x of [-2.53, 2.53]) cb.box('painted_yellow', x, H / 2, -60.65, 0.1, H, 0.1);
   cb.box('painted_yellow', 0, H / 2, -63.03, 0.1, H, 0.1);
   for (const y of [0.16, 1.1, H - 0.06]) {
     cb.box('trim_steel', -2.53, y, -60.65, 0.08, y < 0.2 ? 0.32 : 0.08, 4.7).box('trim_steel', 2.53, y, -60.65, 0.08, y < 0.2 ? 0.32 : 0.08, 4.7);
     cb.box('trim_steel', 0, y, -63.03, 5.0, y < 0.2 ? 0.32 : 0.08, 0.08);
   }
-  cb.box('trim_steel', 0, H - 0.06, -58.26, 5.0, 0.12, 0.1);
+  cb.box('trim_steel', 0, H - 0.06, -58.26, 5.0, 0.12, 0.08);
   // mesh walls
   cb.push(-2.5, 0, -63, 0); cagePanel(cb, cg, 0, 0.3, 2.5, H - 0.1, 0, 0.03); cagePanel(cb, cg, 2.5, 0.3, 5.0, H - 0.1, 0, 0.03); cb.pop();
   for (const x of [-2.53, 2.53]) { cb.push(x, 0, -58.3, PI / 2); cagePanel(cb, cg, 0, 0.3, 2.35, H - 0.1, 0, 0.03); cagePanel(cb, cg, 2.35, 0.3, 4.7, H - 0.1, 0, 0.03); cb.pop(); }
   // roof: grate + cross beams + sheave + hoist cables
-  cb.quad(cg, 0, H, -60.65, 5.0, 4.7, '-y', 0, 'box');
-  for (const z of [-59.4, -60.65, -61.9]) ibeam(cb, 'painted_yellow', 'x', 0, H + 0.1, z, 5.1, 0.12, 0.2);
+  cb.quad(cg, 0, H + 0.02, -60.65, 5.0, 4.7, '-y', 0, 'box'); // roof mesh between the head trim and the beams (never coplanar with either)
+  for (const z of [-59.4, -60.65, -61.9]) ibeam(cb, 'painted_yellow', 'x', 0, H + 0.14, z, 5.1, 0.12, 0.2);
   ibeam(cb, 'painted_yellow', 'z', 0, H + 0.3, -60.65, 4.8, 0.16, 0.24);
   cb.cyl('steel_raw', 0, H + 0.62, -60.65, 0.3, 0.14, 'x', 16);
   for (const dx of [-0.09, -0.03, 0.03, 0.09]) cb.rod('steel_raw', dx, H + 0.6, -60.65 - 0.3, dx, H + 14, -60.65 - 0.3, 0.012, 4);

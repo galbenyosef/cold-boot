@@ -38,10 +38,11 @@ export function buildStorage(L: LevelBuild) {
   const cg = L.doubleSided('floor_grate');
   const CH = 2.7;
   // south face z = -16.2, x 7.4…10
-  b.at(7.4, 0, -16.2, 0, () => { for (let i = 0; i < 2; i++) cagePanel(b, cg, i * 1.3, 0.05, (i + 1) * 1.3, CH, 0, 0.05); });
+  // (cage ends stop 4 cm short of the wall kick plates: no shared faces)
+  b.at(7.4, 0, -16.2, 0, () => { for (let i = 0; i < 2; i++) cagePanel(b, cg, i * 1.28, 0.05, (i + 1) * 1.28, CH, 0, 0.05); });
   b.collide(7.4, 0, -16.24, 10, CH, -16.16);
   // west face x = 7.4: fixed panels either side of the gate (gate z -15.75…-14.55)
-  b.at(7.4, 0, -13, PI / 2, () => { cagePanel(b, cg, 0, 0.05, 1.55, CH, 0, 0.05); cagePanel(b, cg, 2.75, 0.05, 3.2, CH, 0, 0.05); cagePanel(b, cg, 1.55, 2.15, 2.75, CH, 0, 0.05); });
+  b.at(7.4, 0, -13, PI / 2, () => { cagePanel(b, cg, 0.09, 0.05, 1.55, CH, 0, 0.05); cagePanel(b, cg, 2.75, 0.05, 3.2, CH, 0, 0.05); cagePanel(b, cg, 1.55, 2.15, 2.75, CH, 0, 0.05); });
   b.collide(7.36, 0, -14.55, 7.44, CH, -13);
   b.collide(7.36, 0, -16.2, 7.44, CH, -15.75);
   b.box('trim_steel', 8.7, CH + 0.03, -16.2, 2.7, 0.06, 0.08).box('trim_steel', 7.4, CH + 0.03, -14.6, 0.08, 0.06, 3.3);
@@ -54,7 +55,7 @@ export function buildStorage(L: LevelBuild) {
   b.sign('CONTROLLED ITEMS — SECURITY RELEASE ONLY', 'danger', 7.37, 2.4, -14.0, 1.1, 0.16, '-x', 0, true);
   // inside: table with the shotgun, ammo, gas bottles chained to the wall
   b.at(9.62, 0, -14.6, 0, () => workTable(b, 0.7, 1.8, 0.9));
-  b.detail(() => { b.box('rubber', 9.62, 0.903, -14.6, 0.5, 0.006, 1.3); b.box('painted_dark', 9.98, 1.5, -14.6, 0.03, 0.7, 1.6); for (let i = 0; i < 4; i++) b.box('steel_raw', 9.94, 1.3 + i * 0.15, -14.6, 0.06, 0.02, 1.5); });
+  b.detail(() => { b.box('rubber', 9.62, 0.903, -14.6, 0.5, 0.006, 1.3); b.box('painted_dark', 9.95, 1.5, -14.6, 0.06, 0.7, 1.6); for (let i = 0; i < 4; i++) b.box('steel_raw', 9.94, 1.3 + i * 0.15, -14.6, 0.06, 0.02, 1.5); });
   // (the shotgun that lived here was signed out — Hale took it to the pump room)
   b.detail(() => { b.box('painted_dark', 9.62, 0.908, -14.6, 0.16, 0.004, 1.0); b.sign('SIGNED OUT — D. HALE', 'label', 9.62, 0.911, -15.2, 0.3, 0.05, '+y', PI / 2); });
   L.pickup('p_storage_shells', 'ammo_shotgun', 9.6, 0.91, -13.95, 6, 0.3);

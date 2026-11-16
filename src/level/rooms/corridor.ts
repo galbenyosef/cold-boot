@@ -16,7 +16,7 @@ export function buildCorridor(L: LevelBuild) {
   const holes: [number, number, number, number][] = [[-0.45, -12.6, 0.45, -9.3], [-0.45, -8.7, 0.45, -5.3], [-0.45, -4.7, 0.45, -1.6]];
   floorSlab(b, 'floor_plate', -1.5, -14, 1.5, 0, holes, 'metal');
   for (const h of holes) trench(b, h[0], h[1], h[2], h[3], 0.5, R, true);
-  ceilingSlab(b, -1.9, -14, 1.9, 0, H);
+  ceilingSlab(b, -1.9, -13.4, 1.9, 0, H); // ends behind the junction's wall, not flush with any face
 
   wallFace(b, { n: '-z', plane: Z1, from: -1.5, to: 1.5, h: H, t: 0.2, openings: [{ c: 0, w: 1.6, h: 2.4 }], seed: 5, trayY: 0 });
   wallFace(b, { n: '+x', plane: -1.5, from: Z0, to: Z1, h: H, seed: 6, bay: 1.9, ext: [0, 0.2], features: 0.5, trayY: 2.2, openings: [{ c: -6.5, w: 1.6, h: 2.4 }] });
@@ -30,7 +30,7 @@ export function buildCorridor(L: LevelBuild) {
     b.detail(() => {
       for (const s of [-1, 1]) {
         b.rbox('trim_steel', s * 1.3, H - 0.26, z, 0.36, 0.05, 0.1, 0, 0, s * 0.78);
-        b.box('painted_dark', s * 1.43, H - 0.2, z, 0.14, 0.4, 0.18);
+        b.box('painted_dark', s * 1.43, H - 0.2, z, 0.12, 0.4, 0.24);
       }
     });
   }

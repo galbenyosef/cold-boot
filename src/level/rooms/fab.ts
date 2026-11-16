@@ -83,8 +83,8 @@ function shell(L: LevelBuild, R: ReturnType<typeof rng>) {
   // ── catwalk along the west wall (y 3.7), decorative + bullet-solid ──
   const cy = 3.7;
   b.detail(() => { b.quad('floor_grate', -11.25, cy + 0.03, -38, 1.5, 21.6, '+y', 0, 'box'); });
-  b.box('trim_steel', -10.52, cy - 0.06, -38, 0.06, 0.18, 21.6);
-  b.box('trim_steel', -11.97, cy - 0.06, -38, 0.06, 0.18, 21.6);
+  b.box('trim_steel', -10.52, cy - 0.07, -38, 0.06, 0.18, 21.6);
+  b.box('trim_steel', -11.97, cy - 0.07, -38, 0.06, 0.18, 21.6);
   for (let z = -48; z <= -28; z += 2) {
     b.box('trim_steel', -11.25, cy - 0.04, z, 1.5, 0.1, 0.06);
     if (z % 4 === 0) b.rbox('trim_steel', -11.3, cy - 0.75, z, 0.07, 1.9, 0.07, 0, 0, -0.72);
@@ -108,7 +108,7 @@ function shell(L: LevelBuild, R: ReturnType<typeof rng>) {
   // ── the big status screen over the lobby door ──
   b.box('painted_dark', 0, 5.3, -49.62, 7.6, 3.5, 0.3);
   b.detail(() => {
-    for (const s of [-1, 1]) { b.box('trim_steel', s * 3.72, 5.3, -49.45, 0.16, 3.5, 0.08); b.box('trim_steel', 0, 5.3 + s * 1.67, -49.45, 7.6, 0.16, 0.08); }
+    for (const s of [-1, 1]) { b.box('trim_steel', s * 3.74, 5.3, -49.45, 0.16, 3.56, 0.08); b.box('trim_steel', 0, 5.3 + s * 1.7, -49.45, 7.64, 0.16, 0.08); }
     for (const x of [-3, -1, 1, 3]) b.rbox('trim_steel', x, 7.3, -49.6, 0.08, 0.9, 0.08, 0.2, 0, 0);
     for (const x of [-3.4, 3.4]) cableBundle(b, [x, 3.55, -49.6], [x * 1.05, 3.3, -49.55], 3, 0.05, 0.02, 0.03, R);
     b.sign('LINE 3 — PRODUCTION STATUS', 'label', 0, 3.42, -49.76, 2.6, 0.14, '+z');
@@ -339,7 +339,7 @@ function line(L: LevelBuild, R: ReturnType<typeof rng>): Conveyor {
     sp.cyl('robot_joint', 0, 0, 0, 0.16, 0.2, 'y', 10);
     for (let i = 0; i < 12; i++) { const a = (i * PI) / 6; sp.box('robot_joint', Math.cos(a) * 0.78, 0, Math.sin(a) * 0.78, 0.09, 0.06, 0.09); }
     sp.cast = false;
-    for (let i = 0; i < 5; i++) { const a = (i * 2 * PI) / 5; sp.cyl('painted_dark', Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45, 0.13, 0.064, 'y', 8); }
+    for (let i = 0; i < 5; i++) { const a = (i * 2 * PI) / 5; sp.cyl('painted_dark', Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45, 0.13, 0.08, 'y', 8); }
     const g = sp.build(false);
     g.position.set(0, railY + 0.14, cz);
     L.root.add(g);

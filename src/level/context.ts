@@ -141,6 +141,17 @@ export class LevelBuild {
     return m;
   }
 
+  private overlays = new Map<string, THREE.MeshStandardMaterial>();
+  /**
+   * A library material for thin layers lying ON another surface (paint lines on a floor, papers on a desk):
+   * polygon-offset so it always wins its depth test against what it lies on (no z-fight, REVISION 5.1).
+   */
+  overlay(name: MaterialName): THREE.MeshStandardMaterial {
+    let m = this.overlays.get(name);
+    if (!m) { this.overlays.set(name, (m = this.ctx.materials.clone(name, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }))); m.name = `${name}_overlay`; }
+    return m;
+  }
+
   private _puddle: THREE.MeshStandardMaterial | null = null;
   /** Glossy dark standing-water material (reflects the room probe). */
   puddleMat(): THREE.MeshStandardMaterial {

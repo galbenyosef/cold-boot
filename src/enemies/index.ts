@@ -19,6 +19,7 @@ import { buildForemanTemplate, type ForemanTemplate } from './foreman/model';
 import { Foreman } from './foreman/foreman';
 import { buildHumanTemplate, type HumanTemplate } from './human/model';
 import { Human } from './human/human';
+import { loadTomasHead } from './human/head';
 
 export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const t0 = performance.now();
@@ -37,6 +38,20 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const extra: ActorFactories = { human };
   const lvl2 = ctx.levelId === 2 || (ctx.level?.enemySpawns ?? []).some((s) => s.type === 'foreman');
   if (lvl2) { getForeman(); getHuman(); }
+  // REVISION 5: Tomas's scanned head (level 2 only); the procedural face stays if it cannot be loaded in time
+  if (ctx.levelId === 2 && humanTpl) {
+    const tpl = humanTpl as HumanTemplate;
+    try {
+      tpl.scan = await Promise.race([
+        loadTomasHead(ctx, tpl),
+        new Promise<null>((res) => setTimeout(() => res(null), 12000)),
+      ]);
+      if (!tpl.scan) console.warn('[enemies] Tomas head asset timed out — procedural head');
+    } catch (e) {
+      console.warn('[enemies] Tomas head asset failed — procedural head', e);
+      tpl.scan = null;
+    }
+  }
   const manager = createManager(ctx, { husk, skitter, sentry, foreman }, extra);
   const templates: Record<string, unknown> = { husk: huskTpl, skitter: skitterTpl, sentry: sentryTpl };
   if (foremanTpl) templates.foreman = foremanTpl;

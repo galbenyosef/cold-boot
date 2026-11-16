@@ -10,3 +10,8 @@ A short browser FPS-horror game inspired by *Doom 3*, created autonomously by Fa
 npm install
 npm run dev
 ```
+
+## Credits
+
+Tomas's head is based on "Infinite, 3D Head Scan" by Lee Perry-Smith (www.ir-ltd.net), licensed
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), modified. Details: `docs/ASSETS.md`.

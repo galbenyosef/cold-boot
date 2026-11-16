@@ -12,24 +12,35 @@ import { chair, monitorBezel, mug, papers } from '../props';
 import { ceilingSlab, troffer, wallFace } from '../structure';
 import { scrawlMaterial } from '../scrawl';
 import { clothHeap, revealable } from './kit2';
-import { GLASS } from './hall';
+import { BOOTH_HALL_Z, GLASS } from './hall';
 
 const PI = Math.PI;
 const H = 3.0;
+/**
+ * The two spine windows (glass at x = -17). REVISION 5.1: shortened so the open leaves of `d2_booth`
+ * (z -47.64 … -44.36) slide into solid wall: south window z -49.5 … -47.8, north window z -44.2 … -42.5.
+ */
+export const SPINE_WINDOWS = [{ c: -48.65, w: 1.7 }, { c: -43.35, w: 1.7 }];
+/** Tomas's marks at the spine windows: 0.5 m inside the glass, window centres (REVISION 5.1). */
+export const BOOTH_MARKS: [number, number][] = [[-16.5, -48.65], [-16.5, -43.35]];
 
 export function buildBooth(L: LevelBuild) {
   const b = L.builder('booth');
   const R = rng(2501);
   L.room('booth', 'LINE CONTROL', -17, -10, -50, -42, H);
   floorSlab(b, 'floor_rubber', -17, -50, -10, -42, [], 'rubber');
-  ceilingSlab(b, -17.2, -50.2, -9.8, -41.8, H);
-  wallFace(b, { n: '-x', plane: -10.2, from: -49.8, to: -42.2, h: H, t: 0.2, seed: 251, trayY: 0, features: 0, clearWindows: true,
-    openings: [{ c: (GLASS.z0 + GLASS.z1) / 2, w: GLASS.z1 - GLASS.z0, h: GLASS.y1 - GLASS.y0, y0: GLASS.y0 }, { c: -43, w: 1.6, h: 2.4 }] });
-  const SW = [{ c: -48.4, w: 2.2 }, { c: -43.6, w: 2.2 }];
+  ceilingSlab(b, -17.0, -50.2, -10.0, -41.8, H); // inside the hall's / spine's wall faces
+  wallFace(b, { n: '-x', plane: -10.2, from: -49.8, to: -42.2, h: H, t: 0.2, seed: 251, trayY: 0, features: 0, clearWindows: true, ext: [0, 0],
+    openings: [{ c: (GLASS.z0 + GLASS.z1) / 2, w: GLASS.z1 - GLASS.z0, h: GLASS.y1 - GLASS.y0, y0: GLASS.y0 }, { c: BOOTH_HALL_Z, w: 1.6, h: 2.4 }] });
+  const SW = SPINE_WINDOWS;
   wallFace(b, { n: '+x', plane: -16.8, from: -49.8, to: -42.2, h: H, t: 0.2, seed: 252, trayY: 0, features: 0, clearWindows: true,
     openings: [...SW.map((w) => ({ ...w, h: 1.5, y0: 0.95 })), { c: -46, w: 1.6, h: 2.4 }] });
-  wallFace(b, { n: '-z', plane: -42.2, from: -16.8, to: -10.2, h: H, t: 0.2, seed: 253, trayY: 0, features: 0 });
+  // (no extension past x -10.2: the closed north leaf of d2_booth_hall stands there)
+  wallFace(b, { n: '-z', plane: -42.2, from: -16.8, to: -10.2, h: H, t: 0.2, seed: 253, trayY: 0, features: 0, ext: [0.2, 0] });
   wallFace(b, { n: '+z', plane: -49.8, from: -16.8, to: -10.2, h: H, t: 0.2, seed: 254, trayY: 0, features: 0.3 });
+
+  // d2_booth_hall's north leaf pocket: solid wall on the booth side too (outside the room)
+  b.bx('wall_panel_dark', -10.3, 0, -42.0, -10.0, 2.6, -41.3);
 
   // ── spine window: thick glass, frames ──
   const glass = L.ctx.materials.get('glass_thick');
@@ -37,8 +48,8 @@ export function buildBooth(L: LevelBuild) {
     b.detail(() => b.quad(glass, -17, 0.95 + 0.75, w.c, w.w, 1.5, '+x', 0, 'box'));
     b.collide(-17.05, 0.95, w.c - w.w / 2, -16.95, 2.45, w.c + w.w / 2, 'glass');
     for (const s of [-1, 1]) {
-      b.box('trim_steel', -17 + s * 0.17, 0.92, w.c, 0.14, 0.06, w.w + 0.1);
-      b.box('trim_steel', -17 + s * 0.17, 2.48, w.c, 0.14, 0.06, w.w + 0.1);
+      b.box('trim_steel', -17 + s * 0.17, 0.95, w.c, 0.14, 0.06, w.w + 0.1);
+      b.box('trim_steel', -17 + s * 0.17, 2.45, w.c, 0.14, 0.06, w.w + 0.1);
       b.box('trim_steel', -17, 1.7, w.c + s * (w.w / 2), 0.36, 1.6, 0.06);
     }
   }
@@ -49,11 +60,11 @@ export function buildBooth(L: LevelBuild) {
   // person can stand right at it (0.42 m from the pane) to bang on it or write on it
   const cx = -10.75, cz0 = -49.6, cz1 = -47.95, cw = cz1 - cz0, czc = (cz0 + cz1) / 2;
   b.bx('painted_dark', cx - 0.4, 0, cz0, cx + 0.45, 0.72, cz1);
-  b.bx('wall_panel_dark', cx - 0.45, 0, cz0, cx + 0.5, 0.08, cz1);
+  b.bx('wall_panel_dark', cx - 0.45, 0, cz0 - 0.03, cx + 0.5, 0.08, cz1 + 0.03);
   b.push(cx - 0.05, 0.74, czc, -PI / 2, 0.16, 0);
-  b.box('trim_steel', 0, 0, 0, cw, 0.035, 0.95);
+  b.box('trim_steel', 0, 0, 0, cw + 0.02, 0.035, 0.95);
   b.pop();
-  b.box('painted_dark', cx + 0.42, 0.84, czc, 0.12, 0.22, cw); // riser under the sill
+  b.box('painted_dark', cx + 0.42, 0.84, czc, 0.12, 0.22, cw - 0.03); // riser under the sill
   b.detail(() => {
     // button fields, the console screen bezel, labels
     for (let i = 0; i < 2; i++) {
@@ -77,7 +88,8 @@ export function buildBooth(L: LevelBuild) {
   scr.rotation.set(-1.15, -PI / 2, 0, 'YXZ');
   scr.position.set(cx - 0.03, 0.85, -48.75);
   const co = new THREE.Object3D(); co.name = 'booth_console'; co.position.set(cx - 0.05, 0.85, -48.75); L.root.add(co); L.objects.set('booth_console', co);
-  L.interact('term2_booth', 'terminal', 'Read console', cx - 0.15, 0.95, -48.75, true, 2.0);
+  // disabled until Tomas is gone (story enables it — REVISION 5.1)
+  L.interact('term2_booth', 'terminal', 'Read console', cx - 0.15, 0.95, -48.75, false, 2.0);
   // the e-stop he hit: mushroom head pressed down in its yellow collar
   b.at(cx - 0.02, 0.78, -48.22, 0, () => {
     b.box('painted_yellow', 0, 0.04, 0, 0.16, 0.08, 0.16);
@@ -145,16 +157,23 @@ export function buildBooth(L: LevelBuild) {
       for (let i = 0; i < 3; i++) b.rbox(i % 2 ? 'painted_orange' : 'plastic_white', 0.3 + i * 0.12, 0.004, 0.2 - i * 0.07, 0.12, 0.006, 0.08, 0, i * 1.3, 0);
     });
   });
-  // the headset on the floor by the chair (story enables it)
+  // his recorder on the floor by the chair (REVISION 5.1: the floor item is a recorder, id kept; story enables it)
   b.at(-12.4, 0, -45.6, 0.7, () => {
     b.detail(() => {
-      b.torus('plastic_dark', 0, 0.09, 0, 0.09, 0.012, 'z', 14);
-      for (const s of [-1, 1]) b.cyl('plastic_dark', s * 0.09, 0.03, 0, 0.045, 0.035, 'x', 12);
-      b.rod('plastic_dark', 0.09, 0.03, 0, 0.14, 0.03, 0.12, 0.006, 4);
-      b.sphere('rubber', 0.145, 0.03, 0.125, 0.012, 6);
+      b.rbox('plastic_dark', 0, 0.018, 0, 0.07, 0.036, 0.13, 0, 0, 0);
+      b.rbox('trim_steel', 0, 0.037, 0.03, 0.05, 0.002, 0.05, 0, 0, 0);
+      b.box('emissive_red', 0.022, 0.0375, -0.045, 0.008, 0.002, 0.008);
+      for (let i = 0; i < 3; i++) b.box('plastic_white', -0.02 + i * 0.02, 0.0372, -0.03, 0.012, 0.0015, 0.008);
+      b.cyl('steel_raw', 0, 0.018, 0.068, 0.012, 0.01, 'z', 8);
     });
   });
-  L.interact('booth_headset', 'log', 'Pick up headset', -12.4, 0.15, -45.6, false, 2.0);
+  L.interact('booth_headset', 'log', 'Pick up recorder', -12.4, 0.12, -45.6, false, 2.0);
+  const rec = new THREE.Object3D(); rec.name = 'booth_recorder'; rec.position.set(-12.4, 0.04, -45.6); L.root.add(rec); L.objects.set('booth_recorder', rec);
+  // supplies (REVISION 5.1): a medkit and shells on the side desk
+  L.pickup('p2_booth_med', 'medkit', -12.9, 0.77, -42.55, 35, 0.2);
+  L.pickup('p2_booth_shells', 'ammo_shotgun', -13.7, 0.77, -42.5, 6, -0.3);
+  // the window marks Tomas goes to (story reads them with level.object)
+  BOOTH_MARKS.forEach(([mx, mz], i) => L.marker(`booth_mark_${i + 1}`, mx, 0, mz, -PI / 2));
 
   // ── warm light: a ceiling fitting and a desk lamp ──
   // a lit room seen from the dark: two warm ceiling fittings, a warm wash on the back (west) wall so a
@@ -195,6 +214,15 @@ export function buildBooth(L: LevelBuild) {
   });
   b.sign('LINE CONTROL', 'stencil', -13.4, 2.5, -49.79, 1.8, 0.3, '+z');
 
+  // ── a small face light at each spine-window mark (own group: booth_light_fail does not kill them). From the
+  //    window head on the booth side, angled back onto a face 0.5 m inside the glass, seen from the spine ──
+  BOOTH_MARKS.forEach(([, mz], i) => {
+    const fl = L.spot('booth_marks', -16.86, 2.36, mz, -16.45, 1.55, mz, 0xffd6b0, 16, 2.4, 0.75, { priority: 4, penumbra: 0.8, bounds: BB });
+    const gm = L.glow(fl, 'emissive_warm', 0.5);
+    b.detail(() => { b.box('painted_dark', -16.86, 2.39, mz, 0.06, 0.05, 0.5); b.box(gm, -16.86, 2.362, mz, 0.04, 0.006, 0.44); });
+    void i;
+  });
+
   // booth_light_fail: the booth's lights drop to emergency red (a power event)
   L.vignette('booth_light_fail', () => {
     const lm2 = L.ctx.render.lights;
@@ -206,28 +234,35 @@ export function buildBooth(L: LevelBuild) {
   writing(L);
 }
 
-/** booth_write_1..3: marker text appearing on the booth side of the hall glass, readable from the hall. */
+/**
+ * booth_write_1, booth_write_2: marker text appearing on the booth side of the hall glass, readable from the
+ * hall. booth_wipe (REVISION 5.1): Tomas wipes both away with his sleeve when the first talk starts — the
+ * letters smear sideways and fade to a grey ghost. (Writing 3 is dropped.)
+ */
 function writing(L: LevelBuild) {
   const x = GLASS.x - 0.035;
   const items: [string, string, number, number, number, number, number][] = [
     // id, text, z centre, y centre, width, height, write seconds
     ['booth_write_1', "CAN'T HEAR YOU", -47.05, 1.95, 1.6, 0.5, 2.6],
-    ['booth_write_2', 'INTERCOM →', -45.15, 1.55, 1.5, 0.42, 2.0],
-    ['booth_write_3', "DON'T", -46.35, 1.17, 1.1, 0.46, 0.9],
+    ['booth_write_2', 'INTERCOM →', -45.43, 1.55, 1.15, 0.34, 2.0], // north of the intercom mullion (-46.1): the arrow points at it
   ];
+  const wipes: (() => void)[] = [];
   items.forEach(([id, text, z, y, w, h, dur], i) => {
-    const mat = scrawlMaterial([text], { style: 'marker', aspect: w / h, seed: 41 + i * 7, color: i === 2 ? '#1a0c0c' : '#101318', px: 1024 });
+    const mat = scrawlMaterial([text], { style: 'marker', aspect: w / h, seed: 41 + i * 7, color: '#101318', px: 1024 });
     mat.side = THREE.DoubleSide;
     const reveal = revealable(mat);
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.name = `booth:${id}`;
     m.position.set(x, y, z);
-    m.rotation.set(i === 2 ? 0.06 : 0.0, PI / 2, i === 1 ? 0.04 : -0.03, 'YXZ');
+    m.rotation.set(0.0, PI / 2, i === 1 ? 0.04 : -0.03, 'YXZ');
     m.userData.rooms = ['line', 'booth'];
     m.visible = false;
     m.renderOrder = 2;
     L.root.add(m);
+    let written = false;
     L.vignette(id, () => {
       m.visible = true;
+      written = true;
       let t = 0;
       L.sim((dt) => {
         t += dt;
@@ -236,6 +271,19 @@ function writing(L: LevelBuild) {
         return t < dur + 0.1;
       });
     });
+    wipes.push(() => {
+      if (!written || !m.visible) return;
+      // the sleeve drags across: the text shears and stretches toward the wipe, fades to a smear
+      const op0 = mat.opacity, x0 = m.scale.x;
+      L.tween(i * 0.5, 1.1, (k) => {
+        const e = k * k * (3 - 2 * k);
+        m.scale.x = x0 * (1 + e * 0.35);
+        m.position.z = z - e * 0.18 * (i ? -1 : 1);
+        m.rotation.z = (i === 1 ? 0.04 : -0.03) + e * 0.05;
+        mat.opacity = op0 * (1 - e * 0.86);
+        if (k > 0.1 && Math.floor(k * 6) !== Math.floor((k - 0.05) * 6)) L.sfx('marker_squeak', x, y, z, 0.25, 0.5);
+      }, () => { mat.opacity = op0 * 0.14; });
+    });
   });
+  L.vignette('booth_wipe', () => { for (const f of wipes) f(); });
 }
-

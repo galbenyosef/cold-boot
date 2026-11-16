@@ -13,12 +13,19 @@
 //                                                     CHECKPOINTS OK. `--cp=` runs a single checkpoint.
 //
 //   node scripts/playthrough.mjs [baseUrl] --level2 [--ending=shutdown|rewrite]
-//                                                     REVISION 4, level 2 "LINE TWO": boots ?level=2, drives the
-//                                                     level end to end once per ending, asserts the beats
-//                                                     happened in order; prints LEVEL2 OK.
+//                                                     level 2 "LINE TWO" (REVISION 5 flow): boots ?level=2, drives the
+//                                                     level end to end once per ending, asserts the beats, the
+//                                                     phase doors and the taking's timings; frame sequences of
+//                                                     the taking → shots/l2/take-*.png; prints LEVEL2 OK.
 //   node scripts/playthrough.mjs [baseUrl] --level2 --checkpoints [--cp=cp2_relay]
 //                                                     for each cp2_* checkpoint: play to it, die, load, assert
-//                                                     the restored world, play on to an ending. LEVEL2 CHECKPOINTS OK.
+//                                                     the restored world + phase, play on to an ending.
+//                                                     LEVEL2 CHECKPOINTS OK.
+//   node scripts/playthrough.mjs [baseUrl] --level2 --impatient
+//                                                     the impatient player (REVISION 5.1): shoots every unit on
+//                                                     sight, wrong order, never waits for dialogue; a test-side
+//                                                     oracle judges every spoken line from world state; timing
+//                                                     cases at closing doors. LEVEL2 IMPATIENT OK.
 //
 // Per step it prints state / objective / room / enemies / fps / draw calls. Exit 1 on failure.
 // The run "hurries" the story's quiet windows (story.hurry()) so it does not sit through every pause.
@@ -45,6 +52,9 @@ const problems = [];
 const notes = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`  [${m.type()}] ${m.text().slice(0, 300)}`); });
 page.on('pageerror', (e) => { problems.push('pageerror: ' + e.message); console.log('  [pageerror]', e.message); });
+// A reload nobody asked for (dev-server HMR, a crash guard) ruins a run: say so instead of dying on a stale handle.
+let expectNav = true;
+page.on('framenavigated', (f) => { if (f === page.mainFrame() && !expectNav) console.log(`  [navigated] ${f.url()} — unexpected page load`); });
 // Event log from the very first frame (a checkpoint load fast-forwards before `ready` is visible to us).
 await page.addInitScript(() => {
   let game;
@@ -72,10 +82,12 @@ await page.addInitScript(() => {
 const boot = async (query = '') => {
   const url = `${base}/?autostart=1&god=1${LEVEL2 && !/[?&]level=/.test(query) && !query.includes('nolevel') ? '&level=2' : ''}${query}`;
   // Navigating while the previous page still streams voice files can abort once: retry.
+  expectNav = true;
   for (let i = 0; ; i++) {
     try { await page.goto(url); break; } catch (e) { if (i >= 2) throw e; await page.waitForTimeout(700); }
   }
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 60000 });
+  expectNav = false;
 };
 await boot();
 if (!SCARES) { await page.evaluate((k) => localStorage.removeItem(k), SAVE_KEY); await boot(); }
@@ -687,14 +699,196 @@ if (notes.length) console.log(`\nNOTES:\n - ${[...new Set(notes)].join('\n - ')}
 console.log(problems.length ? `\nFAILED:\n - ${problems.join('\n - ')}` : '\nCHECKPOINTS OK');
 process.exit(problems.length ? 1 : 0);
 
-// ───────────────────────────────────────────────────────────────────────── --level2 (REVISION 4)
+// ───────────────────────────────────────────────────────────────────────── --level2 (REVISION 5 / 5.1)
+/**
+ * In-page test oracle for `--level2 --impatient` (REVISION 5.1): for every spoken line it decides — from WORLD
+ * state sampled at the instant the subtitle appears (enemies, player, doors, events it recorded itself), never
+ * from the story's own predicates — whether what the line says is true. Runs as an init script.
+ */
+function installOracle(LINES) {
+  const O = window.__O = { lines: [], viol: [], said: [], shots: [], glass: [], died: {}, diedAt: {}, stirAt: -1e9, workerDiedAt: -1e9, denied: {}, hurtAt: -1e9,
+    read: [], rooms: [], beats: [], moveAt: 0, last: null, noOracle: [], spawned: {}, foremanEarly: false, unit32Early: false, minTunnelX: 9, maxTunnelX: -9 };
+  const WORKERS = ['g2_dock', 'g2_intake', 'g2_fit_tread'];
+  const timer = setInterval(() => {
+    const g = window.__game;
+    if (!g || !g.events || !g.story || !g.level || !g.player) return;
+    clearInterval(timer);
+    const t = () => g.time;
+    const P = () => g.player.position;
+    const grp = (n) => g.enemies.all.filter((e) => e.group === n);
+    const alive = (n) => grp(n).filter((e) => e.alive);
+    const awake = (n) => alive(n).filter((e) => e.state !== 'dormant');
+    const calm = (n) => { const a = alive(n); return a.length > 0 && a.every((e) => e.state === 'dormant'); };
+    const room = () => g.level.roomAt(P())?.id ?? null;
+    const beat = (id) => O.beats.includes(id);
+    const said = (id) => O.said.includes(id);
+    const within = (at, s) => t() - at <= s;
+    const dist = (x, z) => Math.hypot(P().x - x, P().z - z);
+    const angle = (x, y, z) => { const e = g.player.eye, f = g.player.forward; const dx = x - e.x, dy = y - e.y, dz = z - e.z; const l = Math.hypot(dx, dy, dz) || 1; return Math.acos(Math.max(-1, Math.min(1, (dx * f.x + dy * f.y + dz * f.z) / l))) * 180 / Math.PI; };
+    const dbg = () => g.story.debugState;
+    const locked = (id) => { try { return g.level.door(id).locked; } catch { return null; } };
+    const lastShot = () => O.shots[O.shots.length - 1] ?? -1e9;
+    const lastGlass = () => O.glass[O.glass.length - 1] ?? -1e9;
+    const workerKills = () => WORKERS.reduce((n, w) => n + (O.died[w] ?? 0), 0) + (O.died.g2_unit14 ?? 0);
+    const power = () => beat('l2_power');
+    const pre = () => !power();
+    const inRelay = () => room() === 'relay' && pre();
+    const treadCalm = () => room() === 'fitting' && calm('g2_fit_tread');
+    const tomas = () => dbg().tomas;                 // actor position (world), null when he is gone
+    const escortsAt = () => (dbg().escorts ?? []).filter(Boolean);
+    const heldNow = () => { const T = tomas(); const E = escortsAt(); return !!T && E.length >= 1 && E.every((e) => Math.hypot(e[0] - T[0], e[2] - T[2]) < 2.3); };
+    const onBeltTomas = () => { const T = tomas(); return !!T && T[1] > 0.3 && T[0] > 4 && T[0] < 6 && T[2] < -44; };
+    const WIN = [[-49.5, -47.8], [-44.2, -42.5]];
+    const atWindow = () => {
+      const T = tomas(); const e = g.player.eye;
+      if (!T || e.x > -17 || T[0] < -17) return false;
+      const k = (-17 - e.x) / (T[0] - e.x); const z = e.z + (T[2] - e.z) * k;
+      return WIN.some(([a, b]) => z > a && z < b && Math.hypot(e.x + 17, e.z - (a + b) / 2) < 4);
+    };
+    const inTunnel = () => { const p = P(); return p.x > 2.5 && p.x < 7.5 && p.z < -50.35 && p.z > -62; };
+    const ghost = () => dbg().ghost;                  // hologram actor position (world) + what it is doing
+    const ghostBehind = () => { const G = ghost(); return !!G && G.mode === 'station' && angle(G.at[0], 1.55, G.at[2]) > 95 && dist(G.at[0], G.at[2]) < 26; };
+    const u32 = () => alive('g2_unit32').length > 0;
+    const u14 = () => alive('g2_unit14');
+    const inCore = () => O.rooms.includes('core');
+    // id → is what the line says true right now?
+    const OR = {
+      l2_choir_arrive: () => !O.rooms.includes('line'),
+      l2_choir_dock: () => room() === 'dock' && calm('g2_dock'),
+      l2_choir_provoked: () => within(Math.max(O.stirAt, O.workerDiedAt), 14),
+      l2_choir_intake: () => room() === 'intake',
+      l2_choir_gauge: () => room() === 'intake' || room() === 'line',
+      l2_unit_fitting_denied: () => locked('d2_fitting') === true && dist(10, -34) < 3,
+      l2_tomas_fitting_wait: () => locked('d2_fitting') === true && beat('l2_intercom'),
+      l2_tomas_hello_2: pre, l2_tomas_hello_3: pre,
+      l2_tomas_unlock: () => locked('d2_fitting') === false,
+      l2_tomas_hello_4: () => said('l2_tomas_hello_3') && pre(),
+      l2_tomas_reyes: pre, l2_tomas_oneway: pre, l2_tomas_estop_1: pre, l2_tomas_estop_2: () => pre() && said('l2_tomas_estop_1'),
+      l2_tomas_sulking: pre, l2_tomas_ask: pre, l2_tomas_handset: pre, l2_tomas_go: pre,
+      l2_tomas_pass: () => !g.player.hasKey('section_pass'),
+      l2_tomas_guide_east: () => !g.player.hasKey('section_pass') && !O.rooms.includes('fitting') && locked('d2_fitting') === false,
+      l2_tomas_order_1: pre, l2_tomas_order_2: pre, l2_tomas_order_3: () => said('l2_tomas_order_2'), l2_tomas_order_4: () => said('l2_tomas_order_2'), l2_tomas_order_5: () => said('l2_tomas_order_3'),
+      l2_tomas_stealth_1: treadCalm, l2_tomas_stealth_2: treadCalm, l2_tomas_treadmills: treadCalm, l2_tomas_sync: treadCalm,
+      l2_tomas_unit14: () => ghost()?.mode === 'rig' && room() === 'fitting',
+      l2_tomas_unit14_off: () => !ghost() && O.rooms.includes('fitting'),
+      l2_tomas_rig_1: () => dbg().rigPattern && !O.read.includes('tag2_rig') && room() === 'fitting',
+      l2_tomas_rig_2: () => O.read.includes('tag2_rig'), l2_tomas_rig_3: () => said('l2_tomas_rig_2'), l2_tomas_rig_4: () => said('l2_tomas_rig_2') && !g.player.hasKey('section_pass'),
+      l2_tomas_pass_taken: () => alive('g2_fit_wake').some((e) => e.state === 'dormant'),
+      l2_tomas_pass_taken_quiet: () => alive('g2_fit_wake').length === 0 && g.player.hasKey('section_pass'),
+      l2_tomas_fit_fight: () => awake('g2_fit_wake').some((e) => dist(e.position.x, e.position.z) <= 10.5 && (angle(e.position.x, e.position.y + 1.4, e.position.z) > 55 || !g.physics.lineOfSight(g.player.eye, e.position.clone().setY(e.position.y + 1.4)))),
+      l2_tomas_fit_fight_front: () => awake('g2_fit_wake').length > 0,
+      l2_tomas_fit_after_1: () => within(lastShot(), 6.6) && (O.died.g2_fit_wake ?? 0) > 0,
+      l2_tomas_fit_after_quiet: () => (O.died.g2_fit_wake ?? 0) > 0 || alive('g2_fit_wake').length === 0,
+      l2_tomas_fit_after_2: () => said('l2_tomas_hello_3') && g.enemies.activeCount === 0,
+      l2_tomas_cross_1: () => g.player.hasKey('section_pass') && !O.rooms.includes('relay') && pre(),
+      l2_tomas_cross_wave: () => dbg().tomasPose === 'wave' && room() === 'line' && P().z > -50.35 && angle(-9.7, 1.5, -46) < 50,
+      l2_tomas_coffee_1: pre, l2_tomas_mum: pre,
+      l2_tomas_hall_fight: () => awake('g2_hall_mid').length > 0,
+      l2_tomas_hall_after: () => alive('g2_hall_mid').length === 0 && (O.died.g2_hall_mid ?? 0) > 0 && pre(),
+      l2_tomas_relay_1: inRelay, l2_tomas_relay_2: inRelay, l2_tomas_relay_cam: inRelay, l2_tomas_relay_breaker: pre, l2_tomas_relay_wait_1: inRelay,
+      l2_tomas_relay_wait_2: () => O.read.includes('note2_relay') && pre(),
+      l2_choir_power_2: power,
+      l2_tomas_power_1: () => power() && !beat('l2_trap'), l2_tomas_power_2: () => said('l2_tomas_power_1') && !beat('l2_trap'), l2_tomas_power_3: () => power() && !beat('l2_trap') && locked('d2_booth') === true,
+      l2_tomas_run_1: () => power() && !beat('l2_trap') && !!tomas() && Math.hypot(tomas()[0] + 16.3, tomas()[2] + 46) < 1.2,
+      l2_tomas_run_3: () => power() && !beat('l2_trap'), l2_tomas_run_wait: () => power() && !beat('l2_trap') && said('l2_tomas_run_3'),
+      l2_tomas_run_4: () => beat('l2_trap') && !heldNow() && !beat('l2_booth_open'),
+      l2_tomas_window_1: () => beat('l2_trap') && atWindow(),
+      l2_tomas_window_1_far: () => beat('l2_trap') && !atWindow(),
+      l2_tomas_window_3: () => !O.glass.some((x) => x >= (O.trapAt ?? 1e9)),
+      l2_tomas_shot_glass: () => within(lastGlass(), 3.6),
+      l2_tomas_window_2: heldNow, l2_unit_take_1: heldNow, l2_unit_take_2: heldNow, l2_tomas_window_5: heldNow,
+      l2_tomas_window_4: () => heldNow() && said('l2_tomas_mum'), l2_tomas_window_4_plain: () => heldNow() && !said('l2_tomas_mum'),
+      l2_tomas_window_6: () => onBeltTomas() && said('l2_tomas_coffee_1'), l2_tomas_window_6_plain: () => onBeltTomas() && !said('l2_tomas_coffee_1'),
+      l2_choir_window: () => locked('d2_booth_hall') === true && !beat('l2_loaded') && beat('l2_window'),
+      l2_choir_glass: () => within(lastGlass(), 6.6),
+      l2_choir_tunnel: inTunnel,
+      l2_choir_nudge: () => beat('l2_escort') && alive('g2_escort').length === 0 && !inTunnel() && !beat('l2_tunnel'),
+      l2_choir_apron: () => beat('l2_apron') && grp('g2_unit32').length === 0 && !(O.died.g2_unit32 > 0),
+      l2_unit32_1: () => u32() && said('l2_tomas_hello_3'), l2_unit32_plain: () => u32() && !said('l2_tomas_hello_3'),
+      l2_unit32_2: () => u32() && said('l2_tomas_hello_4'), l2_unit32_3: () => u32() && said('l2_tomas_run_3'), l2_unit32_4: () => u32() && said('l2_tomas_go'), l2_unit32_5: () => u32() && said('l2_tomas_cross_wave'),
+      l2_unit32_die: () => said('l2_tomas_coffee_1'), l2_unit32_die_plain: () => !said('l2_tomas_coffee_1'),
+      l2_choir_unit32_1: () => (O.died.g2_unit32 ?? 0) > 0 && !beat('l2_foreman'), l2_choir_unit32_2: () => (O.died.g2_unit32 ?? 0) > 0 && !beat('l2_foreman'),
+      l2_unit14_door: () => u14().some((e) => e.state === 'dormant' && dist(e.position.x, e.position.z) < 6.5),
+      l2_choir_unit14_shot: () => within(O.u14HitAt ?? -1e9, 13),
+      l2_choir_core_1: () => room() === 'core',
+      l2_choir_core_7: () => inCore() && workerKills() === 0, l2_choir_core_7_killed: () => inCore() && workerKills() > 0,
+      l2_choir_core_11: () => inCore() && workerKills() === 0, l2_choir_core_11_killed: () => inCore() && workerKills() > 0,
+      l2_choir_core_idle_2: () => beat('l2_intercom'),
+      l2_unit14_wait: () => u14().length > 0, l2_unit_wait: () => u14().length === 0,
+      l2_tomas_bark_stop_1: () => t() - O.moveAt > 18, l2_tomas_bark_stop_2: () => t() - O.moveAt > 18,
+      l2_tomas_bark_shots_1: () => within(lastShot(), 6.6), l2_tomas_bark_shots_2: () => within(lastShot(), 6.6),
+      l2_tomas_bark_killed_worker: () => within(O.workerDiedAt, 11),
+      l2_tomas_bark_quiet_1: pre, l2_tomas_bark_quiet_2: pre, l2_tomas_bark_quiet_3: pre,
+      l2_tomas_bark_back: () => room() === 'intake' || room() === 'dock',
+      l2_tomas_bark_left: () => room() === 'line' && !g.player.hasKey('section_pass') && !O.rooms.includes('fitting'),
+      l2_tomas_bark_relay_locked: () => !g.player.hasKey('section_pass') && said('l2_tomas_pass') && within(O.denied.d2_relay ?? -1e9, 6),
+      l2_tomas_relay_needs_pass: () => !g.player.hasKey('section_pass') && within(O.denied.d2_relay ?? -1e9, 6),
+      l2_tomas_bark_spine_dead: () => pre() && said('l2_tomas_bark_dead_first'),
+      l2_tomas_bark_dead_first: () => pre() && ['d2_spine', 'd2_bulkhead_s', 'd2_bulkhead_n', 'd2_booth'].some((d) => within(O.denied[d] ?? -1e9, 6)),
+      l2_tomas_bark_core_door: () => room() === 'line' && P().z < -65.5 && pre(),
+      l2_tomas_bark_glass_1: () => dist(-10, -46) < 6.5 && !!tomas(), l2_tomas_bark_glass_2: () => dist(-10, -46) < 6.5 && !!tomas(),
+      l2_tomas_bark_hurt: () => within(O.hurtAt, 4.6), l2_tomas_bark_lowhp: () => g.player.health < 35,
+      l2_tomas_bark_provoked: () => WORKERS.some((w) => awake(w).length > 0),
+      l2_tomas_bark_light: () => g.player.flashlightOn,
+      l2_tomas_bark_read: () => !!g.ui.noteOpen,
+      l2_tomas_bark_unit14: () => ghostBehind() && said('l2_tomas_bark_unit14_first'), l2_tomas_bark_unit14_first: ghostBehind,
+      l2_tomas_shot_at: () => within(lastGlass(), 3.6) && !!tomas() && !beat('l2_trap'),
+    };
+    // Every radio line of Tomas also needs: the handset was taken, and he is not through the mouth.
+    const onAir = () => beat('l2_intercom') && !beat('l2_loaded');
+    g.events.on('story:beat', (e) => { O.beats.push(e.id); if (e.id === 'l2_trap') O.trapAt = t(); });
+    g.events.on('weapon:fired', () => O.shots.push(t()));
+    g.events.on('bullet:impact', (e) => {
+      if (e.surface !== 'glass') return;
+      const p = e.point;
+      if ((Math.abs(p.x + 10) < 0.5 && p.z > -50.3 && p.z < -41.7) || (Math.abs(p.x + 17) < 0.55 && p.z > -50 && p.z < -42)) O.glass.push(t());
+    });
+    g.events.on('enemy:died', (e) => { O.died[e.group] = (O.died[e.group] ?? 0) + 1; O.diedAt[e.group] = t(); if (WORKERS.includes(e.group) || e.group === 'g2_unit14') O.workerDiedAt = t(); });
+    const stir = (e) => { const x = g.enemies.all.find((q) => q.id === e.id); if (x && WORKERS.includes(x.group)) O.stirAt = t(); if (x && x.group === 'g2_unit14') O.u14HitAt = t(); };
+    g.events.on('enemy:woke', stir); g.events.on('enemy:alerted', stir); g.events.on('enemy:damaged', stir);
+    g.events.on('door:denied', (e) => { O.denied[e.id] = t(); });
+    g.events.on('player:damaged', () => { O.hurtAt = t(); });
+    g.events.on('story:log', (e) => { if (!O.read.includes(e.id)) O.read.push(e.id); });
+    g.events.on('story:subtitle', (e) => {
+      const log = g.story.lineLog ?? [];
+      let id = null;
+      for (let i = log.length - 1; i >= Math.max(0, log.length - 4); i--) if (log[i].said && LINES[log[i].said] === e.text) { id = log[i].said; break; }
+      if (!id) return; // not a story line (units' own mutter, the supervisor's heads)
+      const speaker = LINES['@' + id];
+      let ok = true, why = '';
+      try {
+        if (speaker === 'tomas' && !onAir()) { ok = false; why = 'Tomas on the radio without the handset / after the mouth'; }
+        else if (OR[id]) { ok = !!OR[id](); if (!ok) why = 'oracle false'; }
+        else if (!O.noOracle.includes(id)) O.noOracle.push(id);
+      } catch (err) { ok = false; why = 'oracle threw: ' + err.message; }
+      const rec = { id, t: +t().toFixed(1), ok, room: room(), pos: [P().x, P().z].map((v) => +v.toFixed(1)) };
+      O.lines.push(rec);
+      O.said.push(id);
+      if (!ok) O.viol.push({ ...rec, why, text: e.text });
+    });
+    setInterval(() => {
+      if (!g.ready || g.state !== 'playing') return;
+      const r = room();
+      if (r && !O.rooms.includes(r)) O.rooms.push(r);
+      const p = P();
+      if (!O.last || Math.hypot(p.x - O.last[0], p.z - O.last[1]) > 1.1) { O.last = [p.x, p.z]; O.moveAt = t(); }
+      // R4: nothing of a later beat exists early.
+      if (!beat('l2_foreman') && g.enemies.all.some((e) => e.group === 'g2_foreman')) O.foremanEarly = true;
+      if (!beat('l2_apron') && g.enemies.all.some((e) => e.group === 'g2_unit32')) O.unit32Early = true;
+      if (inTunnel() && p.z < -51 && p.z > -61.5) { O.minTunnelX = Math.min(O.minTunnelX, p.x); O.maxTunnelX = Math.max(O.maxTunnelX, p.x); }
+    }, 100);
+  }, 20);
+}
+
 async function runLevel2() {
   mkdirSync('shots/l2', { recursive: true });
+  const IMPATIENT = argv.includes('--impatient');
   const ENDINGS = argv.find((a) => a.startsWith('--ending='))?.slice(9).split(',') ?? ['shutdown', 'rewrite'];
-  const CP2 = ['cp2_start', 'cp2_hall', 'cp2_pass', 'cp2_relay', 'cp2_apron', 'cp2_foreman', 'cp2_core'];
+  const CP2 = ['cp2_start', 'cp2_hall', 'cp2_talk', 'cp2_pass', 'cp2_relay', 'cp2_taken', 'cp2_escort', 'cp2_foreman', 'cp2_core'];
   const ORDER = ['l2_arrive', 'l2_dock', 'l2_intake', 'l2_hall_reveal', 'l2_tomas_seen', 'l2_intercom', 'l2_guided', 'l2_rig', 'l2_pass',
-    'l2_fit_fight', 'l2_hall_cross', 'l2_relay_enter', 'l2_power', 'l2_run', 'l2_window', 'l2_booth_empty', 'l2_loaded', 'l2_tunnel',
+    'l2_fit_fight', 'l2_hall_cross', 'l2_relay_enter', 'l2_power', 'l2_trap', 'l2_window', 'l2_booth_open', 'l2_loaded', 'l2_escort', 'l2_tunnel',
     'l2_apron', 'l2_unit32', 'l2_foreman', 'l2_core'];
+  const NORTH = ['g2_dock', 'g2_intake', 'g2_fit_tread', 'g2_fit_wake'];
   const dbg = () => ev(() => window.__game.story.debugState);
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const fastTalk = () => ev(() => window.__game.story.hurry?.(true));
@@ -719,9 +913,9 @@ async function runLevel2() {
     return true;
   };
   const readIf = async (id, toward) => { if (await goTo(id, toward)) await read(id, { optional: true }); else { notes.push(`interactable ${id} missing`); console.log(`  ${id}: missing`); } };
-  const waitFlag = async (fn, label, seconds = 30) => {
+  const waitFlag = async (fn, label, seconds = 30, arg) => {
     const end = Date.now() + seconds * 1000;
-    while (Date.now() < end) { if (await ev(fn)) return true; await hurry(); await wait(250); }
+    while (Date.now() < end) { if (await ev(fn, arg)) return true; await hurry(); await wait(200); }
     bad(`${label} did not happen (${seconds}s)`);
     return false;
   };
@@ -729,20 +923,29 @@ async function runLevel2() {
     const g = window.__game;
     return {
       level: g.levelId, rooms: g.level.rooms.map((r) => r.id).join(','), doors: g.level.doors.map((d) => d.id).join(','),
-      groups: [...new Set(g.level.enemySpawns.map((s) => s.group))].join(','),
+      groups: [...new Set(g.level.enemySpawns.map((s) => `${s.group}:${s.mode}`))].join(','),
       say: typeof g.audio.say === 'function', actor: typeof g.enemies.actor === 'function', carry: typeof g.player.setCarry === 'function',
+      regions: Object.keys(g.level.regions ?? {}).join(','), lineLog: Array.isArray(g.story.lineLog),
       ints: g.interactables.all.map((i) => i.id).join(','),
     };
   });
   const clearL2 = () => ev(() => { for (const k of ['coldboot.save.l2.v1', 'coldboot.carry', 'coldboot.level']) localStorage.removeItem(k); });
+  const doorIs = (id) => ev((id) => { try { const d = window.__game.level.door(id); return { locked: d.locked, open: d.isOpen, closed: d.closed }; } catch { return null; } }, id);
+  const groupsNow = () => ev(() => { const o = {}; for (const e of window.__game.enemies.all) o[e.group] = (o[e.group] ?? 0) + (e.alive ? 1 : 0); return o; });
+  const pPos = () => ev(() => { const p = window.__game.player.position; return [p.x, p.y, p.z]; });
+  const marks = async () => (await dbg()).t;
+  /** Screenshot sequence from where the player stands (look at these with an image viewer). */
+  const frames = async (name, n, interval) => { for (let i = 0; i < n; i++) { await shot(`${name}-${String(i).padStart(2, '0')}`); await wait(interval); } };
+  const noForemanYet = async (where) => { const g = await groupsNow(); if ('g2_foreman' in g) bad(`${where}: the supervisor's group exists before l2_foreman (R4)`); };
 
   // ── segments (each ends just after one checkpoint) ──
   async function s2Start() {
     await fastTalk(); await wait(800);
     await info('01-cab', (s) => (!s.beats.includes('l2_arrive') ? 'l2_arrive missing' : lockedHas(s, 'd2_cab') ? 'd2_cab still locked after arrival'
-      : !lockedHas(s, 'd2_core') || !lockedHas(s, 'd2_relay') || !lockedHas(s, 'd2_lift') ? `core / relay / lift should start locked (${s.locked})` : null));
+      : !['d2_core', 'd2_relay', 'd2_lift', 'd2_fitting', 'd2_mouth'].every((d) => lockedHas(s, d)) ? `core / relay / lift / fitting / mouth should start locked (${s.locked})` : null));
     const w = await ev(() => Object.entries(window.__game.player.weapons).map(([k, w]) => [k, w.owned]));
     if (!w.some((x) => x[1])) bad('no weapon at the start of level 2');
+    await noForemanYet('start');
     await tp(2.8, 0, -3, 0); await waitBeat('l2_dock', 10);
     await ev(() => { window.__game.debug.god = false; window.__game.player.damage(23); window.__game.debug.god = true; });
     await info('02-dock', (s) => (s.active > 0 ? 'something is hostile in the dock' : null));
@@ -757,17 +960,29 @@ async function runLevel2() {
     await info('04-hall');
     return waitCheckpoint('cp2_hall');
   }
-  async function s2Pass() {
+  async function s2Talk() {
+    // R1: without the talk there is no fitting bay. The door is dark and says so.
+    await tp(8.9, 0, -34, -90); await wait(900);
+    { const d = await doorIs('d2_fitting'); const t = await ev(() => window.__log.toasts.slice(-3)); if (!d?.locked) bad('d2_fitting is not locked before the intercom talk'); if (!t.some((x) => /FITTING BAYS/.test(x))) notes.push(`no "fitting bays closed" toast at the dark door (${t})`); }
     await tp(-7, 0, -46, 90); await waitBeat('l2_tomas_seen', 20); await waitBeat('#booth_write_2', 25);
     if (!fast) await shot('05-tomas');
     { const d = await dbg(); if (!d.tomas) notes.push('no Tomas actor (enemies.actor("human") unavailable)'); }
+    await info('05-seen', (s) => (/intercom/i.test(s.objective) ? null : `objective "${s.objective}"`));
     console.log('  intercom:', await use('intercom_hall'));
-    await waitBeat('l2_intercom', 12); await waitBeat('#first_talk_over', 60);
+    await waitBeat('l2_intercom', 12);
+    { const t = await ev(() => window.__log.toasts); if (!t.some((x) => /HANDSET/.test(x))) bad('pressing the intercom did not take the handset (no toast)'); }
+    await waitBeat('#fit_open', 30); await waitBeat('l2_guided', 10);
+    { const d = await doorIs('d2_fitting'); if (d?.locked) bad('d2_fitting still locked after his first three lines'); }
+    { const subs = await ev(() => window.__log.subs); if (!subs.some((t) => /canteen coffee/.test(t))) bad('the coffee joke was not in the first three lines'); }
     await info('06-intercom', (s) => (/pass/i.test(s.objective) ? null : `objective "${s.objective}"`));
-    await tp(0, 0, -34, -90); await waitBeat('l2_guided', 10);
+    return waitCheckpoint('cp2_talk');
+  }
+  async function s2Pass() {
+    await waitBeat('#first_talk_over', 90);
     await tp(11.6, 0, -34, -90); await waitBeat('#fit_stealth', 15); await wait(800);
     await info('07-fitting', (s) => (s.active > 0 ? 'treadmill units turned hostile on entry' : null));
-    if (await goTo('tag2_rig', [14, -34])) { await waitBeat('l2_rig', 10); await read('tag2_rig'); await waitBeat('#rig_read', 10); }
+    if (!fast) { await wait(2500); await shot('07-ghost'); const d = await dbg(); console.log('  ghost:', JSON.stringify(d.ghost), 'intro flag:', d.flags.ghostIntro); if (!d.flags.ghostIntro) bad('the projection was not introduced on entering the fitting bays'); await readIf('note2_rig14', [14, -34]); }
+    if (await goTo('tag2_rig', [14, -34])) { await waitBeat('l2_rig', 10); if (!(await dbg()).rigPattern) notes.push('no holo_tech reference pattern on the rig'); if (!fast) await shot('07-rig'); await read('tag2_rig'); await waitBeat('#rig_read', 10); }
     else { notes.push('tag2_rig missing'); await tp(17.5, 0, -36.5, 0); await waitBeat('l2_rig', 10, { optional: true }); }
     const passId = await ev(() => window.__game.level.pickupSpawns.find((p) => p.kind === 'keycard')?.id ?? null);
     if (passId && await goTo(passId, [14, -34])) console.log('  pass:', await use(passId));
@@ -788,51 +1003,108 @@ async function runLevel2() {
     if (!fast) await readIf('note2_relay', [13, -61]);
     return sv;
   }
-  async function s2Apron() {
+  /** The switch → the trap → the window → the loading, as seen from the spine and the booth. Ends at cp2_taken. */
+  async function s2Taken() {
     if (!(await goTo('relay_switch', [13, -61]))) notes.push('relay_switch missing');
     const before = await status();
     if (!lockedHas(before, 'd2_spine') || !lockedHas(before, 'd2_booth')) bad(`spine / booth doors should be locked before Section C (${before.locked})`);
+    await noForemanYet('before the switch');
     console.log('  switch:', await use('relay_switch'));
-    await waitBeat('l2_power', 8); await waitBeat('#line_running', 25); await wait(2500);
-    console.log('  killed', await killAll());
-    await waitBeat('l2_run', 40);
-    await info('10-power', (s) => (lockedHas(s, 'd2_spine') || lockedHas(s, 'd2_bulkhead_s') ? 'spine not open after Section C' : !lockedHas(s, 'd2_booth') ? 'the booth door must stay shut for the player until he is gone' : null));
+    await waitBeat('l2_power', 8); await waitBeat('#line_running', 5); await wait(500);
+    await info('10-power', (s) => (!lockedHas(s, 'd2_relay') ? 'd2_relay must hold (ARC INTERLOCK) until the relay fight is over' : !lockedHas(s, 'd2_gate') ? 'd2_gate must lock when the line runs'
+      : !lockedHas(s, 'd2_booth') || !lockedHas(s, 'd2_booth_hall') ? 'the booth doors must stay shut (CYCLING)' : /interlock|relay/i.test(s.objective) ? null : `objective "${s.objective}"`));
+    { const g = await groupsNow(); const left = NORTH.filter((n) => n in g); if (left.length) bad(`groups north of the partition still exist after l2_power: ${left}`); }
+    await wait(4200); console.log('  killed', await killAll()); await wait(900); await killAll();
+    await waitBeat('#relay_clear', 60); await wait(500);
+    await info('10-relay-clear', (s) => (lockedHas(s, 'd2_relay') ? 'd2_relay did not release after the fight' : lockedHas(s, 'd2_spine') || lockedHas(s, 'd2_bulkhead_s') ? 'spine not open after Section C' : /spine/i.test(s.objective) ? null : `objective "${s.objective}"`));
     if (!fast) await shot('10-line-running');
-    // He is taken only once the player is in the spine — however long that takes.
-    await wait(1500);
-    { const d = await dbg(); if (d.unitsInside || d.windowStarted) bad('the units went in before the player reached the spine'); }
-    await tp(-19, 0, -62, 0); await waitFlag(() => window.__game.story.debugState.unitsInside, 'units entering the booth', 15);
-    await wait(1500); await killAll();
-    await tp(-18.4, 0, -48.4, -90); await waitBeat('l2_window', 60);
-    await wait(2500); if (!fast) await shot('11-window');
-    await info('11-window', (s) => (!lockedHas(s, 'd2_bulkhead_n') ? 'd2_bulkhead_n must be locked behind the units' : !lockedHas(s, 'd2_booth') ? 'player could walk into the booth during the window scene' : null));
-    await waitBeat('#booth_open', 90);
-    await tp(-14, 0, -46, -90); await waitBeat('l2_booth_empty', 10); await waitBeat('l2_loaded', 30); await waitBeat('#booth_hall_open', 10);
-    if (!fast) { await shot('12-booth-empty'); await readIf('booth_headset', [-14, -46]); await readIf('term2_booth', [-14, -46]); }
-    await info('12-booth', (s) => (lockedHas(s, 'd2_booth_hall') ? 'd2_booth_hall did not open' : /line/i.test(s.objective) ? null : `objective "${s.objective}"`));
-    // Onto the belt, through the tunnel behind him.
-    await tp(5, 1.2, -46, 180); await wait(1500);
-    { const z = await ev(() => window.__game.player.position.z); console.log('  belt carried the player to z =', z.toFixed(2)); if (z > -46.5) notes.push('the belt did not carry the player (t2_belt / setCarry not there yet?)'); }
-    await tp(5, 1.2, -51.5, 180); await waitBeat('l2_tunnel', 10); if (!fast) await shot('13-tunnel');
-    await tp(5, 1.2, -56.5, 180); await wait(1200);
-    await tp(5, 0.5, -64, 180); await waitBeat('l2_apron', 10);
-    await info('13-apron', (s) => (s.beats.includes('l2_unit32') ? 'Unit 32 came before the apron checkpoint' : null));
-    return waitCheckpoint('cp2_apron', 30);
+    await waitFlag(() => window.__game.story.debugState.tomasSpot === 'door', 'Tomas going to his own door', 12);
+    // Nothing proceeds without the player: south of the bulkhead no scene starts.
+    await tp(-19, 0, -58, 0); await wait(1500);
+    { const d = await dbg(); if (d.beats.includes('l2_trap')) bad('the trap latched with the player south of the bulkhead'); }
+    await tp(-19, 0, -53, 0); await waitBeat('l2_trap', 8, { noHurry: true });
+    { const p = await pPos(); const d = await doorIs('d2_bulkhead_s'); if (p[2] < -55.6) bad(`trap latched with the player on the wrong side (z ${p[2].toFixed(2)})`); if (!d?.locked) bad('d2_bulkhead_s not locked after the latch'); }
+    await info('11-trap', (s) => (!lockedHas(s, 'd2_bulkhead_n') ? 'd2_bulkhead_n must stay locked' : !lockedHas(s, 'd2_booth') ? 'player could walk into the booth during the window scene' : null));
+    // At the south window, face to face. Frames every 1.5 s through the whole window scene.
+    await tp(-18.15, 0, -48.65, -90, -2);
+    if (!fast) await frames('take-window', 13, 1500); else await wait(3000);
+    { const d = await dbg(); if (d.tomas && !fast && d.tomasSpot === 'window' && Math.abs(d.tomas[2] + 48.65) > 0.6) bad(`Tomas is not at the window the player stands at (${d.tomas})`); }
+    await waitBeat('#taken', 30, { noHurry: true }); await waitBeat('l2_booth_open', 4, { noHurry: true });
+    { const d = await doorIs('d2_booth'); const en = await ev(() => ['term2_booth', 'booth_headset'].map((id) => window.__game.interactables.get(id)?.enabled ?? null)); if (d?.locked) bad('d2_booth did not open after they left'); if (en.includes(false)) bad(`booth console / recorder not enabled after he is gone (${en})`); }
+    // Into the booth: the loading is seen through the hall glass.
+    await tp(-11.3, 0, -45.4, -90, -3);
+    if (!fast) await frames('take-loading', 10, 1500);
+    await waitBeat('l2_loaded', 30, { noHurry: true });
+    await info('12-loaded', (s) => (!lockedHas(s, 'd2_mouth') ? 'd2_mouth must latch behind him (LOADING INTERLOCK)' : !lockedHas(s, 'd2_booth_hall') && !s.beats.includes('l2_escort') ? 'd2_booth_hall open before the escorts return' : null));
+    { const d = await dbg(); if (d.tomas) bad('Tomas actor still exists after the mouth'); }
+    return waitCheckpoint('cp2_taken', 8);
   }
+  /** The escorts come back as real enemies; the mouth stays shut until they are dead. Ends at cp2_escort. */
+  async function s2Escort() {
+    await waitBeat('l2_escort', 25, { noHurry: true });
+    await waitFlag(() => window.__game.enemies.activeCount > 0, 'the escorts turning hostile', 6);
+    { const g = await groupsNow(); if ((g.g2_escort ?? 0) !== 2) bad(`expected 2 real escorts in g2_escort, got ${g.g2_escort ?? 0}`); }
+    await info('13-escort', (s) => (!lockedHas(s, 'd2_mouth') ? 'the mouth must stay shut while the escorts are alive (B4)' : lockedHas(s, 'd2_booth_hall') ? 'd2_booth_hall did not open for the escorts' : s.active < 1 ? 'the escorts are not hostile' : null));
+    if (!fast) await shot('13-escorts');
+    {
+      const t = await marks();
+      const span = (a, b) => (t[a] !== undefined && t[b] !== undefined ? +(t[b] - t[a]).toFixed(1) : null);
+      const T = { window: span('latch', 'taken'), boothOpen: span('taken', 'booth_open'), loaded: span('taken', 'loaded'), seenFromBooth: span('booth_open', 'loaded'), toAttack: span('latch', 'attack'), held: span('latch', 'held'), scan: span('at_deck', 'laid') };
+      console.log('  TIMINGS (s):', JSON.stringify(T));
+      if (t.latch !== undefined) {
+        if (!(T.window >= 17 && T.window <= 23)) bad(`l2_window took ${T.window}s (target 18–22)`);
+        if (!(T.boothOpen <= 1.2)) bad(`d2_booth opened ${T.boothOpen}s after the hall door shut (≤ 1)`);
+        if (!(T.loaded >= 14 && T.loaded <= 22)) bad(`l2_loaded took ${T.loaded}s from the hall door closing (target 16–21)`);
+        if (!(T.toAttack <= 55)) bad(`latch → escorts' attack took ${T.toAttack}s (≤ 55)`);
+        if (T.scan > 5.2) bad(`the scanner hold lasted ${T.scan}s (≤ 5)`);
+      }
+    }
+    await wait(900); console.log('  killed', await killAll()); await wait(600); await killAll();
+    await waitBeat('#escort_dead', 20);
+    await wait(1200);
+    { const d = await doorIs('d2_mouth'); if (d?.locked) bad('d2_mouth did not reopen after the escorts'); }
+    await info('14-escorts-dead', (s) => (/line/i.test(s.objective) ? null : `objective "${s.objective}"`));
+    if (!fast) { await shot('14-booth-empty'); await readIf('booth_headset', [-14, -46]); await readIf('term2_booth', [-14, -46]); }
+    return waitCheckpoint('cp2_escort', 25);
+  }
+  /** The ride (really carried by the belt), Unit 32. Ends at cp2_foreman. */
   async function s2Foreman() {
-    await waitBeat('l2_unit32', 40);
+    { const g = await groupsNow(); if ('g2_unit32' in g) bad('Unit 32 exists before the ride (R4)'); }
+    const by = await ev(() => { const g = window.__game; const V = g.player.position.constructor; const h = g.physics.raycast(new V(4.95, 2.2, -45.6), new V(0, -1, 0), 3); return h ? h.point.y : 0.55; });
+    await tp(4.95, by + 0.05, -45.6, 180);
+    let xs = [9, -9], z = 0;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 30000) {
+      const p = await pPos(); z = p[2];
+      if (z < -51 && z > -61.5) { xs[0] = Math.min(xs[0], p[0]); xs[1] = Math.max(xs[1], p[0]); }
+      if (z < -62.6) break;
+      await wait(150);
+    }
+    const rode = (Date.now() - t0) / 1000;
+    console.log(`  belt carried the player to z = ${z.toFixed(2)} in ${rode.toFixed(1)} s (x in the tunnel ${xs.map((v) => v.toFixed(2))})`);
+    if (z > -62.6) { bad('the belt did not carry the player through the tunnel'); await tp(5, by + 0.05, -64, 180); }
+    if (!fast) await shot('15-apron');
+    await waitBeat('l2_tunnel', 5); await waitBeat('l2_apron', 10);
+    await info('15-apron', (s) => (!lockedHas(s, 'd2_mouth') ? 'd2_mouth should be latched in phase H' : null));
+    await waitBeat('l2_unit32', 12);
     await waitFlag(() => window.__game.enemies.all.some((e) => e.group === 'g2_unit32' && e.alive), 'Unit 32 spawning', 10);
-    await wait(2500); if (!fast) await shot('14-unit32');
-    { const subs = await ev(() => window.__log.subs); if (!subs.some((t) => /canteen coffee/.test(t) && /UNIT 32/.test(t))) bad('Unit 32 did not say the joke'); }
+    await wait(2500); if (!fast) await shot('16-unit32');
+    { const subs = await ev(() => window.__log.subs); if (!subs.some((t) => /canteen coffee/.test(t) && /UNIT 32/.test(t))) bad('Unit 32 did not say the joke (its set-up was heard)'); }
     console.log('  killed', await killAll());
+    // Away from the core end: the supervisor comes for a player south of z −60 once the checkpoint is behind them.
+    await tp(-3, 0, -57.5, 0);
     await waitBeat('#unit32_dead', 20);
     return waitCheckpoint('cp2_foreman', 40);
   }
   async function s2Core(shoot14) {
-    await tp(0, 0, -67.5, 0); await waitBeat('l2_foreman', 10);
-    await info('15-foreman', (s) => (!lockedHas(s, 'd2_core') ? 'd2_core open before the foreman is dead' : null));
-    await wait(4000); if (!fast) await shot('15-foreman');
-    for (let i = 0; i < 4; i++) {
+    await noForemanYet('before the trigger');
+    await tp(-3, 0, -57.5, 0); await wait(2500);
+    { const d = await dbg(); if (d.beats.includes('l2_foreman')) bad('the supervisor came before the player crossed z −60'); }
+    await tp(-3, 0, -61.5, 0); await waitBeat('l2_foreman', 8);
+    await info('17-foreman', (s) => (!lockedHas(s, 'd2_core') ? 'd2_core open before the foreman is dead' : null));
+    if (!fast) await frames('17-foreman', 4, 1200); else await wait(3500);
+    await waitFlag(() => window.__game.enemies.all.some((e) => e.type === 'foreman' && e.alive), 'the supervisor arriving', 12);
+    for (let i = 0; i < 6; i++) {
       await ev(() => {
         const g = window.__game; const V = g.player.position.constructor;
         for (const e of [...g.enemies.all]) {
@@ -840,7 +1112,7 @@ async function runLevel2() {
           for (const part of ['head_a', 'head_b', 'head_c']) g.enemies.damage({ enemy: e, point: e.position.clone(), normal: new V(0, 0, 1), distance: 1, part }, 400, new V(0, 0, -1));
         }
       });
-      await killAll(); await wait(600);
+      await killAll(); await wait(700);
     }
     await waitBeat('#foreman_dead', 40);
     await wait(800);
@@ -848,46 +1120,53 @@ async function runLevel2() {
     console.log('  unit 14:', JSON.stringify(u14));
     if (!u14) notes.push('g2_unit14 did not spawn (level spawn missing?)');
     else if (u14.state !== 'dormant') bad(`Unit 14 should stand dormant, is ${u14.state}`);
+    if (!shoot14 && u14 && !fast) {
+      // The projection's last appearance: it walks into the real unit.
+      await tp(-3, 0, -58.5, 0, -3); await waitBeat('#ghost_last', 12, { optional: true }); await frames('18-ghost-last', 3, 1200);
+    }
     if (shoot14 && u14) {
       await ev(() => { const g = window.__game; const V = g.player.position.constructor; const e = g.enemies.all.find((x) => x.group === 'g2_unit14'); g.enemies.damage({ enemy: e, point: e.position.clone(), normal: new V(0, 0, 1), distance: 3, part: 'torso' }, 8, new V(0, 0, -1)); });
       await waitBeat('#unit14_shot', 8);
       // Shot, it wakes (as designed). The run goes on with it put down, so the core checkpoint can be taken.
       await wait(1200); console.log('  killed', await killAll()); await waitBeat('#unit14_dead', 8);
     }
-    await info('16-core-door', (s) => (lockedHas(s, 'd2_core') ? 'd2_core still locked after the foreman' : null));
+    await info('18-core-door', (s) => (lockedHas(s, 'd2_core') ? 'd2_core still locked after the foreman' : null));
     await tp(0, 0, -75, 0); await waitBeat('l2_core', 10);
     return waitCheckpoint('cp2_core', 40);
   }
   async function s2End(choice) {
     await waitBeat('#core_offered', 120);
-    if (!fast) { await shot('17-core'); await readIf('term2_core', [0, -78]); }
+    if (!fast) { await shot('19-core'); await readIf('term2_core', [0, -78]); }
     await wait(500);
     const en = await ev(() => ['core_shutdown', 'core_rewrite'].map((id) => window.__game.interactables.get(id)?.enabled ?? null));
     if (en.includes(false)) bad(`both choices must be live at once (${en})`);
     if (en.includes(null)) notes.push('core_shutdown / core_rewrite interactable missing');
-    await info('17-core', (s) => (!lockedHas(s, 'd2_lift') ? 'd2_lift open before a choice' : /cells/i.test(s.objective) ? null : `objective "${s.objective}"`));
+    await info('19-core', (s) => (!lockedHas(s, 'd2_lift') ? 'd2_lift open before a choice' : /cells/i.test(s.objective) ? null : `objective "${s.objective}"`));
     const id = `core_${choice}`;
     console.log(`  ${id}:`, await use(id));
     await waitBeat(`l2_choice_${choice}`, 10);
     { const other = await use(choice === 'shutdown' ? 'core_rewrite' : 'core_shutdown'); if (other === 'ok') bad('the second choice was still usable'); }
     await waitFlag(() => !window.__game.level.door('d2_lift').locked, 'd2_lift unlocking', 60);
-    if (!fast) await shot(`18-${choice}`);
+    await waitBeat('#choice_done', 60);
+    if (!fast) await shot(`20-${choice}`);
     await tp(0, 0, -90.5, 0); await wait(600);
     console.log('  lift:', await use('lift_button'));
     await waitBeat('l2_end', 15);
     await page.waitForFunction(() => window.__game.state === 'ended', null, { timeout: 60000 }).catch(() => bad('never reached state "ended"'));
     await wait(fast ? 1500 : 5000);
-    await shot(`19-end-${choice}`);
+    await shot(`21-end-${choice}`);
     const end = await ev(() => ({ state: window.__game.state, save: localStorage.getItem('coldboot.save.l2.v1'), level: localStorage.getItem('coldboot.level'), beats: window.__game.story.debugState.beats.filter((b) => !b.startsWith('#')),
-      text: document.querySelector('.cb')?.innerText?.replace(/\s+/g, ' ').slice(0, 1200) ?? '' }));
+      husks: window.__game.story.debugState.flags.husksKilled, text: document.querySelector('.cb')?.innerText?.replace(/\s+/g, ' ').slice(0, 1200) ?? '' }));
     console.log('  ending text:', end.text);
     if (end.save) bad('the level-2 checkpoint was not cleared by the ending');
     if (end.level !== '2') bad(`stored level after finishing level 2 is ${end.level}, expected 2`);
     if (!/TO BE CONTINUED/i.test(end.text)) notes.push('ending text "TO BE CONTINUED" not found in the DOM');
+    // The ending counts what is left: never "thirty-two" once units were shot.
+    if (end.husks > 0 && /thirty-two/i.test(end.text)) bad('the ending card claims thirty-two units although the player shot some');
     return end;
   }
-  const checkOrder = (beats, choice) => {
-    const want = [...ORDER, `l2_choice_${choice}`, 'l2_end'];
+  const checkOrder = (beats, choice, order = ORDER) => {
+    const want = [...order, `l2_choice_${choice}`, 'l2_end'];
     let at = -1;
     for (const b of want) {
       const i = beats.indexOf(b);
@@ -897,12 +1176,29 @@ async function runLevel2() {
     }
     if (beats.includes(choice === 'shutdown' ? 'l2_choice_rewrite' : 'l2_choice_shutdown')) bad('both choices were recorded');
   };
-  const SEG2 = [s2Start, s2Hall, s2Pass, s2Relay, s2Apron, s2Foreman, s2Core];
+  /** The story's own record: no line was spoken while its condition was false; print what was skipped / replaced. */
+  const lineReport = async (label) => {
+    const log = await ev(() => window.__game.story.lineLog ?? []);
+    const spoken = log.filter((l) => l.said), skipped = log.filter((l) => !l.said), variants = log.filter((l) => l.said && l.said !== l.id);
+    console.log(`  [lines ${label}] spoken ${spoken.length} (conditional ${spoken.filter((l) => l.cond !== null).length}), skipped ${skipped.length}, replaced by a variant ${variants.length}`);
+    if (variants.length) console.log('    variants:', variants.map((l) => `${l.id}→${l.said}`).join(', '));
+    if (skipped.length) console.log('    skipped:', [...new Set(skipped.map((l) => l.id))].join(', '));
+    return { spoken, skipped, variants };
+  };
+  const SEG2 = [s2Start, s2Hall, s2Talk, s2Pass, s2Relay, s2Taken, s2Escort, s2Foreman, s2Core];
 
+  if (IMPATIENT) await page.addInitScript(installOracle, await (async () => {
+    const { readFileSync } = await import('node:fs');
+    const o = {};
+    for (const l of JSON.parse(readFileSync('voice/lines.l2.json', 'utf8'))) { o[l.id] = l.text; o['@' + l.id] = l.fx ? l.fx : l.speaker; }
+    return o;
+  })());
   await boot(); await clearL2(); await boot();
   const f2 = await feat2();
   console.log('features:', JSON.stringify(f2));
   if (f2.level !== 2) { console.log('FAILED: ?level=2 did not boot level 2'); await browser.close(); process.exit(1); }
+
+  if (IMPATIENT) { await runImpatient(); return; }
 
   if (!CHECKPOINTS) {
     for (const choice of ENDINGS) {
@@ -912,10 +1208,28 @@ async function runLevel2() {
       const end = await s2End(choice);
       checkOrder(end.beats, choice);
       console.log('  beats:', end.beats.join(' → '));
+      await lineReport(choice);
     }
-    // ?nostory=1: no beats, every door unlocked.
+    // ?nostory=1: no beats; line held, gate open, mouth and exit shut, every other door unlocked.
     await clearL2(); await boot('&nostory=1'); await wait(800);
-    { const s = await status(); console.log('[nostory]', JSON.stringify({ locked: s.locked, beats: s.beats })); if (s.locked) bad(`?nostory=1 left doors locked: ${s.locked}`); if (s.beats.length) bad('?nostory=1 ran beats'); }
+    { const s = await status(); console.log('[nostory]', JSON.stringify({ locked: s.locked, beats: s.beats }));
+      const rest = s.locked.split(',').filter((d) => d && d !== 'd2_mouth' && d !== 'd2_exit');
+      if (rest.length) bad(`?nostory=1 left doors locked: ${rest}`); if (s.beats.length) bad('?nostory=1 ran beats'); }
+    // An old save (removed checkpoint id / older story revision) is discarded, and the level starts over.
+    const SAVE_V = Number(/SAVE_VERSION = (\d+)/.exec((await import('node:fs')).readFileSync('src/story/save.ts', 'utf8'))?.[1] ?? 1);
+    for (const old of [{ id: 'cp2_apron', rev: 5 }, { id: 'cp2_pass' }]) {
+      await clearL2(); await boot(); await wait(300);
+      await ev(([old, v]) => {
+        const g = window.__game;
+        const s = { v, level: 2, place: 'X', player: g.player.snapshot(), story: { beats: ['l2_arrive'], read: [], visited: [], flags: {}, triggered: [], cleared: [], checkpoints: [] }, logs: [], stats: { time: 1, kills: 0 }, cleared: [], ...old };
+        localStorage.setItem('coldboot.save.l2.v1', JSON.stringify(s));
+      }, [old, SAVE_V]);
+      await boot('&continue=1'); await wait(1500);
+      const r = await ev(() => ({ restored: window.__game.story.debugState.restoredFrom, save: localStorage.getItem('coldboot.save.l2.v1'), state: window.__game.state, beats: window.__game.story.debugState.beats }));
+      console.log(`[old save ${JSON.stringify(old)}]`, JSON.stringify({ restored: r.restored, kept: !!r.save, state: r.state }));
+      if (r.restored) bad(`an old save (${JSON.stringify(old)}) was loaded instead of discarded`);
+      if (r.state !== 'playing' || !r.beats.includes('l2_arrive')) bad('after discarding an old save the level did not start from the beginning');
+    }
     // Level 1 → level 2 hand-over: stored level, carried loadout.
     await clearL2(); await boot('&level=1&handoff=1'); await wait(500);
     await ev(() => { const g = window.__game; g.player.give('pistol', 12); g.player.give('ammo_pistol', 7); g.story.handoff(); });
@@ -936,6 +1250,7 @@ async function runLevel2() {
 
   // ── --level2 --checkpoints ──
   fast = true;
+  const PHASE_OF = { cp2_start: 'A', cp2_hall: 'A', cp2_talk: 'B', cp2_pass: 'C', cp2_relay: 'C', cp2_taken: 'F', cp2_escort: 'G2', cp2_foreman: 'H', cp2_core: 'I' };
   const world2 = () => ev(() => {
     const g = window.__game; const p = g.player; const d = g.story.debugState;
     const groups = {};
@@ -945,7 +1260,7 @@ async function runLevel2() {
       weapons: Object.fromEntries(Object.entries(p.weapons).map(([k, w]) => [k, [w.owned, w.clip, w.reserve]])), keys: [...p.keys].sort(),
       locked: g.level.doors.filter((x) => x.locked).map((x) => x.id).sort().join(','), groups, active: g.enemies.activeCount,
       beats: d.beats, flags: d.flags, restoredFrom: d.restoredFrom, cleared: d.cleared, objective: g.story.objective, logs: [...g.story.logs].sort(),
-      tomas: !!d.tomas,
+      tomas: !!d.tomas, phase: d.phase, phaseApplied: d.phaseApplied, heard: d.heard.length,
     };
   });
   const results = [];
@@ -957,23 +1272,26 @@ async function runLevel2() {
     let saved = null;
     for (let i = 0; i <= idx; i++) saved = await SEG2[i](false);
     if (!saved || saved.id !== cp) { bad(`${cp}: the save does not hold this checkpoint (${saved?.id ?? 'none'})`); results.push({ cp, restored: false, ended: false }); continue; }
-    await wait(300);
+    await wait(200);
     const want = await world2();
     await ev(() => { const g = window.__game; g.debug.god = false; g.player.damage(9999); });
     await page.waitForFunction(() => window.__game.state === 'dead', null, { timeout: 5000 }).catch(() => bad(`${cp}: player did not die`));
     await wait(1500);
-    await boot('&continue=1'); await wait(3000);
+    // cp2_taken turns into the escort fight two seconds after the load: look at it before that.
+    await boot('&continue=1'); await wait(cp === 'cp2_taken' ? 900 : 3000);
     await page.screenshot({ path: `shots/l2/${cp}-restored.png` });
     await fastTalk();
     const got = await world2();
     const log = await ev(() => window.__log);
-    console.log('  after:', JSON.stringify({ pos: got.pos, health: got.health, keys: got.keys, locked: got.locked, groups: got.groups, objective: got.objective, tomas: got.tomas }));
+    console.log('  after:', JSON.stringify({ pos: got.pos, health: got.health, keys: got.keys, locked: got.locked, groups: got.groups, objective: got.objective, tomas: got.tomas, phase: got.phase }));
     if (got.state !== 'playing') bad(`${cp}: state after load is ${got.state}`);
     if (got.restoredFrom !== cp) bad(`${cp}: restoredFrom = ${got.restoredFrom}`);
+    if (got.phase !== PHASE_OF[cp] || got.phaseApplied !== PHASE_OF[cp]) bad(`${cp}: loaded into phase ${got.phase} (applied ${got.phaseApplied}), expected ${PHASE_OF[cp]}`);
     const sp = saved.player.position;
     if (Math.hypot(got.pos[0] - sp[0], got.pos[2] - sp[2]) > 0.8) bad(`${cp}: player position ${got.pos} ≠ saved ${sp}`);
     for (const k of ['health', 'weapons', 'keys', 'locked', 'objective', 'logs']) if (!same(got[k], want[k])) bad(`${cp}: ${k} not restored: ${JSON.stringify(got[k])} ≠ ${JSON.stringify(want[k])}`);
     for (const k of Object.keys(want.flags)) if (got.flags[k] !== want.flags[k]) bad(`${cp}: flag ${k} = ${got.flags[k]}, was ${want.flags[k]}`);
+    if (got.heard < (saved.story.heard ?? []).length) bad(`${cp}: heard lines lost by the load (${got.heard} < ${(saved.story.heard ?? []).length})`);
     const lost = saved.story.beats.filter((b) => !got.beats.includes(b));
     if (lost.length) bad(`${cp}: beats lost by the load: ${lost}`);
     const replayed = log.beats.filter((b) => saved.story.beats.includes(b) && b !== 'l2_power');
@@ -982,8 +1300,19 @@ async function runLevel2() {
     if (!log.toasts.includes('CHECKPOINT RESTORED')) bad(`${cp}: no CHECKPOINT RESTORED toast`);
     for (const g of want.cleared) if (got.groups[g]) bad(`${cp}: group ${g} is back`);
     if (got.active > 0) bad(`${cp}: ${got.active} enemies active right after the load`);
-    if (idx <= 3 && !got.tomas && want.tomas) bad(`${cp}: Tomas is not in the booth after the load`);
-    if (idx >= 4 && got.tomas) bad(`${cp}: Tomas is back in the booth`);
+    if (idx <= 4 && !got.tomas && want.tomas) bad(`${cp}: Tomas is not in the booth after the load`);
+    if (idx >= 5 && got.tomas) bad(`${cp}: Tomas is back in the booth`);
+    if (idx < 8 && got.groups.g2_foreman) bad(`${cp}: the supervisor exists after the load (R4)`);
+    if (cp === 'cp2_taken') {
+      // No scene: booth open, he is gone, mouth shut; then the hall door opens and two real husks come.
+      const dz = await doorIs('d2_booth'), dm = await doorIs('d2_mouth');
+      if (dz?.locked || !dz?.open) bad(`cp2_taken: d2_booth should stand open (${JSON.stringify(dz)})`);
+      if (!dm?.locked) bad('cp2_taken: d2_mouth should be latched');
+      await waitBeat('l2_escort', 8, { noHurry: true }); await wait(500);
+      const g = await groupsNow(); const dh = await doorIs('d2_booth_hall');
+      if ((g.g2_escort ?? 0) !== 2) bad(`cp2_taken: expected 2 escorts after the load, got ${g.g2_escort ?? 0}`);
+      if (dh?.locked) bad('cp2_taken: d2_booth_hall did not open 2 s after the load');
+    }
     const restoredOk = problems.length === start;
     console.log(restoredOk ? `  RESTORED OK (${cp})` : `  RESTORE FAILED (${cp})`);
     for (let i = idx + 1; i < SEG2.length; i++) await SEG2[i](false);
@@ -997,4 +1326,300 @@ async function runLevel2() {
   if (notes.length) console.log(`\nNOTES:\n - ${[...new Set(notes)].join('\n - ')}`);
   console.log(problems.length ? `\nFAILED:\n - ${problems.join('\n - ')}` : '\nLEVEL2 CHECKPOINTS OK');
   process.exit(problems.length ? 1 : 0);
+
+  // ───────────────────────────────────────────────────────────── --level2 --impatient
+  /**
+   * The impatient player (REVISION 5.1): shoots every unit on sight with the real weapon, uses things in the
+   * wrong order, never waits for a line to finish (lines play at their real length and queue). Asserts:
+   *   – no soft-lock: every stage is reached within its time-out, and the level ends correctly;
+   *   – no line was spoken while false: the ORACLE (installOracle, world state only) judged every subtitle;
+   *   – R4: nothing of a later beat existed early;
+   *   – timing cases the flood fill cannot see: sprinting back through the closing bulkhead, standing in a
+   *     doorway while it closes, running past the escorts to the belt.
+   */
+  async function runImpatient() {
+    const stage = async (name, fn, seconds, label) => {
+      const end = Date.now() + seconds * 1000;
+      while (Date.now() < end) { if (await ev(fn)) return true; await wait(150); }
+      bad(`SOFT-LOCK? ${name}: ${label ?? 'condition'} not reached in ${seconds}s — ${JSON.stringify(await ev(() => { const g = window.__game; const d = g.story.debugState; return { phase: d.phase, objective: g.story.objective, room: g.level.roomAt(g.player.position)?.id, speaking: d.speaking, locked: g.level.doors.filter((x) => x.locked).map((x) => x.id).join(',') }; }))}`);
+      return false;
+    };
+    const hasBeat = (id) => ev((id) => window.__game.story.debugState.beats.includes(id), id);
+    const beatIn = async (id, seconds) => { const end = Date.now() + seconds * 1000; while (Date.now() < end) { if (await hasBeat(id)) return true; await wait(150); } bad(`SOFT-LOCK? beat/cue ${id} not reached in ${seconds}s`); return false; };
+    const move = (fwd, strafe = 0, sprint = false) => ev(([f, s, sp]) => window.__game.player.debug.move(f, s, sp), [fwd, strafe, sprint]);
+    const look = (yawDeg, pitchDeg = 0) => ev(([y, p]) => { const g = window.__game; g.player.yaw = y * Math.PI / 180; g.player.pitch = p * Math.PI / 180; }, [yawDeg, pitchDeg]);
+    /** Aim at a world point and fire the real weapon `n` times. */
+    const fireAt = (x, y, z, n = 1) => ev(async ([x, y, z, n]) => {
+      const g = window.__game;
+      for (let i = 0; i < n; i++) {
+        const e = g.player.eye; const dx = x - e.x, dy = y - e.y, dz = z - e.z;
+        g.player.yaw = Math.atan2(-dx, -dz); g.player.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+        await new Promise((r) => setTimeout(r, 60));
+        const w = g.player.currentWeapon ? g.player.weapons[g.player.currentWeapon] : null;
+        if (w && w.clip === 0) { g.player.debug.reload(); await new Promise((r) => setTimeout(r, 1900)); }
+        g.player.debug.fire();
+        await new Promise((r) => setTimeout(r, 330));
+      }
+    }, [x, y, z, n]);
+    /** Shoot every living unit of the groups (the real weapon; the last resort is the damage API). Returns kills. */
+    const shootGroup = (groups, shots = 7) => ev(async ([groups, shots]) => {
+      const g = window.__game; const V = g.player.position.constructor; let killed = 0, api = 0;
+      for (const e of [...g.enemies.all]) {
+        if (!e.alive || !groups.includes(e.group)) continue;
+        for (let i = 0; i < shots && e.alive; i++) {
+          const eye = g.player.eye; const h = e.type === 'skitter' ? 0.25 : e.type === 'sentry' ? 0.0 : 1.35;
+          const dx = e.position.x - eye.x, dy = e.position.y + h - eye.y, dz = e.position.z - eye.z;
+          g.player.yaw = Math.atan2(-dx, -dz); g.player.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+          await new Promise((r) => setTimeout(r, 50));
+          const w = g.player.currentWeapon ? g.player.weapons[g.player.currentWeapon] : null;
+          if (w && w.clip === 0) { g.player.debug.reload(); await new Promise((r) => setTimeout(r, 1900)); }
+          g.player.debug.fire();
+          await new Promise((r) => setTimeout(r, 300));
+        }
+        if (e.alive) { api++; for (let k = 0; k < 8 && e.alive; k++) g.enemies.damage({ enemy: e, point: e.position.clone(), normal: new V(0, 0, 1), distance: 1, part: 'torso' }, 500, new V(0, 0, -1)); }
+        killed++;
+      }
+      return { killed, finishedByApi: api };
+    }, [groups, shots]);
+    const killAwake = async (label) => {
+      for (let i = 0; i < 12; i++) {
+        const n = await ev(() => window.__game.enemies.all.filter((e) => e.alive && e.state !== 'dormant').map((e) => e.group));
+        if (!n.length) return;
+        const r = await shootGroup([...new Set(n)], 5);
+        console.log(`  ${label}: shot ${JSON.stringify(r)} of ${[...new Set(n)]}`);
+        await wait(400);
+      }
+    };
+    const O = () => ev(() => window.__O);
+    /** The run is about behaviour, not about ammunition: keep the guns fed. */
+    const ammo = () => ev(() => { const p = window.__game.player; p.give('ammo_pistol', 60); p.give('ammo_shotgun', 30); });
+    const say = async (label) => { const o = await O(); console.log(`  [${label}] lines so far ${o.lines.length}, violations ${o.viol.length}${o.viol.length ? ' ' + JSON.stringify(o.viol.slice(-3)) : ''}`); };
+    const region = (name) => ev((name) => { const g = window.__game; const p = g.player.position; return (g.level.regions?.[name] ?? []).some((b) => p.x >= b.min.x && p.x <= b.max.x && p.z >= b.min.z && p.z <= b.max.z); }, name);
+
+    console.log('\n══════════ level 2 — the impatient player ══════════');
+    await clearL2(); await boot('&give=all'); await wait(600);
+    if (!(await ev(() => !!window.__O))) { bad('oracle not installed'); }
+
+    // ── dock / intake: shoot the working units on sight ──
+    await tp(1.5, 0, -1.5, 0); await beatIn('l2_dock', 8);
+    console.log('  dock:', JSON.stringify(await shootGroup(['g2_dock'])));
+    await tp(0, 0, -10, 0); await beatIn('l2_intake', 8);
+    console.log('  intake:', JSON.stringify(await shootGroup(['g2_intake'])));
+    await killAwake('intake');
+    await tp(0, 0, -20.5, 0); await wait(400);
+    await tp(0, 0, -24.5, 0); await beatIn('l2_hall_reveal', 8);
+    await say('tidy place');
+
+    // ── wrong order: every door and place of later phases first, before ever talking to him ──
+    const tryDoor = async (x, z, yaw, id, mustStay) => {
+      await tp(x, 0, z, yaw); await wait(700);
+      const d = await doorIs(id);
+      if (mustStay && !d?.locked) bad(`${id} is not locked in phase A`);
+      return d;
+    };
+    await tryDoor(8.9, -34, -90, 'd2_fitting', true);          // the fitting bays (dark)
+    await tryDoor(8.9, -61, -90, 'd2_relay', true);            // the relay room (no pass)
+    await tryDoor(-8.9, -66, 90, 'd2_spine', true);            // the spine link (no power)
+    await tryDoor(0, -68.8, 0, 'd2_core', true);               // the core
+    await noForemanYet('impatient, hall south in phase A');
+    { const by = await ev(() => { const g = window.__game; const V = g.player.position.constructor; const h = g.physics.raycast(new V(5, 2.2, -47), new V(0, -1, 0), 3); return h ? h.point.y : 0.55; });
+      // On the held belt, walking at the tunnel mouth: it is shut (a real barrier, nobody comments).
+      await tp(5, by + 0.05, -47, 0); await move(1, 0, true); await wait(2500); await move(0);
+      const p = await pPos(); console.log(`  walked the held belt toward the mouth: stopped at z ${p[2].toFixed(2)}`);
+      if (p[2] < -50.6) bad(`the player walked into the tunnel in phase A (z ${p[2].toFixed(2)})`); }
+    // Shoot the booth glass at him before saying hello.
+    await tp(-6.5, 0, -46.5, 90); await beatIn('l2_tomas_seen', 10);
+    await fireAt(-10.4, 1.5, -47.3, 2);
+    await say('before the talk');
+    { const o = await O(); if (o.said.some((id) => /^l2_tomas_/.test(id))) bad(`Tomas spoke before the intercom was pressed: ${o.said.filter((id) => /^l2_tomas_/.test(id))}`); }
+
+    // ── the intercom: press it and leave at once; try the fitting door while he is still unlocking it ──
+    console.log('  intercom:', await use('intercom_hall'));
+    await beatIn('l2_intercom', 5);
+    await tp(8.9, 0, -34, -90); await wait(500);
+    { const d = await doorIs('d2_fitting'); console.log('  fitting door right after the press:', JSON.stringify(d)); }
+    await stage('fitting unlock', () => !window.__game.level.door('d2_fitting').locked, 30, 'd2_fitting unlocking after three lines');
+    const tUnlock = await ev(() => window.__game.story.debugState.t);
+    console.log(`  fitting unlocked ${(tUnlock.fit_open - tUnlock.l2_intercom).toFixed(1)} s after the press`);
+
+    // ── fitting bays: everything on sight — treadmill units, the alcove units asleep, both holograms ──
+    await tp(11.4, 0, -34, -90); await wait(500);
+    console.log('  fitting:', JSON.stringify(await shootGroup(['g2_fit_tread', 'g2_fit_wake'], 8)));
+    await killAwake('fitting');
+    { const d = await dbg(); if (d.ghost) { await fireAt(d.ghost.at[0], d.ghost.at[1] + 1.2, d.ghost.at[2], 2); await wait(1500); const d2 = await dbg(); console.log('  shot the projection:', JSON.stringify(d.ghost), '→', JSON.stringify(d2.ghost)); if (d2.ghost && d2.ghost.mode !== 'none') notes.push('the projection did not collapse when shot'); } else console.log('  (no projection on stage to shoot)'); }
+    await say('fitting');
+    await ammo();
+    // The pass, with the alcove units already dead: no "Behind you!", no fight beat.
+    const passId = await ev(() => window.__game.level.pickupSpawns.find((p) => p.kind === 'keycard')?.id ?? null);
+    if (passId && await goTo(passId, [14, -34])) console.log('  pass:', await use(passId)); else await ev(() => window.__game.player.addKey('section_pass'));
+    await beatIn('l2_pass', 6); await beatIn('#fit_over', 12);
+    { const d = await dbg(); if (d.beats.includes('l2_fit_fight')) bad('a fight beat ran although the alcove units were dead before the pass was taken'); }
+
+    // ── south: the ambush, the relay room's slumped unit shot before the switch, the switch at once ──
+    await tp(-4, 0, -56, 0); await wait(1500); await killAwake('hall ambush');
+    await tp(13, 0, -61, -90); await beatIn('l2_relay_enter', 6);
+    console.log('  relay:', JSON.stringify(await shootGroup(['g2_relay'], 8)));
+    await goTo('relay_switch', [13, -61]);
+    console.log('  switch:', await use('relay_switch'));
+    await beatIn('l2_power', 5);
+    // Straight at the door: it holds (ARC INTERLOCK) while anything hostile is alive.
+    await tp(11.2, 0, -61, 90); await move(1, 0, true); await wait(1500); await move(0);
+    { const r = await ev(() => window.__game.level.roomAt(window.__game.player.position)?.id); if (r !== 'relay') bad(`the player left the relay room during the arc interlock (now in ${r})`); }
+    await wait(1800); await killAwake('relay fight'); await wait(1200); await killAwake('relay fight');
+    await beatIn('#relay_clear', 60);
+    await say('section C');
+    { const g = await groupsNow(); const left = NORTH.filter((n) => n in g); if (left.length) bad(`north groups still exist after l2_power: ${left}`); }
+
+    // ── TIMING CASE 1: sprint into the trap trigger and straight back out through the closing bulkhead ──
+    {
+      await tp(-19, 0, -57.6, 180); await wait(400);
+      await look(180); await move(1, 0, true);   // north is +Z: yaw 180
+      await stage('reach the trap trigger', () => window.__game.player.position.z > -55.2, 5, 'running north through the bulkhead');
+      await look(0); // turn round and sprint back south at once
+      await wait(2600); await move(0); await wait(900);
+      const p = await pPos(); const d = await dbg(); const door = await doorIs('d2_bulkhead_s');
+      const trapped = d.beats.includes('l2_trap');
+      console.log(`  sprint-back: player z ${p[2].toFixed(2)}, trapped ${trapped}, latch retries ${d.t.latch_retries ?? 0}, door ${JSON.stringify(door)}`);
+      if (trapped && p[2] < -55.6) bad(`the scene started with the player SOUTH of the bulkhead (z ${p[2].toFixed(2)})`);
+      if (!trapped && p[2] > -55.6 && door?.locked) bad('the player is north of a locked bulkhead and no scene started');
+      if (Math.abs(p[2] + 56) < 0.28 && door?.closed) bad(`the player is stuck inside the closed bulkhead (z ${p[2].toFixed(2)})`);
+      if (!trapped) {
+        // TIMING CASE 2: stop IN the doorway while it closes.
+        await tp(-19, 0, -57.6, 180); await wait(600); await look(180); await move(1, 0, false);
+        await stage('reach the trap trigger again', () => window.__game.player.position.z > -55.3, 6, 'walking north through the bulkhead');
+        await look(0); await move(1, 0, false);
+        await stage('back in the doorway', () => window.__game.player.position.z < -55.75 || window.__game.story.debugState.beats.includes('l2_trap'), 4, 'stepping back into the doorway');
+        await move(0); await wait(2500);
+        const p2 = await pPos(); const d2 = await dbg(); const door2 = await doorIs('d2_bulkhead_s');
+        console.log(`  doorway: player z ${p2[2].toFixed(2)}, trapped ${d2.beats.includes('l2_trap')}, latch retries ${d2.t.latch_retries ?? 0}, door ${JSON.stringify(door2)}`);
+        if (d2.beats.includes('l2_trap') && p2[2] < -55.6) bad(`doorway: the scene started with the player south of the bulkhead (z ${p2[2].toFixed(2)})`);
+        if (Math.abs(p2[2] + 56) < 0.28 && door2?.closed) bad(`doorway: the player is stuck inside the closed bulkhead (z ${p2[2].toFixed(2)})`);
+        if (!d2.beats.includes('l2_trap')) { await tp(-19, 0, -57.6, 180); await wait(500); await look(180); await move(1, 0, true); await stage('into the trap', () => window.__game.player.position.z > -53, 5); await move(0); }
+      }
+      await beatIn('l2_trap', 10);
+      const p3 = await pPos(); if (p3[2] < -55.6) bad(`after the latch the player is south of the bulkhead (z ${p3[2].toFixed(2)})`);
+    }
+
+    // ── the taking: shoot the glass, run between the windows, try his door, never go into the booth ──
+    await ammo();
+    {
+      const t0 = Date.now();
+      await tp(-18.2, 0, -48.65, -90); await wait(2600);
+      await fireAt(-16.6, 1.5, -48.65, 3);                         // at him, through the window
+      await wait(600);
+      await tp(-18.2, 0, -43.35, -90); await wait(1600);            // other window: he follows until they have him
+      { const d = await dbg(); console.log(`  moved to the north window at ${((Date.now() - t0) / 1000).toFixed(1)} s: Tomas ${JSON.stringify(d.tomas)} (${d.tomasSpot})`); }
+      await tp(-18.1, 0, -46, -90); await move(1, 0, true); await wait(1500); await move(0);   // his door: CYCLING
+      { const p = await pPos(); if (p[0] > -17.3) bad(`the player got into the booth during the window scene (x ${p[0].toFixed(2)})`); }
+      await tp(-18.2, 0, -43.35, -90);
+      await beatIn('#taken', 30); await beatIn('l2_booth_open', 4);
+      // Stay in the corridor: the laying must not wait for the player for ever (12 s rule).
+      await beatIn('l2_loaded', 30);
+      const o = await O(); const d = await dbg();
+      if (!o.said.includes('l2_choir_glass')) notes.push('CHOIR did not say the glass is rated although the window was shot');
+      const hits = o.glass.filter((x) => x >= (o.trapAt ?? 1e9)).length;
+      console.log(`  shots that hit the spine window during the scene: ${hits}`);
+      if (!hits) bad('the test never hit the spine window (no ammo?) — the glass lines were not exercised');
+      if (hits && o.said.includes('l2_tomas_window_3') && o.lines.find((l) => l.id === 'l2_tomas_window_3').t > o.glass.find((x) => x >= o.trapAt)) bad('"Don\'t shoot the glass" was said after the player shot it');
+      console.log('  scene timings:', JSON.stringify(Object.fromEntries(['latch', 'held', 'taken', 'booth_open', 'at_deck', 'laid', 'loaded'].map((k) => [k, d.t[k] !== undefined ? +(d.t[k] - d.t.latch).toFixed(1) : null]))));
+      if (d.t.laid - d.t.booth_open > 13.5) bad(`the laying waited ${(d.t.laid - d.t.booth_open).toFixed(1)} s for a player who never entered the booth (≤ 12 + walk)`);
+    }
+    await say('the taking');
+
+    // ── TIMING CASE 3: run past the escorts to the belt the moment the hall door opens ──
+    {
+      await tp(-11.2, 0, -43, -90); // standing in the hall door's doorway as it opens
+      await beatIn('l2_escort', 25);
+      await move(1, 0, true); await wait(700); await move(0);
+      const by = await ev(() => { const g = window.__game; const V = g.player.position.constructor; const h = g.physics.raycast(new V(5, 2.2, -47), new V(0, -1, 0), 3); return h ? h.point.y : 0.55; });
+      await tp(5, by + 0.05, -46, 0); await move(1, 0, true);
+      let minZ = 0;
+      for (let i = 0; i < 40; i++) { const p = await pPos(); minZ = Math.min(minZ, p[2]); await wait(150); }
+      await move(0);
+      const dm = await doorIs('d2_mouth'); const g = await groupsNow();
+      console.log(`  ran for the belt with ${g.g2_escort ?? 0} escort(s) alive: deepest z ${minZ.toFixed(2)}, mouth ${JSON.stringify(dm)}`);
+      if (minZ < -50.6 && (g.g2_escort ?? 0) > 0) bad(`the player rode into the tunnel past living escorts (z ${minZ.toFixed(2)})`);
+      if (!dm?.locked && (g.g2_escort ?? 0) > 0) bad('the mouth is not latched while the escorts are alive');
+      await tp(-3, 0, -40, 160); await wait(300);
+      await killAwake('escorts');
+      console.log('  escorts:', JSON.stringify(await shootGroup(['g2_escort'], 8)));
+      await beatIn('#escort_dead', 70);
+      await stage('mouth reopening', () => !window.__game.level.door('d2_mouth').locked, 8);
+    }
+
+    // ── the ride: board at once, push against the guards all the way; Unit 32 on sight ──
+    {
+      const by = await ev(() => { const g = window.__game; const V = g.player.position.constructor; const h = g.physics.raycast(new V(5, 2.2, -45.6), new V(0, -1, 0), 3); return h ? h.point.y : 0.55; });
+      await tp(4.95, by + 0.05, -45.6, 0);
+      for (let i = 0; i < 90; i++) {
+        await move(0, i % 20 < 10 ? 1 : -1, true);   // strafing into the guards, both sides
+        if (i % 10 === 5) await ev(() => window.__game.player.debug.jump());
+        const p = await pPos(); if (p[2] < -62.7) break;
+        await wait(180);
+      }
+      await move(0);
+      const o = await O(); const p = await pPos();
+      console.log(`  ride: x inside the tunnel ${o.minTunnelX.toFixed(2)} … ${o.maxTunnelX.toFixed(2)}, now at ${p.map((v) => v.toFixed(2))}`);
+      if (o.minTunnelX < 3.7 || o.maxTunnelX > 6.3) bad(`the player left the belt inside the tunnel (x ${o.minTunnelX.toFixed(2)} … ${o.maxTunnelX.toFixed(2)})`);
+      await beatIn('l2_apron', 20);
+      await stage('Unit 32', () => window.__game.enemies.all.some((e) => e.group === 'g2_unit32' && e.alive), 15, 'Unit 32 coming off the line');
+      console.log('  unit 32:', JSON.stringify(await shootGroup(['g2_unit32'], 8)));
+      await beatIn('#unit32_dead', 15);
+    }
+    await say('unit 32');
+    await ammo();
+
+    // ── the supervisor: straight at the core door; then Unit 14 on sight; the core without listening ──
+    await noForemanYet('impatient, before the trigger');
+    await tp(-3, 0, -62, 0); await beatIn('l2_foreman', 8);
+    await stage('the supervisor', () => window.__game.enemies.all.some((e) => e.type === 'foreman' && e.alive), 15, 'the supervisor arriving');
+    await fireAt(-3.5, 2.2, -66.5, 4);
+    for (let i = 0; i < 8; i++) {
+      await ev(() => { const g = window.__game; const V = g.player.position.constructor; for (const e of [...g.enemies.all]) { if (e.type !== 'foreman' || !e.alive) continue; for (const part of ['head_a', 'head_b', 'head_c']) g.enemies.damage({ enemy: e, point: e.position.clone(), normal: new V(0, 0, 1), distance: 1, part }, 400, new V(0, 0, -1)); } });
+      await killAwake('supervisor'); await wait(500);
+      if (await hasBeat('#foreman_dead')) break;
+    }
+    await beatIn('#foreman_dead', 40);
+    await wait(700);
+    console.log('  unit 14:', JSON.stringify(await shootGroup(['g2_unit14'], 8)));
+    await wait(600); await killAwake('unit 14');
+    await tp(0, 0, -75, 0); await beatIn('l2_core', 8);
+    await fireAt(0, 1.4, -80, 3);                                  // shoot the pedestal: nothing breaks
+    // The choice is offered by CHOIR (a real gate: the levers are dead until it offers); take it the instant it is.
+    await stage('the offer', () => window.__game.interactables.get('core_shutdown')?.enabled, 150, 'CHOIR offering the choice');
+    console.log('  core_shutdown:', await use('core_shutdown'));
+    await beatIn('l2_choice_shutdown', 5);
+    await stage('lift', () => window.__game.interactables.get('lift_button')?.enabled, 60, 'the lift button');
+    await tp(0, 0, -90.5, 0); await wait(400);
+    console.log('  lift:', await use('lift_button'));
+    await beatIn('l2_end', 10);
+    await page.waitForFunction(() => window.__game.state === 'ended', null, { timeout: 60000 }).catch(() => bad('never reached state "ended"'));
+    await wait(1500);
+    const end = await ev(() => ({ state: window.__game.state, beats: window.__game.story.debugState.beats.filter((b) => !b.startsWith('#')), flags: window.__game.story.debugState.flags,
+      text: document.querySelector('.cb')?.innerText?.replace(/\s+/g, ' ').slice(0, 900) ?? '' }));
+    console.log('  ending text:', end.text);
+    if (end.state !== 'ended') bad('the impatient run did not end');
+    if (/thirty-two/i.test(end.text)) bad('the ending card claims thirty-two units after the player shot them');
+    checkOrder(end.beats, 'shutdown', ORDER.filter((b) => !['l2_fit_fight', 'l2_rig'].includes(b)));
+    console.log('  beats:', end.beats.join(' → '));
+
+    // ── the oracle's verdict ──
+    const o = await O();
+    const rep = await lineReport('impatient');
+    console.log(`\n  ORACLE: ${o.lines.length} story lines spoken, ${o.lines.filter((l) => l.ok).length} true when spoken, ${o.viol.length} false; ${o.noOracle.length} unconditional ids without an oracle`);
+    console.log('    unconditional:', o.noOracle.join(', '));
+    for (const v of o.viol) bad(`line spoken while false: ${v.id} "${v.text}" @${v.t}s in ${v.room} ${JSON.stringify(v.pos)} (${v.why})`);
+    if (o.foremanEarly) bad('R4: the supervisor group existed before l2_foreman');
+    if (o.unit32Early) bad('R4: Unit 32 existed before the ride was over');
+    // Lines that must NOT have been said in this run (their premise was destroyed by the player).
+    const never = { l2_choir_dock: 'the dock unit was shot on sight', l2_tomas_stealth_1: 'the treadmill units were shot', l2_tomas_fit_fight: 'the alcove units were dead', l2_tomas_pass_taken: 'the alcove units were dead',
+      l2_choir_core_7: 'working units were shot', l2_choir_core_11: 'working units were shot', l2_unit14_wait: 'Unit 14 was shot down', l2_tomas_bark_belt: 'the line was removed' };
+    for (const [id, why] of Object.entries(never)) if (o.said.includes(id)) bad(`${id} was said although ${why}`);
+    void rep;
+    await clearL2();
+    await browser.close();
+    if (notes.length) console.log(`\nNOTES:\n - ${[...new Set(notes)].join('\n - ')}`);
+    console.log(problems.length ? `\nFAILED:\n - ${problems.join('\n - ')}` : '\nLEVEL2 IMPATIENT OK');
+    process.exit(problems.length ? 1 : 0);
+  }
 }

@@ -78,7 +78,7 @@ export function pallet(b: Builder, w = 1.2, d = 1.0) {
 /** 200 L drum. */
 export function drum(b: Builder, mat: Mat = 'painted_orange', collide = true) {
   b.cyl(mat, 0, 0.44, 0, 0.29, 0.88, 'y', 16);
-  for (const y of [0.02, 0.3, 0.58, 0.86]) b.cyl(mat, 0, y, 0, 0.3, 0.035, 'y', 16);
+  for (const y of [0.03, 0.3, 0.58, 0.85]) b.cyl(mat, 0, y, 0, 0.3, 0.035, 'y', 16); // rolling hoops clear of the lid / base planes
   b.detail(() => { b.cyl('steel_raw', 0.14, 0.89, 0, 0.035, 0.02, 'y', 8); b.cyl('steel_raw', -0.1, 0.89, 0.1, 0.02, 0.015, 'y', 6); });
   if (collide) b.collide(-0.26, 0, -0.26, 0.26, 0.88, 0.26);
 }
@@ -95,7 +95,7 @@ export function gasBottle(b: Builder, mat: Mat = 'painted_white') {
 
 export function desk(b: Builder, w = 1.6, d = 0.8, h = 0.76, collide = true) {
   b.box('trim_steel', 0, h - 0.02, 0, w, 0.04, d);
-  b.box('rubber', 0, h + 0.002, 0, w - 0.06, 0.004, d - 0.06);
+  b.box(b.L.overlay('rubber'), 0, h + 0.002, 0, w - 0.06, 0.004, d - 0.06);
   // drawer pedestal (right) + panel leg (left) + modesty panel
   b.box('painted_dark', w / 2 - 0.24, (h - 0.04) / 2, 0, 0.42, h - 0.04, d - 0.08);
   b.box('painted_dark', -w / 2 + 0.03, (h - 0.04) / 2, 0, 0.04, h - 0.04, d - 0.08);
@@ -141,7 +141,7 @@ export function bench(b: Builder, w = 1.4) {
 export function locker(b: Builder, open = 0, mat: Mat = 'wall_panel', w = 0.5, h = 2.0, d = 0.5, collide = true) {
   const t = 0.02;
   b.box(mat, -w / 2 + t / 2, h / 2, 0, t, h, d).box(mat, w / 2 - t / 2, h / 2, 0, t, h, d);
-  b.box(mat, 0, h / 2, -d / 2 + t / 2, w, h, t);
+  b.box(mat, 0, h / 2, -d / 2 + 0.04, w, h, 0.08); // thick back: its inside face clears a wall's kick plate and pilasters
   b.box(mat, 0, h - t / 2, 0, w, t, d).box(mat, 0, 0.06, 0, w, 0.12, d);
   if (open > 0) {
     b.detail(() => {
@@ -159,7 +159,11 @@ export function locker(b: Builder, open = 0, mat: Mat = 'wall_panel', w = 0.5, h
     b.box('painted_dark', w - 0.07, 1.22, 0.035, 0.05, 0.05, 0.02);
   });
   b.pop();
-  if (collide) b.collide(-w / 2, 0, -d / 2, w / 2, h, d / 2);
+  if (collide && open > 0) {
+    // an open locker is hollow: what is inside (a pickup on the shelf) is in plain reach / sight
+    b.collide(-w / 2, 0, -d / 2, -w / 2 + t, h, d / 2).collide(w / 2 - t, 0, -d / 2, w / 2, h, d / 2);
+    b.collide(-w / 2, 0, -d / 2, w / 2, h, -d / 2 + t).collide(-w / 2, h - t, -d / 2, w / 2, h, d / 2).collide(-w / 2, 0, -d / 2, w / 2, 0.12, d / 2);
+  } else if (collide) b.collide(-w / 2, 0, -d / 2, w / 2, h, d / 2);
 }
 
 /** Row of n shut lockers along +X starting at x=0 (left edge). */
@@ -189,7 +193,7 @@ export function shelfRack(b: Builder, L: LevelBuild, w: number, d: number, h: nu
   for (let l = 0; l < levels; l++) {
     const y = 0.15 + (l * (h - 0.25)) / levels;
     b.box('trim_steel', 0, y, 0, w, 0.035, d - 0.02);
-    b.detail(() => { b.box('painted_orange', 0, y - 0.04, d / 2 - 0.02, w, 0.08, 0.03); b.box('painted_orange', 0, y - 0.04, -d / 2 + 0.02, w, 0.08, 0.03); });
+    b.detail(() => { b.box('painted_orange', 0, y - 0.04, d / 2 - 0.04, w - 0.01, 0.08, 0.03); b.box('painted_orange', 0, y - 0.04, -d / 2 + 0.04, w - 0.01, 0.08, 0.03); });
     const clearH = (h - 0.25) / levels - 0.1;
     let x = -w / 2 + 0.12;
     while (x < w / 2 - 0.3) {
@@ -346,7 +350,7 @@ export function vitalsStand(b: Builder) {
   b.cyl('painted_white', 0, 0.62, 0, 0.022, 1.1, 'y', 8);
   b.box('plastic_white', 0, 1.38, 0, 0.46, 0.36, 0.14);
   b.detail(() => {
-    b.box('plastic_dark', 0, 1.38, 0.068, 0.4, 0.3, 0.006);
+    b.box('plastic_dark', 0, 1.38, 0.073, 0.4, 0.3, 0.006);
     b.box('plastic_white', 0, 1.05, 0.02, 0.34, 0.03, 0.26);
     b.box('plastic_white', 0, 0.95, 0.02, 0.3, 0.16, 0.2);
     for (let i = 0; i < 5; i++) b.cyl('plastic_dark', 0.195, 1.26 + i * 0.05, 0.075, 0.012, 0.01, 'z', 6);
@@ -544,7 +548,8 @@ export function clipboard(b: Builder) {
 /** Scattered paper sheets on the floor around the local origin. */
 export function papers(b: Builder, n: number, spread: number, R: Rng) {
   b.detail(() => {
-    for (let i = 0; i < n; i++) b.rbox('plastic_white', R.range(-spread, spread), 0.003 + i * 0.0006, R.range(-spread, spread), 0.21, 0.001, 0.297, 0, R.range(0, 6), 0);
+    const m = b.L.overlay('plastic_white'); // sheets lie on desks / mats: never fight them
+    for (let i = 0; i < n; i++) b.rbox(m, R.range(-spread, spread), 0.0065 + i * 0.0015, R.range(-spread, spread), 0.21, 0.001, 0.297, 0, R.range(0, 6), 0);
   });
 }
 

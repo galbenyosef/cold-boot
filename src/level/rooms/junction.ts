@@ -23,8 +23,9 @@ export function buildJunction(L: LevelBuild) {
   ceilingSlab(b, -3, FZ - FR, FX - FR, FZ + FR, H); ceilingSlab(b, FX + FR, FZ - FR, 3, FZ + FR, H);
   const SH = 2.0; // shaft height above the ceiling
   for (const s of [-1, 1]) {
-    b.box('painted_dark', FX + s * (FR + 0.1), H + SH / 2, FZ, 0.2, SH, 2 * FR + 0.4);
-    b.box('painted_dark', FX, H + SH / 2, FZ + s * (FR + 0.1), 2 * FR, SH, 0.2);
+    // (the shaft starts on top of the ceiling slab: no face shared with the slab's underside)
+    b.box('painted_dark', FX + s * (FR + 0.1), H + 0.3 + (SH - 0.3) / 2, FZ, 0.2, SH - 0.3, 2 * FR + 0.4);
+    b.box('painted_dark', FX, H + 0.3 + (SH - 0.3) / 2, FZ + s * (FR + 0.1), 2 * FR, SH - 0.3, 0.2);
   }
   b.box('painted_dark', FX, H + SH + 0.1, FZ, 2 * FR + 0.4, 0.2, 2 * FR + 0.4);
   {
@@ -61,8 +62,9 @@ export function buildJunction(L: LevelBuild) {
   wallFace(b, { n: '-x', plane: 2.8, from: -19.8, to: -14, h: H, t: 0.2, openings: [{ c: -17, w: 1.6, h: 2.4 }], seed: 14, features: 0, ext: [0, 0.2] });
 
   // archway portal frame
-  b.box('trim_steel', -1.57, 1.5, -14.0, 0.14, 3.0, 0.5).box('trim_steel', 1.57, 1.5, -14.0, 0.14, 3.0, 0.5);
-  b.box('trim_steel', 0, 3.07, -14.0, 3.3, 0.14, 0.5);
+  // (archway frame 1 cm inside the opening and under the corridor ceiling: no shared planes)
+  b.box('trim_steel', -1.56, 1.5, -14.0, 0.14, 3.0, 0.5).box('trim_steel', 1.56, 1.5, -14.0, 0.14, 3.0, 0.5);
+  b.box('trim_steel', 0, 3.06, -14.0, 3.3, 0.14, 0.5);
   b.detail(() => {
     for (const s of [-1, 1]) b.bx('hazard_stripes', s * 1.64 - 0.05, 0.3, -14.26, s * 1.64 + 0.05, 2.6, -14.25);
     b.bx('hazard_stripes', -1.5, -0.01, -14.3, 1.5, 0.004, -14.0);
@@ -70,7 +72,7 @@ export function buildJunction(L: LevelBuild) {
 
   // ── ceiling: cross of beams, ring of conduit around the sign hub ──
   ibeam(b, 'trim_steel', 'x', 0, H - 0.11, -17, 5.6, 0.14, 0.22);
-  ibeam(b, 'trim_steel', 'z', 0, H - 0.11, -18.2, 3.4, 0.14, 0.22);
+  ibeam(b, 'trim_steel', 'z', 0, H - 0.11, -17.9, 2.8, 0.14, 0.22); // stops clear of d_fab_outer's rising leaf
   b.box('trim_steel', 0, H - 0.06, -18.7, 5.6, 0.12, 0.1);
   b.detail(() => {
     pipe(b, 'copper', [[-2.6, H - 0.2, -14.3], [-2.6, H - 0.2, -19.5]], 0.05, { every: 1.8 });

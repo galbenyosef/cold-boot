@@ -120,6 +120,29 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   const _q = new THREE.Quaternion();
   const _e = new THREE.Euler();
 
+  // R8: an interactable can be focused only if nothing solid lies between the eye and it (0.4 m tolerance (armoury locker pistol sits 0.3 m inside a solid locker box):
+  // interactables sit on / slightly inside panels, desks, consoles). Same scoring as InteractableRegistry.pick.
+  const LOS_TOL = 0.4;
+  const _to = new THREE.Vector3();
+  function pickVisible(): Interactable | null {
+    let best: Interactable | null = null;
+    let bestScore = -Infinity;
+    for (const i of ctx.interactables.all) {
+      if (!i.enabled) continue;
+      _to.copy(i.position).sub(eye);
+      const d = _to.length();
+      const r = i.radius ?? 2.2;
+      if (d > r) continue;
+      const dot = d < 0.001 ? 1 : _to.dot(forward) / d;
+      if (dot < (d < 0.9 ? 0.6 : 0.9)) continue;
+      const score = dot * 2 - d / r;
+      if (score <= bestScore) continue;
+      if (d > 0.3 && ctx.physics.raycast(eye, _to.multiplyScalar(1 / d), d - LOS_TOL)) continue;
+      bestScore = score; best = i;
+    }
+    return best;
+  }
+
   const pickups = new Pickups(ctx, worldMats, {
     wants(kind: PickupKind) {
       switch (kind) {
@@ -402,7 +425,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       setVmLight(flash.level);
 
       // ── interaction
-      focus = alive ? ctx.interactables.pick(eye, forward) : null;
+      focus = alive ? pickVisible() : null;
       if (active && focus && inp.pressed('KeyE')) ctx.interactables.use(focus);
 
       // ── pickups + HUD state

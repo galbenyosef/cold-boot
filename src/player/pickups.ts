@@ -235,6 +235,9 @@ export class Pickups {
     if (!it.auto) this.ctx.interactables.remove(sp.id);
   }
 
+  private _o = new THREE.Vector3();
+  private _d = new THREE.Vector3();
+
   update(dt: number, t: number, feet: THREE.Vector3, alive: boolean) {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
@@ -246,7 +249,14 @@ export class Pickups {
       it.glint.material.rotation = t * 0.3;
       if (!alive || !it.auto) continue;
       const dx = it.center.x - feet.x, dz = it.center.z - feet.z, dy = it.center.y - feet.y;
-      if (dx * dx + dz * dz < 1.0 && dy > -0.6 && dy < 1.4 && this.host.wants(it.spawn.kind)) this.collect(it);
+      if (dx * dx + dz * dz < 1.0 && dy > -0.6 && dy < 1.4 && this.host.wants(it.spawn.kind)) {
+        // R8: no collecting through glass / walls / closed doors (chest height → item, 0.4 m tolerance).
+        const o = this._o.set(feet.x, feet.y + 0.9, feet.z);
+        const d = this._d.set(it.center.x - o.x, it.center.y - o.y, it.center.z - o.z);
+        const len = d.length();
+        if (len > 0.3 && this.ctx.physics.raycast(o, d.multiplyScalar(1 / len), len - 0.4)) continue;
+        this.collect(it);
+      }
     }
     void dt;
   }

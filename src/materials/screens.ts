@@ -31,10 +31,10 @@ interface Screen {
 }
 
 const INTENSITY: Record<ScreenKind, number> = {
-  terminal_idle: 2.6, terminal_alert: 3.2, static: 1.8, choir: 3.5, camera_feed: 2.0, vitals: 2.6, door_locked: 3.5, door_open: 3.0,
+  terminal_idle: 2.6, terminal_alert: 3.2, static: 1.8, choir: 3.5, camera_feed: 2.0, vitals: 2.6, door_locked: 3.5, door_open: 3.0, door_cycling: 3.2,
 };
 const RATE: Record<ScreenKind, number> = {
-  terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4,
+  terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
 };
 const MAX_DRAWS_PER_UPDATE = 4;
 
@@ -123,6 +123,8 @@ export class ScreenManager {
       name: `screen_${kind}`,
       color: 0x040505, roughness: 0.12, metalness: 0,
       emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: INTENSITY[kind],
+      // a screen always sits in a bezel / on a panel: it wins the depth test against it (REVISION 5.1)
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
     });
     const seed = this.seedCounter++ * 7919;
     const s: Screen = {
@@ -186,6 +188,7 @@ export class ScreenManager {
       case 'vitals': this.vitals(s); break;
       case 'door_locked': this.door(s, false); break;
       case 'door_open': this.door(s, true); break;
+      case 'door_cycling': this.door(s, 'cycling'); break;
     }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'multiply';
@@ -453,12 +456,13 @@ export class ScreenManager {
     g.fillText('MED-3A  BED 2   REYES, S.   SEDATION PUMP: EMPTY', W * 0.02, H * 0.04 + fs * 0.3);
   }
 
-  private door(s: Screen, open: boolean) {
+  private door(s: Screen, mode: boolean | 'cycling') {
     const { g, W, H } = s;
     const t = s.t;
-    const pulse = open ? 1 : 0.75 + 0.25 * Math.sin(t * 4);
-    g.fillStyle = open ? '#011006' : '#140101'; g.fillRect(0, 0, W, H);
-    const col = open ? `rgba(60,255,110,${pulse})` : `rgba(255,40,24,${pulse})`;
+    const open = mode === true, cyc = mode === 'cycling';
+    const pulse = open ? 1 : cyc ? 0.55 + 0.45 * Math.abs(Math.sin(t * 2.6)) : 0.75 + 0.25 * Math.sin(t * 4);
+    g.fillStyle = open ? '#011006' : cyc ? '#140b01' : '#140101'; g.fillRect(0, 0, W, H);
+    const col = open ? `rgba(60,255,110,${pulse})` : cyc ? `rgba(255,170,30,${pulse})` : `rgba(255,40,24,${pulse})`;
     g.strokeStyle = col; g.lineWidth = Math.max(3, H * 0.05);
     g.strokeRect(H * 0.08, H * 0.08, W - H * 0.16, H - H * 0.16);
     // icon
@@ -466,13 +470,17 @@ export class ScreenManager {
     g.fillStyle = col; g.strokeStyle = col; g.lineWidth = sz * 0.16;
     if (open) {
       g.beginPath(); g.moveTo(ix - sz * 0.5, iy); g.lineTo(ix - sz * 0.1, iy + sz * 0.4); g.lineTo(ix + sz * 0.55, iy - sz * 0.45); g.stroke();
+    } else if (cyc) {
+      // a turning arc: the interlock is working on it
+      const a0 = t * 4;
+      g.beginPath(); g.arc(ix, iy, sz * 0.42, a0, a0 + Math.PI * 1.4); g.stroke();
     } else {
       g.fillRect(ix - sz * 0.5, iy - sz * 0.05, sz, sz * 0.75);
       g.beginPath(); g.arc(ix, iy - sz * 0.05, sz * 0.33, Math.PI, 0); g.stroke();
     }
     g.font = `800 ${Math.round(H * 0.34)}px ${SANS}`; g.textAlign = 'left'; g.textBaseline = 'middle';
     g.fillStyle = col;
-    let label = (s.text ?? (open ? 'OPEN' : 'LOCKED')).toUpperCase();
+    let label = (s.text ?? (open ? 'OPEN' : cyc ? 'CYCLING' : 'LOCKED')).toUpperCase();
     let sz2 = H * 0.34;
     while (g.measureText(label).width > W - H * 1.1 && sz2 > 8) { sz2 -= 2; g.font = `800 ${Math.round(sz2)}px ${SANS}`; }
     g.fillText(label, H * 0.98, H / 2);

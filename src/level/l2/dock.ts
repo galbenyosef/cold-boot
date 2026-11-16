@@ -32,7 +32,7 @@ export function buildDock(L: LevelBuild) {
     b.box('trim_steel', 0, h + 0.15, 0.12, w + 0.5, 0.3, 0.24);
     for (const s of [-1, 1]) { b.box('painted_yellow', s * (w / 2 + 0.12), h / 2, 0.08, 0.2, h, 0.16); b.box('hazard_stripes', s * (w / 2 + 0.12), 0.5, 0.165, 0.2, 1.0, 0.004); }
     b.detail(() => {
-      for (let y = 0.06; y < h; y += 0.12) b.box('steel_raw', 0, y, 0.05 + (Math.round(y / 0.12) % 2) * 0.006, w, 0.1, 0.03);
+      for (let y = 0.06; y < h; y += 0.12) b.box('steel_raw', 0, y, 0.12 + (Math.round(y / 0.12) % 2) * 0.006, w - 0.02, 0.1, 0.03); // in front of the wall's pilasters and kick blocks
       b.box('painted_dark', 0, 0.04, 0.07, w, 0.08, 0.06);
       b.box('steel_raw', 0.6, 0.45, 0.08, 0.16, 0.05, 0.05);
       b.sign('DOCK 5 — SEALED BY CHOIR', 'warning', 0, 1.65, 0.08, 1.4, 0.22, '+z', 0, true);
@@ -56,9 +56,9 @@ export function buildDock(L: LevelBuild) {
   L.point('dock', 3.0, 1.1, -1.4, 0x40d8ff, 0.5, 1.2);
   // floor markings: bays and a walking lane
   b.detail(() => {
-    for (const z of [-0.75, -7.25]) b.box('painted_yellow', 2.9, 0.002, z, 2.0, 0.004, 0.08);
-    b.box('painted_yellow', 1.95, 0.002, -4, 0.08, 0.004, 6.5);
-    for (const x of [-1.6, 1.6]) b.box('painted_white', x, 0.002, -4, 0.08, 0.004, 7.4);
+    for (const z of [-0.75, -7.25]) b.box(b.L.overlay('painted_yellow'), 2.9, 0.002, z, 2.0, 0.004, 0.08);
+    b.box(b.L.overlay('painted_yellow'), 1.95, 0.002, -4, 0.08, 0.004, 6.5);
+    for (const x of [-1.6, 1.6]) b.box(b.L.overlay('painted_white'), x, 0.002, -4, 0.08, 0.004, 7.4);
     for (let z = -1; z > -7.5; z -= 1.3) b.sign('▲', 'stencil', 0, 0.004, z, 0.5, 0.5, '+y', PI);
   });
   b.sign('KEEP CLEAR', 'stencil', -2.9, 0.004, -4, 2.6, 0.45, '+y', -PI / 2);

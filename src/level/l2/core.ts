@@ -30,7 +30,7 @@ export function buildCore(L: LevelBuild) {
   const vb = L.builder('core_vest');
   vb.rooms = ['line', 'core'];
   floorSlab(vb, 'wall_medical', -1.9, -72.2, 1.9, -70.0, [], 'metal');
-  ceilingSlab(vb, -1.9, -72.2, 1.9, -70.0, 3.0, 'painted_white');
+  ceilingSlab(vb, -1.9, -72.0, 1.9, -70.0, 3.0, 'painted_white'); // ends inside the core's wall, not flush with its face
   for (const [x, n] of [[-1.7, '+x'], [1.7, '-x']] as const) wallFace(vb, { n, plane: x, from: -72.2, to: -70.2, h: 3.0, t: 0.25, style: 'medical', trayY: 0, features: 0, seed: 295 });
   L.navNode(0, -71.1, 'core');
   // the luminous ceiling: a grid of light panels, bound to the room's lights
@@ -49,7 +49,7 @@ export function buildCore(L: LevelBuild) {
   b.detail(() => {
     b.torus(ringMat, 0, 0.005, -79.4, 2.6, 0.025, 'y', 64);
     b.torus(ringMat, 0, 0.005, -79.4, 3.1, 0.012, 'y', 64);
-    for (let x = -6; x <= 6; x += 2) b.box('trim_steel', x, 0.002, -80, 0.02, 0.004, 15.6);
+    for (let x = -6; x <= 6; x += 2) b.box(b.L.overlay('trim_steel'), x, 0.002, -80, 0.02, 0.004, 15.6);
   });
   // battery fallback (amber, off until core_cells_out)
   for (const [x, z] of [[-6, -74], [6, -74], [-6, -86], [6, -86]] as const) L.point('core_battery', x, 4.5, z, 0xffa040, 10, 10, { enabled: false, flicker: 'pulse' });
@@ -60,7 +60,7 @@ export function buildCore(L: LevelBuild) {
   L.screen('core_wall_3', 'choir', 9.0, 2.6, 0, 4.4, -87.8 + 0.04, '+z');
   L.screen('core_wall_4', 'choir', 12.0, 3.6, -8 + 0.04, 3.3, -80, '+x');
   for (const [x, z, w, h, ry] of [[0, -72.21, 9.2, 2.8, PI], [7.99, -80, 12.2, 3.8, -PI / 2], [0, -87.79, 9.2, 2.8, 0], [-7.99, -80, 12.2, 3.8, PI / 2]] as const) {
-    b.at(x, 0, z, ry, () => { b.box('painted_dark', 0, w > 10 ? 3.3 : 4.4, -0.01, w, h, 0.02); b.box('trim_steel', 0, (w > 10 ? 3.3 : 4.4) - h / 2 - 0.04, 0.02, w + 0.1, 0.06, 0.08); });
+    b.at(x, 0, z, ry, () => { b.box('painted_dark', 0, w > 10 ? 3.3 : 4.4, -0.01, w, h, 0.02); b.box('trim_steel', 0, (w > 10 ? 3.3 : 4.4) - h / 2 - 0.04, 0.04, w + 0.07, 0.06, 0.1); });
   }
   // the eye above the pedestal: turns to the player on core_bow
   const eyePivot = new THREE.Group();
@@ -84,7 +84,7 @@ export function buildCore(L: LevelBuild) {
     cellMats.push(m);
     b.at(x, 0, z, 0, () => {
       lathe(b, 'painted_white', [[0.001, 0], [0.95, 0], [0.95, 0.2], [0.8, 0.35], [0.7, 0.6], [0.001, 0.62]], 0, 0, 0, 32);
-      lathe(b, 'painted_white', [[0.001, H], [0.85, H], [0.85, H - 0.25], [0.7, H - 0.5], [0.001, H - 0.52]], 0, 0, 0, 32);
+      lathe(b, 'painted_white', [[0.001, H + 0.03], [0.85, H + 0.03], [0.85, H - 0.25], [0.7, H - 0.5], [0.001, H - 0.52]], 0, 0, 0, 32); // cap buried in the ceiling
       // stacked cells inside a glass sleeve
       b.detail(() => {
         for (let k = 0; k < 11; k++) {
@@ -220,9 +220,9 @@ function buildLift(L: LevelBuild) {
   for (const x of [-1.85, 1.85]) handrail(cb, 'chrome', [[x, 0, -88.7], [x, 0, -92.6]], 1.0, 1.4, false);
   handrail(cb, 'chrome', [[-1.85, 0, -92.75], [1.85, 0, -92.75]], 1.0, 1.4, false);
   cb.box('hazard_stripes', 0, 0.003, -88.55, 1.8, 0.006, 0.18);
-  for (const [x, f] of [[-1.98, '+x'], [1.98, '-x']] as const) for (let z = -88.8; z > -92.9; z -= 0.8) panelOn(cb, 'trim_steel', x, 1.5, z - 0.4, 0.72, 2.6, f, 0.012, 0.02);
+  for (const [x, f] of [[-1.94, '+x'], [1.94, '-x']] as const) for (let z = -88.8; z > -92.9; z -= 0.8) panelOn(cb, 'trim_steel', x, 1.5, z - 0.4, 0.72, 2.6, f, 0.012, 0.02);
   // control panel (east wall)
-  cb.box('painted_dark', 1.93, 1.3, -89.4, 0.1, 0.5, 0.3);
+  cb.box('painted_dark', 1.89, 1.33, -89.4, 0.1, 0.5, 0.3);
   cb.cyl('emissive_green', 1.87, 1.15, -89.4, 0.035, 0.03, 'x', 12);
   const cab = cb.build(false);
   cab.name = 'lift_cab';

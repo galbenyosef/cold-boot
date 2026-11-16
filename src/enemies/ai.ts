@@ -9,6 +9,7 @@ import { volumeNormal, type HitVolume } from './shared/hit';
 import type { Rig } from './shared/rig';
 import { angleDiff } from './shared/ik';
 import type { NavGraph } from './nav';
+import type { Holo } from './shared/holo';
 
 export interface EnemyWorld {
   ctx: GameContext;
@@ -93,6 +94,8 @@ export abstract class EnemyBase implements Enemy {
   isActor = false;
   /** REVISION 4: dormant 'worker' (stealth) — provoked by proximity / gunfire / damage / flashlight. */
   isWorker = false;
+  /** REVISION 5: hologram look of an actor (null = solid). */
+  holo: Holo | null = null;
 
   // perception
   seesPlayer = false;

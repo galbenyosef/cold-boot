@@ -22,7 +22,7 @@ export function buildRelay(L: LevelBuild) {
   const tr: [number, number, number, number] = [11.0, -57.6, 17.4, -57.0];
   floorSlab(b, 'floor_plate', 10, -66, 18, -56, [tr], 'metal');
   trench(b, tr[0], tr[1], tr[2], tr[3], 0.55, R, false);
-  ceilingSlab(b, 9.8, -66.4, 18.4, -55.6, H);
+  ceilingSlab(b, 10.0, -66.4, 18.4, -55.6, H); // behind the hall's wall face
   wallFace(b, { n: '+x', plane: 10.2, from: -65.8, to: -56.2, h: H, t: 0.2, seed: 271, openings: [{ c: -61, w: 1.6, h: 2.4 }], style: 'dark', features: 0.3 });
   wallFace(b, { n: '-x', plane: 18, from: -66, to: -56, h: H, seed: 272, style: 'dark', features: 0, clear: [[-65.8, -56.2]] });
   wallFace(b, { n: '-z', plane: -56, from: 10.2, to: 18, h: H, seed: 273, style: 'dark', features: 0, clear: [[10.2, 18]] });

@@ -243,7 +243,7 @@ export function clothHeap(b: Builder, mat: Mat = 'cloth_coverall') {
 export function intercomPanel(b: Builder, y: number) {
   b.box('painted_dark', 0, y, 0.025, 0.2, 0.3, 0.05);
   b.detail(() => {
-    panelOn(b, 'trim_steel', 0, y, 0.05, 0.17, 0.27, '+z', 0.008, 0.008);
+    panelOn(b, 'trim_steel', 0, y, 0.05, 0.17, 0.27, '+z', 0.014, 0.008);
     for (let i = 0; i < 6; i++) b.box('painted_dark', 0, y + 0.08 - i * 0.022, 0.06, 0.11, 0.008, 0.004);
     b.cyl('emissive_red', 0, y - 0.08, 0.062, 0.022, 0.012, 'z', 12);
     b.cyl('trim_steel', 0, y - 0.08, 0.057, 0.03, 0.01, 'z', 12);

@@ -23,7 +23,7 @@ export function buildFitting(L: LevelBuild) {
   const R = rng(2601);
   L.room('fitting', 'FITTING BAYS', 10, 20, -40, -28, H);
   floorSlab(b, 'floor_rubber', 10, -40, 20, -28, [], 'rubber');
-  ceilingSlab(b, 9.8, -40.4, 20.4, -27.6, H);
+  ceilingSlab(b, 10.0, -40.4, 20.4, -27.6, H); // starts behind the hall's wall face (x 9.8): no coplanar end face
   wallFace(b, { n: '+x', plane: 10.2, from: -39.8, to: -28.2, h: H, t: 0.2, seed: 261, openings: [{ c: -34, w: 1.6, h: 2.4 }], features: 0.2, trayY: H - 0.45 });
   wallFace(b, { n: '-x', plane: 20, from: -39.8, to: -28.2, h: H, seed: 262, features: 0.15, trayY: H - 0.45 });
   wallFace(b, { n: '-z', plane: -28.2, from: 10.2, to: 20, h: H, seed: 263, features: 0, trayY: H - 0.45, clear: [[13, 16.5]] });
@@ -32,7 +32,7 @@ export function buildFitting(L: LevelBuild) {
   b.detail(() => {
     for (const z of TREAD_Z) hazardStrip(b, RIG_X - 1.6, z - 1.1, RIG_X + 1.6, z - 1.02);
     hazardStrip(b, REF.x - 1.4, REF.z - 1.1, REF.x + 1.4, REF.z - 1.02);
-    b.box('painted_white', 15.0, 0.002, -34, 0.08, 0.004, 11.4);
+    b.box(L.overlay('painted_white'), 15.0, 0.002, -34, 0.08, 0.004, 11.4);
   });
   b.sign('GAIT CAPTURE', 'stencil', 15.6, 0.004, -28.9, 2.0, 0.36, '+y', PI);
 
@@ -119,10 +119,10 @@ export function buildFitting(L: LevelBuild) {
   }
   // ── wall stuff: a whiteboard of gait plots, cable drops, cabinets ──
   b.at(20, 0, -34, -PI / 2, () => {
-    b.box('painted_white', 0, 1.6, 0.02, 2.4, 1.1, 0.03);
+    b.box('painted_white', 0, 1.63, 0.035, 2.4, 1.1, 0.05);
     b.detail(() => {
-      for (let k = 0; k < 4; k++) for (let i = 0; i < 12; i++) b.rbox('painted_dark', -1.05 + i * 0.18, 1.95 - k * 0.24 + Math.sin(i * 1.3 + k) * 0.04, 0.037, 0.17, 0.008, 0.002, 0, 0, Math.cos(i * 1.3 + k) * 0.4);
-      b.box('trim_steel', 0, 1.03, 0.06, 2.4, 0.03, 0.08);
+      for (let k = 0; k < 4; k++) for (let i = 0; i < 12; i++) b.rbox('painted_dark', -1.05 + i * 0.18, 1.95 - k * 0.24 + Math.sin(i * 1.3 + k) * 0.04, 0.062, 0.17, 0.008, 0.002, 0, 0, Math.cos(i * 1.3 + k) * 0.4);
+      b.box('trim_steel', 0, 1.03, 0.075, 2.4, 0.03, 0.08);
     });
   });
   b.sign('GAIT LIBRARY — PATTERNS 01–31 (STAFF), 00 (REF)', 'label', 19.97, 2.3, -34, 2.2, 0.12, '-x');
@@ -153,11 +153,12 @@ export function buildFitting(L: LevelBuild) {
   // the calibration boards on the south wall behind the reference rig: checkerboards and a scale
   const chk = L.ctx.materials.clone('painted_white');
   b.at(REF.x, 0, -39.8, 0, () => {
-    b.box('painted_dark', 0, 1.5, 0.02, 2.6, 2.2, 0.03);
+    // (the board stands 2.5 cm proud of the wall's raised panels, 3.5 cm deep)
+    b.box('painted_dark', 0, 1.5, 0.035, 2.6, 2.2, 0.05);
     b.detail(() => {
-      for (let i = 0; i < 10; i++) for (let j = 0; j < 8; j++) if ((i + j) % 2 === 0) b.box(chk, -1.17 + i * 0.26, 0.56 + j * 0.26, 0.04, 0.25, 0.25, 0.006);
-      for (let cm = 0; cm <= 200; cm += 10) b.box('painted_yellow', 1.36, 0.4 + cm / 100, 0.04, cm % 50 === 0 ? 0.14 : 0.07, 0.008, 0.006);
-      b.sign('REF 00 · CALIBRATION', 'label', 0, 2.75, 0.04, 1.4, 0.16, '+z');
+      for (let i = 0; i < 10; i++) for (let j = 0; j < 8; j++) if ((i + j) % 2 === 0) b.box(chk, -1.17 + i * 0.26, 0.56 + j * 0.26, 0.063, 0.25, 0.25, 0.006);
+      for (let cm = 0; cm <= 200; cm += 10) b.box('painted_yellow', 1.36, 0.4 + cm / 100, 0.063, cm % 50 === 0 ? 0.14 : 0.07, 0.008, 0.006);
+      b.sign('REF 00 · CALIBRATION', 'label', 0, 2.75, 0.062, 1.4, 0.16, '+z');
     });
   });
   b.detail(() => {
@@ -208,7 +209,7 @@ function treadmill(L: LevelBuild, b: Builder, beltB: Builder, beltMat: THREE.Mat
   b.at(x, 0, z, 0, () => {
     const len = 2.2, w = 0.95, top = 0.2;
     b.box('painted_dark', 0, top / 2 - 0.02, 0, len + 0.1, top - 0.04, w + 0.2);
-    for (const s of [-1, 1]) b.box(ref ? 'brass' : 'trim_steel', 0, top - 0.01, s * (w / 2 + 0.06), len + 0.1, 0.03, 0.14);
+    for (const s of [-1, 1]) b.box(ref ? 'brass' : 'trim_steel', 0, top, s * (w / 2 + 0.06), len + 0.1, 0.03, 0.14); // side rails 9 mm above the belt
     b.cyl('steel_raw', -len / 2, top - 0.06, 0, 0.06, w, 'z', 12).cyl('steel_raw', len / 2, top - 0.06, 0, 0.06, w, 'z', 12);
     // front console (the walker faces -x) with handrails
     b.push(-len / 2 - 0.05, 0, 0);

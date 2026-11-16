@@ -53,7 +53,7 @@ function bunk(b: Builder, R: Rng, made: [boolean, boolean], ladder: 1 | -1) {
 function lockerShell(b: Builder, mat: 'wall_panel') {
   const w = 0.5, h = 2.0, d = 0.5, t = 0.02;
   b.box(mat, -w / 2 + t / 2, h / 2, 0, t, h, d).box(mat, w / 2 - t / 2, h / 2, 0, t, h, d);
-  b.box(mat, 0, h / 2, -d / 2 + t / 2, w, h, t);
+  b.box(mat, 0, h / 2, -d / 2 + 0.04, w, h, 0.08); // thick back: clears the wall's kick plate and pilasters
   b.box(mat, 0, h - t / 2, 0, w, t, d).box(mat, 0, 0.06, 0, w, 0.12, d);
   b.detail(() => {
     for (const y of [0.45, 1.6]) b.box('trim_steel', 0, y, 0, w - 2 * t, 0.015, d - 2 * t);

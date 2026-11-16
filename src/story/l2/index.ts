@@ -12,7 +12,7 @@ import { CameraRig } from '../camera';
 import { World } from '../world';
 import { preload } from '../voice';
 import {
-  SAVE_VERSION, clearAllProgress, clearSaveL2, loadCarry, loadSaveL2, requestBegin, takeContinueRequest, writeSaveL2,
+  SAVE_VERSION, STORY_REV_L2, clearAllProgress, clearSaveL2, loadCarry, loadSaveL2, requestBegin, takeContinueRequest, writeSaveL2,
   type CheckpointIdL2, type SaveDataL2,
 } from '../save';
 import { setStoredLevel } from '../../core/progress';
@@ -36,7 +36,7 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
     let place = '';
     try { place = ctx.level.roomAt(ctx.player.position)?.name ?? ''; } catch { /* ignore */ }
     const data: SaveDataL2 = {
-      v: SAVE_VERSION, level: 2, id, place,
+      v: SAVE_VERSION, rev: STORY_REV_L2, level: 2, id, place,
       player: ctx.player.snapshot(),
       story: progress,
       logs: [...logs],
@@ -53,15 +53,15 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
    * Both endings: one card (`ui.showCard`, style 'ending') — what was done, what Unit 14 got, the stats,
    * "TO BE CONTINUED". The stored level stays 2; its checkpoint is cleared. Afterwards: back to the menu.
    */
-  async function ending(choice: 'shutdown' | 'rewrite', unit14: 'spared' | 'shot' | 'killed'): Promise<void> {
+  async function ending(choice: 'shutdown' | 'rewrite', unit14: 'spared' | 'shot' | 'killed', left: number): Promise<void> {
     clearSaveL2();
     setStoredLevel(2);
     const e = ENDING_L2[choice];
     try { ctx.input.exitPointerLock(); } catch { /* ignore */ }
     const lines = [
       e.eyebrow, '',
-      ...END_CARDS[choice], END_CARDS.unit14[unit14], '',
-      e.status,
+      ...END_CARDS[choice](left), END_CARDS.unit14[unit14], '',
+      e.status(left),
       `TIME: ${fmtTime(stats.time)}`, `MACHINES STOPPED: ${stats.kills}`, `RECORDS RECOVERED: ${logs.size} / ${LOG_IDS_L2.length}`, '',
       ENDING_L2.tbc,
     ];
@@ -217,5 +217,7 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
   };
   Object.assign(story, { fire: (name: string) => script.fire(name), hurry: (fast?: boolean) => script.hurry(fast) });
   Object.defineProperty(story, 'debugState', { get: () => script.debugState });
+  // REVISION 5: every spoken line with its condition result (the impatient playthrough's oracle reads it).
+  Object.defineProperty(story, 'lineLog', { get: () => script.talk.log });
   return story;
 }

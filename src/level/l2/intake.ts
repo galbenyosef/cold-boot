@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { rng } from '../builder';
 import type { LevelBuild } from '../context';
-import { bolts4, floorSlab, hazardStrip, panelOn, pipe } from '../kit';
+import { floorSlab, hazardStrip, panelOn, pipe } from '../kit';
 import { androidArm, bench, papers, wallTerminal } from '../props';
 import { ceilingSlab, troffer, wallFace } from '../structure';
 import { easeInOut, easeOut } from '../ambient';
@@ -38,7 +38,7 @@ export function buildIntake(L: LevelBuild) {
   L.point('intake', 0, 1.9, -18, 0xe8f2f8, 7, 8, { priority: 2 });
   // ── floor: painted lanes, footprints-stencils towards the arch ──
   b.detail(() => {
-    for (const x of [-1.4, 1.4]) b.box('painted_white', x, 0.002, -15, 0.07, 0.004, 13);
+    for (const x of [-1.4, 1.4]) b.box(b.L.overlay('painted_white'), x, 0.002, -15, 0.07, 0.004, 13);
     for (let z = -9.5; z > -20; z -= 1.1) b.sign('▼', 'stencil', 0, 0.004, z, 0.4, 0.4, '+y');
     hazardStrip(b, -1.6, -20.2, 1.6, -19.95);
   });
@@ -54,15 +54,19 @@ export function buildIntake(L: LevelBuild) {
   for (const x of [-1.8, ...lanes, 1.8]) for (const z of [-9.4, -11.0, -12.6]) post(x, z);
   for (const x of [-1.8, ...lanes, 1.8]) for (const [z0, z1] of [[-9.4, -11.0], [-11.0, -12.6]]) {
     if ((x === -0.9 && z0 === -9.4) || (x === 0.9 && z0 === -11.0)) continue; // the zig-zag gaps
-    b.detail(() => { b.box('painted_dark', x, 0.88, (z0 + z1) / 2, 0.012, 0.06, z1 - z0 + 0.0); b.box('painted_yellow', x, 0.88, (z0 + z1) / 2, 0.014, 0.012, z1 - z0); });
+    b.detail(() => { b.box('painted_dark', x, 0.88, (z0 + z1) / 2, 0.012, 0.06, z1 - z0 + 0.0); b.box('painted_yellow', x, 0.88, (z0 + z1) / 2, 0.026, 0.012, z1 - z0); });
     b.collide(x - 0.05, 0, Math.min(z0, z1), x + 0.05, 0.95, Math.max(z0, z1));
   }
-  b.sign('PLEASE WAIT TO BE CALLED', 'label', 0, 1.95, -8.4, 1.3, 0.16, '-z');
+  b.sign('PLEASE WAIT TO BE CALLED', 'label', -3.1, 1.95, -8.4, 1.3, 0.16, '-z'); // beside the door, not in its leaves' path
 
   // ── west wall: coverall cubbies (31, filled in order, then the empty ones) and the folding table ──
   const cubX = -4.78, cub0 = -9.3, cubW = 0.4, cols = 13, rows = 4;
   b.at(cubX, 0, 0, 0, () => {
-    b.box('painted_white', 0.17, 1.15, cub0 - (cols * cubW) / 2, 0.36, 2.3, cols * cubW + 0.04);
+    // open cubbies: back panel, top, ends (the folded coveralls sit IN them, not flush with a solid block)
+    b.box('painted_white', 0.015, 1.15, cub0 - (cols * cubW) / 2, 0.03, 2.3, cols * cubW + 0.04);
+    b.box('painted_white', 0.2, 2.24, cub0 - (cols * cubW) / 2, 0.4, 0.12, cols * cubW + 0.04);
+    b.box('painted_white', 0.2, 0.15, cub0 - (cols * cubW) / 2, 0.4, 0.3, cols * cubW + 0.04);
+    for (const e of [cub0 + 0.02, cub0 - cols * cubW - 0.02]) b.box('painted_white', 0.2, 1.15, e, 0.4, 2.3, 0.04);
     b.detail(() => {
       for (let r = 0; r <= rows; r++) b.box('trim_steel', 0.2, 0.3 + r * 0.45, cub0 - (cols * cubW) / 2, 0.38, 0.02, cols * cubW + 0.04);
       for (let c = 0; c <= cols; c++) b.box('trim_steel', 0.2, 1.2, cub0 - c * cubW, 0.38, 1.8, 0.015);
@@ -191,7 +195,7 @@ export function buildIntake(L: LevelBuild) {
   // ── height gauge: west wall by the arch ──
   const gz = -19.4;
   b.at(-5, 0, gz, PI / 2, () => {
-    b.box('painted_white', 0, 1.25, 0.03, 0.22, 2.1, 0.04);
+    b.box('painted_white', 0, 1.25, 0.04, 0.22, 2.1, 0.04); // clear of the wall's kick plate face
     b.detail(() => {
       for (let cm = 100; cm <= 220; cm += 2) {
         const major = cm % 10 === 0;
@@ -253,16 +257,16 @@ export function buildIntake(L: LevelBuild) {
   // services above the ceiling grid line, wall clock (stopped), signage
   b.detail(() => {
     pipe(b, 'steel_raw', [[-4.8, H - 0.18, -8.4], [-4.8, H - 0.18, -21.6]], 0.03, { every: 0 });
-    b.cyl('painted_white', 0, 2.55, -8.25, 0.17, 0.05, 'z', 20);
-    b.cyl('plastic_white', 0, 2.55, -8.22, 0.15, 0.01, 'z', 20);
-    b.rbox('painted_dark', 0.04, 2.58, -8.212, 0.012, 0.11, 0.004, 0, 0, -0.7);
-    b.rbox('painted_dark', -0.02, 2.53, -8.212, 0.012, 0.07, 0.004, 0, 0, 2.2);
+    // (beside the doorway, not in it: the open blast door's leaves pass through the door plane)
+    b.cyl('painted_white', 3.3, 2.45, -8.225, 0.17, 0.05, 'z', 20);
+    b.cyl('plastic_white', 3.3, 2.45, -8.195, 0.15, 0.01, 'z', 20);
+    b.rbox('painted_dark', 3.34, 2.48, -8.187, 0.012, 0.11, 0.004, 0, 0, -0.7);
+    b.rbox('painted_dark', 3.28, 2.43, -8.187, 0.012, 0.07, 0.004, 0, 0, 2.2);
   });
   b.sign('INTAKE', 'stencil', -2.9, 2.6, -8.21, 1.6, 0.36, '-z');
   b.sign('LINE TWO', 'directional', 2.9, 2.2, -21.785, 0.9, 0.2, '+z', 0, true);
   b.sign('REMOVE FOOTWEAR', 'label', 4.97, 1.6, -14.6, 1.2, 0.16, '-x', 0, true);
   b.sign('LEAVE PERSONAL ITEMS', 'label', -4.97, 2.55, -12.0, 1.4, 0.16, '+x', 0, true);
-  bolts4(b, -0.2, 1.4, 0.2, 1.8, -8.2);
 
   L.pickup('p2_intake_med', 'medkit', 2.4, 0.95, -19.25, 35, 0.2);
   void R;

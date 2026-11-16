@@ -28,10 +28,10 @@ export async function launch() {
 }
 
 /** Open a page on the given level, wait for __game.ready and a few frames. */
-export async function bootLevel(browser, base, level, { width = 1280, height = 720, settle = 2500 } = {}) {
+export async function bootLevel(browser, base, level, { width = 1280, height = 720, settle = 2500, query = '' } = {}) {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
   page.on('pageerror', (e) => console.log(`[pageerror] ${e.message}`));
-  const url = `${base.replace(/\/$/, '')}/?level=${level}&autostart=1&nostory=1&noenemies=1`;
+  const url = `${base.replace(/\/$/, '')}/?level=${level}&autostart=1&nostory=1&noenemies=1${query}`;
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__game && window.__game.ready, null, { timeout: 120000 });
   await page.waitForTimeout(settle);

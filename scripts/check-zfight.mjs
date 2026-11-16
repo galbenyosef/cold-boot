@@ -1,13 +1,15 @@
 // Z-fighting detector: coplanar, same-facing, overlapping render triangles.
 // Usage: node scripts/check-zfight.mjs [--url http://127.0.0.1:5173] [--level 1|2|all] [--shot [N]]
-//          [--room <id>] [--tol 0.002] [--min-tri-area 0.005] [--min-overlap 0.002] [--top 25] [--verbose]
+//          [--room <id>] [--tol-factor 3] [--tol-min 0.002] [--doors closed|open|both] [--min-tri-area 0.005] [--min-overlap 0.002] [--top 25] [--verbose]
 // Exit code 1 when same-facing (or double-sided opposite-facing) clusters are found.
 import { parseArgs, levelsOf, launch, bootLevel, writeJson } from './lib/check-common.mjs';
 
 const args = parseArgs();
 const base = args.url ?? 'http://127.0.0.1:5173';
 const opts = {
-  tol: Number(args.tol ?? 0.002),           // plane distance tolerance (m)
+  tolFactor: Number(args['tol-factor'] ?? 3),  // plane tolerance = factor x depth resolution at the room's longest view distance
+  tolMin: Number(args['tol-min'] ?? 0.002),    // m
+  near: 0.05, depthBits: 24,                  // camera near plane (src/main.ts) and depth buffer
   angDeg: Number(args.ang ?? 0.5),          // normal tolerance (deg)
   minTriArea: Number(args['min-tri-area'] ?? 0.005), // m^2, triangles smaller than this are ignored
   minOverlap: Number(args['min-overlap'] ?? 0.002),  // m^2, overlap area needed to count a pair
@@ -21,11 +23,17 @@ function analyse(o) {
   const g = window.__game;
   g.scene.updateMatrixWorld(true);
   const vmLayer = g.render?.viewmodelLayer;
+  // distance-aware tolerance: depth resolution at distance D is D^2 / (near * 2^bits); D = longest view distance inside the room (its 3D diagonal)
+  const resAt = (D) => (D * D) / (o.near * Math.pow(2, o.depthBits));
+  const rooms = g.level.rooms.map((r) => ({ id: r.id, mn: r.bounds.min, mx: r.bounds.max, tol: Math.max(o.tolMin, o.tolFactor * resAt(Math.hypot(r.bounds.max.x - r.bounds.min.x, r.bounds.max.y - r.bounds.min.y, r.bounds.max.z - r.bounds.min.z))) }));
+  const maxTol = Math.max(o.tolMin, ...rooms.map((r) => r.tol));
+  const tolAt = (x, y, z) => { let best = null; for (const r of rooms) if (x >= r.mn.x && x <= r.mx.x && y >= r.mn.y && y <= r.mx.y && z >= r.mn.z && z <= r.mx.z && (!best || r.tol < best.tol)) best = r; return best ? best.tol : maxTol; };
   const excluded = {}; // reason -> {count, names:Set}
   const exclude = (why, name, tris = 0) => { const e = excluded[why] ??= { meshes: 0, tris: 0, examples: [] }; e.meshes++; e.tris += tris; if (e.examples.length < 6 && !e.examples.includes(name)) e.examples.push(name); };
 
   const meshes = []; // {name, nameSrc, mats:[names], hidden, inst}
-  const T = { v: [], mesh: [], mat: [], side: [], nx: [], ny: [], nz: [], d: [], area: [] };
+  const T = { v: [], uv: [], mid: [], tri: [], mesh: [], mat: [], side: [], nx: [], ny: [], nz: [], d: [], area: [], tol: [] };
+  const matIds = new Map(); const matId = (m) => { let i = matIds.get(m); if (i === undefined) matIds.set(m, i = matIds.size); return i; };
   let nTri = 0, nAll = 0, parked = 0;
   const e = new Array(16);
 
@@ -70,7 +78,7 @@ function analyse(o) {
     if (okMat.every((r) => r)) return exclude(okMat[0], `${nm} [${mats.map((m) => m?.name || '?').join(',')}]`, triCount);
     const mi = meshes.length;
     const mnames = mats.map((m) => (m ? matName(m, obj)[0] : '<null>'));
-    meshes.push({ name: nm, nameSrc: pathName(obj)[1], mats: mnames, hidden, inst: !!obj.isInstancedMesh, type: obj.type });
+    meshes.push({ name: nm, nameSrc: pathName(obj)[1], mats: mnames, hidden, inst: !!obj.isInstancedMesh, type: obj.type, src: geo.userData?.srcRanges ?? null });
     const groups = geo.groups?.length && Array.isArray(obj.material) ? geo.groups : null;
     const nInst = obj.isInstancedMesh ? obj.count : 1;
     const M = obj.matrixWorld.elements;
@@ -80,6 +88,7 @@ function analyse(o) {
     const parr = pos.data ? pos.data.array : px;
     const ia = idx ? idx.array : null;
     const W = new Float64Array(9);
+    const uvA = geo.attributes.uv; const uvs = uvA ? (uvA.data ? uvA.data.array : uvA.array) : null; const uvStride = uvA ? (uvA.data ? uvA.data.stride : uvA.itemSize) : 0; const uvOff = uvA?.offset ?? 0;
     for (let ii = 0; ii < nInst; ii++) {
       let m = M;
       if (obj.isInstancedMesh) { const tmp = obj.instanceMatrix.array; for (let k = 0; k < 16; k++) e[k] = tmp[ii * 16 + k]; mul(M, e, IM); m = IM; }
@@ -106,8 +115,10 @@ function analyse(o) {
         nx /= l; ny /= l; nz /= l;
         if (side === 1) { nx = -nx; ny = -ny; nz = -nz; }
         for (let k = 0; k < 9; k++) T.v.push(W[k]);
+        for (let k = 0; k < 3; k++) { const vi = ia ? ia[t * 3 + k] : t * 3 + k; T.uv.push(uvs ? uvs[vi * uvStride + uvOff] : 0, uvs ? uvs[vi * uvStride + uvOff + 1] : 0); }
+        T.mid.push(mat.transparent ? -1 - matId(mat) : matId(mat)); T.tri.push(t);
         T.mesh.push(mi); T.mat.push(slot); T.side.push(side === 2 ? 2 : 0);
-        T.nx.push(nx); T.ny.push(ny); T.nz.push(nz); T.d.push(nx * W[0] + ny * W[1] + nz * W[2]); T.area.push(area);
+        T.nx.push(nx); T.ny.push(ny); T.nz.push(nz); T.d.push(nx * W[0] + ny * W[1] + nz * W[2]); T.area.push(area); T.tol.push(tolAt((W[0] + W[3] + W[6]) / 3, (W[1] + W[4] + W[7]) / 3, (W[2] + W[5] + W[8]) / 3));
         nTri++;
       }
     }
@@ -133,7 +144,7 @@ function analyse(o) {
     if (Math.abs(qx) === 1 || Math.abs(qy) === 1 || Math.abs(qz) === 1) { nx = qx; ny = qy; nz = qz; d = nx * T.v[i * 9] + ny * T.v[i * 9 + 1] + nz * T.v[i * 9 + 2]; }
     canon[i * 4] = nx; canon[i * 4 + 1] = ny; canon[i * 4 + 2] = nz; canon[i * 4 + 3] = d;
     const nq = `${qx.toFixed(2)},${qy.toFixed(2)},${qz.toFixed(2)}`;
-    const dq = Math.round(d / o.tol);
+    const dq = Math.round(d / maxTol);
     bkey[i] = [nq, dq];
     const k = `${nq}|${dq}`;
     let b = buckets.get(k);
@@ -216,7 +227,7 @@ function analyse(o) {
         if (Math.abs(dotN) < cosA) continue;
         let dev = 0;
         for (let k = 0; k < 3; k++) { const dd = Math.abs(T.nx[ta] * T.v[tc * 9 + k * 3] + T.ny[ta] * T.v[tc * 9 + k * 3 + 1] + T.nz[ta] * T.v[tc * 9 + k * 3 + 2] - T.d[ta]); if (dd > dev) dev = dd; }
-        if (dev > o.tol) continue;
+        if (dev > Math.max(T.tol[ta], T.tol[tc])) continue;
         tested++;
         const poly = [];
         const ar = clipArea(Array.from(P.subarray(a * 6, a * 6 + 6)), Array.from(P.subarray(c * 6, c * 6 + 6)), poly);
@@ -230,7 +241,24 @@ function analyse(o) {
         for (const p of pw) for (let k = 0; k < 3; k++) { if (p[k] < mnw[k]) mnw[k] = p[k]; if (p[k] > mxw[k]) mxw[k] = p[k]; }
         const same = dotN > 0;
         const ds = T.side[ta] === 2 || T.side[tc] === 2;
-        pairs.push({ a: ta, b: tc, area: ar, c: w(cx, cyy), mn: mnw, mx: mxw, cls: same ? 'same' : ds ? 'opposite-ds' : 'opposite', n: same ? [T.nx[ta], T.ny[ta], T.nz[ta]] : [T.nx[ta], T.ny[ta], T.nz[ta]], key: `${b.nq}|${b.dq}` });
+        // identical fragments: same opaque material, same facing, and the same texture coordinates at two points of
+        // the overlap — both surfaces shade exactly alike, so the depth fight cannot show (world-projected box UVs)
+        let identical = false;
+        if (same && T.mid[ta] >= 0 && T.mid[ta] === T.mid[tc]) {
+          const uvAt = (ai, ti, qx, qy) => {
+            const x0 = P[ai * 6], y0 = P[ai * 6 + 1], x1 = P[ai * 6 + 2], y1 = P[ai * 6 + 3], x2 = P[ai * 6 + 4], y2 = P[ai * 6 + 5];
+            const den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+            if (Math.abs(den) < 1e-12) return null;
+            const l0 = ((y1 - y2) * (qx - x2) + (x2 - x1) * (qy - y2)) / den, l1 = ((y2 - y0) * (qx - x2) + (x0 - x2) * (qy - y2)) / den, l2 = 1 - l0 - l1;
+            const U = T.uv; return [U[ti * 6] * l0 + U[ti * 6 + 2] * l1 + U[ti * 6 + 4] * l2, U[ti * 6 + 1] * l0 + U[ti * 6 + 3] * l1 + U[ti * 6 + 5] * l2];
+          };
+          identical = true;
+          for (const q of [[cx, cyy], poly[0]]) {
+            const ua = uvAt(a, ta, q[0], q[1]), uc = uvAt(c, tc, q[0], q[1]);
+            if (!ua || !uc || Math.abs(ua[0] - uc[0]) > 2e-3 || Math.abs(ua[1] - uc[1]) > 2e-3) { identical = false; break; }
+          }
+        }
+        pairs.push({ a: ta, b: tc, area: ar, sep: dev, identical, c: w(cx, cyy), mn: mnw, mx: mxw, cls: same ? (identical ? 'identical' : 'same') : ds ? 'opposite-ds' : 'opposite', dup: same && ar >= 0.98 * Math.min(T.area[ta], T.area[tc]) && dev < 1e-4, n: same ? [T.nx[ta], T.ny[ta], T.nz[ta]] : [T.nx[ta], T.ny[ta], T.nz[ta]], key: `${b.nq}|${b.dq}` });
       }
     }
   };
@@ -277,6 +305,7 @@ function analyse(o) {
     clusters.push(...list);
   }
 
+  const srcOf = (t) => { const r = meshes[T.mesh[t]].src; if (!r) return null; const k = T.tri[t]; for (const x of r) if (k >= x[0] && k < x[0] + x[1]) return x[2]; return null; };
   const Vec = g.camera.position.constructor;
   const findings = clusters.map((c) => {
     let area = 0, cx = 0, cy = 0, cz = 0;
@@ -295,7 +324,10 @@ function analyse(o) {
       normal: first.n.map((v) => +v.toFixed(4)), items,
       meshes: [...new Set(items.map((i) => i.mesh))], materials: [...new Set(items.map((i) => i.material))],
       sameMesh: new Set(items.map((i) => i.mesh + '|' + i.meshSrc)).size === 1 && items.length <= 2 ? new Set(c.ps.flatMap((p) => [T.mesh[p.a], T.mesh[p.b]])).size === 1 : false,
+      exactDuplicates: c.ps.filter((p) => p.dup).length, minSep: +Math.min(...c.ps.map((p) => p.sep)).toFixed(5),
+      severity: first.cls === 'identical' || first.cls === 'opposite' ? 'info' : (c.ps.some((p) => p.dup) || Math.min(...c.ps.map((p) => p.sep)) < 0.0005 ? 'ERROR' : 'WARN'), tol: +Math.max(...c.ps.flatMap((p) => [T.tol[p.a], T.tol[p.b]])).toFixed(4),
       anyHiddenAtCapture: items.some((i) => i.hidden),
+      samples: c.ps.slice().sort((p, q) => q.area - p.area).slice(0, 12).map((p) => ({ at: p.c.map((v) => +v.toFixed(3)), area: +p.area.toFixed(4), sep: +(p.sep * 1000).toFixed(2), a: `${meshes[T.mesh[p.a]].name}{${meshes[T.mesh[p.a]].mats[Math.min(T.mat[p.a], meshes[T.mesh[p.a]].mats.length - 1)]}}`, b: `${meshes[T.mesh[p.b]].name}{${meshes[T.mesh[p.b]].mats[Math.min(T.mat[p.b], meshes[T.mesh[p.b]].mats.length - 1)]}}`, srcA: srcOf(p.a), srcB: srcOf(p.b) })),
     };
   });
   // ── visibility: can a person stand in front of the spot? (room test + ray along the normal against all kept triangles)
@@ -328,7 +360,8 @@ function analyse(o) {
     for (const sd of dirs) {
       const dir = [n[0] * sd, n[1] * sd, n[2] * sd];
       const probe = new Vec(f.center[0] + dir[0] * 0.4, f.center[1] + dir[1] * 0.4, f.center[2] + dir[2] * 0.4);
-      const rm = g.level.roomAt(probe);
+      // an eye can only be inside a room's volume: above its floor (bounds.min.y is 0.5 below the floor) and under its ceiling
+      const rm = g.level.rooms.find((r) => probe.x >= r.bounds.min.x && probe.x <= r.bounds.max.x && probe.z >= r.bounds.min.z && probe.z <= r.bounds.max.z && probe.y >= r.bounds.min.y + 0.5 && probe.y <= r.bounds.max.y + 0.05);
       if (rm) inRoom = true;
       if (i >= 3000) continue;
       // sample centre + bbox corners that lie in the plane
@@ -343,30 +376,46 @@ function analyse(o) {
     f.clear = +bestClear.toFixed(2); f.viewSide = bestDir;
   });
   findings.sort((a, b) => (a.cls === 'same' ? 0 : a.cls === 'opposite-ds' ? 1 : 2) - (b.cls === 'same' ? 0 : b.cls === 'opposite-ds' ? 1 : 2) || b.area - a.area);
-  return { stats: { meshes: meshes.length, trisInspected: nAll, trisKept: nTri, buckets: buckets.size, pairsTested: tested, pairs: pairs.length }, excluded, findings };
+  return { stats: { meshes: meshes.length, trisInspected: nAll, trisKept: nTri, buckets: buckets.size, maxTol, pairsTested: tested, pairs: pairs.length }, excluded, findings };
 }
+
+// allow-list: scripts/zfight-allow.json — [{ level, near: [x,y,z], radius, materials?: [..], reason }]; a cluster whose
+// centre is within `radius` of `near` (and, if given, whose materials are all listed) is accepted for the reason.
+import { readFileSync, existsSync } from 'node:fs';
+const ALLOW = existsSync('scripts/zfight-allow.json') ? JSON.parse(readFileSync('scripts/zfight-allow.json', 'utf8')) : [];
+const allowed = (level, f) => ALLOW.find((a) => (a.level == null || a.level === level) && Math.hypot(f.center[0] - a.near[0], f.center[1] - a.near[1], f.center[2] - a.near[2]) <= a.radius && (!a.materials || f.materials.every((m) => a.materials.includes(m))));
 
 const browser = await launch();
 let bad = 0;
-for (const level of levelsOf(args)) {
-  const page = await bootLevel(browser, base, level);
+const states = (args.doors ?? 'both') === 'both' ? ['closed', 'open'] : [args.doors];
+for (const level of levelsOf(args)) for (const state of states) {
+  const page = await bootLevel(browser, base, level, { query: '&zdebug=1' });
+  if (state === 'open') {
+    await page.evaluate(() => { for (const d of window.__game.level.doors) { d.unlock(); d.auto = false; d.open(); } });
+    await page.waitForFunction(() => window.__game.level.doors.every((d) => d.t > 0.999), null, { timeout: 15000 }).catch(() => console.log('[warn] not every door reached t=1'));
+    await page.waitForTimeout(800);
+  }
   const t0 = Date.now();
   const res = await page.evaluate(analyse, opts);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   if (args.room) res.findings = res.findings.filter((f) => f.room === args.room);
   const vis = (f) => f.visibility === 'open' || f.visibility === 'unchecked';
-  const same = res.findings.filter((f) => f.cls === 'same' && vis(f));
-  const ds = res.findings.filter((f) => f.cls === 'opposite-ds' && vis(f));
+  for (const f of res.findings) { const a = allowed(level, f); if (a) f.allowed = a.reason; }
+  const same = res.findings.filter((f) => f.cls === 'same' && vis(f) && !f.allowed);
+  const ds = res.findings.filter((f) => f.cls === 'opposite-ds' && vis(f) && !f.allowed);
+  const ident = res.findings.filter((f) => f.cls === 'identical' && vis(f));
+  const allowedN = res.findings.filter((f) => f.allowed && vis(f) && (f.cls === 'same' || f.cls === 'opposite-ds')).length;
   const opp = res.findings.filter((f) => f.cls === 'opposite' && vis(f));
   const unseen = res.findings.filter((f) => !vis(f) && f.cls !== 'opposite');
-  console.log(`\n=== Z-FIGHT level ${level} (${secs}s) ===`);
+  console.log(`\n=== Z-FIGHT level ${level}, doors ${state} (${secs}s) ===`);
   console.log(`meshes ${res.stats.meshes}, tris inspected ${res.stats.trisInspected}, kept ${res.stats.trisKept}, overlapping pairs ${res.stats.pairs}`);
   console.log('excluded:', Object.entries(res.excluded).map(([k, v]) => `${k}: ${v.meshes} meshes/${v.tris} tris`).join('; ') || 'none');
-  console.log(`clusters: same-facing ${same.length}, opposite-facing double-sided ${ds.length}, opposite-facing (low severity) ${opp.length}`);
+  const err = [...same, ...ds].filter((f) => f.severity === 'ERROR').length;
+  console.log(`clusters: same-facing ${same.length}, opposite-facing double-sided ${ds.length} (ERROR ${err}, WARN ${same.length + ds.length - err}); allow-listed ${allowedN}; identical fragments (same material + same UVs: cannot show) ${ident.length}; opposite-facing (low severity) ${opp.length}`);
   const show = (arr, label) => {
     if (!arr.length) return;
     console.log(`-- ${label}`);
-    arr.slice(0, top).forEach((f, i) => console.log(`#${i} ${f.area.toFixed(3)} m2 room=${f.room} vis=${f.visibility}/${f.clear}m at (${f.center.join(', ')}) n=(${f.normal.map((v) => v.toFixed(2)).join(', ')}) pairs=${f.pairs}${f.sameMesh ? ' SAME-MESH' : ''}${f.anyHiddenAtCapture ? ' (some mesh culled at capture)' : ''}\n     ${f.items.map((it) => `${it.mesh}{${it.material}}`).join('  X  ')}`));
+    arr.slice(0, top).forEach((f, i) => console.log(`#${i} ${f.area.toFixed(3)} m2 room=${f.room} vis=${f.visibility}/${f.clear}m at (${f.center.join(', ')}) n=(${f.normal.map((v) => v.toFixed(2)).join(', ')}) pairs=${f.pairs} ${f.severity} sep=${(f.minSep * 1000).toFixed(2)}mm${f.sameMesh ? ' SAME-MESH' : ''}${f.exactDuplicates ? ` DUPLICATE-TRIS(${f.exactDuplicates})` : ''} tol=${(f.tol * 1000).toFixed(1)}mm${f.anyHiddenAtCapture ? ' (some mesh culled at capture)' : ''}\n     ${f.items.map((it) => `${it.mesh}{${it.material}}`).join('  X  ')}`));
   };
   console.log(`not reachable by an eye (outside rooms / blocked within 25 cm): ${unseen.length} clusters, ${unseen.reduce((a, f) => a + f.area, 0).toFixed(1)} m2 (in JSON, visibility field; not counted)`);
   show(same, 'same-facing (real z-fighting)');
@@ -377,7 +426,7 @@ for (const level of levelsOf(args)) {
     const targets = [...same.filter((f) => f.visibility === 'open'), ...ds.filter((f) => f.visibility === 'open')].slice(0, shotN);
     for (let i = 0; i < targets.length; i++) {
       const f = targets[i];
-      const out = `shots/checks/zfight-l${level}-${i}.png`;
+      const out = `shots/checks/zfight-l${level}-${state}-${i}.png`;
       await page.evaluate(({ f }) => {
         const g = window.__game; const Vec = g.camera.position.constructor;
         const sd = f.viewSide, c = f.center, n = f.normal.map((v) => v * sd), D = Math.max(0.8, Math.min(2, f.clear - 0.15));
@@ -398,7 +447,7 @@ for (const level of levelsOf(args)) {
     }
     console.log('screenshots:', shots.join(' '));
   }
-  console.log('json:', writeJson('zfight', level, { level, opts, ...res }));
+  console.log('json:', writeJson(`zfight-${state}`, level, { level, state, opts, ...res }));
   bad += same.length + ds.length;
   await page.close();
 }

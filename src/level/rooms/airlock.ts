@@ -51,9 +51,9 @@ export function buildAirlock(L: LevelBuild) {
       b.box('painted_dark', 0, 1.4, 0.07, 0.4, 0.55, 0.1);
       b.box('emissive_amber', -0.1, 1.55, 0.125, 0.06, 0.06, 0.01).box('emissive_red', 0.05, 1.55, 0.125, 0.06, 0.06, 0.01);
       b.box('steel_raw', 0, 1.3, 0.13, 0.2, 0.12, 0.02);
-      louvre(b, -0.5, 0.35, 0.5, 0.95, 0.06, 0.04);
+      louvre(b, -0.5, 0.35, 0.5, 0.95, 0.075, 0.04);
     });
-    b.at(-2, 0, -24.4, PI / 2, () => louvre(b, -0.5, 0.35, 0.5, 0.95, 0.06, 0.04));
+    b.at(-2, 0, -24.4, PI / 2, () => louvre(b, -0.5, 0.35, 0.5, 0.95, 0.075, 0.04));
   });
 
   // ── lights: one hard overhead key through the fan grille, cold strips, an amber beacon turning ──
@@ -123,8 +123,8 @@ export function buildAirlock(L: LevelBuild) {
   });
 
   b.sign('DECONTAMINATION LOCK', 'stencil', -1.94, 2.55, -23, 1.6, 0.22, '+x');
-  b.sign('STAND CLEAR OF NOZZLES DURING CYCLE', 'warning', 1.94, 1.75, -23.4, 0.95, 0.14, '-x', 0, true);
-  b.sign('CYCLE FAULT — MANUAL OVERRIDE ENGAGED', 'danger', 1.94, 2.05, -21.6, 0.7, 0.1, '-x', 0, true);
+  b.sign('STAND CLEAR OF NOZZLES DURING CYCLE', 'warning', 1.925, 1.75, -23.4, 0.95, 0.14, '-x', 0, true);
+  b.sign('CYCLE FAULT — MANUAL OVERRIDE ENGAGED', 'danger', 1.925, 2.05, -21.6, 0.7, 0.1, '-x', 0, true);
   b.decal('water_stain', 0, -1.94, 1.2, -22.2, 0.7, 1.8, '+x');
   b.decal('water_stain', 3, 1.94, 1.1, -24.9, 0.7, 1.8, '-x');
   b.decal('handprint', 1, 0.9, 1.3, Z0 + 0.34, 0.24, 0.24, '+z', 0.2);

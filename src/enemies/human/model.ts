@@ -28,6 +28,8 @@ const K = HUMAN_DIM;
 
 export interface HumanTemplate {
   rig: RigTemplate;
+  /** REVISION 5: the scanned head (level 2), or null = procedural face. Set by createEnemies after loading. */
+  scan?: import('./head').ScanHead | null;
   /** Eye centres in model space (bind), for look-at maths. */
   eyeL: THREE.Vector3; eyeR: THREE.Vector3;
 }
@@ -59,13 +61,13 @@ export function buildHumanTemplate(ctx: GameContext): HumanTemplate {
   const dark = M.get('plastic_dark');
   const boot = M.clone('rubber', { color: 0x2a2420 }); boot.name = 'tomas_boot';
   const badge = M.clone('plastic_white', { vertexColors: true }); badge.name = 'tomas_badge';
-  const mats: Record<string, THREE.Material> = { glow: glowMaterial(), skin, cover, shirt, hair, eye, dark, boot, badge, green: M.get('emissive_green') };
+  const mats: Record<string, THREE.Material> = { glow: glowMaterial(), skin, face: skin, cover, shirt, hair, eye, dark, boot, badge, green: M.get('emissive_green') };
   const { template, data } = buildRigLods(authorHuman, mats, {
     radius: 1.5, center: new THREE.Vector3(0, 0.9, 0),
     fold: { green: 'glow' }, tint: { green: tintOf(0x40ff70, 1.6) },
     lod: { k: 0.5, minFeature: 0.006, remap: { badge: 'shirt', boot: 'dark' } },
     proxy: { k: 0.3, minFeature: 0.02, exclude: ['eye', 'green', 'badge'] },
-    colorize: { skin: skinTone, cover: clothShade, shirt: clothShade, hair: hairTone, eye: eyeTone, badge: badgeTone },
+    colorize: { skin: skinTone, face: skinTone, cover: clothShade, shirt: clothShade, hair: hairTone, eye: eyeTone, badge: badgeTone },
   });
   return { rig: template, eyeL: data.eyeL, eyeR: data.eyeR };
 }
@@ -284,7 +286,8 @@ function authorHuman(b: RigBuilder): { eyeL: THREE.Vector3; eyeR: THREE.Vector3 
     const wn = sm(1.575, 1.54, p.y) * sm(0.03, -0.03, p.z) * 0.6;
     return [['jaw', wj * (1 - wn)], ['neck', wn], ['head', Math.max(0, 1 - wj - wn)]];
   };
-  b.use('head').mat('skin');
+  // REVISION 5: the face surface, nose and ears get their own key ('face') so a scanned head can replace them
+  b.use('head').mat('face');
   {
     const NU = 72, NV = 60;
     const jm = Math.round(((MOUTH_E / (Math.PI / 2)) * 0.5 + 0.5) * NV); // not exact under the remap — find below
@@ -399,18 +402,81 @@ function authorHuman(b: RigBuilder): { eyeL: THREE.Vector3; eyeR: THREE.Vector3 
   // ── torso: T-shirt ───────────────────────────────────────────────────
   b.mat('shirt');
   const torsoW = chain(['hips', 'spine1', 'spine2', 'neck'], [[0, 0.85, 0], [0, 1.06, -0.005], [0, 1.22, -0.01], [0, 1.47, -0.02], [0, 1.6, -0.02]], [0, 0.06, 0.07, 0.025]);
-  b.addSkinned(loft([
-    R(0, 0.93, 0.0, 0.148, 0.097, 2.5), R(0, 1.0, 0.0, 0.142, 0.092, 2.5), R(0, 1.08, 0.006, 0.137, 0.09, 2.4), R(0, 1.18, 0.012, 0.148, 0.098, 2.4),
-    R(0, 1.28, 0.016, 0.163, 0.106, 2.5), R(0, 1.36, 0.008, 0.165, 0.103, 2.5), R(0, 1.415, -0.004, 0.155, 0.094, 2.4), R(0, 1.452, -0.012, 0.125, 0.078, 2.2),
-    R(0, 1.485, -0.016, 0.085, 0.065, 2.2), R(0, 1.5, -0.016, 0.062, 0.057, 2.1),
-  ], 30, { sub: 3, capA: true, capB: false }), torsoW);
-  // short sleeves
+  // REVISION 5: one continuous shirt surface from the waist to the collar with a real shoulder girdle — the sides of
+  // the top rings drop (trapezius slope from the neck out to the shoulder), the widest ring is the deltoid line, and
+  // the shoulder flesh is partly skinned to the upper arm so raised arms pull it along (no ball joints).
+  {
+    // [y, rx, rz, cz, drop at the sides, superellipse n]
+    const RINGS: number[][] = [
+      [0.93, 0.148, 0.097, 0.0, 0, 2.5], [1.0, 0.142, 0.092, 0.0, 0, 2.5], [1.08, 0.137, 0.09, 0.006, 0, 2.4], [1.18, 0.148, 0.098, 0.012, 0, 2.4],
+      [1.28, 0.16, 0.105, 0.014, 0, 2.5], [1.35, 0.17, 0.104, 0.008, 0, 2.5], [1.4, 0.178, 0.098, 0.0, 0.006, 2.4], [1.432, 0.166, 0.09, -0.006, 0.02, 2.3],
+      [1.46, 0.14, 0.08, -0.012, 0.032, 2.2], [1.485, 0.098, 0.068, -0.016, 0.022, 2.2], [1.5, 0.064, 0.058, -0.016, 0.006, 2.1],
+    ];
+    const NU = Math.max(12, Math.round(44 * DETAIL.k)), NV = Math.max(10, Math.round(48 * Math.min(1, DETAIL.k + 0.2)));
+    const key = (c: number) => RINGS.map((r) => [(r[0] - 0.93) / (1.5 - 0.93), r[c]] as [number, number]);
+    const kRx = key(1), kRz = key(2), kCz = key(3), kDrop = key(4), kN = key(5);
+    const posA: number[] = [];
+    for (let j = 0; j <= NV; j++) {
+      const v = j / NV, yv = 0.93 + v * (1.5 - 0.93);
+      const rx = keyLerp(kRx, v), rz = keyLerp(kRz, v), cz = keyLerp(kCz, v), drop = keyLerp(kDrop, v), e = 2 / keyLerp(kN, v);
+      for (let k = 0; k < NU; k++) {
+        const a = (k / NU) * Math.PI * 2, sa = Math.sin(a), ca = Math.cos(a);
+        const x = spow(sa, e) * rx, z = cz + spow(ca, e) * rz;
+        posA.push(x, yv - drop * Math.pow(Math.abs(sa), 1.6), z);
+      }
+    }
+    const idx: number[] = [];
+    for (let j = 0; j < NV; j++) for (let k = 0; k < NU; k++) {
+      const a = j * NU + k, b2 = j * NU + ((k + 1) % NU), c = (j + 1) * NU + ((k + 1) % NU), d = (j + 1) * NU + k;
+      idx.push(a, c, b2, a, d, c);
+    }
+    // bottom cap
+    const ci = posA.length / 3; posA.push(0, 0.93, 0);
+    for (let k = 0; k < NU; k++) idx.push(ci, k, (k + 1) % NU);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(posA, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const tg = g.toNonIndexed(); g.dispose();
+    // outward winding check (first side quad)
+    {
+      const pa = tg.getAttribute('position'), na = tg.getAttribute('normal');
+      const p0 = new THREE.Vector3().fromBufferAttribute(pa, 0), n0 = new THREE.Vector3().fromBufferAttribute(na, 0);
+      if (n0.dot(p0.setY(0)) < 0) {
+        const arr = pa.array as Float32Array;
+        for (let i = 0; i < pa.count; i += 3) for (let c = 0; c < 3; c++) { const t = arr[(i + 1) * 3 + c]; arr[(i + 1) * 3 + c] = arr[(i + 2) * 3 + c]; arr[(i + 2) * 3 + c] = t; }
+        tg.computeVertexNormals();
+      }
+    }
+    tg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(tg.getAttribute('position').count * 2), 2));
+    b.addSkinned(tg, (p) => {
+      const base = torsoW(p);
+      const side = p.x >= 0 ? 'l' : 'r';
+      const w = sm(0.11, 0.17, Math.abs(p.x)) * sm(1.3, 1.4, p.y) * 0.55;
+      if (w <= 0) return base;
+      return [...base.map(([n, ww]) => [n, ww * (1 - w)] as [string, number]), ['uarm_' + side, w]];
+    });
+  }
+  // short sleeves: start inside the shoulder (deltoid cap), cloth over the upper arm, a turned hem
   for (const s of [-1, 1]) {
     const sfx = s > 0 ? 'l' : 'r';
-    const x = K.shoulderX * s;
-    b.addSkinned(loft([R(x - 0.035 * s, 1.43, -0.02, 0.045, 0.052), R(x + 0.002 * s, 1.415, -0.02, 0.052, 0.055), R(x + 0.008 * s, 1.35, -0.02, 0.054, 0.055), R(x + 0.01 * s, 1.27, -0.02, 0.054, 0.054)], 18,
-      { sub: 3, front: new THREE.Vector3(0, 0, 1) }),
-      chain(['spine2', 'uarm_' + sfx], [[0.0, 1.44, -0.02], [0.115 * s, 1.44, K.shoulderZ], [x, 1.14, -0.02]], [0, 0.03]));
+    const x = K.shoulderX * s, z = K.shoulderZ;
+    const sleeveW = (p: THREE.Vector3): [string, number][] => {
+      // long blend: the cap of the sleeve stays with the shoulder and stretches as the arm lifts
+      // the sleeve follows the arm; only its root (buried in the shoulder) is held by the chest
+      const w = Math.max(sm(1.445, 1.405, p.y), sm(0.13, 0.17, Math.abs(p.x)));
+      return w >= 1 ? [['uarm_' + sfx, 1]] : [['spine2', 1 - w], ['uarm_' + sfx, w]];
+    };
+    b.addSkinned(loft([R(x - 0.07 * s, 1.43, z, 0.018, 0.026), R(x - 0.045 * s, 1.432, z, 0.024, 0.034), R(x - 0.02 * s, 1.418, z, 0.032, 0.046), R(x + 0.004 * s, 1.392, z, 0.046, 0.056), R(x + 0.012 * s, 1.36, z, 0.053, 0.057),
+      R(x + 0.014 * s, 1.31, z, 0.052, 0.054), R(x + 0.016 * s, 1.275, z, 0.053, 0.055), R(x + 0.016 * s, 1.262, z, 0.05, 0.052)], 20,
+      { sub: 3, front: new THREE.Vector3(0, 0, 1), capA: true, capB: false }), sleeveW);
+    // turned-up hem band
+    const hem: Ring[] = [];
+    for (let k = 0; k <= 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      hem.push({ c: new THREE.Vector3(x + 0.016 * s + Math.sin(a) * 0.053, 1.272, z + Math.cos(a) * 0.055), rx: 0.004, rz: 0.006, n: 2 });
+    }
+    b.addSkinned(loft(hem, 6, { sub: 1, capA: false, capB: false, front: new THREE.Vector3(0, 1, 0) }), () => [['uarm_' + sfx, 1]]);
   }
   // ── arms + hands (skin) ──────────────────────────────────────────────
   b.mat('skin');
