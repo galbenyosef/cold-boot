@@ -32,19 +32,25 @@ export interface HumanTemplate {
   scan?: import('./head').ScanHead | null;
   /** Eye centres in model space (bind), for look-at maths. */
   eyeL: THREE.Vector3; eyeR: THREE.Vector3;
+  /** §8.8: which person this template builds (absent = Tomas). */
+  who?: 'tomas' | 'halvorsen';
+  /** §8.8: uniform scale of the rig (absent = 1). */
+  scale?: number;
+  /** §8.8: Halvorsen's GLB head (head2.ts), or null = his procedural fallback head. */
+  head2?: import('./head2').Head2 | null;
 }
 
 const D = Math.PI / 180;
 
-function vnoise(x: number, y: number): number {
+export function vnoise(x: number, y: number): number {
   const h = (i: number, j: number) => { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); };
   const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
   const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
   return (h(xi, yi) * (1 - u) + h(xi + 1, yi) * u) * (1 - v) + (h(xi, yi + 1) * (1 - u) + h(xi + 1, yi + 1) * u) * v;
 }
-const sm = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export const sm = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-function libOr(ctx: GameContext, name: MaterialName, fb: MaterialName, over: Partial<THREE.MeshStandardMaterialParameters>, fbOver: Partial<THREE.MeshStandardMaterialParameters>): THREE.MeshStandardMaterial {
+export function libOr(ctx: GameContext, name: MaterialName, fb: MaterialName, over: Partial<THREE.MeshStandardMaterialParameters>, fbOver: Partial<THREE.MeshStandardMaterialParameters>): THREE.MeshStandardMaterial {
   const m = ctx.materials.get(name);
   if (m.name === name) return ctx.materials.clone(name, over);
   return ctx.materials.clone(fb, { ...over, ...fbOver });
@@ -74,13 +80,13 @@ export function buildHumanTemplate(ctx: GameContext): HumanTemplate {
 
 // ───────────────────────────────────────────────────────────── geometry helpers
 
-type Ring = { c: THREE.Vector3; rx: number; rz: number; n?: number };
+export type Ring = { c: THREE.Vector3; rx: number; rz: number; n?: number };
 
 /**
  * Closed tube through rings (each ring perpendicular to the local path tangent; `front` fixes the ring's
  * a = 0 direction). Smooth normals; optional end caps. Returns non-indexed geometry.
  */
-function loft(rings: Ring[], radial: number, opts: { sub?: number; capA?: boolean; capB?: boolean; front?: THREE.Vector3; n?: number } = {}): THREE.BufferGeometry {
+export function loft(rings: Ring[], radial: number, opts: { sub?: number; capA?: boolean; capB?: boolean; front?: THREE.Vector3; n?: number } = {}): THREE.BufferGeometry {
   const nr = Math.max(5, Math.round(radial * DETAIL.k));
   const sub = Math.max(1, Math.round((opts.sub ?? 3) * Math.min(1, DETAIL.k + 0.2)));
   const front = opts.front ?? new THREE.Vector3(0, 0, 1);
@@ -145,10 +151,10 @@ function loft(rings: Ring[], radial: number, opts: { sub?: number; capA?: boolea
   out.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(out.getAttribute('position').count * 2), 2));
   return out;
 }
-const R = (x: number, y: number, z: number, rx: number, rz: number, n?: number): Ring => ({ c: new THREE.Vector3(x, y, z), rx, rz, n });
+export const R = (x: number, y: number, z: number, rx: number, rz: number, n?: number): Ring => ({ c: new THREE.Vector3(x, y, z), rx, rz, n });
 
 /** Ellipsoid (smooth), non-indexed. */
-function ellip(c: V3, r: V3, ws = 14, hs = 10): THREE.BufferGeometry {
+export function ellip(c: V3, r: V3, ws = 14, hs = 10): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(1, Math.max(6, Math.round(ws * DETAIL.k)), Math.max(4, Math.round(hs * DETAIL.k)));
   g.scale(r[0], r[1], r[2]); g.translate(c[0], c[1], c[2]);
   const o = g.toNonIndexed(); g.dispose();
@@ -156,7 +162,7 @@ function ellip(c: V3, r: V3, ws = 14, hs = 10): THREE.BufferGeometry {
 }
 
 /** Weights along a bone chain: joints[i] starts bone bones[i]; the last joint ends the chain. */
-function chain(bones: string[], joints: V3[], radii: number[]): (p: THREE.Vector3) => [string, number][] {
+export function chain(bones: string[], joints: V3[], radii: number[]): (p: THREE.Vector3) => [string, number][] {
   const J = joints.map((j) => new THREE.Vector3(...j));
   const S: number[] = [0];
   for (let i = 1; i < J.length; i++) S.push(S[i - 1] + J[i].distanceTo(J[i - 1]));
@@ -191,19 +197,19 @@ function chain(bones: string[], joints: V3[], radii: number[]): (p: THREE.Vector
     return out;
   };
 }
-const rigid = (bone: string) => (): [string, number][] => [[bone, 1]];
+export const rigid = (bone: string) => (): [string, number][] => [[bone, 1]];
 
 /** Head-surface direction for (a = around, 0 front / +π/2 left; e = elevation). */
-function hdir(a: number, e: number, out: THREE.Vector3): THREE.Vector3 {
+export function hdir(a: number, e: number, out: THREE.Vector3): THREE.Vector3 {
   return out.set(Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a));
 }
 
 /** Eye / brow / mouth anchors on the head ellipsoid. */
-const EYE_A = 0.335, EYE_E = (K.eyeY - K.headC.y) / K.headR.y;
-const MOUTH_E = Math.asin((K.mouthY - K.headC.y) / K.headR.y);
+export const EYE_A = 0.335, EYE_E = (K.eyeY - K.headC.y) / K.headR.y;
+export const MOUTH_E = Math.asin((K.mouthY - K.headC.y) / K.headR.y);
 
 /** The skull + face surface: ellipsoid with the face shaped in (sockets, brow, cheekbones, jaw, chin, lips). */
-function headPoint(a: number, e: number, out: THREE.Vector3): THREE.Vector3 {
+export function headPoint(a: number, e: number, out: THREE.Vector3): THREE.Vector3 {
   const d = hdir(a, e, out);
   let rx = K.headR.x, ry = K.headR.y, rz = K.headR.z;
   const front = Math.max(0, d.z), lower = Math.max(0, -d.y), back = Math.max(0, -d.z);
@@ -235,8 +241,8 @@ function headPoint(a: number, e: number, out: THREE.Vector3): THREE.Vector3 {
 }
 
 // around / elevation remaps: denser samples over the face
-const remapA = (u: number) => { const x = 2 * u - 1; return Math.PI * x * (0.34 + 0.66 * x * x); };
-const remapE = (v: number) => { const x = 2 * v - 1; return -0.2 + x * (0.55 + 0.96 * x * x) + 0.26 * x * x; };
+export const remapA = (u: number) => { const x = 2 * u - 1; return Math.PI * x * (0.34 + 0.66 * x * x); };
+export const remapE = (v: number) => { const x = 2 * v - 1; return -0.2 + x * (0.55 + 0.96 * x * x) + 0.26 * x * x; };
 
 function authorHuman(b: RigBuilder): { eyeL: THREE.Vector3; eyeR: THREE.Vector3 } {
   // ── skeleton ─────────────────────────────────────────────────────────
@@ -663,7 +669,7 @@ function skinTone(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
   out.setRGB(Math.max(0.08, r), Math.max(0.05, g), Math.max(0.05, bl));
 }
 
-function clothShade(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
+export function clothShade(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
   const big = vnoise(p.x * 8 + p.z * 3, p.y * 7);
   const fine = vnoise(p.x * 41 + 3, p.y * 37 + p.z * 23);
   let k = 1.02 - big * 0.07 - fine * 0.05;
@@ -679,13 +685,13 @@ function clothShade(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void 
   out.setRGB(k, k, k * 1.01);
 }
 
-function hairTone(p: THREE.Vector3, _n: THREE.Vector3, out: THREE.Color): void {
+export function hairTone(p: THREE.Vector3, _n: THREE.Vector3, out: THREE.Color): void {
   const v = vnoise(p.x * 90, p.y * 70 + p.z * 50) * 0.35 + vnoise(p.x * 17, p.z * 19) * 0.25;
   const k = 0.75 + v;
   out.setRGB(k, k * 0.95, k * 0.9);
 }
 
-function eyeTone(p: THREE.Vector3, _n: THREE.Vector3, out: THREE.Color): void {
+export function eyeTone(p: THREE.Vector3, _n: THREE.Vector3, out: THREE.Color): void {
   eyeCentres();
   const e = p.x >= 0 ? EL : ER;
   const dx = p.x - e.x, dy = p.y - e.y, dz = p.z - e.z;

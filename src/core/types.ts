@@ -1092,6 +1092,8 @@ export interface EnemyActor {
   /** REVISION 4: gait variant for moveTo, e.g. 'limp' (Unit 14), 'carry' (walking someone by the arm). */
   setGait?(gait: string): void;
   remove(): void;
+  /** Stage 3a §8.8: character props/states (Halvorsen: glasses, mug, badge, monitor, phone, panel, desk, expr). Absent on actors without props. */
+  prop?(name: string, value: unknown): void;
 }
 
 // ───────────────────────────────────────────────────────────── ui (src/ui)

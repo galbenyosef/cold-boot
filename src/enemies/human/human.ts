@@ -23,7 +23,8 @@ import type { Rig } from '../shared/rig';
 import { HUMAN_DIM as K, type HumanTemplate } from './model';
 
 export const HUMAN_POSES = ['idle', 'wave', 'bang_glass', 'write', 'talk', 'sit', 'sit_floor', 'back_away', 'held', 'carried', 'struggle'] as const;
-type HPose = typeof HUMAN_POSES[number];
+/** Tomas's poses are HUMAN_POSES; subclasses (Halvorsen) add their own names. */
+export type HPose = string;
 /**
  * Default distance (m) from his feet position to the glass pane for bang_glass / write. REVISION 5: the pose string
  * may carry the distance as a parameter — `'bang_glass:0.5'`, `'write:0.5'` (clamped 0.3 … 0.7).
@@ -46,78 +47,82 @@ interface Fidget { kind: string; t: number; dur: number }
 
 export class Human extends EnemyBase {
   readonly type = 'human' as unknown as EnemyType;
-  private rig: Rig;
-  private B: Record<string, THREE.Bone>;
-  private pose: HPose = 'idle';
-  private poseT = 0;
-  private snap: Float32Array;
-  private blendT = 1; private blendDur = 0.5;
-  private seed: number;
+  protected rig: Rig;
+  protected B: Record<string, THREE.Bone>;
+  protected pose: HPose = 'idle';
+  protected poseT = 0;
+  protected snap: Float32Array;
+  protected blendT = 1; protected blendDur = 0.5;
+  protected seed: number;
   // walking
-  private moving = false; private target = new THREE.Vector3(); private wantSpeed = 1.25; private curSpeed = 0;
-  private done: (() => void) | null = null;
-  private phase = 0; private walkW = 0; private travel = 1; private stuckT = 0; private lastD = 1e9; private groundT = 0;
-  private turnW = 0;
+  protected moving = false; protected target = new THREE.Vector3(); protected wantSpeed = 1.25; protected curSpeed = 0;
+  protected done: (() => void) | null = null;
+  protected phase = 0; protected walkW = 0; protected travel = 1; protected stuckT = 0; protected lastD = 1e9; protected groundT = 0;
+  protected turnW = 0;
   // look
   /** Effective look target this frame (set by attention(); null = rest behaviour). */
-  private lookPt: THREE.Vector3 | null = null; private readonly lookBuf = new THREE.Vector3();
+  protected lookPt: THREE.Vector3 | null = null; protected readonly lookBuf = new THREE.Vector3();
   // attention (REVISION 6.1)
-  private attn: 'auto' | 'pinned' | 'rest' = 'auto';
-  private pinObj: THREE.Object3D | null = null;
-  private readonly pinPt = new THREE.Vector3();
-  private seen = false; private sightT = 0; private lastSeenT = -1e9;
-  private readonly lastSeen = new THREE.Vector3();
+  protected attn: 'auto' | 'pinned' | 'rest' = 'auto';
+  protected pinObj: THREE.Object3D | null = null;
+  protected readonly pinPt = new THREE.Vector3();
+  protected seen = false; protected sightT = 0; protected lastSeenT = -1e9;
+  protected readonly lastSeen = new THREE.Vector3();
   /** True while the look target is the player (auto). */
-  private onPlayer = false;
+  protected onPlayer = false;
   /** Seconds the target has been > 55° off his facing (body turn after 0.7 s). */
-  private offT = 0;
+  protected offT = 0;
   /** The story's facing (or his last arrival / spawn facing): what the body returns to when nobody is seen. */
-  private restYaw = 0;
+  protected restYaw = 0;
   /** The pending yawGoal is an attention turn (slower, re-aimed while the player moves), not a story facing. */
-  private attnTurn = false;
-  private impactT = -1e9; private readonly impactPt = new THREE.Vector3();
-  private offImpact: (() => void) | null = null;
-  private readonly glance = new THREE.Vector3(); private glanceT = 0;
-  private hY: Spring = { x: 0, v: 0 }; private hP: Spring = { x: 0, v: 0 }; private tY: Spring = { x: 0, v: 0 };
-  private eY: Spring = { x: 0, v: 0 }; private eP: Spring = { x: 0, v: 0 };
+  protected attnTurn = false;
+  protected impactT = -1e9; protected readonly impactPt = new THREE.Vector3();
+  protected offImpact: (() => void) | null = null;
+  protected readonly glance = new THREE.Vector3(); protected glanceT = 0;
+  protected hY: Spring = { x: 0, v: 0 }; protected hP: Spring = { x: 0, v: 0 }; protected tY: Spring = { x: 0, v: 0 };
+  protected eY: Spring = { x: 0, v: 0 }; protected eP: Spring = { x: 0, v: 0 };
   // face
-  private blink = 0; private blinkT = 0; private nextBlink = 2; private eyesOpen = true;
-  private speakT = 0; private speakDur = 0;
+  protected blink = 0; protected blinkT = 0; protected nextBlink = 2; protected eyesOpen = true;
+  protected speakT = 0; protected speakDur = 0;
   // body life
-  private shift: Spring = { x: 0, v: 0 }; private shiftTgt = 1; private shiftTimer = 4;
-  private fidget: Fidget | null = null; private fidgetTimer = 6;
-  private gest: Spring = { x: 0, v: 0 }; private gest2: Spring = { x: 0, v: 0 }; private gestTgt = 0; private gestTgt2 = 0; private gestTimer = 0;
-  private jerk: Spring = { x: 0, v: 0 }; private jerkTimer = 1;
-  private bangCount = 0; private lastBang = -1;
-  private badgeS: Spring = { x: 0, v: 0 }; private sleeveS: Spring = { x: 0, v: 0 };
-  private prevYaw = 0;
-  private readonly markerTip = new THREE.Vector3();
+  protected shift: Spring = { x: 0, v: 0 }; protected shiftTgt = 1; protected shiftTimer = 4;
+  protected fidget: Fidget | null = null; protected fidgetTimer = 6;
+  protected gest: Spring = { x: 0, v: 0 }; protected gest2: Spring = { x: 0, v: 0 }; protected gestTgt = 0; protected gestTgt2 = 0; protected gestTimer = 0;
+  protected jerk: Spring = { x: 0, v: 0 }; protected jerkTimer = 1;
+  protected bangCount = 0; protected lastBang = -1;
+  protected badgeS: Spring = { x: 0, v: 0 }; protected sleeveS: Spring = { x: 0, v: 0 };
+  protected prevYaw = 0;
+  protected readonly markerTip = new THREE.Vector3();
   /** REVISION 5: glass distance for bang_glass / write (pose parameter). */
-  private glassZ = GLASS_Z;
+  protected glassZ = GLASS_Z;
   /** REVISION 5: 'held:file' variant. */
-  private heldFile = false;
+  protected heldFile = false;
   /** REVISION 5: flinch overlay time (−1 = none). */
-  private flinchT = -1;
-  private flinchK = 0;
+  protected flinchT = -1;
+  protected flinchK = 0;
   /** REVISION 5: the scanned head's closed lids (blink). */
-  private scanLids: THREE.SkinnedMesh | null = null;
+  protected scanLids: THREE.SkinnedMesh | null = null;
   /**
    * Facing set from outside: the story places him with `object.rotation.y = yaw` (its yaw convention — the same as
    * `this.yaw`: 0 faces −Z, +π/2 faces −X). We own `object.rotation.y` (= yaw + π) and rewrite it every frame, so a
    * foreign value is read as "face this way" before it is overwritten. `rotOut` is the last value we wrote.
    */
-  private rotOut = NaN;
+  protected rotOut = NaN;
   /** Facing he turns to on the spot (≈ 0.4 s for a quarter turn); null = none. Walking cancels it. */
-  private yawGoal: number | null = null;
+  protected yawGoal: number | null = null;
   /** bang_glass / write: square up to the pane in front of him once he stands still. */
-  private squarePending = false;
+  protected squarePending = false;
   /**
    * Distance (m) from his feet to the visible pane, measured by squareToGlass (NaN = not measured: the pose parameter
    * / GLASS_Z is used). Glass colliders are 10 cm slabs centred on the pane, so the pane is 5 cm past the hit face.
    */
-  private glassFace = NaN;
+  protected glassFace = NaN;
+  /** §8.8: rig scale (world metres per model unit); 1 for Tomas. */
+  protected S = 1;
+  /** §8.8: stride multiplier of the gait (1 for Tomas). */
+  protected stride = 1;
 
-  constructor(world: EnemyWorld, private tpl: HumanTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
+  constructor(world: EnemyWorld, protected tpl: HumanTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, 0.3, 1.75);
     this.isActor = true;
     this.awake = false;
@@ -125,6 +130,9 @@ export class Human extends EnemyBase {
     this.seed = this.id * 3.17 + 0.5;
     this.rig = tpl.rig.instantiate();
     this.B = this.rig.byName;
+    // §8.8: a character may be built on the same skeleton at another size (Halvorsen); Tomas stays at 1
+    this.S = tpl.scale ?? 1;
+    if (this.S !== 1) this.rig.root.scale.setScalar(this.S);
     if (tpl.scan) this.attachScan(tpl.scan);
     this.lodRig = this.rig;
     this.object.add(this.rig.root);
@@ -152,7 +160,7 @@ export class Human extends EnemyBase {
     this.tick(0.016);
   }
 
-  private poseName(p: string | undefined): HPose {
+  protected poseName(p: string | undefined): HPose {
     if (!p || p === 'standing') return 'idle';
     const ci = p.indexOf(':');
     if (ci > 0) {
@@ -171,7 +179,7 @@ export class Human extends EnemyBase {
     return 'idle';
   }
 
-  private setPoseNow(p: HPose): void {
+  protected setPoseNow(p: HPose): void {
     if ((p === 'bang_glass' || p === 'write') && p !== this.pose) { this.squarePending = true; this.glassFace = NaN; }
     this.pose = p; this.poseT = 0;
     this.fidget = null; this.fidgetTimer = 4 + this.world.rand() * 6;
@@ -186,21 +194,31 @@ export class Human extends EnemyBase {
   override puppetMove(point: THREE.Vector3, speed: number | undefined, done: () => void): void {
     if (this.done) this.arrive();
     this.target.copy(point);
-    const def = this.pose === 'back_away' ? 0.6 : this.pose === 'held' ? 1.0 : 1.25;
+    const def = this.defaultSpeed();
     this.wantSpeed = THREE.MathUtils.clamp(speed ?? def, 0.2, 3.2);
     this.moving = true; this.done = done; this.stuckT = 0; this.lastD = 1e9;
     this.yawGoal = null; this.attnTurn = false; this.glassFace = NaN;
     // walking poses: sitting / writing / banging get up into a stand first
+    this.standForWalking();
+  }
+  protected defaultSpeed(): number { return this.pose === 'back_away' ? 0.6 : this.pose === 'held' ? 1.0 : 1.25; }
+  protected standForWalking(): void {
     if (this.pose === 'sit' || this.pose === 'sit_floor' || this.pose === 'bang_glass' || this.pose === 'write' || this.pose === 'wave') this.puppetPose('idle');
   }
   override puppetPose(pose: string): void {
     if (pose === 'flinch') { this.flinchT = 0; this.blinkSoon(); return; }
+    if (this.oneShot(pose)) return;
     const n = this.poseName(pose);
     if (n === this.pose) return;
     this.rig.capture(this.snap);
     this.blendT = 0;
-    this.blendDur = n === 'carried' || this.pose === 'carried' ? 0.9 : n === 'sit' || n === 'sit_floor' || this.pose === 'sit' || this.pose === 'sit_floor' ? 0.85 : 0.45;
+    this.blendDur = this.blendFor(n);
     this.setPoseNow(n);
+  }
+  /** Overlay gestures that do not change the pose (subclasses). */
+  protected oneShot(_pose: string): boolean { return false; }
+  protected blendFor(n: HPose): number {
+    return n === 'carried' || this.pose === 'carried' ? 0.9 : n === 'sit' || n === 'sit_floor' || this.pose === 'sit' || this.pose === 'sit_floor' ? 0.85 : 0.45;
   }
   /**
    * REVISION 6.1: a point pins a frozen copy; null returns to `auto`. The player's own eye vector (what the story
@@ -219,7 +237,7 @@ export class Human extends EnemyBase {
   override puppetSpeak(seconds: number): void { this.speakT = Math.max(this.speakT, seconds); this.speakDur = this.speakT; }
   override puppetGait(_g: string): void { /* his walk is his walk */ }
 
-  private arrive(): void {
+  protected arrive(): void {
     this.moving = false;
     this.restYaw = this.yaw; // where he stopped is where he rests (until the story says otherwise)
     const d = this.done; this.done = null;
@@ -227,7 +245,7 @@ export class Human extends EnemyBase {
   }
 
   /** REVISION 5: bind the scanned head to this skeleton; hide the procedural face + hair. */
-  private attachScan(sc: NonNullable<HumanTemplate['scan']>): void {
+  protected attachScan(sc: NonNullable<HumanTemplate['scan']>): void {
     const add = (g: THREE.BufferGeometry, m: THREE.Material, order = 0) => {
       const mesh = new THREE.SkinnedMesh(g, m);
       mesh.bind(this.rig.skeleton, new THREE.Matrix4());
@@ -259,8 +277,9 @@ export class Human extends EnemyBase {
 
   update(dt: number): void { this.tick(dt); }
 
-  private tick(dt: number): void {
+  protected tick(dt: number): void {
     const w = this.world, p = this.body.position;
+    this.beforeTick();
     this.stateTime += dt; this.poseT += dt;
     this.adoptFacing();
     this.locomotion(dt);
@@ -301,11 +320,15 @@ export class Human extends EnemyBase {
     this.speech(dt);
     this.secondary(dt);
     this.face();
+    this.afterFace(dt);
     this.syncWorld();
     void p;
   }
+  /** Subclass hooks (no-ops for Tomas). */
+  protected beforeTick(): void { /* none */ }
+  protected afterFace(_dt: number): void { /* none */ }
 
-  private syncWorld(): void {
+  protected syncWorld(): void {
     this.object.position.copy(this.body.position);
     this.object.rotation.y = this.rotOut = this.yaw + Math.PI;
     this.object.updateMatrixWorld(true);
@@ -314,22 +337,25 @@ export class Human extends EnemyBase {
   // ───────────────────────────────────────────── facing
 
   /** A facing written into `object.rotation.y` by the story (see `rotOut`): turn to it (lying / sitting: at once). */
-  private adoptFacing(): void {
+  protected adoptFacing(): void {
     const r = this.object.rotation.y;
     if (!Number.isFinite(this.rotOut) || r === this.rotOut) return; // (exact: it holds the very number we wrote)
     this.object.rotation.y = this.rotOut;
     this.restYaw = r; this.attnTurn = false; this.offT = 0;
-    if (this.pose === 'carried' || this.pose === 'sit' || this.pose === 'sit_floor') { this.yaw = this.prevYaw = r; this.yawGoal = null; }
+    if (this.fixedFacing()) { this.yaw = this.prevYaw = r; this.yawGoal = null; }
     else this.yawGoal = r;
     if (this.pose === 'bang_glass' || this.pose === 'write') this.squarePending = true;
   }
+
+  /** Poses whose facing is set at once (lying / sitting), not turned to. */
+  protected fixedFacing(): boolean { return this.pose === 'carried' || this.pose === 'sit' || this.pose === 'sit_floor'; }
 
   /**
    * bang_glass / write: whatever yaw he was given, his palms go flat on the pane — so he squares up to it. Rays at
    * chest height fan out ±70° round the facing he is turning to; the nearest glass within 1.2 m sets the facing
    * (straight into the pane, along its normal). No glass in reach: the facing stays as given.
    */
-  private squareToGlass(): void {
+  protected squareToGlass(): void {
     const ph = this.world.ctx.physics, p = this.body.position;
     const base = this.yawGoal ?? this.yaw;
     _v.set(p.x, p.y + 1.3, p.z);
@@ -354,12 +380,12 @@ export class Human extends EnemyBase {
    * Where the pose puts its hands (m in front of his feet): measured pane minus what the hand/fingers reach past the
    * IK point (≈ 4 cm), so palms and the marker tip touch the glass and never go through it.
    */
-  private gz(): number {
+  protected gz(): number {
     return Number.isFinite(this.glassFace) ? THREE.MathUtils.clamp(this.glassFace - 0.038, 0.3, 0.7) : this.glassZ;
   }
 
   /** Standing still with a facing to reach: turn on the spot. */
-  private turnToGoal(dt: number): void {
+  protected turnToGoal(dt: number): void {
     if (this.moving) return;
     if (this.squarePending && (this.pose === 'bang_glass' || this.pose === 'write')) { this.squarePending = false; this.squareToGlass(); }
     if (this.yawGoal === null) return;
@@ -373,7 +399,7 @@ export class Human extends EnemyBase {
 
   // ───────────────────────────────────────────── locomotion
 
-  private locomotion(dt: number): void {
+  protected locomotion(dt: number): void {
     const w = this.world, p = this.body.position;
     let want = 0;
     if (this.moving) {
@@ -403,10 +429,10 @@ export class Human extends EnemyBase {
       this.groundT -= dt;
       if (this.groundT <= 0) { this.groundT = 0.2; const g = this.groundAt(p.x, p.y + 0.6, p.z, 1.6); if (g !== null) p.y = g; }
     }
-    const walks = this.pose === 'idle' || this.pose === 'talk' || this.pose === 'back_away' || this.pose === 'held' || this.pose === 'struggle';
+    const walks = this.walksIn();
     this.walkW = damp(this.walkW, walks && this.curSpeed > 0.08 ? 1 : 0, 6, dt);
-    const stepLen = 0.3 + 0.24 * Math.min(this.curSpeed, 1.8);
-    let adv = this.curSpeed * dt / (2 * stepLen);
+    const stepLen = (0.3 + 0.24 * Math.min(this.curSpeed, 1.8)) * this.stride;
+    let adv = this.curSpeed * dt / (2 * stepLen * this.S);
     if (this.pose === 'held') adv *= 0.8 + 0.5 * Math.max(0, noise1(w.time * 1.7, this.seed + 4));
     // turning on the spot: little shuffle steps
     const dyaw = Math.abs(angleDiff(this.yaw, this.prevYaw));
@@ -416,15 +442,18 @@ export class Human extends EnemyBase {
     this.phase += adv * this.travel;
   }
 
+  protected walksIn(): boolean { return this.pose === 'idle' || this.pose === 'talk' || this.pose === 'back_away' || this.pose === 'held' || this.pose === 'struggle'; }
+  protected gaitLift(): number { return this.pose === 'held' ? 0.025 : 0.055 + 0.02 * Math.min(1, this.curSpeed); }
+
   /** Foot (ankle-ground point) in rig space for the gait, given the foot's phase offset. */
-  private gaitFoot(side: number, out: THREE.Vector3): { pitch: number; swing: number } {
+  protected gaitFoot(side: number, out: THREE.Vector3): { pitch: number; swing: number } {
     const ps = this.phase + (side > 0 ? 0 : 0.5);
     const psi = ps - Math.floor(ps);
-    const stepLen = 0.3 + 0.24 * Math.min(this.curSpeed, 1.8);
+    const stepLen = (0.3 + 0.24 * Math.min(this.curSpeed, 1.8)) * this.stride;
     const half = stepLen * 0.62 * (1 - this.turnW * 0.85) * Math.min(1, this.curSpeed / 0.4 + this.turnW);
     const STANCE = 0.62;
     let z: number, y = 0, pitch = 0, swing = 0;
-    const lift = this.pose === 'held' ? 0.025 : 0.055 + 0.02 * Math.min(1, this.curSpeed);
+    const lift = this.gaitLift();
     if (psi < STANCE) {
       const u = psi / STANCE;
       z = half - 2 * half * u;
@@ -443,35 +472,35 @@ export class Human extends EnemyBase {
 
   // ───────────────────────────────────────────── base poses
 
-  private rotE(b: THREE.Bone, x: number, y: number, z: number, order: THREE.EulerOrder = 'XYZ'): void { b.quaternion.setFromEuler(_e.set(x, y, z, order)); }
-  private mulE(b: THREE.Bone, x: number, y: number, z: number, order: THREE.EulerOrder = 'XYZ'): void { b.quaternion.multiply(_q.setFromEuler(_e.set(x, y, z, order))); }
+  protected rotE(b: THREE.Bone, x: number, y: number, z: number, order: THREE.EulerOrder = 'XYZ'): void { b.quaternion.setFromEuler(_e.set(x, y, z, order)); }
+  protected mulE(b: THREE.Bone, x: number, y: number, z: number, order: THREE.EulerOrder = 'XYZ'): void { b.quaternion.multiply(_q.setFromEuler(_e.set(x, y, z, order))); }
   /** FK arm: pitch (− forward), twist, out (+ away from the body), elbow flex. */
-  private arm(side: number, pitch: number, twist: number, out: number, elbow: number): void {
+  protected arm(side: number, pitch: number, twist: number, out: number, elbow: number): void {
     const s = side > 0 ? 'l' : 'r';
     this.rotE(this.B['uarm_' + s], pitch, twist * side, out * side);
     this.rotE(this.B['larm_' + s], -Math.max(0.02, elbow), 0, 0);
   }
-  private fingers(side: number, curl: number, thumb = curl * 0.6): void {
+  protected fingers(side: number, curl: number, thumb = curl * 0.6): void {
     const s = side > 0 ? 'l' : 'r', B = this.B;
     B['fing_' + s].quaternion.setFromAxisAngle(Z, -side * curl);
     B['fing2_' + s].quaternion.setFromAxisAngle(Z, -side * curl * 1.15);
     this.rotE(B['thumb_' + s], -thumb * 0.5, 0, -side * thumb * 0.6);
   }
 
-  private basePose(dt: number): void {
+  protected basePose(dt: number): void {
     const B = this.B, t = this.world.time, sd = this.seed;
-    const breathRate = this.pose === 'back_away' || this.pose === 'held' ? 0.75 : this.pose === 'bang_glass' ? 0.6 : this.pose === 'sit' || this.pose === 'sit_floor' || this.pose === 'carried' ? 0.22 : 0.3;
+    const breathRate = this.breathRate();
     const br = Math.sin(t * Math.PI * 2 * breathRate + sd);
     const sh = this.shift.x;
-    const tremble = this.pose === 'back_away' || this.pose === 'held' || this.pose === 'struggle' ? 1 : 0;
+    const tremble = this.trembles();
     const tr = (k: number) => noise1(t * 21 + k, sd + k) * 0.012 * tremble;
     this.idleTorso(br, sh);
     // standing feet (rig space) + gait mix
     let fl = new THREE.Vector3(0.106, 0, 0.035), fr = new THREE.Vector3(-0.1, 0, -0.03);
     let ylL = 0.14, ylR = -0.14;
     let hipsY = 0.938 - Math.abs(sh) * 0.008 - this.flinchK * 0.13;
-    switch (this.pose) {
-      case 'idle': case 'talk': case 'wave': case 'back_away': case 'held': case 'bang_glass': case 'write': case 'struggle': {
+    if (this.standingLegs()) {
+      {
         if (this.pose === 'bang_glass' || this.pose === 'write') { fl.set(0.11, 0, 0.06); fr.set(-0.11, 0, 0.0); }
         if (this.pose === 'back_away') { fl.set(0.11, 0, -0.1); fr.set(-0.1, 0, 0.06); hipsY -= 0.012; }
         if (this.pose === 'held') { fl.set(0.13, 0, 0.08); fr.set(-0.12, 0, -0.02); hipsY -= 0.02 + Math.max(0, this.jerk.x) * 0.04; }
@@ -485,6 +514,7 @@ export class Human extends EnemyBase {
           hipsY -= 0.05 + Math.abs(this.struggleX()) * 0.05 + 0.03 * kick;
           B.hips.position.z -= 0.05 * Math.max(0, this.struggleX());
         }
+        hipsY = this.adjustStance(fl, fr, hipsY);
         const W = Math.max(this.walkW, this.turnW);
         if (W > 0.001) {
           const a = this.gaitFoot(1, _v), b = this.gaitFoot(-1, _v2);
@@ -495,16 +525,9 @@ export class Human extends EnemyBase {
           this.mulE(B.hips, 0.03 * this.walkW, -0.11 * Math.cos(ph) * this.walkW * this.travel, 0.035 * Math.sin(ph) * this.walkW);
           this.mulE(B.spine2, 0.02 * this.walkW, 0.15 * Math.cos(ph) * this.walkW * this.travel, -0.02 * Math.sin(ph) * this.walkW);
           this.legs(fl, fr, hipsY, a.pitch * W, b.pitch * W, ylL * (1 - W), ylR * (1 - W));
-          if (this.pose === 'idle' || this.pose === 'talk') {
-            // arm swing (opposite legs)
-            const sw = 0.3 * Math.min(1.2, this.curSpeed / 1.2) * this.walkW * this.travel;
-            this.arm(1, 0.05 + sw * Math.cos(ph), 0, 0.09, 0.22 + 0.25 * Math.max(0, -Math.cos(ph)) * this.walkW);
-            if (this.pose === 'idle') this.arm(-1, 0.05 - sw * Math.cos(ph), 0, 0.09, 0.22 + 0.25 * Math.max(0, Math.cos(ph)) * this.walkW);
-          }
+          this.walkArms(ph);
         } else this.legs(fl, fr, hipsY, 0, 0, ylL, ylR);
-        break;
       }
-      default: break;
     }
     switch (this.pose) {
       case 'idle': this.poseIdle(dt, br); break;
@@ -518,13 +541,39 @@ export class Human extends EnemyBase {
       case 'sit': this.poseSit(t, br, false); break;
       case 'sit_floor': this.poseSit(t, br, true); break;
       case 'carried': this.poseCarried(t, br); break;
+      default: this.extraPose(dt, t, br, tr); break;
     }
-    if (this.pose !== 'carried' && this.pose !== 'sit' && this.pose !== 'sit_floor') this.flinchOverlay();
+    if (this.flinchable()) this.flinchOverlay();
     void dt;
   }
 
+  // ── subclass hooks (Tomas's values) ──
+  protected breathRate(): number {
+    return this.pose === 'back_away' || this.pose === 'held' ? 0.75 : this.pose === 'bang_glass' ? 0.6 : this.pose === 'sit' || this.pose === 'sit_floor' || this.pose === 'carried' ? 0.22 : 0.3;
+  }
+  protected trembles(): number { return this.pose === 'back_away' || this.pose === 'held' || this.pose === 'struggle' ? 1 : 0; }
+  /** Poses standing on the leg IK + gait block. */
+  protected standingLegs(): boolean {
+    const p = this.pose;
+    return p === 'idle' || p === 'talk' || p === 'wave' || p === 'back_away' || p === 'held' || p === 'bang_glass' || p === 'write' || p === 'struggle';
+  }
+  /** Adjust the standing feet / hips height for a pose (subclasses). */
+  protected adjustStance(_fl: THREE.Vector3, _fr: THREE.Vector3, hipsY: number): number { return hipsY; }
+  /** Arm swing while walking (idle / talk). */
+  protected walkArms(ph: number): void {
+    if (this.pose === 'idle' || this.pose === 'talk') {
+      // arm swing (opposite legs)
+      const sw = 0.3 * Math.min(1.2, this.curSpeed / 1.2) * this.walkW * this.travel;
+      this.arm(1, 0.05 + sw * Math.cos(ph), 0, 0.09, 0.22 + 0.25 * Math.max(0, -Math.cos(ph)) * this.walkW);
+      if (this.pose === 'idle') this.arm(-1, 0.05 - sw * Math.cos(ph), 0, 0.09, 0.22 + 0.25 * Math.max(0, Math.cos(ph)) * this.walkW);
+    }
+  }
+  /** Poses not built into Tomas (subclasses). */
+  protected extraPose(_dt: number, _t: number, _br: number, _tr: (k: number) => number): void { /* none */ }
+  protected flinchable(): boolean { return this.pose !== 'carried' && this.pose !== 'sit' && this.pose !== 'sit_floor'; }
+
   /** Spine/neck/shoulders of an upright, breathing, weight-shifting young man (poses add on top). */
-  private idleTorso(br: number, sh: number): void {
+  protected idleTorso(br: number, sh: number): void {
     const B = this.B;
     B.hips.position.set(sh * 0.026, 0.938, 0);
     this.rotE(B.hips, 0.035, sh * 0.04, -sh * 0.045);
@@ -541,7 +590,7 @@ export class Human extends EnemyBase {
   }
 
   /** Leg IK in rig space: feet = ankle-ground points; hips height set here. */
-  private legs(fl: THREE.Vector3, fr: THREE.Vector3, hipsY: number, pL: number, pR: number, yL: number, yR: number, up = 0): void {
+  protected legs(fl: THREE.Vector3, fr: THREE.Vector3, hipsY: number, pL: number, pR: number, yL: number, yR: number, up = 0): void {
     const B = this.B;
     B.hips.position.y = hipsY;
     const hipsQ = B.hips.quaternion;
@@ -559,7 +608,7 @@ export class Human extends EnemyBase {
     }
   }
 
-  private poseIdle(dt: number, br: number): void {
+  protected poseIdle(dt: number, br: number): void {
     const w = this.world, B = this.B, t = w.time;
     // small life in the hanging arms
     this.mulE(B.uarm_l, noise1(t * 0.31, this.seed + 1) * 0.04, 0, noise1(t * 0.27, this.seed + 2) * 0.03);
@@ -607,7 +656,7 @@ export class Human extends EnemyBase {
     }
   }
 
-  private poseTalk(dt: number, br: number): void {
+  protected poseTalk(dt: number, br: number): void {
     const B = this.B, t = this.world.time;
     void dt; void br;
     // left hand presses the headset cup to his ear
@@ -625,7 +674,7 @@ export class Human extends EnemyBase {
     void t;
   }
 
-  private poseWave(t: number): void {
+  protected poseWave(t: number): void {
     const B = this.B, ph = t * Math.PI * 2 * 1.7;
     const both = Math.max(0, noise1(t * 0.35, this.seed + 9)) > 0.25;
     this.arm(-1, 0.2, -0.35, 2.45 + 0.22 * Math.sin(ph), 0.35 + 0.35 * (0.5 + 0.5 * Math.sin(ph + 1.1)));
@@ -641,7 +690,7 @@ export class Human extends EnemyBase {
     B.hips.position.y += 0.006 * Math.sin(ph * 2);
   }
 
-  private poseBang(t: number): void {
+  protected poseBang(t: number): void {
     const B = this.B, w = this.world;
     // bursts of three blows, then a gasp
     const BEAT = 0.4, BURST = 3, GAP = 0.95, cyc = BEAT * BURST + GAP;
@@ -673,7 +722,7 @@ export class Human extends EnemyBase {
     }
   }
 
-  private poseWrite(t: number): void {
+  protected poseWrite(t: number): void {
     const B = this.B;
     // a word left to right (his view), pen lifts between letters, then he steps back to check it
     const WORD = 2.8, LOOK = 1.3, cyc = WORD + LOOK, ct = (this.poseT + 0.4) % cyc;
@@ -705,7 +754,7 @@ export class Human extends EnemyBase {
     void t;
   }
 
-  private poseBackAway(t: number, tr: (k: number) => number): void {
+  protected poseBackAway(t: number, tr: (k: number) => number): void {
     const B = this.B;
     this.mulE(B.spine1, -0.06, 0, 0, 'YXZ'); this.mulE(B.spine2, -0.05 + tr(1), tr(2), 0, 'YXZ');
     this.mulE(B.neck, -0.06, 0, 0); this.mulE(B.head, -0.08 + tr(3), tr(4) * 2, 0);
@@ -717,7 +766,7 @@ export class Human extends EnemyBase {
     void t;
   }
 
-  private poseHeld(t: number, tr: (k: number) => number): void {
+  protected poseHeld(t: number, tr: (k: number) => number): void {
     const B = this.B, j = this.jerk.x, sd = this.seed;
     if (this.heldFile) {
       // single file: the one in front has his left wrist, the one behind twists his right arm up his back
@@ -745,13 +794,13 @@ export class Human extends EnemyBase {
   }
 
   /** −1 … 1: which way he is wrenching (struggle). */
-  private struggleX(): number {
+  protected struggleX(): number {
     const t = this.world.time, sd = this.seed;
     return Math.sin(t * 2.3 + sd) * 0.6 + noise1(t * 1.7, sd + 40) * 0.6 + this.jerk.x * 0.5;
   }
 
   /** REVISION 5: held at the loading arch, fighting it — wrenching side to side, pulling back, head thrown about. */
-  private poseStruggle(t: number, tr: (k: number) => number): void {
+  protected poseStruggle(t: number, tr: (k: number) => number): void {
     const B = this.B, sd = this.seed, x = this.struggleX();
     const pull = Math.max(0, noise1(t * 1.1, sd + 41));
     this.mulE(B.hips, -0.05 * pull, x * 0.25, x * 0.05);
@@ -768,7 +817,7 @@ export class Human extends EnemyBase {
   }
 
   /** REVISION 5: flinch overlay — ducks (hips dropped in basePose), turns the face away, forearms up over the head. */
-  private flinchOverlay(): void {
+  protected flinchOverlay(): void {
     const k = this.flinchK;
     if (k <= 0.001) return;
     const B = this.B;
@@ -794,7 +843,7 @@ export class Human extends EnemyBase {
     return out;
   }
 
-  private poseSit(t: number, br: number, floor: boolean): void {
+  protected poseSit(t: number, br: number, floor: boolean): void {
     const B = this.B, w = this.world, sd = this.seed;
     const sigh = Math.max(0, noise1(t * 0.12, sd + 7));
     const lift = smooth((this.lookPt ? 0.6 : 0) + (this.speakT > 0 ? 0.6 : 0) + Math.max(0, noise1(t * 0.18, sd + 8) - 0.3));
@@ -837,12 +886,12 @@ export class Human extends EnemyBase {
   }
 
   /** Seated legs: hips are placed already; feet planted on the floor in rig space. */
-  private legsSeat(fl: THREE.Vector3, fr: THREE.Vector3, up = 0): void {
+  protected legsSeat(fl: THREE.Vector3, fr: THREE.Vector3, up = 0): void {
     const y = this.B.hips.position.y;
     this.legs(fl, fr, y, -0.05 - up * 0.3, -0.05 - up * 0.3, 0.2, -0.2, up);
   }
 
-  private poseCarried(t: number, br: number): void {
+  protected poseCarried(t: number, br: number): void {
     const B = this.B, sd = this.seed;
     B.hips.position.set(0, 0.13, 0);
     this.rotE(B.hips, -Math.PI / 2 + 0.05, 0, noise1(t * 0.3, sd) * 0.04);
@@ -867,12 +916,13 @@ export class Human extends EnemyBase {
   // ───────────────────────────────────────────── IK helpers
 
   /** Rig-space point → world. */
-  private rigPoint(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+  protected rigPoint(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
     const p = this.body.position, ry = this.yaw + Math.PI, c = Math.cos(ry), s = Math.sin(ry);
+    if (this.S !== 1) { const S = this.S; return out.set(p.x + (x * c + z * s) * S, p.y + y * S, p.z + (-x * s + z * c) * S); }
     return out.set(p.x + x * c + z * s, p.y + y, p.z - x * s + z * c);
   }
   /** Model-space point on the head (bind coordinates) → world, following the head bone. */
-  private headPoint(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+  protected headPoint(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
     const h = this.B.head;
     return out.set(x, y - 1.556, z + 0.006).applyMatrix4(h.matrixWorld);
   }
@@ -881,7 +931,7 @@ export class Human extends EnemyBase {
    * World-space arm IK toward `T` (wrist), elbow hint in rig axes (out, down, back), blended with the current FK
    * by `k`. `face`: palm toward the face (fingers up); `head`: palm toward the head side (headset).
    */
-  private ikArm(side: number, T: THREE.Vector3, down: number, back: number, out: number, k: number, face = false, head = false): void {
+  protected ikArm(side: number, T: THREE.Vector3, down: number, back: number, out: number, k: number, face = false, head = false): void {
     if (k <= 0.001) return;
     const B = this.B, s = side > 0 ? 'l' : 'r';
     const uarm = B['uarm_' + s], larm = B['larm_' + s], hand = B['hand_' + s];
@@ -891,8 +941,9 @@ export class Human extends EnemyBase {
     _fw.set(sn, 0, c); _lf.set(c, 0, -sn);
     _s.setFromMatrixPosition(uarm.matrixWorld);
     _q2.setFromRotationMatrix(uarm.parent!.matrixWorld);
+    if (this.S !== 1) _q2.normalize(); // (a scaled rig: world matrices carry the scale)
     _v3.copy(_lf).multiplyScalar(side * (0.35 + out)).addScaledVector(Y, down).addScaledVector(_fw, back);
-    const bend = armIK(_s, T, _v3, K.uarm, K.larm, _q2, uarm);
+    const bend = armIK(_s, T, _v3, K.uarm * this.S, K.larm * this.S, _q2, uarm);
     larm.quaternion.setFromAxisAngle(X, -bend);
     if (face || head) {
       uarm.updateMatrixWorld(true);
@@ -909,7 +960,7 @@ export class Human extends EnemyBase {
    * Orient a hand in world terms: `fingers` direction and `palm` normal given in RIG axes (x his left, y up, z front).
    * Requires the arm's world matrices to be current (call right after ikArm).
    */
-  private palmTo(side: number, fingers: THREE.Vector3, palm: THREE.Vector3): void {
+  protected palmTo(side: number, fingers: THREE.Vector3, palm: THREE.Vector3): void {
     const B = this.B, s = side > 0 ? 'l' : 'r';
     const larm = B['larm_' + s], hand = B['hand_' + s];
     B['uarm_' + s].updateMatrixWorld(true);
@@ -921,14 +972,16 @@ export class Human extends EnemyBase {
     const zAx = _s.copy(xAx).cross(yAx);
     _m.makeBasis(xAx, yAx, zAx);
     _q2.setFromRotationMatrix(_m);
-    _q3.setFromRotationMatrix(larm.matrixWorld).invert();
+    _q3.setFromRotationMatrix(larm.matrixWorld);
+    if (this.S !== 1) _q3.normalize();
+    _q3.invert();
     hand.quaternion.copy(_q3).multiply(_q2);
   }
 
   // ───────────────────────────────────────────── attention (REVISION 6.1)
 
   /** A clear line from a to b, seeing through glass (re-cast past each pane, at most 3 panes). */
-  private sightRay(a: THREE.Vector3, b: THREE.Vector3): boolean {
+  protected sightRay(a: THREE.Vector3, b: THREE.Vector3): boolean {
     const ph = this.world.ctx.physics;
     _t.copy(a);
     for (let k = 0; k < 4; k++) {
@@ -945,7 +998,7 @@ export class Human extends EnemyBase {
     return false;
   }
 
-  private canSeePlayer(eye: THREE.Vector3): boolean {
+  protected canSeePlayer(eye: THREE.Vector3): boolean {
     const w = this.world, pl = w.ctx.player;
     if (!pl || !pl.alive) return false;
     const d = eye.distanceTo(w.playerEye);
@@ -959,7 +1012,7 @@ export class Human extends EnemyBase {
   }
 
   /** A round lands near him: flinch and look at it — only if he can see where it hit (within 3 m). */
-  private onImpact(point: THREE.Vector3): void {
+  protected onImpact(point: THREE.Vector3): void {
     if (!this.object.parent) return;
     _v3.setFromMatrixPosition(this.B.neck.matrixWorld);
     const p = this.body.position;
@@ -973,7 +1026,7 @@ export class Human extends EnemyBase {
   }
 
   /** Who he looks at this frame: an impact he just saw, the story's pin, the player he can see, or nothing (rest). */
-  private attention(dt: number): void {
+  protected attention(dt: number): void {
     const w = this.world, t = w.time;
     _v.setFromMatrixPosition(this.B.neck.matrixWorld);
     this.sightT -= dt;
@@ -1010,7 +1063,7 @@ export class Human extends EnemyBase {
 
   // ───────────────────────────────────────────── overlays
 
-  private look(dt: number): void {
+  protected look(dt: number): void {
     const w = this.world, B = this.B, t = w.time;
     // where to look: the story's target, or the task at hand, or nervous glances
     let tgt: THREE.Vector3;
@@ -1018,20 +1071,23 @@ export class Human extends EnemyBase {
     // carried / lying: only what is within ±40° of where his face points; walking: the player only within ±50° of the path
     if (this.lookPt && (this.pose === 'carried' || (this.onPlayer && this.walkW > 0.3))) {
       _v.setFromMatrixPosition(B.neck.matrixWorld);
-      _q.setFromRotationMatrix(B.spine2.matrixWorld).invert();
+      _q.setFromRotationMatrix(B.spine2.matrixWorld);
+      if (this.S !== 1) _q.normalize();
+      _q.invert();
       _v2.copy(this.lookPt).sub(_v).applyQuaternion(_q);
       const ya = Math.atan2(_v2.x, _v2.z), pa = Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z));
       const lim = this.pose === 'carried' ? 0.7 : 0.87;
       if (Math.abs(ya) > lim || (this.pose === 'carried' && Math.abs(pa) > lim)) tracking = false;
     }
+    const task = this.taskLook();
     if (tracking && this.lookPt) tgt = this.lookPt;
-    else if (this.pose === 'write') tgt = this.markerTip;
+    else if (task) tgt = task;
     else {
       this.glanceT -= dt;
       if (this.glanceT <= 0) {
         const busy = this.pose === 'bang_glass' || this.pose === 'held' || this.pose === 'struggle';
         this.glanceT = (busy ? 0.5 : 1.2) + w.rand() * (busy ? 1.2 : 3);
-        const yawR = (w.rand() - 0.5) * (busy ? 1.6 : 1.1), pit = (w.rand() - 0.5) * 0.12 + (this.pose === 'sit' || this.pose === 'sit_floor' ? -0.3 : 0);
+        const yawR = (w.rand() - 0.5) * (busy ? 1.6 : 1.1), pit = (w.rand() - 0.5) * 0.12 + (this.seatedLook() ? -0.3 : 0);
         this.rigPoint(Math.sin(yawR) * 4, 1.6 + Math.sin(pit) * 4, Math.cos(yawR) * 4, this.glance);
         if (this.pose === 'carried') this.rigPoint(Math.sin(yawR) * 2, 4, 0.5, this.glance);
       }
@@ -1039,9 +1095,11 @@ export class Human extends EnemyBase {
       // walking: eyes on the way ahead
       if (this.walkW > 0.3) tgt = this.rigPoint(noise1(t * 0.3, this.seed + 30) * 1.2, 1.55, 5 * this.travel, this.glance);
     }
-    const wt = this.pose === 'carried' ? 0.5 : this.pose === 'sit' || this.pose === 'sit_floor' ? 0.7 : 1;
+    const wt = this.pose === 'carried' ? 0.5 : this.seatedLook() ? 0.7 : 1;
     _v.setFromMatrixPosition(B.neck.matrixWorld);
-    _q.setFromRotationMatrix(B.spine2.matrixWorld).invert();
+    _q.setFromRotationMatrix(B.spine2.matrixWorld);
+    if (this.S !== 1) _q.normalize();
+    _q.invert();
     _v2.copy(tgt).sub(_v).applyQuaternion(_q);
     const yaw = Math.atan2(_v2.x, _v2.z), pitch = -Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z));
     const behind = Math.abs(yaw) > 2.4;
@@ -1061,9 +1119,13 @@ export class Human extends EnemyBase {
     if (Math.abs(this.eY.v) > 3) this.blinkSoon();
   }
 
-  private blinkSoon(): void { if (this.blinkT <= 0 && this.nextBlink > 0.25) this.nextBlink = Math.min(this.nextBlink, 0.05 + this.world.rand() * 0.1); }
+  /** Where the task at hand makes him look when nobody is (writing: the marker). */
+  protected taskLook(): THREE.Vector3 | null { return this.pose === 'write' ? this.markerTip : null; }
+  protected seatedLook(): boolean { return this.pose === 'sit' || this.pose === 'sit_floor'; }
 
-  private tickBlink(dt: number): void {
+  protected blinkSoon(): void { if (this.blinkT <= 0 && this.nextBlink > 0.25) this.nextBlink = Math.min(this.nextBlink, 0.05 + this.world.rand() * 0.1); }
+
+  protected tickBlink(dt: number): void {
     const w = this.world;
     if (this.blinkT > 0) {
       this.blinkT -= dt;
@@ -1080,7 +1142,7 @@ export class Human extends EnemyBase {
     }
   }
 
-  private speech(dt: number): void {
+  protected speech(dt: number): void {
     const B = this.B, t = this.world.time, sd = this.seed;
     let jaw = this.pose === 'struggle' ? 0.09 : this.pose === 'carried' || this.pose === 'held' || this.pose === 'bang_glass' ? 0.05 : 0.012;
     // the scanned head keeps its lips closed at rest (they only part while he speaks / fights for breath)
@@ -1107,7 +1169,7 @@ export class Human extends EnemyBase {
     B.jaw.quaternion.setFromAxisAngle(X, jaw);
   }
 
-  private face(): void {
+  protected face(): void {
     const B = this.B, t = this.world.time, sd = this.seed;
     // worry lives in his brows: inner ends up, a little furrow; fear widens the eyes
     const fear = this.flinchK > 0.3 || this.pose === 'back_away' || this.pose === 'held' || this.pose === 'struggle' || this.pose === 'bang_glass' ? 1 : this.pose === 'carried' ? 0.6 : 0.35;
@@ -1127,7 +1189,7 @@ export class Human extends EnemyBase {
     }
   }
 
-  private secondary(dt: number): void {
+  protected secondary(dt: number): void {
     const B = this.B;
     // the badge hangs plumb (mostly) and swings with the walk; the knotted sleeves likewise from the hips
     _q.copy(B.hips.quaternion).multiply(B.spine1.quaternion).multiply(B.spine2.quaternion).invert();

@@ -17,6 +17,18 @@
  *   &shelf=1              a 1.0 m shelf in front of the machine (fold workers)
  *   &flashlit=1           scripted player keeps a flashlight on the machine's head
  *   &fire=<s>             scripted player fires a weapon at time s (weapon:fired event)
+ * Stage 3a §8.8 (Halvorsen):
+ *   &who=halvorsen        the human actor is Halvorsen (loads his head; level stays 2 unless &level=3)
+ *   &both=1               Tomas (left, x −0.75) and Halvorsen (right, x +0.75) side by side, same pose
+ *   &office=1             desk (front edge 0.32 m ahead, top 0.76), chair under him, swivel monitor, phone base;
+ *                         the props are handed to him (monitor, phone, badge target)
+ *   &light=lamp           warm desk-lamp key from his front-left + a dim cold fill (no studio env)
+ *   &props=glasses:nose,mug:1,expr:fear   prop(name, value) calls at t = 0
+ *   &seq=pose@t,pose@t    pose changes at times (also one-shots: rub_face, flinch)
+ *   &pinobj=1             a small marker circling in front of him; he is pinned to it (lookAt(Object3D))
+ *   &lookcam=1            he is pinned to the camera (lookAt(camera)); &camorbit=<rad/s> swings the camera round him
+ *   &nohead=1             his procedural fallback head (as if the GLB failed to load)
+ *   &colltest=1           logs where a player-sized capsule walking into him stops, and what a chest ray hits
  */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -49,6 +61,9 @@ async function main() {
   } as unknown as GameContext;
   (window as any).__game = ctx;
   scene.add(camera);
+  const who = q.get('who') ?? undefined;
+  const both = q.get('both') === '1';
+  if (who === 'halvorsen' || both) (ctx as any).devCast = { halvorsen: true, noHead: q.get('nohead') === '1' };
 
   let real = q.get('real') === '1';
   if (real) {
@@ -82,12 +97,12 @@ async function main() {
   } as any;
 
   // ── environment
-  if (!real || lightMode === 'studio') {
+  if (!real || lightMode === 'studio' || lightMode === 'lamp') {
     const pm = new THREE.PMREMGenerator(renderer);
     scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = lightMode === 'dark' ? 0.04 : 0.45;
+    scene.environmentIntensity = lightMode === 'dark' ? 0.04 : lightMode === 'lamp' ? 0.06 : 0.45;
   }
-  scene.background = new THREE.Color(lightMode === 'dark' ? 0x010203 : 0x0b0d10);
+  scene.background = new THREE.Color(lightMode === 'dark' || lightMode === 'lamp' ? 0x030405 : 0x0b0d10);
   const floorMat = ctx.materials.get('floor_concrete');
   const wallMat = ctx.materials.get('wall_panel');
   const colliders: THREE.Mesh[] = [];
@@ -116,11 +131,39 @@ async function main() {
     pane.position.set(0, 1.3, gz); scene.add(pane);
     addBox(4, 0.9, 0.3, 0, 0.45, gz + 0.15, wallMat); // console sill under the glass
   }
+  if (q.get('office') === '1') {
+    // Halvorsen's office (§4.3, distances from his seat): desk front edge 0.32 m ahead, top 0.76, 1.2 deep; chair under him
+    const ox = Number(P('x', '0')), oz = Number(P('z', '0'));
+    const wood = ctx.materials.get('wood_veneer' as MaterialName);
+    const deskM = wood.name === 'wood_veneer' ? wood : wallMat;
+    addBox(1.6, 0.035, 1.2, ox, 0.76 - 0.0175, oz + 0.32 + 0.6, deskM);
+    addBox(0.04, 0.72, 1.1, ox - 0.76, 0.36, oz + 0.32 + 0.6, deskM); addBox(0.04, 0.72, 1.1, ox + 0.76, 0.36, oz + 0.32 + 0.6, deskM);
+    addBox(1.5, 0.4, 0.02, ox, 0.52, oz + 0.32 + 1.15, deskM); // modesty panel at the back
+    const chairM = ctx.materials.get('fabric');
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.44), chairM); seat.position.set(ox, 0.44, oz - 0.02); scene.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 0.05), chairM); back.position.set(ox, 0.78, oz - 0.27); back.rotation.x = -0.12; scene.add(back);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.4, 8), ctx.materials.get('chrome')); post.position.set(ox, 0.21, oz - 0.02); scene.add(post);
+    // swivel monitor (pivot = its centre), facing him at the start
+    const mon = new THREE.Group(); mon.position.set(ox - 0.3, 1.08, oz + 0.32 + 0.55);
+    const scr = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.32, 0.03), ctx.materials.get('plastic_dark')); mon.add(scr);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.28), new THREE.MeshBasicMaterial({ color: 0x3a6a8a })); face.position.z = -0.016; face.rotation.y = Math.PI; mon.add(face);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.3, 8), ctx.materials.get('chrome')); arm.position.y = -0.3; mon.add(arm);
+    scene.add(mon); (ctx as any)._monitor = mon;
+    const phone = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.18), ctx.materials.get('plastic_white')); phone.position.set(ox + 0.32, 0.76 + 0.025, oz + 0.32 + 0.18); scene.add(phone);
+    (ctx as any)._phoneBase = new THREE.Vector3(ox + 0.32, 0.76 + 0.05, oz + 0.32 + 0.18);
+    (ctx as any)._badgeTarget = new THREE.Vector3(ox - 0.05, 0.76, oz + 0.32 + 0.8);
+  }
   if (q.get('obst') === '1') { addBox(1.2, 1.2, 1.2, 2.5, 0.6, 4, wallMat); addBox(4, 2.5, 0.4, -3, 1.25, 6, wallMat); addBox(0.6, 0.25, 3, 0, 0.125, 5, wallMat); }
   ctx.physics.build(colliders);
 
   const lights = ctx.render.lights;
-  if (q.get('scene') === 'booth') {
+  if (lightMode === 'lamp') {
+    // Halvorsen's office: a banker's-lamp key from his front-left, a dim cold fill, a faint bounce off the desk
+    const ox = Number(P('x', '0')), oz = Number(P('z', '0'));
+    lights.add({ type: 'spot', position: new THREE.Vector3(ox + 0.55, 1.75, oz + 0.85), target: new THREE.Vector3(ox, 1.25, oz), color: 0xffc58a, intensity: Number(P('lampI', '14')), distance: 6, angle: 0.75, penumbra: 0.7, castShadow: true });
+    lights.add({ type: 'point', position: new THREE.Vector3(ox - 2.0, 2.4, oz + 2.5), color: 0x6c86a8, intensity: Number(P('fillI', '1.6')), distance: 9 });
+    lights.add({ type: 'point', position: new THREE.Vector3(ox + 0.1, 0.95, oz + 0.7), color: 0xffb070, intensity: 0.35, distance: 2.0 });
+  } else if (q.get('scene') === 'booth') {
     const z0 = Number(P('z', '0'));
     lights.add({ type: 'point', position: new THREE.Vector3(-0.5, 2.7, z0 - 0.6), color: 0xffb46a, intensity: 10, distance: 7, castShadow: true });
     lights.add({ type: 'spot', position: new THREE.Vector3(0.5, 2.8, z0 + 0.3), target: new THREE.Vector3(0, 1.2, z0), color: 0xffc890, intensity: 45, distance: 8, angle: 0.8, penumbra: 0.8, castShadow: true });
@@ -195,8 +238,32 @@ async function main() {
   const v3 = (k: string) => { const a = q.get(k)!.split(',').map(Number); return new THREE.Vector3(a[0], a[1], a[2]); };
   let actorArrived = -1;
   if (isActor) {
-    actor = enemies.actor(type, spawnPos, yaw0, pose === 'none' ? undefined : pose, q.get('look2') ? { look: q.get('look2') as any } : undefined);
+    const aopts: any = {};
+    if (q.get('look2')) aopts.look = q.get('look2');
+    if (who && !both) aopts.who = who;
+    if (both) {
+      const tomas = enemies.actor(type, spawnPos.clone().add(new THREE.Vector3(-0.75, 0, 0)), yaw0, pose === 'none' ? undefined : pose, {});
+      (window as any).__tomas = tomas;
+      aopts.who = 'halvorsen';
+      actor = enemies.actor(type, spawnPos.clone().add(new THREE.Vector3(0.75, 0, 0)), yaw0, pose === 'none' ? undefined : pose, aopts);
+    } else actor = enemies.actor(type, spawnPos, yaw0, pose === 'none' ? undefined : pose, Object.keys(aopts).length ? aopts : undefined);
     (window as any).__actor = actor;
+    const prop = (actor as any).prop as ((n: string, v: unknown) => void) | undefined;
+    if (prop) {
+      if ((ctx as any)._monitor) prop('monitor', (ctx as any)._monitor);
+      if ((ctx as any)._phoneBase) prop('phone', (ctx as any)._phoneBase);
+      if ((ctx as any)._badgeTarget) prop('badgeTarget', (ctx as any)._badgeTarget);
+      for (const kv of (q.get('props') ?? '').split(',').filter(Boolean)) {
+        const [k, v] = kv.split(':');
+        prop(k, v === '1' ? true : v === '0' ? false : v);
+      }
+    }
+    if (q.get('lookcam') === '1') actor.lookAt(camera);
+    if (q.get('pinobj') === '1') {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff4020 }));
+      scene.add(m); (ctx as any)._pinObj = m;
+      actor.lookAt(m);
+    }
     if (q.get('eyes')) actor.setEyes(q.get('eyes') === '1');
     if (q.get('alook')) actor.lookAt(v3('alook'));
     if (q.get('gait')) actor.setGait?.(q.get('gait')!);
@@ -283,6 +350,18 @@ async function main() {
     if (q.get('flashlit') === '1' && e) { (player as any).flashlightOn = true; player.forward.copy(e.position).setY(e.position.y + 1.68).sub(player.eye).normalize(); }
     if (q.get('fire') && (ctx as any)._fired !== true && time > Number(q.get('fire'))) { (ctx as any)._fired = true; events.emit('weapon:fired', { weapon: 'pistol', origin: player.eye.clone(), direction: player.forward.clone() }); }
     if (actor && q.get('apose') && time >= Number(P('aposeat', '1')) && (actor as any)._posed !== true) { (actor as any)._posed = true; actor.setPose(q.get('apose')!); }
+    if (actor && q.get('seq')) {
+      const done: Set<number> = ((actor as any)._seqDone ??= new Set<number>());
+      q.get('seq')!.split(',').forEach((it, i) => {
+        const [ps, at] = it.split('@');
+        if (!done.has(i) && time >= Number(at)) { done.add(i); actor!.setPose(ps); }
+      });
+    }
+    const pin = (ctx as any)._pinObj as THREE.Object3D | undefined;
+    if (pin) {
+      const a = time * 0.9;
+      pin.position.set(spawnPos.x + Math.sin(a) * 0.55, spawnPos.y + 1.5 + Math.sin(a * 1.7) * 0.2, spawnPos.z + 0.9 + Math.cos(a) * 0.2);
+    }
     enemies.update(dt);
     ctx.fx.update(dt);
   };
@@ -312,6 +391,7 @@ async function main() {
       case 'bq': o.set(-0.7, 0.3, -1); break;
       default: o.set(0.75, 0.32, 1);
     }
+    if (q.get('camorbit')) o.applyAxisAngle(up, Math.sin(time * Number(q.get('camorbit'))) * 0.9);
     o.normalize().multiplyScalar(dist);
     camera.position.copy(camTarget).add(o);
     if (q.get('campos')) { const a = q.get('campos')!.split(',').map(Number); camera.position.set(a[0], a[1], a[2]); }
@@ -342,6 +422,15 @@ async function main() {
       (e ? `enemy: ${e.state}/${e.mode ?? ''} hp=${e.health.toFixed(0)} dist=${e.dist?.toFixed(1)} active=${enemies.activeCount} watch=${((e.watchYaw ?? 0) * 57.3).toFixed(1)} work=${e.workFrozen ? 'FROZEN' : (e.workT ?? 0).toFixed(2)}\n` : '') +
       `player hp=${player.health} steps=${steps}\nevents: ${events_.slice(-8).join(' ')}\n${audioLog.slice(-4).join(' ')}\n${info.join('\n')}`;
   };
+  if (q.get('colltest') === '1' && actor) {
+    // §8.8 collider check: a player-sized capsule walks into him from the front for 2.5 s; where does it stop?
+    const body = { position: new THREE.Vector3(spawnPos.x + 0.05, spawnPos.y, spawnPos.z + 1.6), velocity: new THREE.Vector3(), radius: 0.32, height: 1.75, onGround: true, gravityScale: 1 };
+    for (let i = 0; i < 150; i++) { body.velocity.x = 0; body.velocity.z = -2.0; sim(1 / 60); ctx.physics.moveBody(body as any, 1 / 60); }
+    console.log('[harness] colltest: capsule stopped at z=' + body.position.z.toFixed(3) + ' (actor at z=' + actor.position.z.toFixed(3) + ', distance ' + (body.position.z - actor.position.z).toFixed(3) + ')');
+    // a shot at his chest from the front: what does the ray hit?
+    const hit = ctx.physics.raycast(new THREE.Vector3(spawnPos.x, spawnPos.y + 1.2, spawnPos.z + 3), new THREE.Vector3(0, 0, -1), 10);
+    console.log('[harness] colltest: chest ray hits ' + (hit ? hit.surface + ' at z=' + hit.point.z.toFixed(3) + ' owner=' + String(hit.owner) : 'nothing'));
+  }
   const strip = Number(P('strip', '0'));
   if (strip > 1) {
     // contact sheet: N time slices side by side (for judging animation from one screenshot)
@@ -359,6 +448,8 @@ async function main() {
       for (let k = 0; k < Math.round(interval * 120); k++) sim(1 / 120);
     }
     const e = first() as any;
+    const dbgE = (enemies as any).actors?.find((x: any) => x.who === 'halvorsen');
+    if (dbgE) { const v = new THREE.Vector3(); dbgE.B.card.getWorldPosition(v); const hv = new THREE.Vector3(); dbgE.B.hand_r.getWorldPosition(hv); console.log('[harness] halvorsen', JSON.stringify(dbgE.props), 'hand', hv.toArray().map((n: number) => n.toFixed(3)).join(','), 'card', v.toArray().map((n: number) => n.toFixed(3)).join(','), 'scale', dbgE.B.card.scale.x.toFixed(3)); }
     hud.textContent = `${type} ${state} strip ${strip} × ${interval}s  t=${time.toFixed(2)} ${e ? e.state + '/' + (e.mode ?? '') + ' hp=' + e.health.toFixed(0) : ''} ${actor ? 'actor arrived=' + actorArrived.toFixed(2) : ''} player hp=${player.health} steps=${steps}\nevents: ${events_.join(' ')}\nfx: ${JSON.stringify((ctx.fx as any).counts ?? {})} ${audioLog.join(' ')}`;
     ctx.ready = true;
     return;
