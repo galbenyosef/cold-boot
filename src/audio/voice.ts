@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import type { PlayOpts, SayOpts, VoiceHandle } from '../core/types';
 import type { AudioEngine } from './engine';
-import { FX_SR, parseFx, renderVoiceFx } from './voicefx';
+import { FX_SR, fxLead, parseFx, renderVoiceFx } from './voicefx';
 
 export interface VoiceEntry {
   id: string;
@@ -25,6 +25,8 @@ export interface VoiceEntry {
   fx: string;
   level: string;
   generated: boolean;
+  /** Seconds of near-silence before the first word in the file (manifest `lead`, tools/voice): skipped at decode. */
+  lead: number;
 }
 
 const MANIFEST = import.meta.glob('../../voice/manifest.json', { eager: true, import: 'default' }) as Record<string, unknown>;
@@ -48,7 +50,7 @@ export function loadVoiceTable(): Map<string, VoiceEntry> {
       const text = String(l.text ?? '');
       out.set(l.id, {
         id: l.id, files: [], duration: estimateDuration(String(l.spoken ?? text)), speaker: spk, name: spk.toUpperCase(),
-        text, fx: String(l.fx ?? (spk === 'choir' ? 'choir' : 'clean')), level, generated: false,
+        text, fx: String(l.fx ?? (spk === 'choir' ? 'choir' : 'clean')), level, generated: false, lead: 0,
       });
     }
   }
@@ -58,8 +60,10 @@ export function loadVoiceTable(): Map<string, VoiceEntry> {
     if (!m || typeof m.file !== 'string') continue;
     const prev = out.get(id);
     const files = Array.isArray(m.layers) && m.layers.length ? m.layers.map((x: any) => String(x.file)) : [m.file];
+    const lead = Math.max(0, Math.min(2, Number(m.lead) || 0));
     out.set(id, {
-      id, files, duration: Number(m.duration) || prev?.duration || 2, speaker: String(m.speaker ?? prev?.speaker ?? ''),
+      // (the duration is what is HEARD: the file less its lead-in)
+      id, files, lead, duration: Math.max(0.2, (Number(m.duration) || prev?.duration || 2) - lead), speaker: String(m.speaker ?? prev?.speaker ?? ''),
       name: String(m.name ?? prev?.name ?? ''), text: String(m.text ?? prev?.text ?? ''), fx: String(m.fx ?? prev?.fx ?? 'clean'),
       level: String(m.level ?? prev?.level ?? ''), generated: true,
     });
@@ -67,25 +71,61 @@ export function loadVoiceTable(): Map<string, VoiceEntry> {
   return out;
 }
 
-/** Where a line's 3D source sits / how far it carries, per fx. */
-const POS: Record<string, { ref: number; rolloff: number; send: number }> = {
+/**
+ * Where a line's 3D source sits / how far it carries, per fx. `gain`: level of the positioned voice (default 1).
+ * Measured at the listener (scripts/check-voice-level.mjs): a person speaking in the room (`clean`) at ≤ 4 m arrives
+ * −0.9 … +2.3 dB against CHOIR's in-ear PA line through the HRTF panner, take by take (and ±1 dB between a 44.1 and a
+ * 48 kHz device: the HRTF set is resampled); +2.3 dB (1.3) puts every one of them at least as loud as CHOIR with
+ * ≥ 1 dB to spare, ≈ −2 dB at 12 m (target: ≥ −5).
+ */
+const POS: Record<string, { ref: number; rolloff: number; send: number; gain?: number }> = {
   intercom: { ref: 3, rolloff: 0.9, send: 0.6 },
   headset: { ref: 1.5, rolloff: 1.0, send: 0.3 },
   unit: { ref: 2.2, rolloff: 1.1, send: 0.8 },
   foreman: { ref: 4, rolloff: 0.9, send: 0.9 },
   recorder: { ref: 1.5, rolloff: 1.2, send: 0.4 },
   pa: { ref: 7, rolloff: 0.6, send: 1.1 },
-  clean: { ref: 4, rolloff: 0.6, send: 0.7 }, // a person speaking in the room: must carry down a corridor (−6 dB at ~11 m)
+  clean: { ref: 4, rolloff: 0.6, send: 0.7, gain: 1.3 }, // a person speaking in the room: must carry down a corridor (−6 dB at ~11 m)
   choir: { ref: 8, rolloff: 0.5, send: 1 },
   room: { ref: 2.5, rolloff: 1.1, send: 0.35 }, // a small speaker / a person in an office
   door: { ref: 2, rolloff: 1.3, send: 0.3 }, // behind a sealed cabin door
 };
+/** fx whose rendering already IS the barrier (a voice through a sealed door): no run-time occlusion on top of it. */
+const NO_OCCLUDE = new Set(['door']);
+/**
+ * Occlusion probes above the mouth (m). A voice is occluded only when the line of sight to the mouth AND to points
+ * above it is blocked: the speaker's own body collider (it contains the head) and furniture between two people in
+ * one room (a desk, a monitor) block the first ray, not all of them; a wall or a shut door blocks every one.
+ */
+const OCC_PROBES = [0, 0.35, 0.7];
+
 /** Duck amount while speaking (engine.setDuck: 1 = music −50 %, ambience −40 %). "Slightly". */
 const DUCK: Record<string, number> = { choir: 0.75, pa: 0.5 };
 const DUCK_DEFAULT = 0.45;
 /** A line whose audio arrives later than this after say() is skipped (subtitle sync); done still resolves. */
 const MAX_LATE = 1.0;
-const CACHE_BUDGET = 24 * 1024 * 1024; // bytes of processed PCM kept
+// bytes of processed PCM kept: a whole level (level 2 ≈ 52 MB, the largest) — a line processed on demand starts
+// 40–120 ms after its gesture (measured: scripts/check-voice-level.mjs --mode level2, CHOIR lines)
+const CACHE_BUDGET = 64 * 1024 * 1024;
+
+/**
+ * Debug record of one `say` (scripts/check-voice-level.mjs): when it was asked / started (performance.now ms and
+ * AudioContext s), and the 3D path it took. Bounded (the last TRACE_MAX).
+ */
+export interface VoiceTrace {
+  id: string; fx: string; dur: number; vol: number;
+  /** The fx chain's designed lead before the voice (squelch …; voicefx `fxLead`). */
+  fxLead: number;
+  askP: number; askT: number;
+  startP?: number; startT?: number;
+  /** 'late' | 'missing' | 'not generated' | 'silent' (before unlock) | 'stopped' */
+  skip?: string;
+  positional: boolean; dist?: number; occluded?: boolean; distGain?: number;
+  /** Listener / source at the start (m). */
+  lis?: number[]; src?: number[];
+}
+const TRACE_MAX = 300;
+const _probe = new THREE.Vector3();
 
 class Handle implements VoiceHandle {
   readonly done: Promise<void>;
@@ -96,6 +136,7 @@ class Handle implements VoiceHandle {
   fade: GainNode | null = null;
   panner: PannerNode | null = null;
   pos: THREE.Vector3 | null = null;
+  trace: VoiceTrace | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   constructor(readonly duration: number, private readonly eng: AudioEngine, private readonly onEnd: () => void) {
     this.done = new Promise<void>((r) => { this.resolve = r; });
@@ -147,6 +188,8 @@ export class VoiceBank {
   private speaking = 0;
   private duckLevel = 0;
   private readonly duckers = new Map<object, number>();
+  /** Debug: the last TRACE_MAX says (timing + path). */
+  readonly trace: VoiceTrace[] = [];
   /** CHOIR fallback (synthesised voice) — wired by index.ts. */
   choirFallback: ((text: string, duration: number) => void) | null = null;
   /** Test hook: base URL for voice files (default import.meta.env.BASE_URL). */
@@ -210,7 +253,7 @@ export class VoiceBank {
         const raws = await Promise.all(e.files.map((f) => this.fetchBytes(f)));
         if (raws.some((r) => !r)) return null;
         const bufs = await Promise.all(raws.map((r) => this.decode(r!)));
-        const out = await renderVoiceFx(fxName, bufs, id);
+        const out = await renderVoiceFx(fxName, bufs, id, e.lead);
         this.store(key, out);
         return out;
       } catch (err) {
@@ -245,18 +288,24 @@ export class VoiceBank {
     return [...ids];
   }
 
-  /** Fetch bytes of everything matched; decode + process as many as fit half the cache budget. */
+  /**
+   * Fetch bytes of everything matched; decode + process (in the order asked) as many as fit 85 % of the cache budget —
+   * a level's whole set. One line at a time, yielding between them (the CHOIR chain's pitch shifts run on the main
+   * thread: tens of ms each).
+   */
   async preload(idsOrPrefixes: string[]): Promise<void> {
     try {
       const ids = this.match(idsOrPrefixes).filter((id) => this.table.get(id)?.generated);
       await Promise.all(ids.flatMap((id) => this.table.get(id)!.files.map((f) => this.fetchBytes(f))));
-      let budget = CACHE_BUDGET / 2;
+      let budget = CACHE_BUDGET * 0.85;
       for (const id of ids) {
         const e = this.table.get(id)!;
         const est = e.duration * FX_SR * 4 * (parseFx(e.fx).name === 'choir' ? 2 : 1);
         if (budget - est < 0) break;
         budget -= est;
+        const cached = this.ready.has(id);
         await this.processed(id);
+        if (!cached) await new Promise((r) => setTimeout(r, 4));
       }
     } catch (e) {
       console.warn('[audio] preloadVoice failed', e);
@@ -296,6 +345,18 @@ export class VoiceBank {
 
   get activeLines(): number { return this.speaking; }
 
+  /** See OCC_PROBES. */
+  occluded(p: THREE.Vector3): boolean {
+    const los = this.eng.los;
+    if (!los) return false;
+    const L = this.eng.listener;
+    for (const dy of OCC_PROBES) {
+      _probe.set(p.x, p.y + dy, p.z);
+      if (los(L, _probe)) return false;
+    }
+    return true;
+  }
+
   // ───────────────────────── say
 
   say(id: string, opts?: SayOpts): VoiceHandle {
@@ -315,6 +376,10 @@ export class VoiceBank {
     let release: (() => void) | null = null;
     const h = new Handle(duration, this.eng, () => { if (release) { release(); release = null; } });
     if (opts?.position) h.pos = opts.position.clone();
+    const rec: VoiceTrace = { id: String(id), fx: String(opts?.fx || e?.fx || ''), dur: duration, vol: Math.max(0, opts?.volume ?? 1), fxLead: fxLead(parseFx(opts?.fx || e?.fx).name), askP: performance.now(), askT: this.eng.now, positional: !!h.pos };
+    this.trace.push(rec);
+    if (this.trace.length > TRACE_MAX) this.trace.splice(0, this.trace.length - TRACE_MAX);
+    h.trace = rec;
     if (!e) {
       this.warnOnce(String(id), `[audio] unknown voice line "${id}"`);
       h.finishAfter(duration);
@@ -322,6 +387,7 @@ export class VoiceBank {
     }
     const fallback = (why: string) => {
       if (h.finished || h.stopped) return;
+      rec.skip = why;
       if (e.speaker === 'choir' && this.choirFallback && this.eng.running) {
         this.warnOnce(id + ':fb', `[audio] voice ${id}: ${why} — synthesised CHOIR fallback`);
         try { this.choirFallback(e.text, duration); } catch { /* ignore */ }
@@ -330,14 +396,15 @@ export class VoiceBank {
     };
     const asked = this.eng.now;
     if (!e.generated) { fallback('not generated yet'); return h; }
-    if (!this.eng.running) { h.finishAfter(duration); return h; } // before unlock: keep timing, no sound
+    if (!this.eng.running) { rec.skip = 'silent'; h.finishAfter(duration); return h; } // before unlock: keep timing, no sound
     const t0 = performance.now();
     const fx = typeof opts?.fx === 'string' && opts.fx ? opts.fx : undefined;
     this.processed(id, fx).then((buf) => {
-      if (h.finished || h.stopped) return;
+      if (h.finished || h.stopped) { rec.skip = 'stopped'; return; }
       if (!buf) { fallback('file missing'); return; }
       const late = (performance.now() - t0) / 1000;
       if (late > MAX_LATE) {
+        rec.skip = 'late';
         this.warnOnce(id + ':late', `[audio] voice ${id} ready ${late.toFixed(2)} s late — skipped (preloadVoice it)`);
         h.finishAfter(Math.max(0, duration - late));
         return;
@@ -360,7 +427,7 @@ export class VoiceBank {
     const P = POS[fx] ?? POS.clean;
     if (h.pos) {
       const dist = h.pos.distanceTo(this.eng.listener);
-      const occluded = this.eng.los ? !this.eng.los(this.eng.listener, h.pos) : false;
+      const occluded = NO_OCCLUDE.has(fx) ? false : this.occluded(h.pos);
       let last: AudioNode = fade;
       if (occluded || dist > 12) {
         const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5;
@@ -368,9 +435,11 @@ export class VoiceBank {
         const og = c.createGain(); og.gain.value = occluded ? 0.55 : 1;
         last.connect(lp); lp.connect(og); last = og; nodes.push(lp, og);
       }
+      if (P.gain && P.gain !== 1) fade.gain.value *= P.gain;
       const pan = c.createPanner();
       try { pan.panningModel = this.eng.usePanningModel; } catch { pan.panningModel = 'equalpower'; }
       pan.distanceModel = 'inverse'; pan.refDistance = P.ref; pan.rolloffFactor = P.rolloff; pan.maxDistance = 200;
+      if (h.trace) { const L = this.eng.listener; h.trace.lis = [L.x, L.y, L.z]; h.trace.src = [h.pos.x, h.pos.y, h.pos.z]; h.trace.dist = dist; h.trace.occluded = occluded; h.trace.distGain = P.ref / (P.ref + P.rolloff * (Math.max(dist, P.ref) - P.ref)); }
       const t = this.eng.now;
       pan.positionX.setValueAtTime(h.pos.x, t); pan.positionY.setValueAtTime(h.pos.y, t); pan.positionZ.setValueAtTime(h.pos.z, t);
       last.connect(pan); pan.connect(this.eng.buses.voice); nodes.push(pan);
@@ -392,5 +461,6 @@ export class VoiceBank {
       h.finish();
     };
     src.start();
+    if (h.trace) { h.trace.startP = performance.now(); h.trace.startT = this.eng.now; }
   }
 }

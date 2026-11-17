@@ -54,10 +54,19 @@ export interface SayOpts {
   ttl?: number;
   /** Scene only: goes in front of everything queued (an interjection between two lines). */
   next?: boolean;
+  /**
+   * Scene clocks: when the channel is free, start on THIS frame (inside `say`), not on the next `update` — a cue's
+   * gesture and its line begin together (scripts/check-voice-level.mjs, SYNC). `onStart` then runs inside `say`.
+   */
+  now?: boolean;
 }
 
 /** One decision of the channel, for the test oracle. `cond`: null = unconditional line. */
-export interface LineLog { t: number; id: string; cond: boolean | null; said: string | null; pri: Pri | 'over' }
+export interface LineLog {
+  t: number; id: string; cond: boolean | null; said: string | null; pri: Pri | 'over';
+  /** Queued at (script time) / performance.now() when queued and when started (sync checks: the cue IS the ask). */
+  q?: number; qp?: number; sp?: number;
+}
 
 // ───────────────────────────────────────────────────────────── rules (R3)
 
@@ -102,7 +111,7 @@ export interface DialogueConfig<F> {
   offStageFx?: readonly string[];
 }
 
-interface Item { id: string; opts: SayOpts; pri: Pri; resolve: (played: boolean) => void; queuedAt: number }
+interface Item { id: string; opts: SayOpts; pri: Pri; resolve: (played: boolean) => void; queuedAt: number; queuedP: number }
 
 export class Dialogue<F = unknown> {
   /** Tests: every line takes 0.25 s. */
@@ -148,7 +157,7 @@ export class Dialogue<F = unknown> {
     const pri = opts.pri ?? 'scene';
     return new Promise((resolve) => {
       if (this.muted) { resolve(false); return; }
-      const item: Item = { id, opts, pri, resolve, queuedAt: this.seq.time };
+      const item: Item = { id, opts, pri, resolve, queuedAt: this.seq.time, queuedP: performance.now() };
       if (pri === 'bark') {
         const cd = this.cooldowns.get(id) ?? -1e9;
         if (this.busy || this.seq.time < this.nextAt || this.seq.time < cd) { resolve(false); return; }
@@ -166,6 +175,7 @@ export class Dialogue<F = unknown> {
         let i = opts.next ? 0 : this.queue.findIndex((q) => q.pri !== 'scene');
         if (i < 0) i = this.queue.length;
         this.queue.splice(i, 0, item);
+        if (opts.now && !this.current && this.queue[0] === item && this.seq.time >= this.nextAt) this.pump();
         return;
       }
       this.queue.push(item);
@@ -249,12 +259,17 @@ export class Dialogue<F = unknown> {
       c.item.resolve(true);
     }
     if (now < this.nextAt) return;
-    // The next line whose condition holds NOW; the ones that fail are skipped in the same frame.
+    this.pump();
+  }
+
+  /** Start the next queued line whose condition holds NOW; the ones that fail are skipped in the same frame. */
+  private pump(): void {
+    const now = this.seq.time;
     while (this.queue.length) {
       const item = this.queue.shift()!;
       const stale = item.opts.ttl !== undefined && now - item.queuedAt > item.opts.ttl;
       const d = stale ? { id: null, cond: false as boolean | null } : this.decide(item.id, item.opts);
-      this.log.push({ t: now, id: item.id, cond: d.cond, said: d.id, pri: item.pri });
+      this.log.push({ t: now, id: item.id, cond: d.cond, said: d.id, pri: item.pri, q: item.queuedAt, qp: item.queuedP, sp: performance.now() });
       if (this.ctx.debug.verbose) console.log(`[line] ${item.id} cond=${d.cond} → ${d.id ?? 'skipped'}${stale ? ' (stale)' : ''}`);
       if (!d.id) { item.resolve(false); continue; }
       this.start(item, d.id);

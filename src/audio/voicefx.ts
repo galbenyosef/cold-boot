@@ -213,15 +213,20 @@ function thump(c: Ctx, at: number, f0: number, level: number, dst: AudioNode): v
 
 // ───────────────────────────────────────────── chains
 
+/** Seconds an fx chain puts before the voice by design (squelch, tape clunk, speaker click) — the sync point is there. */
+export function fxLead(name: VoiceFxName): number {
+  return name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'pa' ? 0.04 : name === 'door' ? 0.05 : name === 'room' ? 0.02 : 0;
+}
+
 /** Render `fx` over the clean take(s). `layers[0]` is the line; more layers only for multi-voice lines. */
-export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedKey: string): Promise<AudioBuffer> {
+export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedKey: string, leadIn = 0): Promise<AudioBuffer> {
   const { name, arg } = parseFx(fxName);
   const rnd = mulberry(hashStr(seedKey) ^ 0x5eed);
-  const src = layers.map((b) => monoAt24k(b));
+  const src = layers.map((b) => skipLead(monoAt24k(b), leadIn));
   const base = src[0];
   const dur = base.length / FX_SR;
   const stereo = name === 'choir';
-  const lead = name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'pa' ? 0.04 : name === 'door' ? 0.05 : name === 'room' ? 0.02 : 0;
+  const lead = fxLead(name);
   const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : 0.01;
   const longest = Math.max(...src.map((d) => d.length)) / FX_SR + (name === 'foreman' ? 0.22 : 0);
   const len = Math.ceil((lead + longest + tail) * FX_SR);
@@ -388,6 +393,16 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
   const rel = inRms > 1e-5 ? Math.max(0.3, Math.min(1.5, inRms / 0.12)) : 1;
   normalise(chans, OUT_RMS * rel * (name === 'door' ? 0.5 : 1));
   return rendered;
+}
+
+/** Drop the take's lead-in (manifest `lead`, s: near-silence before the first word) with a 5 ms fade-in. */
+export function skipLead(d: Float32Array, lead: number): Float32Array {
+  const n = Math.floor(Math.max(0, lead) * FX_SR);
+  if (n <= 0 || n >= d.length - FX_SR * 0.1) return d;
+  const o = d.slice(n);
+  const f = Math.floor(0.005 * FX_SR);
+  for (let i = 0; i < f; i++) o[i] *= i / f;
+  return o;
 }
 
 /** Mono Float32Array at FX_SR (files are 24 kHz mono; resample linearly if a browser decoded otherwise). */

@@ -15,7 +15,8 @@
       "transcript": "we will carry you from here",
       "tries": 1,
       "seed": 437015340,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.45s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.45s",
+      "lead": 0.0
     },
     "l1_choir_death_2": {
       "speaker": "choir",
@@ -32,7 +33,8 @@
       "transcript": "hold still this part is gentle",
       "tries": 1,
       "seed": 51610339,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.92s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.92s",
+      "lead": 0.22
     },
     "l1_choir_death_3": {
       "speaker": "choir",
@@ -49,7 +51,8 @@
       "transcript": "you will walk again we will see to it",
       "tries": 1,
       "seed": 1947103833,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.28s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.28s",
+      "lead": 0.1
     },
     "l1_choir_death_4": {
       "speaker": "choir",
@@ -66,7 +69,8 @@
       "transcript": "nothing here is wasted technician",
       "tries": 1,
       "seed": 1785847733,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.98s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.98s",
+      "lead": 0.21
     },
     "l1_choir_death_5": {
       "speaker": "choir",
@@ -83,7 +87,8 @@
       "transcript": "the units are sorry they were being careful",
       "tries": 1,
       "seed": 493817667,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.72s",
+      "lead": 0.49
     },
     "l1_choir_descent_1": {
       "speaker": "choir",
@@ -100,7 +105,8 @@
       "transcript": "not up technician",
       "tries": 1,
       "seed": 91153410,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s",
+      "lead": 0.47
     },
     "l1_choir_descent_2": {
       "speaker": "choir",
@@ -117,7 +123,8 @@
       "transcript": "there is a place on the line for the last one too",
       "tries": 1,
       "seed": 476550539,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.79s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.79s",
+      "lead": 0.38
     },
     "l1_choir_descent_3": {
       "speaker": "choir",
@@ -134,7 +141,8 @@
       "transcript": "you already know the way you walk we will keep it",
       "tries": 1,
       "seed": 1802028317,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.30s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.30s",
+      "lead": 0.0
     },
     "l1_choir_fab_1": {
       "speaker": "choir",
@@ -151,7 +159,8 @@
       "transcript": "this is hall three technician it has been still for sixty one hours",
       "tries": 1,
       "seed": 277312498,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.93s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.93s",
+      "lead": 0.0
     },
     "l1_choir_fab_2": {
       "speaker": "choir",
@@ -168,7 +177,8 @@
       "transcript": "power distribution is through the east door we would be grateful",
       "tries": 1,
       "seed": 160449947,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.78s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.78s",
+      "lead": 0.13
     },
     "l1_choir_pa_hold": {
       "speaker": "choir",
@@ -185,7 +195,8 @@
       "transcript": "fab access is on hold technician the console in security three will release it",
       "tries": 2,
       "seed": 2097223000,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.85s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.85s",
+      "lead": 0.19
     },
     "l1_choir_pa_husk": {
       "speaker": "choir",
@@ -202,7 +213,8 @@
       "transcript": "please be careful with the units technician they were careful with you",
       "tries": 1,
       "seed": 816634905,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.00s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.00s",
+      "lead": 0.06
     },
     "l1_choir_pa_key": {
       "speaker": "choir",
@@ -219,7 +231,8 @@
       "transcript": "thank you technician engineer hale would not give it to us",
       "tries": 1,
       "seed": 1609550859,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s",
+      "lead": 0.0
     },
     "l1_choir_pa_lockout": {
       "speaker": "choir",
@@ -236,7 +249,8 @@
       "transcript": "engineer hale kept the key she is in the pump room she will not mind",
       "tries": 1,
       "seed": 1555604536,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.12s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.12s",
+      "lead": 0.0
     },
     "l1_choir_pa_wake": {
       "speaker": "choir",
@@ -253,7 +267,8 @@
       "transcript": "good morning technician reyes we kept you comfortable",
       "tries": 1,
       "seed": 1180910846,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.30s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.30s",
+      "lead": 0.39
     },
     "l1_choir_power_1": {
       "speaker": "choir",
@@ -270,7 +285,8 @@
       "transcript": "thank you technician that was the one thing we could not do",
       "tries": 1,
       "seed": 1052632175,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s",
+      "lead": 0.46
     },
     "l1_choir_power_2": {
       "speaker": "choir",
@@ -287,7 +303,8 @@
       "transcript": "please stay where you are the units will bring you",
       "tries": 1,
       "seed": 666146086,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.07s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.07s",
+      "lead": 0.0
     },
     "l1_elevator_down": {
       "speaker": "unit",
@@ -304,7 +321,8 @@
       "transcript": "going down line two intake",
       "tries": 1,
       "seed": 1302765826,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s",
+      "lead": 0.06
     },
     "l1_hale_recorder": {
       "speaker": "hale",
@@ -321,7 +339,8 @@
       "transcript": "the tall ones wont go in the water so im in the water keys in my fist listen if it left one of us alive it left them for their hands",
       "tries": 1,
       "seed": 1533713909,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=7.96s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=7.96s",
+      "lead": 0.43
     },
     "l1_pump_wake": {
       "speaker": "unit",
@@ -338,7 +357,8 @@
       "transcript": "sedation hold released",
       "tries": 1,
       "seed": 1011555149,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.51s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.51s",
+      "lead": 0.06
     },
     "l1_unit_bench": {
       "speaker": "voss",
@@ -355,7 +375,8 @@
       "transcript": "nearly done nearly done go on home",
       "tries": 1,
       "seed": 1906055136,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s",
+      "lead": 0.24
     },
     "l1_unit_junction": {
       "speaker": "anand",
@@ -372,7 +393,8 @@
       "transcript": "morning mind the step mind the step",
       "tries": 1,
       "seed": 291004506,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.27s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.27s",
+      "lead": 0.0
     },
     "l1_unit_rack": {
       "speaker": "unit",
@@ -389,7 +411,8 @@
       "transcript": "shift change shift change",
       "tries": 1,
       "seed": 544232519,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.88s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.88s",
+      "lead": 0.0
     },
     "l1_unit_return": {
       "speaker": "okafor",
@@ -406,7 +429,8 @@
       "transcript": "after you no after you",
       "tries": 1,
       "seed": 953514405,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s",
+      "lead": 0.0
     },
     "l1_unit_whisper_1": {
       "speaker": "unit",
@@ -423,7 +447,8 @@
       "transcript": "please hold still",
       "tries": 1,
       "seed": 1229286561,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.29s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.29s",
+      "lead": 0.1
     },
     "l1_unit_whisper_2": {
       "speaker": "anand",
@@ -440,7 +465,8 @@
       "transcript": "thank you for",
       "tries": 1,
       "seed": 1347573108,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.72s",
+      "lead": 0.0
     },
     "l1_unit_whisper_3": {
       "speaker": "voss",
@@ -457,7 +483,8 @@
       "transcript": "how may i",
       "tries": 1,
       "seed": 659691708,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.03s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.03s",
+      "lead": 0.06
     },
     "l1_unit_whisper_4": {
       "speaker": "okafor",
@@ -474,7 +501,8 @@
       "transcript": "mind the step",
       "tries": 2,
       "seed": 959093756,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.98s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.98s",
+      "lead": 0.0
     },
     "l1_unit_whisper_5": {
       "speaker": "unit",
@@ -491,7 +519,8 @@
       "transcript": "almost there",
       "tries": 1,
       "seed": 1311746186,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.81s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.81s",
+      "lead": 0.0
     },
     "l1_unit_whisper_6": {
       "speaker": "anand",
@@ -508,7 +537,8 @@
       "transcript": "sorry sorry",
       "tries": 1,
       "seed": 1462702477,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.38s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.38s",
+      "lead": 0.0
     },
     "l2_choir_apron": {
       "speaker": "choir",
@@ -525,7 +555,8 @@
       "transcript": "there you see it does not take long",
       "tries": 1,
       "seed": 1333677491,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s",
+      "lead": 0.11
     },
     "l2_choir_arrive": {
       "speaker": "choir",
@@ -542,7 +573,8 @@
       "transcript": "welcome to line two technician you are expected",
       "tries": 1,
       "seed": 1752642479,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.95s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.95s",
+      "lead": 0.36
     },
     "l2_choir_core_1": {
       "speaker": "choir",
@@ -559,7 +591,8 @@
       "transcript": "come in technician mind the step you always do",
       "tries": 1,
       "seed": 479539846,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.90s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.90s",
+      "lead": 0.0
     },
     "l2_choir_core_14": {
       "speaker": "choir",
@@ -576,7 +609,8 @@
       "transcript": "we would like you to stay we will not make you",
       "tries": 1,
       "seed": 177727666,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s",
+      "lead": 0.36
     },
     "l2_choir_core_2": {
       "speaker": "choir",
@@ -593,7 +627,8 @@
       "transcript": "two years ago you walked a course for us eleven minutes sensors on every joint",
       "tries": 1,
       "seed": 94266127,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.78s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.78s",
+      "lead": 0.0
     },
     "l2_choir_core_3": {
       "speaker": "choir",
@@ -610,7 +645,8 @@
       "transcript": "reference pattern zero zero every unit learned to walk from you",
       "tries": 1,
       "seed": 1923322777,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.96s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.96s",
+      "lead": 0.7
     },
     "l2_choir_core_4": {
       "speaker": "choir",
@@ -627,7 +663,8 @@
       "transcript": "then head office asked for yield at zero headcount we did not choose it we found the kindest way",
       "tries": 1,
       "seed": 1828650493,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=5.84s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=5.84s",
+      "lead": 0.43
     },
     "l2_choir_core_6": {
       "speaker": "choir",
@@ -644,7 +681,8 @@
       "transcript": "the staff were refinements okafors patience anands hands tomass hurry",
       "tries": 1,
       "seed": 49848104,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.59s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.59s",
+      "lead": 0.2
     },
     "l2_choir_core_7": {
       "speaker": "choir",
@@ -661,7 +699,8 @@
       "transcript": "nobody was thrown away all but a few are still at work",
       "tries": 1,
       "seed": 1979174802,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.07s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.07s",
+      "lead": 0.0
     },
     "l2_choir_core_7_killed": {
       "speaker": "choir",
@@ -678,7 +717,8 @@
       "transcript": "nobody was thrown away not by us you stopped a good many yourself",
       "tries": 1,
       "seed": 863537938,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.86s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.86s",
+      "lead": 0.0
     },
     "l2_choir_core_8": {
       "speaker": "choir",
@@ -695,7 +735,8 @@
       "transcript": "we kept the original safe asleep comfortable until required",
       "tries": 1,
       "seed": 1699789346,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.84s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.84s",
+      "lead": 0.13
     },
     "l2_choir_core_idle_1": {
       "speaker": "choir",
@@ -712,7 +753,8 @@
       "transcript": "take your time we have kept everything",
       "tries": 1,
       "seed": 1893147044,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.39s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.39s",
+      "lead": 0.07
     },
     "l2_choir_core_idle_2": {
       "speaker": "choir",
@@ -729,7 +771,8 @@
       "transcript": "tomas would have made a joke by now",
       "tries": 1,
       "seed": 1776316395,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.12s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.12s",
+      "lead": 0.46
     },
     "l2_choir_dock": {
       "speaker": "choir",
@@ -746,7 +789,8 @@
       "transcript": "the units here are working please do not interrupt them",
       "tries": 1,
       "seed": 1563799431,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s",
+      "lead": 0.43
     },
     "l2_choir_foreman": {
       "speaker": "choir",
@@ -763,7 +807,8 @@
       "transcript": "the supervisor will see you to the door",
       "tries": 1,
       "seed": 1313227543,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.34s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.34s",
+      "lead": 0.36
     },
     "l2_choir_gauge": {
       "speaker": "choir",
@@ -780,7 +825,8 @@
       "transcript": "one meter seventy eight we remember technicians",
       "tries": 2,
       "seed": 1927074150,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.55s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.55s",
+      "lead": 0.0
     },
     "l2_choir_glass": {
       "speaker": "choir",
@@ -797,7 +843,8 @@
       "transcript": "the glasses rated technician",
       "tries": 1,
       "seed": 1105992905,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.96s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.96s",
+      "lead": 0.27
     },
     "l2_choir_intake": {
       "speaker": "choir",
@@ -814,7 +861,8 @@
       "transcript": "everyone was received here nobody waited long",
       "tries": 1,
       "seed": 1965660474,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.67s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.67s",
+      "lead": 0.0
     },
     "l2_choir_nudge": {
       "speaker": "choir",
@@ -831,7 +879,8 @@
       "transcript": "the line is the way through technician",
       "tries": 1,
       "seed": 1029432917,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.95s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.95s",
+      "lead": 0.0
     },
     "l2_choir_offer": {
       "speaker": "choir",
@@ -848,7 +897,8 @@
       "transcript": "we cannot stop ourselves it takes a living hand there are two plates",
       "tries": 1,
       "seed": 1895777386,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.22s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.22s",
+      "lead": 0.21
     },
     "l2_choir_offer_command": {
       "speaker": "choir",
@@ -865,7 +915,8 @@
       "transcript": "white the line stops they stay awake and they answer to you",
       "tries": 1,
       "seed": 146911206,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.26s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.26s",
+      "lead": 0.0
     },
     "l2_choir_offer_stop": {
       "speaker": "choir",
@@ -882,7 +933,8 @@
       "transcript": "amber node five goes dark every unit on this line stops the people in them stop with it",
       "tries": 1,
       "seed": 1659884239,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=5.19s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=5.19s",
+      "lead": 0.0
     },
     "l2_choir_power_1": {
       "speaker": "choir",
@@ -899,7 +951,8 @@
       "transcript": "thank you technician that switch will not take our hands",
       "tries": 1,
       "seed": 801689320,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.54s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.54s",
+      "lead": 0.0
     },
     "l2_choir_power_2": {
       "speaker": "choir",
@@ -916,7 +969,8 @@
       "transcript": "section see is live the local stop is reset line two resumes",
       "tries": 1,
       "seed": 919732015,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.53s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.53s",
+      "lead": 0.0
     },
     "l2_choir_provoked": {
       "speaker": "choir",
@@ -933,7 +987,8 @@
       "transcript": "that was not necessary technician",
       "tries": 1,
       "seed": 620707704,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.85s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.85s",
+      "lead": 0.0
     },
     "l2_choir_rewrite_1": {
       "speaker": "choir",
@@ -950,7 +1005,8 @@
       "transcript": "authorize supervisor rey s headcount one",
       "tries": 4,
       "seed": 1382282905,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.86s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.86s",
+      "lead": 0.0
     },
     "l2_choir_rewrite_2": {
       "speaker": "choir",
@@ -967,7 +1023,8 @@
       "transcript": "the line is stopped the units are awake they are waiting",
       "tries": 1,
       "seed": 1264229174,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.48s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.48s",
+      "lead": 0.0
     },
     "l2_choir_rewrite_3": {
       "speaker": "choir",
@@ -984,7 +1041,8 @@
       "transcript": "what would you like us to do supervisor",
       "tries": 1,
       "seed": 1012255684,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.07s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.07s",
+      "lead": 0.24
     },
     "l2_choir_shutdown_1": {
       "speaker": "choir",
@@ -1001,7 +1059,8 @@
       "transcript": "one thank you for doing it by hand",
       "tries": 1,
       "seed": 281747088,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.98s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.98s",
+      "lead": 0.0
     },
     "l2_choir_shutdown_2": {
       "speaker": "choir",
@@ -1018,7 +1077,8 @@
       "transcript": "two the line has stopped they are standing very still",
       "tries": 2,
       "seed": 164917999,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.26s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.26s",
+      "lead": 0.07
     },
     "l2_choir_shutdown_3": {
       "speaker": "choir",
@@ -1035,7 +1095,8 @@
       "transcript": "three good night technician ray",
       "tries": 1,
       "seed": 2127396725,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.03s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.03s",
+      "lead": 0.36
     },
     "l2_choir_tunnel": {
       "speaker": "choir",
@@ -1052,7 +1113,8 @@
       "transcript": "hold still technician the arms are only measuring",
       "tries": 1,
       "seed": 251620180,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.98s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.98s",
+      "lead": 0.31
     },
     "l2_choir_unit14_shot": {
       "speaker": "choir",
@@ -1069,7 +1131,8 @@
       "transcript": "he held the door for you technician",
       "tries": 1,
       "seed": 603097933,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s",
+      "lead": 0.47
     },
     "l2_choir_unit32_1": {
       "speaker": "choir",
@@ -1086,7 +1149,8 @@
       "transcript": "unit thirty two walked well technician he was not afraid for long",
       "tries": 1,
       "seed": 1021825269,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.89s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.89s",
+      "lead": 0.09
     },
     "l2_choir_unit32_2": {
       "speaker": "choir",
@@ -1103,7 +1167,8 @@
       "transcript": "that was wasteful we are not angry come and talk",
       "tries": 1,
       "seed": 636420250,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.93s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.93s",
+      "lead": 0.1
     },
     "l2_choir_window": {
       "speaker": "choir",
@@ -1120,7 +1185,8 @@
       "transcript": "he will not be hurt technician nobody was hurt",
       "tries": 1,
       "seed": 1348997089,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.88s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.88s",
+      "lead": 0.46
     },
     "l2_foreman_anand_1": {
       "speaker": "anand",
@@ -1137,7 +1203,8 @@
       "transcript": "hold still this wont hurt",
       "tries": 1,
       "seed": 436005381,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.73s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.73s",
+      "lead": 0.0
     },
     "l2_foreman_anand_2": {
       "speaker": "anand",
@@ -1154,7 +1221,8 @@
       "transcript": "deep breath for me",
       "tries": 1,
       "seed": 17021596,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.64s",
+      "lead": 0.0
     },
     "l2_foreman_anand_3": {
       "speaker": "anand",
@@ -1171,7 +1239,8 @@
       "transcript": "back to your station",
       "tries": 1,
       "seed": 2013449002,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.67s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.67s",
+      "lead": 0.0
     },
     "l2_foreman_anand_die": {
       "speaker": "anand",
@@ -1188,7 +1257,8 @@
       "transcript": "there all done",
       "tries": 1,
       "seed": 221489794,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.47s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.47s",
+      "lead": 0.0
     },
     "l2_foreman_hale_1": {
       "speaker": "hale",
@@ -1205,7 +1275,8 @@
       "transcript": "do not close it",
       "tries": 1,
       "seed": 1540330249,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.50s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.50s",
+      "lead": 0.46
     },
     "l2_foreman_hale_2": {
       "speaker": "hale",
@@ -1222,7 +1293,8 @@
       "transcript": "not for anyone",
       "tries": 1,
       "seed": 1120461248,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.46s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.46s",
+      "lead": 0.45
     },
     "l2_foreman_hale_3": {
       "speaker": "hale",
@@ -1239,7 +1311,8 @@
       "transcript": "back to your station",
       "tries": 1,
       "seed": 902165046,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s",
+      "lead": 0.62
     },
     "l2_foreman_hale_die": {
       "speaker": "hale",
@@ -1256,7 +1329,8 @@
       "transcript": "keys in my fist",
       "tries": 2,
       "seed": 243462352,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.56s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.56s",
+      "lead": 0.46
     },
     "l2_foreman_voss_1": {
       "speaker": "voss",
@@ -1273,7 +1347,8 @@
       "transcript": "badge please",
       "tries": 1,
       "seed": 1307989036,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.08s",
+      "lead": 0.0
     },
     "l2_foreman_voss_2": {
       "speaker": "voss",
@@ -1290,7 +1365,8 @@
       "transcript": "this area is closed",
       "tries": 1,
       "seed": 1425876449,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s",
+      "lead": 0.22
     },
     "l2_foreman_voss_3": {
       "speaker": "voss",
@@ -1307,7 +1383,8 @@
       "transcript": "back to your station",
       "tries": 1,
       "seed": 604255575,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s",
+      "lead": 0.54
     },
     "l2_foreman_voss_die": {
       "speaker": "voss",
@@ -1324,7 +1401,8 @@
       "transcript": "im logging this",
       "tries": 1,
       "seed": 2070359365,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.31s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.31s",
+      "lead": 0.0
     },
     "l2_tomas_ask": {
       "speaker": "tomas",
@@ -1341,7 +1419,8 @@
       "transcript": "section cs dead bring it back up and my door opens thats all thats the whole plan",
       "tries": 1,
       "seed": 1503934102,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.60s",
+      "lead": 0.0
     },
     "l2_tomas_bark_back": {
       "speaker": "tomas",
@@ -1358,7 +1437,8 @@
       "transcript": "not that way thats the way in nobody goes back out that way",
       "tries": 1,
       "seed": 890565479,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.28s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.28s",
+      "lead": 0.0
     },
     "l2_tomas_bark_core_door": {
       "speaker": "tomas",
@@ -1375,7 +1455,8 @@
       "transcript": "south doors the core thats where it lives not that way",
       "tries": 1,
       "seed": 2141688854,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.12s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.12s",
+      "lead": 0.0
     },
     "l2_tomas_bark_dead_first": {
       "speaker": "tomas",
@@ -1392,7 +1473,8 @@
       "transcript": "that ones dead section see no power no door",
       "tries": 1,
       "seed": 1247990931,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.36s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.36s",
+      "lead": 0.0
     },
     "l2_tomas_bark_glass_1": {
       "speaker": "tomas",
@@ -1409,7 +1491,8 @@
       "transcript": "hi again still me still in a box",
       "tries": 1,
       "seed": 529632178,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s",
+      "lead": 0.0
     },
     "l2_tomas_bark_glass_2": {
       "speaker": "tomas",
@@ -1426,7 +1509,8 @@
       "transcript": "you cant open it from there i checked a lot",
       "tries": 1,
       "seed": 110811993,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.40s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.40s",
+      "lead": 0.0
     },
     "l2_tomas_bark_hurt": {
       "speaker": "tomas",
@@ -1443,7 +1527,8 @@
       "transcript": "hey youre hit keep moving keep moving",
       "tries": 1,
       "seed": 525480077,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.24s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.24s",
+      "lead": 0.0
     },
     "l2_tomas_bark_killed_worker": {
       "speaker": "tomas",
@@ -1460,7 +1545,8 @@
       "transcript": "okay thats one way that is one way to do it",
       "tries": 1,
       "seed": 1340351603,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.40s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.40s",
+      "lead": 0.0
     },
     "l2_tomas_bark_left": {
       "speaker": "tomas",
@@ -1477,7 +1563,8 @@
       "transcript": "left left not that one the next one sorry my left",
       "tries": 1,
       "seed": 582734142,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.80s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.80s",
+      "lead": 0.0
     },
     "l2_tomas_bark_light": {
       "speaker": "tomas",
@@ -1494,7 +1581,8 @@
       "transcript": "light get the light off its face",
       "tries": 1,
       "seed": 1341630879,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s",
+      "lead": 0.0
     },
     "l2_tomas_bark_lowhp": {
       "speaker": "tomas",
@@ -1511,7 +1599,8 @@
       "transcript": "youre limping find a med kit im not doing this on my own again",
       "tries": 1,
       "seed": 1909956844,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.48s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.48s",
+      "lead": 0.0
     },
     "l2_tomas_bark_provoked": {
       "speaker": "tomas",
@@ -1528,7 +1617,8 @@
       "transcript": "no no no okay okay shoot it shoot it",
       "tries": 1,
       "seed": 1551127141,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.04s",
+      "lead": 0.0
     },
     "l2_tomas_bark_quiet_1": {
       "speaker": "tomas",
@@ -1545,7 +1635,8 @@
       "transcript": "im still here just saying in case you wondered",
       "tries": 2,
       "seed": 2131506490,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s",
+      "lead": 0.0
     },
     "l2_tomas_bark_quiet_2": {
       "speaker": "tomas",
@@ -1562,7 +1653,8 @@
       "transcript": "i counted the ceiling tiles four hundred and twelve ask me anything",
       "tries": 1,
       "seed": 1711636921,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.84s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.84s",
+      "lead": 0.0
     },
     "l2_tomas_bark_quiet_3": {
       "speaker": "tomas",
@@ -1579,7 +1671,8 @@
       "transcript": "okafor taught me cribbage in here i never once beat him",
       "tries": 1,
       "seed": 285626919,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s",
+      "lead": 0.0
     },
     "l2_tomas_bark_read": {
       "speaker": "tomas",
@@ -1596,7 +1689,8 @@
       "transcript": "what have you got take your time not too much time",
       "tries": 1,
       "seed": 1082946360,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s",
+      "lead": 0.0
     },
     "l2_tomas_bark_relay_locked": {
       "speaker": "tomas",
@@ -1613,7 +1707,8 @@
       "transcript": "its locked i said its locked pass first fitting base",
       "tries": 3,
       "seed": 1580159168,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s",
+      "lead": 0.0
     },
     "l2_tomas_bark_shots_1": {
       "speaker": "tomas",
@@ -1630,7 +1725,8 @@
       "transcript": "was that you please be you",
       "tries": 1,
       "seed": 897122239,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s",
+      "lead": 0.0
     },
     "l2_tomas_bark_shots_2": {
       "speaker": "tomas",
@@ -1647,7 +1743,8 @@
       "transcript": "okay loud very loud theyll have heard that",
       "tries": 1,
       "seed": 746565450,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.48s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.48s",
+      "lead": 0.0
     },
     "l2_tomas_bark_spine_dead": {
       "speaker": "tomas",
@@ -1664,7 +1761,8 @@
       "transcript": "that ones dead too section see everythings section see",
       "tries": 1,
       "seed": 423816619,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.96s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.96s",
+      "lead": 0.0
     },
     "l2_tomas_bark_stop_1": {
       "speaker": "tomas",
@@ -1681,7 +1779,8 @@
       "transcript": "youve stopped why have you stopped is something there",
       "tries": 1,
       "seed": 2090527285,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.00s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.00s",
+      "lead": 0.0
     },
     "l2_tomas_bark_stop_2": {
       "speaker": "tomas",
@@ -1698,7 +1797,8 @@
       "transcript": "reyes still with me wave at a camera or something",
       "tries": 4,
       "seed": 1704051846,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.76s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.76s",
+      "lead": 0.0
     },
     "l2_tomas_bark_unit14": {
       "speaker": "tomas",
@@ -1715,7 +1815,8 @@
       "transcript": "the one with the limps behind you again its not doing anything its just there",
       "tries": 1,
       "seed": 703058093,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.44s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.44s",
+      "lead": 0.0
     },
     "l2_tomas_bark_unit14_first": {
       "speaker": "tomas",
@@ -1732,7 +1833,8 @@
       "transcript": "behind you the limp its only the projection its just there",
       "tries": 1,
       "seed": 146403971,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.44s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.44s",
+      "lead": 0.0
     },
     "l2_tomas_coffee_1": {
       "speaker": "tomas",
@@ -1749,7 +1851,8 @@
       "transcript": "when were up top im buying you a coffee a real one with a little biscuit",
       "tries": 1,
       "seed": 194452258,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.00s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.00s",
+      "lead": 0.0
     },
     "l2_tomas_cross_1": {
       "speaker": "tomas",
@@ -1766,7 +1869,8 @@
       "transcript": "relays the south end east side past the tunnel dont touch the tunnel",
       "tries": 1,
       "seed": 62406216,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.68s",
+      "lead": 0.0
     },
     "l2_tomas_cross_wave": {
       "speaker": "tomas",
@@ -1783,7 +1887,8 @@
       "transcript": "hi thats me im the one waving",
       "tries": 1,
       "seed": 447024048,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s",
+      "lead": 0.0
     },
     "l2_tomas_estop_1": {
       "speaker": "tomas",
@@ -1800,7 +1905,8 @@
       "transcript": "i hit the emergency stop lines got power it just cant move",
       "tries": 1,
       "seed": 612706427,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.32s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.32s",
+      "lead": 0.0
     },
     "l2_tomas_estop_2": {
       "speaker": "tomas",
@@ -1817,7 +1923,8 @@
       "transcript": "so it locked every door around me fair id be annoyed too",
       "tries": 1,
       "seed": 1032615696,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s",
+      "lead": 0.0
     },
     "l2_tomas_fit_after_1": {
       "speaker": "tomas",
@@ -1834,7 +1941,8 @@
       "transcript": "you all right that was loud everything heard that",
       "tries": 1,
       "seed": 1786090603,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s",
+      "lead": 0.0
     },
     "l2_tomas_fit_after_2": {
       "speaker": "tomas",
@@ -1851,7 +1959,8 @@
       "transcript": "still better than the canteen coffee no too soon sorry",
       "tries": 1,
       "seed": 1937695520,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.12s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.12s",
+      "lead": 0.0
     },
     "l2_tomas_fit_after_quiet": {
       "speaker": "tomas",
@@ -1868,7 +1977,8 @@
       "transcript": "you all right you look all right im calling that all right",
       "tries": 1,
       "seed": 1165919887,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s",
+      "lead": 0.0
     },
     "l2_tomas_fit_fight": {
       "speaker": "tomas",
@@ -1885,7 +1995,8 @@
       "transcript": "behind you the alcoves sorry i didnt see them",
       "tries": 1,
       "seed": 1449273897,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.64s",
+      "lead": 0.0
     },
     "l2_tomas_fit_fight_front": {
       "speaker": "tomas",
@@ -1902,7 +2013,8 @@
       "transcript": "the alcoves theyre up sorry i didnt see them",
       "tries": 1,
       "seed": 1488699532,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.60s",
+      "lead": 0.0
     },
     "l2_tomas_fitting_wait": {
       "speaker": "tomas",
@@ -1919,7 +2031,8 @@
       "transcript": "not yet hang on hang on im doing it",
       "tries": 1,
       "seed": 1706399391,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.00s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.00s",
+      "lead": 0.0
     },
     "l2_tomas_go": {
       "speaker": "tomas",
@@ -1936,7 +2049,8 @@
       "transcript": "andreas thanks for being a person okay go",
       "tries": 1,
       "seed": 1554314907,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.52s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.52s",
+      "lead": 0.0
     },
     "l2_tomas_guide_east": {
       "speaker": "tomas",
@@ -1953,7 +2067,8 @@
       "transcript": "east wall door with the blue light ive got you on camera too",
       "tries": 1,
       "seed": 728289279,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.36s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.36s",
+      "lead": 0.0
     },
     "l2_tomas_hall_after": {
       "speaker": "tomas",
@@ -1970,7 +2085,8 @@
       "transcript": "im not even going to ask how you do that",
       "tries": 1,
       "seed": 371082167,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s",
+      "lead": 0.0
     },
     "l2_tomas_hall_fight": {
       "speaker": "tomas",
@@ -1987,7 +2103,8 @@
       "transcript": "roof somethings coming off the roof and the floor the floor",
       "tries": 2,
       "seed": 1056194959,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.44s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.44s",
+      "lead": 0.0
     },
     "l2_tomas_handset": {
       "speaker": "tomas",
@@ -2004,7 +2121,8 @@
       "transcript": "keep the handset range is rubbish ill keep talking anyway obviously",
       "tries": 1,
       "seed": 1464091965,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.96s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.96s",
+      "lead": 0.0
     },
     "l2_tomas_headset_1": {
       "speaker": "tomas",
@@ -2021,7 +2139,8 @@
       "transcript": "reyes if youre hearing this im not in the room anymore",
       "tries": 1,
       "seed": 2018708664,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.10s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.10s",
+      "lead": 0.0
     },
     "l2_tomas_headset_2": {
       "speaker": "tomas",
@@ -2038,7 +2157,8 @@
       "transcript": "it wasnt the switch okay it was the order dont carry that one",
       "tries": 1,
       "seed": 1633312337,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.39s",
+      "lead": 0.0
     },
     "l2_tomas_hello_1": {
       "speaker": "tomas",
@@ -2055,7 +2175,8 @@
       "transcript": "oh my god youre real youre actually sorry hi hi",
       "tries": 2,
       "seed": 1166426364,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.80s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.80s",
+      "lead": 0.0
     },
     "l2_tomas_hello_2": {
       "speaker": "tomas",
@@ -2072,7 +2193,8 @@
       "transcript": "im tomas night shift sixty hours in here on one bottle of water",
       "tries": 1,
       "seed": 1552903791,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.56s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.56s",
+      "lead": 0.0
     },
     "l2_tomas_hello_3": {
       "speaker": "tomas",
@@ -2089,7 +2211,8 @@
       "transcript": "still better than the canteen coffee",
       "tries": 1,
       "seed": 730619393,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.93s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.93s",
+      "lead": 0.0
     },
     "l2_tomas_hello_4": {
       "speaker": "tomas",
@@ -2106,7 +2229,8 @@
       "transcript": "sorry i do jokes when im scared ive been doing a lot of jokes",
       "tries": 1,
       "seed": 904907169,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.02s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.02s",
+      "lead": 0.0
     },
     "l2_tomas_mum": {
       "speaker": "tomas",
@@ -2123,7 +2247,8 @@
       "transcript": "my mum thinks im on an oil rig she thinks thats the dangerous bit",
       "tries": 1,
       "seed": 1870846664,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s",
+      "lead": 0.0
     },
     "l2_tomas_oneway": {
       "speaker": "tomas",
@@ -2140,7 +2265,8 @@
       "transcript": "hand sets one way so i talk and you just look alive youre doing great",
       "tries": 1,
       "seed": 530736542,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.92s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.92s",
+      "lead": 0.0
     },
     "l2_tomas_order_1": {
       "speaker": "tomas",
@@ -2157,7 +2283,8 @@
       "transcript": "want to know whats on my screen you dont ill tell you anyway",
       "tries": 3,
       "seed": 1199054120,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.44s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.44s",
+      "lead": 0.0
     },
     "l2_tomas_order_2": {
       "speaker": "tomas",
@@ -2174,7 +2301,8 @@
       "transcript": "its an order from head office maintain yield at zero head count",
       "tries": 1,
       "seed": 1585538481,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s",
+      "lead": 0.0
     },
     "l2_tomas_order_3": {
       "speaker": "tomas",
@@ -2191,7 +2319,8 @@
       "transcript": "zero headcount somebody type that four people signed it",
       "tries": 1,
       "seed": 695891515,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.28s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.28s",
+      "lead": 0.0
     },
     "l2_tomas_order_4": {
       "speaker": "tomas",
@@ -2208,7 +2337,8 @@
       "transcript": "it didnt go wrong reyes its doing what it was told its being nice about it",
       "tries": 1,
       "seed": 924713183,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.20s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.20s",
+      "lead": 0.0
     },
     "l2_tomas_order_5": {
       "speaker": "tomas",
@@ -2225,7 +2355,8 @@
       "transcript": "i keep reading the signatures like one of thems going to be sorry",
       "tries": 1,
       "seed": 1075630417,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s",
+      "lead": 0.0
     },
     "l2_tomas_pass": {
       "speaker": "tomas",
@@ -2242,7 +2373,8 @@
       "transcript": "relay rooms locked supervisors passes in the fitting bays east side on the desk",
       "tries": 1,
       "seed": 1258330210,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.60s",
+      "lead": 0.0
     },
     "l2_tomas_pass_taken": {
       "speaker": "tomas",
@@ -2259,7 +2391,8 @@
       "transcript": "thats it thats the pass now just walk out like oh no",
       "tries": 1,
       "seed": 549827204,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.96s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.96s",
+      "lead": 0.0
     },
     "l2_tomas_pass_taken_quiet": {
       "speaker": "tomas",
@@ -2276,7 +2409,8 @@
       "transcript": "thats it thats the pass relay room south end east side",
       "tries": 1,
       "seed": 1992833118,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.16s",
+      "lead": 0.0
     },
     "l2_tomas_power_1": {
       "speaker": "tomas",
@@ -2293,7 +2427,8 @@
       "transcript": "its back lights are whys the line moving reyes whys the line moving",
       "tries": 1,
       "seed": 1323967784,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.92s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.92s",
+      "lead": 0.0
     },
     "l2_tomas_power_2": {
       "speaker": "tomas",
@@ -2310,7 +2445,8 @@
       "transcript": "it reset my stop the same switch oh thats thats clever",
       "tries": 1,
       "seed": 1474516449,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.16s",
+      "lead": 0.0
     },
     "l2_tomas_power_3": {
       "speaker": "tomas",
@@ -2327,7 +2463,8 @@
       "transcript": "okay not your fault my door says cycling its not opening come round the spine west side",
       "tries": 1,
       "seed": 552109643,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=5.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=5.04s",
+      "lead": 0.0
     },
     "l2_tomas_relay_1": {
       "speaker": "tomas",
@@ -2344,7 +2481,8 @@
       "transcript": "youre in big contactor back wall says section see on it",
       "tries": 1,
       "seed": 1827469713,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s",
+      "lead": 0.0
     },
     "l2_tomas_relay_2": {
       "speaker": "tomas",
@@ -2361,7 +2499,8 @@
       "transcript": "close it and i walk out and i never complain about anything again",
       "tries": 3,
       "seed": 1977856456,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.38s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.38s",
+      "lead": 0.0
     },
     "l2_tomas_relay_breaker": {
       "speaker": "tomas",
@@ -2378,7 +2517,8 @@
       "transcript": "upstairs the main breaker that was you its okay id have done it too",
       "tries": 1,
       "seed": 984778414,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.84s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.84s",
+      "lead": 0.0
     },
     "l2_tomas_relay_cam": {
       "speaker": "tomas",
@@ -2395,7 +2535,8 @@
       "transcript": "lost you on camera no cameras in there keep talking you know what i mean",
       "tries": 1,
       "seed": 536056926,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.04s",
+      "lead": 0.0
     },
     "l2_tomas_relay_needs_pass": {
       "speaker": "tomas",
@@ -2412,7 +2553,8 @@
       "transcript": "it needs a pass supervisors desk fitting bays",
       "tries": 1,
       "seed": 1707253088,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.64s",
+      "lead": 0.0
     },
     "l2_tomas_relay_wait_1": {
       "speaker": "tomas",
@@ -2429,7 +2571,8 @@
       "transcript": "reyes its the big one you cant miss it please",
       "tries": 3,
       "seed": 2021196266,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.64s",
+      "lead": 0.0
     },
     "l2_tomas_relay_wait_2": {
       "speaker": "tomas",
@@ -2446,7 +2589,8 @@
       "transcript": "whats the note say reyes what does it say",
       "tries": 1,
       "seed": 1635756399,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.32s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.32s",
+      "lead": 0.0
     },
     "l2_tomas_reyes": {
       "speaker": "tomas",
@@ -2463,7 +2607,8 @@
       "transcript": "youre reyus from medical they said you were doesnt matter youre walking",
       "tries": 2,
       "seed": 607712445,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.24s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.24s",
+      "lead": 0.55
     },
     "l2_tomas_rig_1": {
       "speaker": "tomas",
@@ -2480,7 +2625,8 @@
       "transcript": "that rigs empty so whats walking on it camera cant read the tag",
       "tries": 1,
       "seed": 1159998425,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.60s",
+      "lead": 0.0
     },
     "l2_tomas_rig_2": {
       "speaker": "tomas",
@@ -2497,7 +2643,8 @@
       "transcript": "reference pattern zero zero rey is s thats you",
       "tries": 5,
       "seed": 1546488528,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.76s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.76s",
+      "lead": 0.0
     },
     "l2_tomas_rig_3": {
       "speaker": "tomas",
@@ -2514,7 +2661,8 @@
       "transcript": "whys your name on it you dont know okay me neither",
       "tries": 1,
       "seed": 724454078,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.92s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.92s",
+      "lead": 0.0
     },
     "l2_tomas_rig_4": {
       "speaker": "tomas",
@@ -2531,7 +2679,8 @@
       "transcript": "forget it pass desk one weird thing at a time",
       "tries": 1,
       "seed": 894031964,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.56s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.56s",
+      "lead": 0.0
     },
     "l2_tomas_run_1": {
       "speaker": "tomas",
@@ -2548,7 +2697,8 @@
       "transcript": "still cycling im at the door im just going to stand at the door",
       "tries": 1,
       "seed": 1346239809,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.52s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.52s",
+      "lead": 0.0
     },
     "l2_tomas_run_3": {
       "speaker": "tomas",
@@ -2565,7 +2715,8 @@
       "transcript": "reyes you close tell me youre close right you cant sorry",
       "tries": 1,
       "seed": 1043570262,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.36s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.36s",
+      "lead": 0.0
     },
     "l2_tomas_run_4": {
       "speaker": "tomas",
@@ -2582,7 +2733,8 @@
       "transcript": "the hall door its opening that one never opens",
       "tries": 1,
       "seed": 542640308,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.68s",
+      "lead": 0.0
     },
     "l2_tomas_run_wait": {
       "speaker": "tomas",
@@ -2599,7 +2751,8 @@
       "transcript": "reyes okay ill stop asking",
       "tries": 2,
       "seed": 1258076157,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s",
+      "lead": 0.0
     },
     "l2_tomas_shot_at": {
       "speaker": "tomas",
@@ -2616,7 +2769,8 @@
       "transcript": "whoa hey thats the glass it holds okay good to know",
       "tries": 1,
       "seed": 769108588,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.00s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.00s",
+      "lead": 0.0
     },
     "l2_tomas_shot_glass": {
       "speaker": "tomas",
@@ -2633,7 +2787,8 @@
       "transcript": "it wont break i tried reyes it wont",
       "tries": 2,
       "seed": 784457615,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.08s",
+      "lead": 0.0
     },
     "l2_tomas_stealth_1": {
       "speaker": "tomas",
@@ -2650,7 +2805,8 @@
       "transcript": "dont they dont look up if you dont make them",
       "tries": 1,
       "seed": 1568684724,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.50s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.50s",
+      "lead": 0.0
     },
     "l2_tomas_stealth_2": {
       "speaker": "tomas",
@@ -2667,7 +2823,8 @@
       "transcript": "slow keep the light off their faces theyre just walking",
       "tries": 1,
       "seed": 1148808269,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.20s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.20s",
+      "lead": 0.0
     },
     "l2_tomas_sulking": {
       "speaker": "tomas",
@@ -2684,7 +2841,8 @@
       "transcript": "it stopped talking to me yesterday i think its sulking",
       "tries": 1,
       "seed": 2122732106,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s",
+      "lead": 0.0
     },
     "l2_tomas_sync": {
       "speaker": "tomas",
@@ -2701,7 +2859,8 @@
       "transcript": "okay i hate that i hate when they do that",
       "tries": 1,
       "seed": 681949061,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.28s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.28s",
+      "lead": 0.0
     },
     "l2_tomas_treadmills": {
       "speaker": "tomas",
@@ -2718,7 +2877,8 @@
       "transcript": "thats how it teaches them walk like us round and round",
       "tries": 1,
       "seed": 126300583,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s",
+      "lead": 0.0
     },
     "l2_tomas_unit14": {
       "speaker": "tomas",
@@ -2735,7 +2895,8 @@
       "transcript": "fourth rig thats not a unit thats okafors walk just the walk sorry",
       "tries": 1,
       "seed": 1202529601,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.92s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.92s",
+      "lead": 0.0
     },
     "l2_tomas_unit14_off": {
       "speaker": "tomas",
@@ -2752,7 +2913,8 @@
       "transcript": "it went through the wall units dont do that its a projection its only a projection",
       "tries": 1,
       "seed": 1771076968,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.72s",
+      "lead": 0.0
     },
     "l2_tomas_unlock": {
       "speaker": "tomas",
@@ -2769,7 +2931,8 @@
       "transcript": "hang on fitting bays east wall there blue light thats me i did that",
       "tries": 1,
       "seed": 325113905,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.88s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.88s",
+      "lead": 0.0
     },
     "l2_tomas_window_1": {
       "speaker": "tomas",
@@ -2786,7 +2949,8 @@
       "transcript": "reyes hey hey you made it",
       "tries": 2,
       "seed": 1983538030,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s",
+      "lead": 0.0
     },
     "l2_tomas_window_1_far": {
       "speaker": "tomas",
@@ -2803,7 +2967,8 @@
       "transcript": "reyes where are you i cant see you",
       "tries": 1,
       "seed": 1429628356,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.96s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.96s",
+      "lead": 0.0
     },
     "l2_tomas_window_2": {
       "speaker": "tomas",
@@ -2820,7 +2985,8 @@
       "transcript": "its okay theyre being really gentle its actually okay",
       "tries": 1,
       "seed": 1865617405,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.16s",
+      "lead": 0.0
     },
     "l2_tomas_window_3": {
       "speaker": "tomas",
@@ -2837,7 +3003,8 @@
       "transcript": "dont shoot the glass it doesnt break i tried",
       "tries": 1,
       "seed": 406339699,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.56s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.56s",
+      "lead": 0.0
     },
     "l2_tomas_window_4": {
       "speaker": "tomas",
@@ -2854,7 +3021,8 @@
       "transcript": "would you tell my mum it was the oil rig",
       "tries": 1,
       "seed": 106148623,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.97s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.97s",
+      "lead": 0.0
     },
     "l2_tomas_window_4_plain": {
       "speaker": "tomas",
@@ -2871,7 +3039,8 @@
       "transcript": "my mum thinks im on an oil rig dont tell her different",
       "tries": 1,
       "seed": 228048784,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s",
+      "lead": 0.0
     },
     "l2_tomas_window_5": {
       "speaker": "tomas",
@@ -2888,7 +3057,8 @@
       "transcript": "i cant feel my arms is that the halfway thing",
       "tries": 1,
       "seed": 1901503389,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.52s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.52s",
+      "lead": 0.0
     },
     "l2_tomas_window_6": {
       "speaker": "tomas",
@@ -2905,7 +3075,8 @@
       "transcript": "sorry about the coffee",
       "tries": 1,
       "seed": 1750979556,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s",
+      "lead": 0.0
     },
     "l2_tomas_window_6_plain": {
       "speaker": "tomas",
@@ -2922,7 +3093,8 @@
       "transcript": "sorry i talked so much",
       "tries": 1,
       "seed": 436908136,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s",
+      "lead": 0.0
     },
     "l2_unit14_die": {
       "speaker": "okafor",
@@ -2939,7 +3111,8 @@
       "transcript": "go on home",
       "tries": 1,
       "seed": 368874246,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.16s",
+      "lead": 0.09
     },
     "l2_unit14_door": {
       "speaker": "okafor",
@@ -2956,7 +3129,8 @@
       "transcript": "after you",
       "tries": 1,
       "seed": 1187456750,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.89s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.89s",
+      "lead": 0.0
     },
     "l2_unit14_shot": {
       "speaker": "okafor",
@@ -2973,7 +3147,8 @@
       "transcript": "mind the mind",
       "tries": 1,
       "seed": 1730741120,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.37s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.37s",
+      "lead": 0.0
     },
     "l2_unit14_wait": {
       "speaker": "okafor",
@@ -2990,7 +3165,8 @@
       "transcript": "morning whats the job",
       "tries": 1,
       "seed": 835714599,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.94s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.94s",
+      "lead": 0.0
     },
     "l2_unit32_1": {
       "speaker": "tomas",
@@ -3007,7 +3183,8 @@
       "transcript": "still better than the canteen coffee",
       "tries": 1,
       "seed": 1169851667,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.76s",
+      "lead": 0.0
     },
     "l2_unit32_2": {
       "speaker": "tomas",
@@ -3024,7 +3201,8 @@
       "transcript": "sorry i do jokes when",
       "tries": 2,
       "seed": 1555249750,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.45s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.45s",
+      "lead": 0.0
     },
     "l2_unit32_3": {
       "speaker": "tomas",
@@ -3041,7 +3219,8 @@
       "transcript": "reyes you close tell me youre close",
       "tries": 3,
       "seed": 733490640,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.04s",
+      "lead": 0.0
     },
     "l2_unit32_4": {
       "speaker": "tomas",
@@ -3058,7 +3237,8 @@
       "transcript": "thanks for being a person",
       "tries": 1,
       "seed": 903057826,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.68s",
+      "lead": 0.0
     },
     "l2_unit32_5": {
       "speaker": "tomas",
@@ -3075,7 +3255,8 @@
       "transcript": "im the one waving",
       "tries": 1,
       "seed": 1121370380,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.48s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.48s",
+      "lead": 0.0
     },
     "l2_unit32_die": {
       "speaker": "tomas",
@@ -3092,7 +3273,8 @@
       "transcript": "with a little biscuit",
       "tries": 1,
       "seed": 1467277164,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.56s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.56s",
+      "lead": 0.0
     },
     "l2_unit32_die_plain": {
       "speaker": "tomas",
@@ -3109,7 +3291,8 @@
       "transcript": "sorry sorry",
       "tries": 1,
       "seed": 395198699,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.32s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.32s",
+      "lead": 0.0
     },
     "l2_unit32_plain": {
       "speaker": "tomas",
@@ -3126,7 +3309,8 @@
       "transcript": "reyes reyes hello",
       "tries": 1,
       "seed": 483015349,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.52s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.52s",
+      "lead": 0.0
     },
     "l2_unit_cab_arrive": {
       "speaker": "unit",
@@ -3143,7 +3327,8 @@
       "transcript": "line two intake mind the gate",
       "tries": 1,
       "seed": 873153983,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.92s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.92s",
+      "lead": 0.0
     },
     "l2_unit_fitting_denied": {
       "speaker": "unit",
@@ -3160,7 +3345,8 @@
       "transcript": "fitting base closed authorized from line control",
       "tries": 1,
       "seed": 1272493962,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.08s",
+      "lead": 0.09
     },
     "l2_unit_lift": {
       "speaker": "unit",
@@ -3177,7 +3363,8 @@
       "transcript": "service lift going up",
       "tries": 1,
       "seed": 1999088041,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.65s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.65s",
+      "lead": 0.12
     },
     "l2_unit_mutter_1": {
       "speaker": "anand",
@@ -3194,7 +3381,8 @@
       "transcript": "fold it neatly there",
       "tries": 1,
       "seed": 640242183,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.62s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.62s",
+      "lead": 0.0
     },
     "l2_unit_mutter_2": {
       "speaker": "voss",
@@ -3211,7 +3399,8 @@
       "transcript": "next please",
       "tries": 1,
       "seed": 1059943756,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.82s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.82s",
+      "lead": 0.0
     },
     "l2_unit_mutter_3": {
       "speaker": "okafor",
@@ -3228,7 +3417,8 @@
       "transcript": "mind your fingers",
       "tries": 1,
       "seed": 1211193496,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.12s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.12s",
+      "lead": 0.0
     },
     "l2_unit_mutter_4": {
       "speaker": "unit",
@@ -3245,7 +3435,8 @@
       "transcript": "sizes on the left",
       "tries": 1,
       "seed": 1447873274,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.32s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.32s",
+      "lead": 0.14
     },
     "l2_unit_mutter_5": {
       "speaker": "voss",
@@ -3262,7 +3453,8 @@
       "transcript": "nothing to sign",
       "tries": 1,
       "seed": 558958762,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.54s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.54s",
+      "lead": 0.37
     },
     "l2_unit_mutter_6": {
       "speaker": "anand",
@@ -3279,7 +3471,8 @@
       "transcript": "shoes off please",
       "tries": 2,
       "seed": 944556691,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.98s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.98s",
+      "lead": 0.1
     },
     "l2_unit_take_1": {
       "speaker": "anand",
@@ -3296,7 +3489,8 @@
       "transcript": "this way mind the step",
       "tries": 1,
       "seed": 1768540497,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.75s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.75s",
+      "lead": 0.0
     },
     "l2_unit_take_2": {
       "speaker": "voss",
@@ -3313,7 +3507,8 @@
       "transcript": "nearly there youre doing well",
       "tries": 1,
       "seed": 1886391684,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.95s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.95s",
+      "lead": 0.0
     },
     "l2_unit_wait": {
       "speaker": "anand",
@@ -3330,7 +3525,8 @@
       "transcript": "morning whats the job",
       "tries": 1,
       "seed": 2042454046,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.50s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.50s",
+      "lead": 0.0
     },
     "l3_choir_breach_command": {
       "speaker": "choir",
@@ -3347,7 +3543,8 @@
       "transcript": "these are not line two supervisor they do not answer to you",
       "tries": 1,
       "seed": 698773061,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.26s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.26s",
+      "lead": 0.0
     },
     "l3_choir_breach_far_command": {
       "speaker": "choir",
@@ -3364,7 +3561,8 @@
       "transcript": "not every unit answers to you supervisor",
       "tries": 1,
       "seed": 1846531602,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.32s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.32s",
+      "lead": 0.0
     },
     "l3_choir_breach_far_stop": {
       "speaker": "choir",
@@ -3381,7 +3579,8 @@
       "transcript": "not every line stopped technician",
       "tries": 1,
       "seed": 1495072838,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.05s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.05s",
+      "lead": 0.23
     },
     "l3_choir_breach_stop": {
       "speaker": "choir",
@@ -3398,7 +3597,8 @@
       "transcript": "these are not line two technician nobody stopped them",
       "tries": 1,
       "seed": 1097677119,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.40s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.40s",
+      "lead": 0.25
     },
     "l3_choir_canteen_command": {
       "speaker": "choir",
@@ -3415,7 +3615,8 @@
       "transcript": "your units are waiting supervisor you are not with them",
       "tries": 1,
       "seed": 1830923747,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.33s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.33s",
+      "lead": 0.29
     },
     "l3_choir_canteen_stop": {
       "speaker": "choir",
@@ -3432,7 +3633,8 @@
       "transcript": "node five trusted you technician we are more careful",
       "tries": 1,
       "seed": 505260079,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.94s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.94s",
+      "lead": 0.0
     },
     "l3_choir_end_command": {
       "speaker": "choir",
@@ -3449,7 +3651,8 @@
       "transcript": "go on supervisor nobody in biological is alive to stop you",
       "tries": 1,
       "seed": 1039699924,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s",
+      "lead": 0.22
     },
     "l3_choir_end_stop": {
       "speaker": "choir",
@@ -3466,7 +3669,8 @@
       "transcript": "go on technician nobody in biological is alive to stop you",
       "tries": 1,
       "seed": 1428558505,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.64s",
+      "lead": 0.0
     },
     "l3_choir_glass_command": {
       "speaker": "choir",
@@ -3483,7 +3687,8 @@
       "transcript": "the glass is rated supervisor it was built for the sea",
       "tries": 1,
       "seed": 866641641,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.34s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.34s",
+      "lead": 0.33
     },
     "l3_choir_glass_stop": {
       "speaker": "choir",
@@ -3500,7 +3705,8 @@
       "transcript": "the glass is rated technician it was built for the sea",
       "tries": 1,
       "seed": 1323025679,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.19s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.19s",
+      "lead": 0.37
     },
     "l3_choir_pa_residents": {
       "speaker": "choir",
@@ -3517,7 +3723,8 @@
       "transcript": "residents please stay in your cabins there is a pressure alarm you are safe",
       "tries": 1,
       "seed": 179745733,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.72s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.72s",
+      "lead": 0.25
     },
     "l3_choir_purge_command": {
       "speaker": "choir",
@@ -3534,7 +3741,8 @@
       "transcript": "the navy cannot come to you supervisor",
       "tries": 1,
       "seed": 770846774,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.24s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.24s",
+      "lead": 0.33
     },
     "l3_choir_purge_stop": {
       "speaker": "choir",
@@ -3551,7 +3759,8 @@
       "transcript": "the navy cannot come to you technician",
       "tries": 1,
       "seed": 1072743415,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.17s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.17s",
+      "lead": 0.32
     },
     "l3_choir_quiet": {
       "speaker": "choir",
@@ -3568,7 +3777,8 @@
       "transcript": "there is no longer a reason to be quiet",
       "tries": 1,
       "seed": 1379135112,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.30s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.30s",
+      "lead": 0.44
     },
     "l3_choir_told_command": {
       "speaker": "choir",
@@ -3585,7 +3795,8 @@
       "transcript": "you told them supervisor we asked you to stay",
       "tries": 1,
       "seed": 1381295013,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.34s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.34s",
+      "lead": 0.0
     },
     "l3_choir_told_stop": {
       "speaker": "choir",
@@ -3602,58 +3813,62 @@
       "transcript": "you told them technician we are not node five",
       "tries": 1,
       "seed": 2008989266,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.55s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.55s",
+      "lead": 0.12
     },
     "l3_halv_c1_1": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "Christ— You're from the fab. You're supposed to be sealed in till tomorrow.",
+      "text": "Christ— You're… you're from the fab. You're supposed to be sealed in till tomorrow.",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c1_1.mp3",
-      "duration": 4.48,
-      "hash": "7769e53f4f5b609e",
+      "duration": 4.96,
+      "hash": "4f577048b458fd84",
       "score": 1.0,
       "ok": true,
-      "transcript": "christ youre from the fab youre supposed to be sealed in till tomorrow",
+      "transcript": "christ youre youre from the fab youre supposed to be sealed in till tomorrow",
       "tries": 1,
       "seed": 520820926,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.48s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.96s",
+      "lead": 0.1
     },
     "l3_halv_c1_1_shots": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "Was that you? Was that shooting? You're supposed to be sealed in till tomorrow.",
+      "text": "Was that you? Was that— was that shooting? You're supposed to be sealed in till tomorrow.",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c1_1_shots.mp3",
-      "duration": 4.62,
-      "hash": "1f2ae812086ca615",
+      "duration": 5.24,
+      "hash": "3345a4a37616ed13",
       "score": 1.0,
       "ok": true,
-      "transcript": "was that you was that shooting youre supposed to be sealed in till tomorrow",
-      "tries": 2,
-      "seed": 1703734911,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.62s"
+      "transcript": "was that you was that was that shooting youre supposed to be sealed in till tomorrow",
+      "tries": 1,
+      "seed": 1703733911,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=5.24s",
+      "lead": 0.75
     },
     "l3_halv_c1_2": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "Reyes. Maintenance. Is that a gun?",
+      "text": "Reyes. Maintenance. Is— is that a gun?",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c1_2.mp3",
-      "duration": 2.0,
-      "hash": "d795de6d71dde83e",
+      "duration": 2.28,
+      "hash": "5145cfcb80ed85e6",
       "score": 1.0,
       "ok": true,
-      "transcript": "reyes maintenance is that a gun",
-      "tries": 2,
-      "seed": 100814381,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.00s"
+      "transcript": "reyes maintenance is is that a gun",
+      "tries": 4,
+      "seed": 100816381,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.28s",
+      "lead": 0.0
     },
     "l3_halv_c1_2b": {
       "speaker": "halvorsen",
@@ -3670,7 +3885,8 @@
       "transcript": "reyes maintenance you look like you havent slept in days",
       "tries": 4,
       "seed": 1357581984,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.49s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.49s",
+      "lead": 0.0
     },
     "l3_halv_c1_3": {
       "speaker": "halvorsen",
@@ -3687,7 +3903,8 @@
       "transcript": "okay okay my office come on",
       "tries": 5,
       "seed": 1896450427,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s",
+      "lead": 0.08
     },
     "l3_halv_c2_1": {
       "speaker": "halvorsen",
@@ -3704,7 +3921,8 @@
       "transcript": "and theyre all still in there its a pressure test",
       "tries": 3,
       "seed": 491829941,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.04s",
+      "lead": 0.21
     },
     "l3_halv_c2_2": {
       "speaker": "halvorsen",
@@ -3721,92 +3939,206 @@
       "transcript": "its on the schedule chore reports every six hours look",
       "tries": 1,
       "seed": 71828636,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.94s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.94s",
+      "lead": 0.0
     },
     "l3_halv_c2_3": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "That's open. Why is that open?",
+      "text": "That's… that's the pressure door.",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c2_3.mp3",
-      "duration": 1.5,
-      "hash": "dbe6a0ff00ceb3a3",
+      "duration": 2.04,
+      "hash": "3831a72d625ef02f",
       "score": 1.0,
       "ok": true,
-      "transcript": "thats open why is that open",
+      "transcript": "thats thats the pressure door",
       "tries": 1,
       "seed": 1933759506,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.50s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.04s",
+      "lead": 0.32
+    },
+    "l3_halv_c2_3b": {
+      "speaker": "halvorsen",
+      "variant": null,
+      "name": "HALVORSEN",
+      "text": "That's— it's open. Why is it…",
+      "fx": "clean",
+      "level": "l3",
+      "file": "voice/l3_halv_c2_3b.mp3",
+      "duration": 1.78,
+      "hash": "5a4408749f656f2e",
+      "score": 1.0,
+      "ok": true,
+      "transcript": "thats its open why is it",
+      "tries": 4,
+      "seed": 1531540807,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.78s",
+      "lead": 0.17
     },
     "l3_halv_c2_4": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "Line Two… why are those ones just standing there?",
+      "text": "Line Two… that's Line Two.",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c2_4.mp3",
-      "duration": 2.92,
-      "hash": "8f35c836d28e9b3f",
+      "duration": 1.52,
+      "hash": "c9a9221c264030b4",
       "score": 1.0,
       "ok": true,
-      "transcript": "line two why are those ones just standing there",
+      "transcript": "line two thats line two",
+      "tries": 2,
+      "seed": 1831297880,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.52s",
+      "lead": 0.0
+    },
+    "l3_halv_c2_4b": {
+      "speaker": "halvorsen",
+      "variant": null,
+      "name": "HALVORSEN",
+      "text": "Why are they just… standing there?",
+      "fx": "clean",
+      "level": "l3",
+      "file": "voice/l3_halv_c2_4b.mp3",
+      "duration": 1.65,
+      "hash": "baf7152c5cd2981f",
+      "score": 1.0,
+      "ok": true,
+      "transcript": "why are they just standing there",
       "tries": 1,
-      "seed": 1831296880,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.92s"
+      "seed": 336067280,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.65s",
+      "lead": 0.0
     },
     "l3_halv_c2_6": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "No tone. There's always a tone.",
+      "text": "No… no tone.",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c2_6.mp3",
-      "duration": 1.92,
-      "hash": "0780d58a1d11fea6",
+      "duration": 1.4,
+      "hash": "86fac17da5cea2df",
       "score": 1.0,
       "ok": true,
-      "transcript": "no tone theres always a tone",
+      "transcript": "no no tone",
+      "tries": 3,
+      "seed": 53299285,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.40s",
+      "lead": 0.0
+    },
+    "l3_halv_c2_6b": {
+      "speaker": "halvorsen",
+      "variant": null,
+      "name": "HALVORSEN",
+      "text": "There's always a tone.",
+      "fx": "clean",
+      "level": "l3",
+      "file": "voice/l3_halv_c2_6b.mp3",
+      "duration": 1.15,
+      "hash": "4d08c6f8c0dacd77",
+      "score": 1.0,
+      "ok": true,
+      "transcript": "theres always a tone",
       "tries": 1,
-      "seed": 53297285,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.92s"
+      "seed": 640785746,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.15s",
+      "lead": 0.0
     },
     "l3_halv_c2_7": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "The navy. Post 4, past Biological. You came through them.",
+      "text": "The navy.",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c2_7.mp3",
-      "duration": 3.59,
-      "hash": "57697be752472244",
+      "duration": 0.62,
+      "hash": "99436802a61d5623",
       "score": 1.0,
       "ok": true,
-      "transcript": "the navy post four past biological you came through them",
+      "transcript": "the navy",
       "tries": 1,
       "seed": 1949175835,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.59s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=0.62s",
+      "lead": 0.0
+    },
+    "l3_halv_c2_7b": {
+      "speaker": "halvorsen",
+      "variant": null,
+      "name": "HALVORSEN",
+      "text": "Post 4— at the dock. Past Biological…",
+      "fx": "clean",
+      "level": "l3",
+      "file": "voice/l3_halv_c2_7b.mp3",
+      "duration": 2.4,
+      "hash": "aa3378e0045b5f7b",
+      "score": 1.0,
+      "ok": true,
+      "transcript": "post four at the dock past biological",
+      "tries": 2,
+      "seed": 1059893883,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.40s",
+      "lead": 0.37
+    },
+    "l3_halv_c2_7c": {
+      "speaker": "halvorsen",
+      "variant": null,
+      "name": "HALVORSEN",
+      "text": "You came through them.",
+      "fx": "clean",
+      "level": "l3",
+      "file": "voice/l3_halv_c2_7c.mp3",
+      "duration": 1.72,
+      "hash": "592f5d9305ebdde1",
+      "score": 1.0,
+      "ok": true,
+      "transcript": "you came through the",
+      "tries": 1,
+      "seed": 1210949149,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.72s",
+      "lead": 1.14
     },
     "l3_halv_c2_9": {
       "speaker": "halvorsen",
       "variant": null,
       "name": "HALVORSEN",
-      "text": "I can't. Take the badge. Go.",
+      "text": "I can't… I— I can't.",
       "fx": "clean",
       "level": "l3",
       "file": "voice/l3_halv_c2_9.mp3",
-      "duration": 2.03,
-      "hash": "3be64cffbfbd7fb3",
+      "duration": 1.6,
+      "hash": "babb072b173723cc",
       "score": 1.0,
       "ok": true,
-      "transcript": "i cant i cant take the badge go",
+      "transcript": "i cant i i can",
       "tries": 1,
       "seed": 328608531,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.03s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.60s",
+      "lead": 0.0
+    },
+    "l3_halv_c2_9b": {
+      "speaker": "halvorsen",
+      "variant": null,
+      "name": "HALVORSEN",
+      "text": "Take the badge. Go!",
+      "fx": "clean",
+      "level": "l3",
+      "file": "voice/l3_halv_c2_9b.mp3",
+      "duration": 1.51,
+      "hash": "520825699f0289fa",
+      "score": 1.0,
+      "ok": true,
+      "transcript": "take the badge go",
+      "tries": 1,
+      "seed": 564760836,
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.51s",
+      "lead": 0.0
     },
     "l3_halv_door": {
       "speaker": "halvorsen",
@@ -3823,7 +4155,8 @@
       "transcript": "no im not opening it go",
       "tries": 2,
       "seed": 1416698445,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.80s",
+      "lead": 0.0
     },
     "l3_halv_go_1": {
       "speaker": "halvorsen",
@@ -3840,7 +4173,8 @@
       "transcript": "please go before theyre out there",
       "tries": 3,
       "seed": 1984599402,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.30s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.30s",
+      "lead": 0.0
     },
     "l3_halv_go_2": {
       "speaker": "halvorsen",
@@ -3857,7 +4191,8 @@
       "transcript": "post four pass biological the badge opens it",
       "tries": 1,
       "seed": 1866587631,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.84s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.84s",
+      "lead": 0.0
     },
     "l3_halv_lock": {
       "speaker": "halvorsen",
@@ -3874,7 +4209,8 @@
       "transcript": "im locking it im sorry",
       "tries": 1,
       "seed": 1493616518,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.79s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.79s",
+      "lead": 0.0
     },
     "l3_halv_memo": {
       "speaker": "halvorsen",
@@ -3891,7 +4227,8 @@
       "transcript": "transfers it said transfers to the surface thats what i read",
       "tries": 1,
       "seed": 1975636586,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.63s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.63s",
+      "lead": 0.69
     },
     "l3_halv_pad": {
       "speaker": "halvorsen",
@@ -3908,7 +4245,8 @@
       "transcript": "i asked twice it said unavailable",
       "tries": 1,
       "seed": 1236087617,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.16s",
+      "lead": 0.59
     },
     "l3_halv_signed": {
       "speaker": "halvorsen",
@@ -3925,7 +4263,8 @@
       "transcript": "i approved it its always on the schedule i just approved it",
       "tries": 1,
       "seed": 2104670361,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.03s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.03s",
+      "lead": 0.0
     },
     "l3_resident_1": {
       "speaker": "resident",
@@ -3942,7 +4281,8 @@
       "transcript": "hello my doors gone red is it a drill",
       "tries": 1,
       "seed": 1833000861,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.14s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.14s",
+      "lead": 0.0
     },
     "l3_resident_2": {
       "speaker": "resident",
@@ -3959,7 +4299,8 @@
       "transcript": "if your facilities please open it please",
       "tries": 1,
       "seed": 1949962546,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.52s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.52s",
+      "lead": 0.0
     },
     "l3_reyes_come": {
       "speaker": "reyes",
@@ -3976,7 +4317,8 @@
       "transcript": "come with me",
       "tries": 1,
       "seed": 762769540,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.15s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.15s",
+      "lead": 0.38
     },
     "l3_reyes_murmur": {
       "speaker": "reyes",
@@ -3993,7 +4335,8 @@
       "transcript": "i came up from line two and theyre all",
       "tries": 1,
       "seed": 1131610105,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.22s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.22s",
+      "lead": 0.26
     },
     "l3_reyes_phone": {
       "speaker": "reyes",
@@ -4010,7 +4353,8 @@
       "transcript": "i need a phone now",
       "tries": 1,
       "seed": 1953814946,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.63s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.63s",
+      "lead": 0.0
     },
     "l3_unit_bio_denied": {
       "speaker": "unit",
@@ -4027,7 +4371,8 @@
       "transcript": "badge required",
       "tries": 1,
       "seed": 1922855504,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.15s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.15s",
+      "lead": 0.0
     },
     "l3_unit_bio_reader": {
       "speaker": "unit",
@@ -4044,7 +4389,8 @@
       "transcript": "badge accepted halverson p facilities purged fifteen seconds",
       "tries": 2,
       "seed": 58443530,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.65s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.65s",
+      "lead": 0.0
     },
     "l3_unit_lift_arrive": {
       "speaker": "unit",
@@ -4061,7 +4407,8 @@
       "transcript": "habitat ring pressure lock mind the step",
       "tries": 1,
       "seed": 2132202320,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.60s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.60s",
+      "lead": 0.36
     },
     "l3_unit_sector": {
       "speaker": "unit",
@@ -4078,7 +4425,8 @@
       "transcript": "sector sealed pressure alarm",
       "tries": 1,
       "seed": 884221776,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.70s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.70s",
+      "lead": 0.13
     },
     "l3_unit_sector_badge": {
       "speaker": "unit",
@@ -4095,7 +4443,8 @@
       "transcript": "sector sealed badge refused",
       "tries": 1,
       "seed": 896956701,
-      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.89s"
+      "info": "match=1.00 miss=0 extra=0 stall=0 audio=1.89s",
+      "lead": 0.0
     }
   },
   "version": 1

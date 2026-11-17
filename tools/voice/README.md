@@ -33,7 +33,7 @@ voice/refs/<char>.wav    the character's reference clip (+ .txt transcript, .jso
 voice/refs/<char>.<v>.wav variant references (designed whisper …), regenerated automatically from cast.json
 voice/lines.l1.json      lines (owned by the story): { id, speaker, text, spoken?, note?, fx? }
 voice/lines.l2.json
-voice/manifest.json      generated: per line { file, duration, hash, speaker, variant, name, text, fx, score, ok, transcript … }
+voice/manifest.json      generated: per line { file, duration, lead, hash, speaker, variant, name, text, fx, score, ok, transcript … }
 public/voice/<id>.mp3    generated: mono 24 kHz MP3 ~64 kbit/s, the *clean* take (game fx are applied at run time)
 ```
 
@@ -74,6 +74,11 @@ public/voice/<id>.mp3    generated: mono 24 kHz MP3 ~64 kbit/s, the *clean* take
 5. **DSP** (tities `audio.py`): the OmniVoice onset click is cut, leading/trailing silence trimmed, a junk
    tail after the last recognised word is cut at the next pause, 10 ms / 50 ms fades, loudness to
    `TARGET_RMS` (± the character's / variant's `level` in dB), peak ≤ 0.97, mp3 via ffmpeg.
+6. **Lead-in** (`audio.lead_in`, every `gen` run, for every line from the file that ships): the seconds before the
+   first word — a breath, an onset click and the pause after it — written to the manifest as `lead`. The game skips
+   them when it decodes the take and its durations are the file's less the lead, so a scene's gesture and the word
+   start together (measured: `scripts/check-voice-level.mjs`, SYNC). Speech = the first 10 ms frame above −20 dB of
+   the take's p95 frame that starts a run and reaches −10 dB within 200 ms; a 40 ms pre-roll is kept.
 
 Seeds are deterministic per line (`cast seed`, `lineSeed`, line id, attempt), so regenerating gives the same
 takes. To re-roll one character's takes without changing the voice, bump its `"lineSeed"`.

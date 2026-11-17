@@ -17,11 +17,20 @@ Run everything here and fix what it finds. When the user finds a new class of de
     `node scripts/check-chain.mjs --url http://127.0.0.1:<port>`.
   - `check:nav` — enemy navigation (nav v2, two decks): nodes on their floors and in their rooms, every link walked by a husk capsule, no unlinked deck, enemies can follow the player into every phase's goal regions; real husks reach the player across decks (greybox) and in levels 1–2, stand off when cut off, no drift on ramps (greybox + levels 1–2; prints the L1/L2 nav hash). `node scripts/check-nav.mjs --url http://127.0.0.1:<port>`.
   - `check:cutscene` — cutscene camera + player cinematic + safe state on the dev scene (`?cutdev=1`, greybox): no input moves / fires during a scene, awkward entries (sprint, backwards, mid-jump, mid-reload, palm scan, note, pause, fire held, dying), camera = shot table, end pose / weapon exact, hand-back continuity, skip only once seen (same end state, no jump), no shot in or across the safe state; levels 1–2 unaffected. `--url`, `--frames` (shots/p4/).
+  - `check:voice` (`scripts/check-voice-level.mjs`) — speech MEASURED at the listener: a tap on the voice bus and the
+    master, the speech RMS of every line of a level-3 run (the lift, C1 at his real distances, C2 across the desk, the
+    office, his door, CHOIR's PA = the reference). A person in the scene at ≤ 4 m ≥ the reference, ≥ −5 dB at 10–12 m,
+    ≥ −8 dB through a door; never occluded by his own body / the desk between two people; every C1/C2 line's speech
+    onset within 0.12 s of its cue (the gesture). `--choice command`, `--mode from2` (the L2 → L3 chain),
+    `--mode level2` (level 2's lines through the same path), `--evict` (nothing cached when the scene starts),
+    `--json <file>`. Add every new speaking character's scenes to it.
 - `node scripts/playthrough.mjs <url>` (level 1), `--checkpoints`, `--level2`, `--level2 --checkpoints`,
   `--level2 --impatient` — on a static build (`vite build` + `vite preview`), not the dev server.
 - `node scripts/playthrough-l3.mjs <url>` (`npm run play:l3 -- <url>`; level 3, both choices), `--checkpoints`, `--impatient`, `--skip`
   — static build; frame sequences of C1 / C2 / the breach in `shots/l3/` (look at them).
-- `npm run voice:check` after any change to `voice/lines.*.json` (and `npm run voice` before it).
+- `npm run voice:check` after any change to `voice/lines.*.json` (and `npm run voice` before it). `npm run voice` also
+  writes every line's `lead` (seconds before the first word: breath, click, pause) into the manifest; the game skips
+  it, so a scene's line starts with its gesture.
 
 ## Design rules to check every scene against (docs/DESIGN.md → REVISION 5, R1–R7)
 - No gate that is only a spoken instruction; real barriers.

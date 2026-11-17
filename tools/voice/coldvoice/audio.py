@@ -440,6 +440,34 @@ def decode_mp3(path) -> np.ndarray:
     return np.frombuffer(p.stdout, dtype=np.float32).copy()
 
 
+LEAD_PREROLL = 0.04
+LEAD_MIN = 0.05
+LEAD_K = 0.1
+
+
+def lead_in(a: np.ndarray) -> float:
+    """Seconds before the first word that the game skips (manifest `lead`): breath, room noise, an onset click and
+    the silence after it.
+
+    The first 10 ms frame above 10 % of the take's p95 frame RMS (-20 dB; speech, not breath) that starts a run
+    (3 of the next 5 frames above too) and reaches -10 dB within 200 ms, less a 40 ms pre-roll for a soft first consonant; 0 when under 50 ms.
+    The takes' own trim (`_finish`) keeps anything above the noise floor, so a breath and a pause before the first
+    word survived it (l3_halv_c1_1: 1.2 s before "Christ", l3_halv_c2_7c: a click, then 1.1 s of nothing): a scene
+    that starts a gesture with the line was that late. Measured in game: scripts/check-voice-level.mjs (SYNC)."""
+    if len(a) < 10 * HOP:
+        return 0.0
+    rms = frame_rms(a)
+    thr = LEAD_K * float(np.percentile(rms, 95))
+    above = rms > thr
+    loud = 0.3 * float(np.percentile(rms, 95))
+    for i in range(len(rms)):
+        # (and a word follows within 200 ms: a breath or a click at -20 dB is not the start of speech)
+        if above[i] and int(above[i:i + 5].sum()) >= 3 and float(rms[i:i + 20].max()) > loud:
+            t = max(0.0, i * HOP / SR - LEAD_PREROLL)
+            return round(t, 3) if t >= LEAD_MIN else 0.0
+    return 0.0
+
+
 def mp3_roundtrip(a: np.ndarray) -> np.ndarray:
     """What the game will decode: encode like `encode_mp3`, decode again (for the ASR check)."""
     import os

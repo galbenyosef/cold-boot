@@ -30,8 +30,9 @@ const DURATIONS = new Map<string, number>();
 // (the same module the audio system bundles: import.meta.glob of the one manifest, no second copy)
 const MANIFEST = import.meta.glob('../../voice/manifest.json', { eager: true, import: 'default' }) as Record<string, unknown>;
 try {
-  const m = (Object.values(MANIFEST)[0] ?? {}) as { lines?: Record<string, { duration?: number }> };
-  for (const [id, e] of Object.entries(m.lines ?? {})) if (Number.isFinite(e?.duration)) DURATIONS.set(id, Number(e.duration));
+  const m = (Object.values(MANIFEST)[0] ?? {}) as { lines?: Record<string, { duration?: number; lead?: number }> };
+  // (what is heard: the file less its lead-in, which the audio skips — src/audio/voice.ts)
+  for (const [id, e] of Object.entries(m.lines ?? {})) if (Number.isFinite(e?.duration)) DURATIONS.set(id, Number(e.duration) - Math.max(0, Math.min(2, Number(e.lead) || 0)));
 } catch (e) { console.error('[story] voice manifest did not parse', e); }
 
 export function voiceLine(id: string): VoiceLine | undefined { return DB.get(id); }

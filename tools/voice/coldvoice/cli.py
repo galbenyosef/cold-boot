@@ -113,6 +113,15 @@ def cmd_gen(a) -> int:
             if not rec["ok"]:
                 failed.append(ln.id)
                 _log(f"        text: {ln.spoken}\n        heard: {' | '.join(x.transcript for x in takes)}")
+        # every line's lead-in (what the game skips before the first word), from the file that ships
+        for lid, rec in man["lines"].items():
+            fs = [x["file"] for x in rec.get("layers") or []] or [rec.get("file")]
+            try:
+                leads = [A.lead_in(A.decode_mp3(P.ROOT / "public" / f)) for f in fs if f]
+            except Exception as e:  # noqa: BLE001 — a missing / broken file: no lead
+                _log(f"! lead of {lid}: {e}")
+                leads = [0.0]
+            rec["lead"] = min(leads) if leads else 0.0
         # prune lines that no longer exist (only on a full run)
         if not only and not speakers:
             ids = {ln.id for ln in lines}

@@ -116,9 +116,11 @@ await page.addInitScript(([LINES, ORACLE]) => {
         l3_reyes_phone: () => scene('l3_c1'), l3_halv_c1_3: () => scene('l3_c1'),
         l3_halv_c2_1: () => scene('l3_c2'), l3_halv_c2_2: () => scene('l3_c2'),
         l3_halv_c2_3: () => scene('l3_c2') && !g.level.door('d3_pressure').closed,
-        l3_halv_c2_4: () => scene('l3_c2'), l3_halv_c2_6: () => scene('l3_c2'),
+        l3_halv_c2_3b: () => scene('l3_c2') && !g.level.door('d3_pressure').closed,
+        l3_halv_c2_4: () => scene('l3_c2'), l3_halv_c2_4b: () => scene('l3_c2'), l3_halv_c2_6: () => scene('l3_c2'), l3_halv_c2_6b: () => scene('l3_c2'),
         l3_choir_told_stop: () => scene('l3_c2') && choice() === 'stop', l3_choir_told_command: () => scene('l3_c2') && choice() === 'command',
-        l3_choir_quiet: () => scene('l3_c2'), l3_halv_c2_7: () => scene('l3_c2'), l3_reyes_come: () => scene('l3_c2'), l3_halv_c2_9: () => scene('l3_c2'),
+        l3_choir_quiet: () => scene('l3_c2'), l3_halv_c2_7: () => scene('l3_c2'), l3_halv_c2_7b: () => scene('l3_c2'), l3_halv_c2_7c: () => scene('l3_c2'),
+        l3_reyes_come: () => scene('l3_c2'), l3_halv_c2_9: () => scene('l3_c2'), l3_halv_c2_9b: () => scene('l3_c2'),
         l3_halv_go_1: () => room() === 'office' && beat('l3_office') && !beat('l3_leave') && t() - control() >= 19.5,
         l3_halv_go_2: () => room() === 'office' && beat('l3_office') && !beat('l3_leave') && t() - control() >= 44.5 && said('l3_halv_go_1'),
         l3_halv_signed: () => room() === 'office' && (g.ui.noteOpen || within(L.reads.note3_schedule, 12)),
@@ -335,7 +337,7 @@ async function segMeet({ skip = false, film = false, poke = true } = {}) {
   console.log('  scenes:', JSON.stringify(log), 'C2 schedule end', d.scenes.times.c2?.end);
   if (!skip) {
     ok(c1 && c1.result === 'done' && c1.t <= 14.6 + 0.5, `C1 ${c1?.t?.toFixed(2)} s (≤ 13 + 1.6 black)`);
-    ok(c2 && c2.result === 'done' && c2.t <= 30.0, `C2 ${c2?.t?.toFixed(2)} s (≤ 30)`);
+    ok(c2 && c2.result === 'done' && c2.t <= 45.0, `C2 ${c2?.t?.toFixed(2)} s (≤ 45)`);
     const s = await L3();
     ok(s.firedInScene.length === 0 && s.fired.length === firedBefore, `no weapon fired during the scenes (${s.firedInScene.length})`);
   } else ok(c1?.result === 'skipped' && c2?.result === 'skipped', `both scenes skipped (${c1?.result}, ${c2?.result})`);
