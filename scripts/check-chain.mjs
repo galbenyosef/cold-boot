@@ -230,7 +230,9 @@ if (want('menu')) {
   await ev((K) => localStorage.setItem(K.level, '3'), SKEYS);
   await open('?god=1'); await menuOpen();
   let m = await menuInfo();
-  check((await game()).level === 3 && m.cont && /LEVEL 3/i.test(m.where) && /Chapter 3\s+—\s+The Quiet Side/i.test(m.line ?? ''), `menu offers CONTINUE on level 3: ${JSON.stringify(m)}`);
+  // (as level 2: CONTINUE names the checkpoint's place — its room — and the level line names the chapter)
+  const place3 = await ev((k) => JSON.parse(localStorage.getItem(k) ?? 'null')?.place ?? '', KEYS.save(3));
+  check((await game()).level === 3 && m.cont && !!place3 && m.where.includes(place3) && !/LEVEL/i.test(m.where) && /Chapter 3\s+—\s+The Quiet Side/i.test(m.line ?? ''), `menu offers CONTINUE on level 3 (place "${place3}"): ${JSON.stringify(m)}`);
   check(await click('Continue'), 'CONTINUE clicked');
   await until(() => window.__game?.state === 'playing', 20000); await wait(800);
   let g = await game();

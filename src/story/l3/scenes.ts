@@ -18,8 +18,8 @@ import * as THREE from 'three';
 import type { EnemyActor, FeedHandle } from '../../core/types';
 import type { CamShot, CamCue, Cutscene, CutResult } from '../cutscene';
 import { yawPitchTo } from '../cutscene';
-import { lineDuration, speak } from '../voice';
-import { Base3, C1P, CAM01, CAM04, FEED_UNITS, FEED_WALK, OFFICE, PUPPET_END, PUPPET_LOCK, PUPPET_PATH, V } from './base';
+import { lineDuration } from '../voice';
+import { Base3, C1P, CAM01, CAM04, FEED_UNITS, FEED_WALK, LOBBY_DOOR, OFFICE, PUPPET_END, PUPPET_LOCK, PUPPET_PATH, V } from './base';
 import { SCREEN3, TOAST3, wallClock } from './text';
 
 type V3 = THREE.Vector3;
@@ -49,7 +49,7 @@ export abstract class Scenes3 extends Base3 {
     let a: EnemyActor | null = null;
     try {
       const pos = at === 'h1' ? C1P.h1.clone() : OFFICE.seat.clone();
-      a = this.ctx.enemies.actor('human', pos, -PI / 2, at === 'h1' ? 'idle' : 'sit_desk', { who: 'halvorsen' }) ?? null;
+      a = this.ctx.enemies.actor('human', pos, at === 'h1' ? -PI / 2 : OFFICE.seatYaw, at === 'h1' ? 'idle' : 'sit_desk', { who: 'halvorsen' }) ?? null;
     } catch (e) { console.warn('[story] Halvorsen actor failed', e); }
     if (!a) return null;
     this.actors.add(a);
@@ -77,11 +77,10 @@ export abstract class Scenes3 extends Base3 {
   protected monitorArm(): THREE.Object3D | null {
     try { return this.ctx.level.object('office_monitor_arm') ?? null; } catch { return null; }
   }
-  /** The monitor arm at its story mark, facing him (−x): before C2 and on loads before the scene. */
+  /** The monitor on its pivot (the level's `office_monitor_arm`; never moved): facing him, or turned to the visitor. */
   protected resetMonitor(turned: boolean): void {
     const arm = this.monitorArm();
     if (!arm) return;
-    arm.position.copy(OFFICE.monitorArm);
     arm.rotation.set(0, turned ? PI : 0, 0);
     arm.updateMatrixWorld(true);
   }
@@ -130,7 +129,7 @@ export abstract class Scenes3 extends Base3 {
         label: which === 'cam01' ? 'CAM 01  GALLERY N' : 'CAM 04  LINE TWO',
         clock: () => wallClock(this.t, true),
         // CAM 04's set has one light, far from the player: pin it explicitly (the default pin search found none)
-        ...(which === 'cam04' ? { pinLights: [...this.ctx.render.lights.group('feed_l2')], exposure: 2.4 } : {}),
+        ...(which === 'cam04' ? { pinLights: [...this.ctx.render.lights.group('feed_l2')], exposure: 2.0 } : { exposure: 0.7 }),
       });
       this.feeds[which] = h;
       return h;
@@ -193,22 +192,40 @@ export abstract class Scenes3 extends Base3 {
     return new THREE.Vector3(0, 0, -1).applyQuaternion(c.quaternion).setY(0).normalize().multiplyScalar(0.4).add(c.position).add(V(0, -0.85, 0));
   }
 
-  /** C1 schedule (the variants known at the start: the weapon cannot change during a scene; the shot variant is the longer). */
-  protected c1Times(): SceneTimes {
+  /** C1's body (I1): where the player stands in the gallery, clamped west of the lock door so the walk fits 13 s. */
+  protected c1Body(): V3 {
+    const p = this.pos;
+    const x = THREE.MathUtils.clamp(p.x, C1P.bodyX[0], C1P.bodyX[1]);
+    return V(x, C1P.body.y, THREE.MathUtils.clamp(p.z, -10.2, -8.6));
+  }
+  /** Where he stops: ≈ 4.2 m short of the body (the marker `halv_c1_meet` for the nominal body), never in the doorway. */
+  protected c1Meet(body: V3): V3 {
+    return V(Math.max(-11.3, body.x + (C1P.meet.x - C1P.body.x)), C1P.meet.y, C1P.meet.z);
+  }
+
+  /**
+   * C1 schedule (I1). Every gesture starts WITH its line (the recorded durations, `lineDuration`): the startle is the
+   * "Christ—"; he talks while he hurries up the gallery; his eyes drop to the gun with "Is that a gun?"; the beckon
+   * with "Okay. Okay. My office." The walk length depends on where the player stands (`walkS`).
+   */
+  protected c1Times(walkS = 5.1): SceneTimes {
     const d1 = Math.max(lineDuration('l3_halv_c1_1'), lineDuration('l3_halv_c1_1_shots'));
     const d2 = this.ctx.player.currentWeapon !== null ? lineDuration('l3_halv_c1_2') : lineDuration('l3_halv_c1_2b');
     const d3 = lineDuration('l3_reyes_phone');
-    let t1 = 0.9, gap = 0.12;
-    if (t1 + d1 + d2 + d3 + 3 * gap > 10.9) { t1 = 0.8; gap = 0.06; }
-    const T: SceneTimes = { door: 0.3, startle: 0.6, l1: t1 };
-    T.l2 = T.l1 + d1 + gap;
+    const d4 = lineDuration('l3_halv_c1_3');
+    const gap = 0.08;
+    const T: SceneTimes = { door: 0.3, startle: 0.6 };
+    T.l1 = T.startle + 0.05;                       // the startle IS the first word
+    T.go = T.l1 + 0.25;                            // he comes at once, talking
+    T.arrive = T.go + walkS;
+    T.l2 = Math.max(T.l1 + d1 + gap, T.arrive - 0.25);
     T.l3 = T.l2 + d2 + gap;
-    T.l4 = Math.min(10.95, T.l3 + d3 + gap);
-    T.beckon = T.l4 + 0.1;
-    T.walk = T.l4 + 0.5;
-    T.dolly = Math.min(T.walk + 0.3, 11.2);
-    T.fade = 11.8;
-    T.end = 13.0;
+    T.l4 = T.l3 + d3 + gap;
+    T.beckon = T.l4;
+    T.walk = T.l4 + 0.4;
+    T.dolly = T.walk + 0.25;
+    T.fade = Math.min(11.8, Math.max(T.dolly + 0.6, T.l4 + d4 - 0.5));
+    T.end = T.fade + 1.2;
     T.black = 1.6;
     return T;
   }
@@ -216,30 +233,38 @@ export abstract class Scenes3 extends Base3 {
   /** C1 — "Sealed in till tomorrow". Resolves with the scene result; the player is held for C2 (`then: 'hold'`). */
   protected async sceneC1(): Promise<CutResult> {
     const cut = this.cut!;
-    const T = this.c1Times();
+    const body = this.c1Body();
+    const meet = this.c1Meet(body);
+    const SPEED = 1.4;
+    const T = this.c1Times(C1P.h1.distanceTo(meet) / SPEED);
     this.sceneTimes.c1 = T;
     const a = this.makeHalv('h1');
     const head = () => this.halvHead(0.02);
-    const E0 = C1P.eye, E1 = C1P.eye.clone().add(V(-0.15 * (T.dolly / 9.5), 0, 0));
-    const say = (id: string, at?: () => V3) => { void this.say(id, { pri: 'scene', gap: 0.08, at: at ?? (() => this.halvHead(0)) }); };
+    const E0 = body.clone().setY(body.y + 1.65), E1 = E0.clone().add(V(-0.15, 0, 0));
+    const Ed = V(Math.max(meet.x + 3.0, body.x - 1.0), E0.y, E0.z);   // (a short step after him, never up to him)
+    const say = (id: string, at?: () => V3) => { void this.say(id, { pri: 'scene', gap: 0.05, at: at ?? (() => this.halvHead(0)) }); };
     const cues: CamCue[] = [
-      { t: T.door, run: () => { this.beat('l3_meet'); this.sfx('door_open', V(-20, 5.9, -9), 0.6); } },
+      { t: 0, run: () => { this.talk.flush(true); this.lamp(false); this.holdOpen('d3_lobby'); } },
+      { t: T.door, run: () => { this.beat('l3_meet'); this.sfx('door_open', LOBBY_DOOR.clone(), 0.6); } },
       { t: T.startle, run: () => { this.pose(a, 'startle'); this.sfx('mug_clink', C1P.h1.clone().setY(5.9), 0.6); } },
-      { t: T.l1, run: () => { this.pose(a, 'talk'); say('l3_halv_c1_1'); } },
-      { t: T.l2, run: () => { say('l3_halv_c1_2'); this.lookAt(a, this.lowGun()); } },
+      { t: T.l1, run: () => say('l3_halv_c1_1') },
+      { t: T.go, run: () => { this.pose(a, 'talk'); void this.walk(a, [meet], SPEED); } },
+      { t: T.l2, run: () => { this.pose(a, 'talk'); say('l3_halv_c1_2'); this.lookAt(a, this.lowGun()); } },
       { t: T.l2 + 1.0, run: () => this.lookAt(a, cut.eye) },
-      { t: T.l3, run: () => { this.pose(a, 'idle'); void this.say('l3_reyes_phone', { pri: 'scene', gap: 0.08 }); } },
-      { t: T.l4, run: () => say('l3_halv_c1_3') },
-      { t: T.beckon, run: () => this.pose(a, 'beckon') },
+      { t: T.l3, run: () => { this.pose(a, 'idle'); void this.say('l3_reyes_phone', { pri: 'scene', gap: 0.05 }); } },
+      { t: T.l4, run: () => { say('l3_halv_c1_3'); this.pose(a, 'beckon'); } },
       { t: T.walk, run: () => { this.pose(a, 'idle'); void this.walk(a, [C1P.walk], 1.1); } },
       { t: T.fade, run: () => { this.stopLoop('radio_admin', 1.2); } },
     ];
+    // a long snap (the player ran up the gallery) blends a little longer
+    const blend = THREE.MathUtils.clamp(0.35 + 0.06 * this.pos.distanceTo(body), 0.35, 0.8);
     const shots: CamShot[] = [
-      { dur: T.dolly, eye: [E0, E1], look: head, fov: 72, enter: 'blend', blend: 0.35, body: C1P.body, bodyYaw: PI / 2, ease: 'linear' },
-      { dur: T.fade - T.dolly, eye: [E1, C1P.dolly], look: () => this.halvHead(0.1), body: 'follow' },
-      { dur: T.end - T.fade, eye: C1P.dolly, look: () => this.halvHead(0.1), fadeOut: 1.2, body: 'follow' },
+      // (he is 7-12 m away at first: the push 72 -> 46 brings him up to a readable size as he arrives)
+      { dur: T.dolly, eye: [E0, E1], look: head, fov: [72, 46], enter: 'blend', blend, body, bodyYaw: PI / 2, ease: 'linear' },
+      { dur: T.fade - T.dolly, eye: [E1, Ed], look: () => this.halvHead(0.1), fov: [46, 56], body: 'follow' },
+      { dur: T.end - T.fade, eye: Ed, look: () => this.halvHead(0.1), fov: 56, fadeOut: 1.2, body: 'follow' },
       {
-        dur: T.black, eye: C1P.dolly, black: true,
+        dur: T.black, eye: Ed, black: true,
         cues: [
           { t: 0.05, run: () => this.c1Black(), skip: () => { /* c1End */ } },
           { t: 0.3, run: () => this.murmur() },
@@ -278,47 +303,53 @@ export abstract class Scenes3 extends Base3 {
     if (!this.has('l3_meet')) this.beat('l3_meet');
     this.c1Black();
   }
-  /** `l3_reyes_murmur`: Reyes, unintelligible (fx room:400, set at load), ducked −10 dB, no subtitle. */
+  /** `l3_reyes_murmur`: Reyes, unintelligible (fx room:400 for this call), ducked −10 dB, no subtitle. */
   private murmur(): void {
     try {
-      const s = speak(this.ctx, 'l3_reyes_murmur', { subtitle: false, volume: 0.32, position: OFFICE.visitorEye.clone() });
+      // through the wall, unintelligible: room + low-pass 400 Hz for this call only (AudioSystem.say `fx`)
+      this.ctx.audio.say('l3_reyes_murmur', { volume: 0.32, position: OFFICE.visitorEye.clone(), fx: 'room:400' });
       this.talk.log.push({ t: this.now, id: 'l3_reyes_murmur', cond: null, said: 'l3_reyes_murmur', pri: 'over' });
-      void s;
     } catch { /* ignore */ }
   }
 
   // ───────────────────────────────────────────────────────────── C2
 
+  /**
+   * C2 schedule (I1: speech and movement start together). Every line is anchored on the previous one's recorded end
+   * (`lineDuration`, the voice manifest) and each gesture on the START of its line: he turns the monitor with "Look.",
+   * lifts the receiver as "No tone" begins, looks up at the speaker as CHOIR speaks, cowers with "The navy…", and the
+   * badge push lands on the shouted "Go." (the give's slide is 1.5 s in). The real door starts with the turn.
+   */
   protected c2Times(): SceneTimes {
     const d = lineDuration;
     const choirId = this.choice === 'command' ? 'l3_choir_told_command' : 'l3_choir_told_stop';
     const T: SceneTimes = {};
     T.l1 = 0.3;
-    T.l2 = Math.max(3.3, T.l1 + d('l3_halv_c2_1') + 0.2);
-    T.turn = Math.max(4.5, T.l2 + 0.9);
+    T.l2 = T.l1 + d('l3_halv_c2_1') + 0.2;
+    T.turn = T.l2 + d('l3_halv_c2_2') - 0.6;     // "…Look."
     T.mon = T.turn + 0.8;
-    T.door = T.mon;                             // the real door opens (2.6 s) as the screen comes round
+    T.door = T.turn + 0.3;                      // the real door opens (2.6 s) as the screen comes round
     T.walk = T.door + 2.65;                     // 100 % open
-    T.l3 = Math.max(T.door + 1.2, T.l2 + d('l3_halv_c2_2') + 0.2);
-    T.cam04 = Math.max(9.0, T.walk + 1.8);       // the units are seen walking out on CAM 01 for 1.8 s
-    T.l4 = Math.max(T.cam04 + 0.2, T.l3 + d('l3_halv_c2_3') + 0.2);
-    T.phone = Math.max(11.6, T.l4 + d('l3_halv_c2_4') - 0.9);   // he reaches while the line ends
-    T.l6 = Math.max(T.phone + 1.1, T.l4 + d('l3_halv_c2_4') + 0.2); // the receiver is at his ear first
-    T.speaker = Math.max(14.6, T.l6 + d('l3_halv_c2_6') + 0.65);
-    T.choir = T.speaker + 0.2;
-    T.mon2 = Math.max(17.6, T.choir + d(choirId) + 0.25);
+    T.l3 = Math.max(T.door + 1.2, T.l2 + d('l3_halv_c2_2') + 0.15);
+    T.cam04 = Math.max(T.walk + 1.5, T.l3 + d('l3_halv_c2_3') + 0.1);   // the units seen walking out for 1.5 s
+    T.l4 = T.cam04 + 0.15;
+    T.l6 = T.l4 + d('l3_halv_c2_4') + 0.15;
+    T.phone = T.l6 - 0.7;                       // the receiver reaches his ear as "No tone" begins
+    T.speaker = T.l6 + d('l3_halv_c2_6') + 0.2;
+    T.choir = T.speaker;
+    T.mon2 = T.choir + d(choirId) + 0.2;
     T.quiet = T.mon2;
-    T.die = T.quiet + 0.8;                      // 18.4 monitor → static → black
-    T.thumbs = T.die + 0.5;                     // 18.9
-    T.takeover = T.die + 1.0;                   // 19.4
-    T.lamp = T.die + 1.5;                       // 19.9
-    T.face = Math.max(20.2, T.quiet + d('l3_choir_quiet') + 0.3);
+    T.die = T.quiet + 0.8;                      // monitor -> static -> black
+    T.thumbs = T.die + 0.5;
+    T.takeover = T.die + 1.0;
+    T.lamp = T.die + 1.5;
+    T.face = T.quiet + d('l3_choir_quiet') + 0.2;
     T.l7 = T.face;
-    T.come = Math.max(23.8, T.l7 + d('l3_halv_c2_7') + 0.2);
-    T.l9 = Math.max(25.0, T.come + d('l3_reyes_come') + 0.2);
+    T.come = T.l7 + d('l3_halv_c2_7') + 0.15;
+    T.l9 = T.come + d('l3_reyes_come') + 0.15;
     T.give = T.l9;
-    T.badge = Math.max(26.0, T.l9 + 1.0);
-    T.release = Math.max(27.2, T.l9 + d('l3_halv_c2_9') + 0.1);
+    T.badge = T.l9 + 1.0;
+    T.release = T.l9 + d('l3_halv_c2_9') + 0.05;
     T.end = T.release + 1.4;
     if (T.end > 30) console.error(`[story] C2 runs ${T.end.toFixed(2)} s (> 30)`);
     return T;
@@ -335,7 +366,7 @@ export abstract class Scenes3 extends Base3 {
     const face = () => this.halvHead(0.0);
     const toward = (from: V3, to: V3, m: number) => from.clone().add(to.clone().sub(from).normalize().multiplyScalar(m));
     const Ep = toward(E, OFFICE.seat.clone().setY(6.0), 0.1);
-    // (plan: 0.25 m; 0.8 m so the 0.55 m screen reads at fov 52 — the zoom stays capped at 52)
+    // (plan: 0.25 m; 0.8 m so the 0.55 m screen reads at fov 46 — the zoom stays capped at 46)
     const Elean = toward(Ep, OFFICE.monitorArm, 0.8);
     const phonePt = OFFICE.seat.clone().lerp(OFFICE.phone, 0.5).setY(6.05);
     const endEye = OFFICE.endPos.clone().setY(OFFICE.endPos.y + 1.65);
@@ -358,33 +389,34 @@ export abstract class Scenes3 extends Base3 {
       { t: T.l4, run: () => say('l3_halv_c2_4') },
       { t: T.phone, run: () => this.pose(a, 'phone_ear') },
       { t: T.l6, run: () => { say('l3_halv_c2_6'); this.sfx('phone_dead', OFFICE.phone.clone(), 0.5); } },
-      { t: T.speaker - 0.1, run: () => { this.pose(a, 'phone_down'); this.lookAt(a, OFFICE.speaker.clone()); } },
+      { t: T.choir, run: () => { this.pose(a, 'phone_down'); this.lookAt(a, OFFICE.speaker.clone()); } },
       { t: T.choir, run: () => void this.say(choirId, { pri: 'scene', gap: 0.15, at: OFFICE.speaker.clone() }) },
       { t: T.quiet, run: () => { this.lookAt(a, this.monitorPoint().clone()); void this.say('l3_choir_quiet', { pri: 'scene', gap: 0.15, at: OFFICE.speaker.clone() }); } },
       { t: T.die, run: () => { this.w.screen('office_monitor', 'static'); this.sfx('screen_die', this.monitorPoint().clone(), 0.6); } },
       { t: T.die + 0.3, run: () => { this.screenOff('office_monitor'); this.dropFeeds(); } },
       { t: T.thumbs, run: () => { for (let i = 1; i <= 3; i++) this.screenOff(`office_thumb_${i}`); this.sfx('screen_die', V(-33.8, 6.5, -24.2), 0.5); screensDead = true; } },
       { t: T.takeover, run: () => this.takeover(false) },
-      { t: T.lamp, run: () => { this.officeDark(); this.sfx('office_die', V(-31.6, 7.4, -23.4), 0.6); } },
-      // the office goes dark: the player's torch comes back (as it was before the scenes)
-      { t: T.lamp + 0.5, run: () => this.lamp(true) },
-      { t: T.face, run: () => { this.pose(a, 'cower'); this.lookAt(a, cut.eye); say('l3_halv_c2_7'); } },
+      { t: T.lamp, run: () => { this.officeDark(); this.sfx('office_die', OFFICE.lamp.clone(), 0.6); } },
+      // (the agitated, out-of-breath take: he shrinks into the chair as he starts, afraid)
+      { t: T.face, run: () => { this.pose(a, 'cower'); this.prop(a, 'expr', 'fear'); this.lookAt(a, cut.eye); say('l3_halv_c2_7'); } },
       { t: T.come, run: () => void this.say('l3_reyes_come', { pri: 'scene', gap: 0.1 }) },
       { t: T.give, run: () => { this.pose(a, 'give'); say('l3_halv_c2_9'); } },
       { t: T.release + 0.9, run: () => this.takeBadge() },
     ];
     void screensDead;
+    // (fov: the plan's 60 / 58 framed a 3 m-away man at a tenth of the frame; 52 with the zoom to the screen capped at
+    // 46 — still a small, slow change)
     const shots: CamShot[] = [
-      { dur: T.turn, eye: [E, Ep], look: face, fov: 60, enter: 'fade', fade: 0.6, body: OFFICE.visitor, bodyYaw: PI / 2, ease: 'linear' },
-      { dur: T.mon - T.turn, eye: [Ep, Elean], look: this.monitorPoint, fov: [60, 52], enter: 'blend', blend: 0.8 },
-      { dur: T.phone - T.mon, eye: Elean, look: this.monitorPoint, fov: 52 },
-      { dur: T.speaker - T.phone, eye: [Elean, Ep], look: phonePt, fov: [52, 58], enter: 'blend', blend: 0.8 },
+      { dur: T.turn, eye: [E, Ep], look: face, fov: 52, enter: 'fade', fade: 0.6, body: OFFICE.visitor, bodyYaw: PI / 2, ease: 'linear' },
+      { dur: T.mon - T.turn, eye: [Ep, Elean], look: this.monitorPoint, fov: [52, 46], enter: 'blend', blend: 0.8 },
+      { dur: T.phone - T.mon, eye: Elean, look: this.monitorPoint, fov: 46 },
+      { dur: T.speaker - T.phone, eye: [Elean, Ep], look: phonePt, fov: [46, 52], enter: 'blend', blend: 0.8 },
       // (up toward the speaker, but keeping him in frame looking up with us: a bare ceiling corner reads as nothing)
-      { dur: T.mon2 - T.speaker, eye: Ep, look: () => this._up.copy(this.halvHead(0)).lerp(OFFICE.speaker, 0.28), fov: 58, enter: 'blend', blend: 0.8 },
-      { dur: T.face - T.mon2, eye: Ep, look: this.monitorPoint, fov: 58, enter: 'blend', blend: 0.8 },
-      { dur: T.badge - T.face, eye: [Ep, E], look: face, fov: 58, enter: 'blend', blend: 0.8 },
-      { dur: T.release - T.badge, eye: E, look: OFFICE.badge, fov: 58, enter: 'blend', blend: 0.6 },
-      { dur: T.end - T.release, eye: [E, endEye], yaw: [bp.yaw, OFFICE.endYaw], pitch: [bp.pitch, OFFICE.endPitch], fov: [58, 72], handback: true },
+      { dur: T.mon2 - T.speaker, eye: Ep, look: () => this._up.copy(this.halvHead(0)).lerp(OFFICE.speaker, 0.28), fov: 52, enter: 'blend', blend: 0.8 },
+      { dur: T.face - T.mon2, eye: Ep, look: this.monitorPoint, fov: 52, enter: 'blend', blend: 0.8 },
+      { dur: T.badge - T.face, eye: [Ep, E], look: face, fov: 52, enter: 'blend', blend: 0.8 },
+      { dur: T.release - T.badge, eye: E, look: OFFICE.badge, fov: 44, enter: 'blend', blend: 0.6 },
+      { dur: T.end - T.release, eye: [E, endEye], yaw: [bp.yaw, OFFICE.endYaw], pitch: [bp.pitch, OFFICE.endPitch], fov: [44, 72], handback: true },
     ];
     const r = await cut.play('l3_c2', shots, {
       place: { pos: OFFICE.endPos.clone(), yaw: OFFICE.endYaw, pitch: OFFICE.endPitch },
@@ -441,6 +473,9 @@ export abstract class Scenes3 extends Base3 {
         this.door('d3_lobby')?.lock();
       });
     }
+  }
+  protected prop(a: EnemyActor | null, name: string, v: unknown): void {
+    try { (a as unknown as { prop?: (n: string, v: unknown) => void } | null)?.prop?.(name, v); } catch { /* ignore */ }
   }
   private takeBadge(): void {
     try { this.halv?.prop?.('badge', 'none'); } catch { /* ignore */ }

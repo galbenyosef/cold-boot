@@ -29,10 +29,17 @@ const HX = -32.6, HZ = -24.2;
 const DESK = { x0: -32.28, x1: -31.38, x2: -30.58, z0: -25.62, z1: -22.78, top: Y + 0.76 };
 /** Markers this file moves (old → new), applied in build(). */
 export const MOVED_OFFICE: Record<string, { from: [number, number, number]; to: [number, number, number] }> = {
-  office_phone: { from: [-31.3, 5.57, -25.3], to: [-32.02, 5.57, -24.86] },
+  // (the cradle point: where his receiver lies — the phone body is 0.065 m west of it, facing him, I1)
+  office_phone: { from: [-31.3, 5.57, -25.3], to: [-31.955, 5.642, -24.86] },
   office_monitor_arm: { from: [-31.0, 5.88, -23.6], to: [-31.86, 5.97, -23.62] },
   office_lamp: { from: [-31.6, 7.5, -23.4], to: [-31.86, 5.92, -25.02] },
+  // I1: the badge lands on the oak desk in the visitor's view (clear of the notepad, memo tray and monitor foot);
+  // the visitor chair (and the C2 eye on it) 0.3 m nearer the desk: knees 0.75 m from the oak desk's edge, not 1.1
+  office_badge: { from: [-30.75, 5.57, -23.9], to: [-31.05, 5.565, -24.0] },
+  office_chair: { from: [-29.5, 4.8, -24.2], to: [-29.8, 4.8, -24.2] },
+  c2_eye: { from: [-29.5, 6.0, -24.2], to: [-29.8, 6.0, -24.2] },
 };
+const VISITOR = MOVED_OFFICE.office_chair.to;
 const LAMP = MOVED_OFFICE.office_lamp.to;
 
 const office: RoomDress = {
@@ -83,14 +90,17 @@ const office: RoomDress = {
     const top = DESK.top;
     // his chair (no collider: the story's dynamic body box covers him), the visitor chair (no collider, §2.9)
     b.at(HX, Y, HZ, PI / 2, () => officeChair(b, L, TINT.plum));
-    b.at(-29.5, Y, -24.2, -PI / 2, () => visitorChair(b, L, TINT.sage));
+    b.at(VISITOR[0], Y, VISITOR[2], -PI / 2, () => visitorChair(b, L, TINT.sage));
     b.at(-29.35, Y, -24.15, 0, () => rug(b, L, 2.2, 1.6, TINT.rust, TINT.charcoal));
 
     // on his desk: phone (left), lamp (left front), keyboard, mug, photos, a plant, the in-tray
-    const [phx, , phz] = MOVED_OFFICE.office_phone.to;
-    b.at(phx, top, phz, -PI / 2 + 0.25, () => deskPhone(b, L));
+    // the phone faces him (its user side, local −z, toward +z: he sits north-west of it) with the cradle along z —
+    // the axis his own receiver lies on (the actor draws the receiver and its cord; the cradle here is empty). I1:
+    // it faced the visitor (keypad upside down from his chair) and kept its own handset while he held his.
+    const phx = MOVED_OFFICE.office_phone.to[0] - 0.065, phz = MOVED_OFFICE.office_phone.to[2];
+    b.at(phx, top, phz, PI, () => deskPhone(b, L, false));
     b.detail(() => {
-      b.rod('plastic_dark', phx + 0.05, top + 0.02, phz + 0.12, -31.75, top + 0.01, -24.6, 0.004, 4); // cord
+      b.rod('plastic_dark', phx + 0.05, top + 0.02, phz - 0.12, -31.75, top + 0.01, -25.1, 0.004, 4); // wall cord
       b.at(LAMP[0] + 0.12, top, LAMP[2] - 0.2, PI / 2 + 0.2, () => bankersLamp(b, L, lampGlow));
       b.at(-32.0, top, -24.15, -PI / 2, () => keyboard(b));
       b.at(-31.95, top, -23.15, 0.4, () => mug(b, L, 1));
@@ -222,6 +232,9 @@ function moveMarkers(L: LevelBuild) {
     if (id === 'office_monitor_arm') continue; // set in build
     L.objects.get(id)?.position.set(...mv.to);
   }
+  // his desk's front edge / top relative to his seat (the actor's `desk` prop; the story reads it from the marker)
+  const h2 = L.objects.get('halv_h2');
+  if (h2) h2.userData.desk = { front: +(DESK.x0 - h2.position.x).toFixed(3), top: +(DESK.top - Y).toFixed(3) };
   const hb = L.objects.get('halv_body_box');
   if (hb) hb.userData.box = [-33.2, D2, -24.8, -32.3, 6.2, -23.6];
 }

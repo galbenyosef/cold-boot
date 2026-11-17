@@ -147,6 +147,7 @@ const gallery_n: RoomDress = {
     b.bx('brass', 6.85, Y + 1.38, -11.8, 8.35, Y + 1.82, -11.788);
     b.sign('Habitat Atrium — opened 2031', 'wayfinding', 7.6, Y + 1.6, -11.788, 1.4, 0.36, '+z');
     totem(b, 8.0, Y, -10.95, -PI / 2, 'Garden Atrium\nBiological Systems\n→', 'Habitat Lobby\nReception\n↑', 0.55, 0.9);
+    nightSign(L, Y);
     wayfind(b, 'Habitat Lobby ←', -9.5, Y + 2.35, -7.205, 1.3, 0.3, '-z');
     // the lobby's glass door: wood casing on the gallery side
     doorCasing(b, L, { x: -12, y: Y, z: -9.5, wall: 'x', front: 'Habitat Lobby', sides: [1] });
@@ -171,6 +172,9 @@ const lobby: RoomDress = {
       { group: 'lobby', type: 'point', p: [-16, Y + 3.0, -8.8], color: 0xffd9b0, i: 12, d: 10, prio: 0.5 },
       { group: 'lobby', type: 'spot', p: [-14.8, Y + 1.5, -11.85], t: [-16.0, Y + 1.05, -12.0], color: 0xffd9b0, i: 6, d: 4, angle: 1.0, min: 'medium', prio: 0.5 },
       { group: 'lobby_emerg', type: 'point', p: [-16, Y + 3.2, -9], color: 0xc8e0ff, i: 4, d: 10, off: true },
+      // I1: a downlight over the staff door, aimed through it: C1's key on Halvorsen's face in the doorway (he stands
+      // backlit by the open plan otherwise; the player's torch is off during the scenes)
+      { group: 'lobby', type: 'spot', p: [-18.7, Y + 3.5, -9.0], t: [-21.0, Y + 1.55, -9.0], color: 0xffd9b0, i: 7, d: 6, angle: 0.55, prio: 0.5 },
     ];
     lights(L, rows, [[0, pend], [1, desk]]);
     const H = Y + 3.6;
@@ -184,7 +188,7 @@ const lobby: RoomDress = {
     // ceiling: a coffer of three drum pendants over the middle, downlights at the edges
     b.bx('plaster_warm', -18.3, H - 0.1, -11.2, -13.7, H - 0.02, -6.8);
     for (const z of [-10.4, -8.8, -7.2]) pendant(b, L, pend, -16.0, H - 0.1, z, 0.75, 0.32, TINT.cream);
-    for (const [x, z] of [[-19.0, -5.0], [-19.0, -13.0], [-13.0, -13.0], [-13.0, -5.0]] as const) downlight(b, pend, x, H, z, 0.06);
+    for (const [x, z] of [[-19.0, -5.0], [-18.7, -9.0], [-19.0, -13.0], [-13.0, -13.0], [-13.0, -5.0]] as const) downlight(b, pend, x, H, z, 0.06);
     // doors: casings on the lobby side
     doorCasing(b, L, { x: -12, y: Y, z: -9.5, wall: 'x', back: 'North Gallery', sides: [-1] });
     doorCasing(b, L, { x: -20, y: Y, z: -9, wall: 'x', front: 'Facilities — Staff', sides: [1] });
@@ -211,7 +215,7 @@ const lobby: RoomDress = {
       b.at(-14.75, top, -11.82, 0, () => tableLamp(b, L, desk, 0.8));
       b.at(-15.6, Y + 0.75, -12.25, PI, () => mug(b, L, 2));
       b.at(-16.0, Y + 0.75, -12.15, PI, () => b.at(0, 0, 0, 0, () => { b.bx('plastic_dark', -0.27, 0.12, -0.03, 0.27, 0.48, 0.0); b.bx('plastic_dark', -0.02, 0, -0.08, 0.02, 0.13, -0.02); b.bx('plastic_dark', -0.1, 0, -0.12, 0.1, 0.012, 0.0); }));
-      b.at(-16.95, Y + 0.75, -12.2, PI - 0.3, () => deskPhone(b, L));
+      b.at(-16.95, Y + 0.75, -12.2, -0.3, () => deskPhone(b, L)); // (I1: faces the staff side, south)
       b.at(-14.9, Y + 0.75, -12.2, 0, () => papersFlat(b, L, 4, 0.1, R));
     });
     b.at(-16.0, Y, -13.1, 0, () => officeChair(b, L, TINT.slate));
@@ -304,7 +308,7 @@ const admin: RoomDress = {
         if (i % 3 === 0) b.at(-33.6, t, z - 0.58, PI / 2, () => tableLamp(b, L, lamp, 0.7));
         if (i % 3 === 1) b.at(-33.6, t, z + 0.6, PI / 2 + 0.4, () => photoFrame(b, L, 10 + i));
         if (i % 3 === 2) b.at(-33.6, t, z - 0.55, 0, () => plantSmall(b, R, paint(L, 0xb85c3c, 0.6)));
-        if (i === 5) b.at(-33.3, t, z - 0.3, PI / 2, () => deskPhone(b, L));
+        if (i === 5) b.at(-33.3, t, z - 0.3, -PI / 2, () => deskPhone(b, L)); // (I1: faces the user, east)
       });
       if (i < 7 && i !== 3) {
         const zd = z - 1.0;
@@ -399,5 +403,38 @@ const admin: RoomDress = {
     b.at(-21.0, cy, -16.2, 0.2, () => b.collide(-0.3, 0, -0.25, 0.3, 0.45, 0.25, 'metal', true));
   },
 };
+
+/**
+ * I1: the shutter at the gallery's east end is down until the breach (night setting) — a friendly stand in front of
+ * it says so. No collider (the breach group comes through here); the story hides it (`shutter_night_sign`) when the
+ * shutter goes up.
+ */
+function nightSign(L: LevelBuild, Y: number) {
+  const face = canvasMat(L, 'atrium_night', 512, 640, (g, W, H) => {
+    g.fillStyle = '#f4efe2'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#2f5a3a'; g.fillRect(0, 0, W, 120);
+    g.fillStyle = '#f4efe2'; g.font = '700 50px Georgia, serif'; g.textAlign = 'center';
+    g.fillText('GARDEN ATRIUM', W / 2, 78);
+    g.fillStyle = '#26302a'; g.font = '600 46px Georgia, serif';
+    g.fillText('Closed for the night', W / 2, 205);
+    g.font = '700 82px Georgia, serif'; g.fillText('22:00 – 06:00', W / 2, 330);
+    g.font = 'italic 38px Georgia, serif'; g.fillStyle = '#4b5a50';
+    g.fillText('Night setting — lamps stay', W / 2, 430);
+    g.fillText('on for the plants.', W / 2, 476);
+    g.font = '600 34px Georgia, serif'; g.fillStyle = '#2f5a3a';
+    g.fillText('Sleep well. — Facilities', W / 2, 580);
+  });
+  const p = L.part('shutter_night_sign');
+  // a brass stanchion with a framed board at reading height, turned to the walk from the lobby / the lock
+  p.cyl('brass', 0, 0.012, 0, 0.2, 0.024, 'y', 18);
+  p.cyl('brass', 0, 0.55, 0, 0.018, 1.08, 'y', 8);
+  p.bx('wood_dark', -0.34, 0.98, -0.03, 0.34, 1.82, 0.0);
+  p.quad(face, 0, 1.4, 0.004, 0.62, 0.78, '+z');
+  const o = p.build();
+  o.position.set(10.5, Y, -10.9);
+  o.rotation.y = -0.5;
+  L.root.add(o);
+  L.objects.set('shutter_night_sign', o);
+}
 
 export const NORTH_DRESS: Partial<Record<RoomId3, RoomDress>> = { lift3, lock, gallery_n, lobby, admin };

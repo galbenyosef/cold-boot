@@ -275,8 +275,8 @@ export const LIGHTS3: Record<RoomId3, LightRow[]> = {
     { group: 'admin', type: 'point', p: [-24, 7.6, -14], color: WARM, i: 12, d: 10 },
     { group: 'admin', type: 'point', p: [-24, 7.6, -6], color: WARM, i: 8, d: 8, min: 'medium' },
     { group: 'admin', type: 'point', p: [-30, 7.6, -16], color: WARM, i: 8, d: 8, min: 'medium' },
-    { group: 'admin_emerg', type: 'point', p: [-30, 7.6, -10], color: COLD, i: 3, d: 10, off: true },
-    { group: 'admin_emerg', type: 'point', p: [-24, 7.6, -16], color: COLD, i: 3, d: 10, off: true },
+    { group: 'admin_emerg', type: 'point', p: [-30, 7.6, -10], color: COLD, i: 4.5, d: 11, off: true },
+    { group: 'admin_emerg', type: 'point', p: [-24, 7.6, -16], color: COLD, i: 4.5, d: 11, off: true },
   ],
   office: [
     // Halvorsen's key light (banker's lamp, §4.3)
@@ -287,14 +287,14 @@ export const LIGHTS3: Record<RoomId3, LightRow[]> = {
   stair_w: [
     { group: 'stair_w', type: 'point', p: [-17.5, 7.6, -19], color: WARM, i: 10, d: 9 },
     { group: 'stair_w', type: 'point', p: [-17.5, 3.4, -32.5], color: WARM, i: 8, d: 8, min: 'medium' },
-    { group: 'stair_w_emerg', type: 'point', p: [-17.5, 7.6, -25], color: COLD, i: 3, d: 14, off: true },
+    { group: 'stair_w_emerg', type: 'point', p: [-17.5, 7.6, -25], color: COLD, i: 6, d: 16, off: true }, // (I1: 3 → 6: the flight read black)
   ],
   canteen: [
     { group: 'canteen', type: 'point', p: [-18, 3.3, -40], color: WARM, i: 12, d: 10, prio: 0.5 },
     { group: 'canteen', type: 'point', p: [-21.5, 3.3, -37], color: WARM, i: 8, d: 7, min: 'medium', prio: 0.5 },
     { group: 'canteen', type: 'point', p: [-15, 3.3, -43], color: WARM, i: 8, d: 7, min: 'medium', prio: 0.5 },
-    { group: 'canteen_emerg', type: 'point', p: [-18, 3.3, -40], color: COLD, i: 3, d: 10, off: true },
-    { group: 'canteen_emerg', type: 'point', p: [-14, 3.3, -36], color: COLD, i: 2.5, d: 7, min: 'medium', off: true },
+    { group: 'canteen_emerg', type: 'point', p: [-18, 3.3, -40], color: COLD, i: 3.5, d: 11, off: true }, // (I1: 3 → 3.5, reach 10 → 11)
+    { group: 'canteen_emerg', type: 'point', p: [-14, 3.3, -36], color: COLD, i: 3, d: 8, min: 'medium', off: true },
   ],
   atrium: [
     { group: 'atrium_day', type: 'spot', p: [-4, 13.0, -19], t: [-4, 0, -22], color: KEY, i: 90, d: 22, angle: 0.75, cast: true },
@@ -303,10 +303,11 @@ export const LIGHTS3: Record<RoomId3, LightRow[]> = {
     { group: 'atrium_day', type: 'point', p: [6, 8, -22], color: SKY, i: 24, d: 18 },
     { group: 'atrium_day', type: 'point', p: [0, 6, -40], color: SKY, i: 14, d: 14, min: 'high' },
     { group: 'atrium_day', type: 'point', p: [0, 6, -16], color: SKY, i: 14, d: 14, min: 'high' },
-    { group: 'atrium_emerg', type: 'point', p: [10.5, 7.0, -20], color: COLD, i: 4, d: 16, off: true },
-    { group: 'atrium_emerg', type: 'point', p: [10.5, 7.0, -34], color: COLD, i: 4, d: 16, off: true },
-    { group: 'atrium_emerg', type: 'point', p: [10.5, 3.5, -16], color: COLD, i: 3, d: 10, min: 'medium', off: true },
-    { group: 'atrium_emerg', type: 'point', p: [10.5, 3.5, -38], color: COLD, i: 3, d: 10, min: 'medium', off: true },
+    // (I1: after the takeover the garden read black beyond the torch: brighter, and one on the west wall)
+    { group: 'atrium_emerg', type: 'point', p: [-8.0, 9.5, -26], color: COLD, i: 9, d: 22, off: true }, // (high, 4 m off the west wall: no hot spot)
+    { group: 'atrium_emerg', type: 'point', p: [10.5, 7.0, -34], color: COLD, i: 8, d: 20, off: true },
+    { group: 'atrium_emerg', type: 'point', p: [10.5, 3.5, -16], color: COLD, i: 5, d: 12, min: 'medium', off: true },
+    { group: 'atrium_emerg', type: 'point', p: [-4, 3.5, -40], color: COLD, i: 5, d: 12, min: 'medium', off: true },
   ],
   clinic: [
     { group: 'clinic', type: 'point', p: [16, 2.8, -18], color: 0xf4f6ff, i: 10, d: 8 },
@@ -317,6 +318,8 @@ export const LIGHTS3: Record<RoomId3, LightRow[]> = {
     { group: 'quarters', type: 'point', p: [20, 2.8, -31], color: WARM, i: 10, d: 10 },
     { group: 'quarters', type: 'point', p: [14.5, 2.2, -31], color: WARM, i: 4, d: 5, min: 'medium' },
     { group: 'quarters', type: 'point', p: [25.5, 2.2, -31], color: WARM, i: 4, d: 5, min: 'medium' },
+    // I1: the corridor had no emergency light — black after the takeover (breach 2 runs through it)
+    { group: 'quarters_emerg', type: 'point', p: [20, 2.8, -31], color: COLD, i: 3, d: 11, off: true },
   ],
   bio_lock: [{ group: 'bio_lock', type: 'spot', p: [14, 7.6, -38], t: [14, D2, -38], color: 0xf4f8ff, i: 16, d: 6, angle: 1.1, cast: true, min: 'medium' }],
   kitchen: [],
@@ -453,12 +456,24 @@ export const SHELLS3: Record<RoomId3, Shell> = {
     roomLabel(b, 'NORTH GALLERY', -7.5, D2 + 2.5, -7.2, '-z', 3.0);
     roomLabel(b, 'BIOLOGICAL SYSTEMS →', 7.6, D2 + 2.1, -7.2, '-z', 3.4);
     L.screen('pdoor_panel_out', 'pressure', 0.5, 0.32, -2.3, D2 + 1.55, -7.205, '-z', { text: 'TEST|10:00:00' });
-    // CAM 01 (§8.4): the glazing is behind it
-    L.marker('cam01', 9.0, 7.5, -11.5, 0);
-    L.marker('cam01_look', -2.0, 6.0, -8.0, 0);
+    // CAM 01 (§8.4): high in the gallery's south side, the glazing (and the atrium) behind it; the pressure door at
+    // ≈ 25° off its axis, 5 m away, the units' walk west to the lobby door going away from it (I1: was (9, 7.5,
+    // −11.5), grazing the door from 10 m — the units read as specks)
+    L.marker('cam01', 1.8, 7.6, -11.6, 0);
+    L.marker('cam01_look', -1.6, 5.7, -7.4, 0);
     // C2 puppet walk (§4.3): out of the lock, west along the gallery, into the lobby
     L.marker('puppet_path_0', 0, D2, -8.6, PI / 2);
     L.marker('puppet_path_1', -11.0, D2, -9.5, PI / 2);
+    // C1 (I1: he comes to meet the player in the gallery): the nominal body / eye a few steps out of the lock, facing
+    // west down the gallery (the story clamps the real body x to −7.5 … −1 from where the player is); Halvorsen's start
+    // just inside the lobby's glass door, where he stops (`halv_c1_meet`, ≈ 4 m short of the body), his walk back
+    L.marker('c1_body', -2.0, D2, -9.4, PI / 2);
+    L.marker('c1_eye', -2.0, D2 + 1.65, -9.4, PI / 2);
+    L.marker('c1_look', -8.0, 6.35, -9.45, 0);
+    L.marker('c1_dolly', -4.4, D2 + 1.65, -9.4, PI / 2);
+    L.marker('halv_h1', -13.4, D2, -9.5, -PI / 2);
+    L.marker('halv_c1_meet', -6.2, D2, -9.45, -PI / 2);
+    L.marker('halv_c1_walk', -15.2, D2, -9.3, PI / 2);
   },
 
   lobby: ({ L, G, b }) => {
@@ -468,11 +483,7 @@ export const SHELLS3: Record<RoomId3, Shell> = {
     L.interact('term3_lobby', 'terminal', 'Read screen', -14.6, 5.9, -4.5);
     L.interact('note3_guestbook', 'log', 'Read book', -16.0, D2 + 1.05, -12.0);
     L.interact('note3_board', 'log', 'Read notice', -18.0, D2 + 1.5, -13.77);
-    // C1 (§4.2): body / eye, the puppets' end marks at the inner door
-    L.marker('c1_body', -18.7, D2, -9.0, PI / 2);
-    L.marker('c1_eye', -18.7, D2 + 1.65, -9.0, PI / 2);
-    L.marker('c1_look', -20.0, 6.35, -9.0, 0);
-    L.marker('c1_dolly', -20.6, D2 + 1.65, -9.0, PI / 2);
+    // the puppets' end marks at the inner door (C2)
     for (const [i, [x, z]] of ([[-18.6, -8.2], [-18.4, -9.8], [-17.2, -9.0]] as const).entries()) L.marker(`puppet_end_${i + 1}`, x, D2, z, PI / 2);
   },
 
@@ -484,9 +495,7 @@ export const SHELLS3: Record<RoomId3, Shell> = {
     block(b, glass, -33.8, D2, -11.015, -30.0, D2 + 1.8, -10.985, 'glass', true);
     for (let i = 0; i < 8; i++) L.screen(`admin_screen_${i + 1}`, 'terminal_idle', 0.5, 0.3, -33.795, D2 + 1.4, -4 - 2 * i, '+x', { text: 'FACILITIES' });
     L.interact('note3_desk', 'log', 'Read printout', -27.4, 5.6, -5.2);
-    // C1: Halvorsen's marks (behind the inner door, then his walk west); the radio behind the inner door (§2.5)
-    L.marker('halv_h1', -21.0, D2, -9.0, -PI / 2);
-    L.marker('halv_c1_walk', -23.5, D2, -9.0, PI / 2);
+    // the radio behind the inner door (§2.5)
     L.marker('radio_admin', -22, 5.8, -8, 0);
     L.marker('stores_cage', -22.6, D2, -15.0, 0);
   },
@@ -632,7 +641,8 @@ export const SHELLS3: Record<RoomId3, Shell> = {
     for (let i = 0; i < 8; i++) L.marker(`feed_l2_unit_${i + 1}`, 61.8 + 1.2 * i, 0, -5.0, PI);
     L.marker('feed_l2_walk_a', 60.8, 0, -3.0, -PI / 2);
     L.marker('feed_l2_walk_b', 71.2, 0, -3.0, -PI / 2);
-    L.marker('cam04', 66, 3.5, -1.0, 0);
-    L.marker('cam04_look', 66, 1.0, -8.0, 0);
+    // CAM 04: low and close, the eight units across the frame (I1: was (66, 3.5, −1) → (66, 1, −8): small at the bottom)
+    L.marker('cam04', 66, 2.4, -0.4, 0);
+    L.marker('cam04_look', 66, 1.1, -6.0, 0);
   },
 };

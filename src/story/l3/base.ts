@@ -64,44 +64,95 @@ export function emptyProgress3(): ProgressL3 {
   return { beats: [], read: [], visited: [], heard: [], flags: { ...FLAGS3 }, triggered: [], cleared: [], checkpoints: [], t: 0 };
 }
 
-// ───────────────────────────────────────────────────────────── places (§2, §4; level markers win)
+// ───────────────────────────────────────────────────────────── places (§2, §4)
 
 /**
- * Story-side offsets (§4.3 is too far for a seated man who reaches 0.6–0.8 m: the desk's front edge x −31.8 is
- * 0.8 m from the plan's seat). Listed for the dressing task: move the chair / phone / monitor to these.
+ * ONE truth: the level's named markers (src/level/l3: grey.ts places them, the dressing moves the ones its furniture
+ * needs — office.ts MOVED_OFFICE). The values below are only fallbacks for a level without the marker; `bindPlaces`
+ * overwrites them from the level at construction. Nothing in the story moves furniture (the monitor only turns on its
+ * pivot).
  */
 export const OFFICE = {
-  /** His seat (chair-seat centre), facing +x; desk front edge 0.35 m ahead (x −31.8), top 0.76. */
-  seat: V(-32.15, 4.8, -24.2),
+  /** His seat (chair-seat centre `halv_h2`), facing +x; desk front edge / top from the marker's `userData.desk`. */
+  seat: V(-32.6, 4.8, -24.2),
   seatYaw: -Math.PI / 2,
-  desk: { front: 0.35, top: 0.76 },
-  phone: V(-31.7, 5.57, -24.6),
-  monitorArm: V(-31.3, 5.88, -23.8),
-  badge: V(-31.0, 5.565, -24.0),
+  desk: { front: 0.32, top: 0.76 },
+  phone: V(-32.02, 5.57, -24.86),
+  monitorArm: V(-31.86, 5.97, -23.62),
+  badge: V(-31.05, 5.565, -24.0),
   speaker: V(-30.5, 7.62, -22.6),
-  visitor: V(-29.5, 4.8, -24.2),
-  visitorEye: V(-29.5, 6.0, -24.2),
+  lamp: V(-31.86, 5.92, -25.02),
+  visitor: V(-29.8, 4.8, -24.2),
+  visitorEye: V(-29.8, 6.0, -24.2),
   endPos: V(-29.4, 4.8, -23.6),
   endYaw: 3.02,
   endPitch: -0.05,
-  aquarium: V(-33.4, 5.6, -21.2),
+  aquarium: V(-26.75, 5.75, -26.4),
 };
+/** C1 (I1: in the north gallery — he comes out of the lobby to meet the player). The body is clamped from the player. */
 export const C1P = {
-  body: V(-18.7, 4.8, -9.0), eye: V(-18.7, 6.45, -9.0), look: V(-20.0, 6.35, -9.0), dolly: V(-20.6, 6.45, -9.0),
-  h1: V(-21.0, 4.8, -9.0), walk: V(-23.5, 4.8, -9.0),
+  body: V(-2.0, 4.8, -9.4), eye: V(-2.0, 6.45, -9.4), look: V(-8.0, 6.35, -9.45), dolly: V(-4.4, 6.45, -9.4),
+  h1: V(-13.4, 4.8, -9.5), meet: V(-6.2, 4.8, -9.45), walk: V(-15.2, 4.8, -9.3),
+  /** The body's x range in the gallery (the walk from the lobby door must fit the scene's 13 s). */
+  bodyX: [-7.5, -1.0] as const,
 };
+export const LOBBY_DOOR = V(-12, 5.9, -9.5);
 export const PUPPET_LOCK = [V(0, 4.8, -5.6), V(0, 4.8, -4.2), V(0, 4.8, -2.8)];
 export const PUPPET_PATH = [V(0, 4.8, -8.6), V(-11.0, 4.8, -9.5)];
 export const PUPPET_END = [V(-18.6, 4.8, -8.2), V(-18.4, 4.8, -9.8), V(-17.2, 4.8, -9.0)];
 export const FEED_UNITS = Array.from({ length: 8 }, (_, i) => V(61.8 + 1.2 * i, 0, -5.0));
 export const FEED_WALK = [V(60.8, 0, -3.0), V(71.2, 0, -3.0)];
-export const CAM01 = { pos: V(9.0, 7.5, -11.5), look: V(-2.0, 6.0, -8.0), fov: 62 };
-export const CAM04 = { pos: V(66, 3.5, -1.0), look: V(66, 1.0, -8.0), fov: 58 };
+export const CAM01 = { pos: V(1.8, 7.6, -11.6), look: V(-1.6, 5.7, -7.4), fov: 62 };
+export const CAM04 = { pos: V(66, 2.4, -0.4), look: V(66, 1.1, -6.0), fov: 58 };
 export const HATCH_A = V(-18, 0, -41), HATCH_B = V(-14.5, 0, -37.5), KITCHEN_DOOR = V(-21, 0, -46);
 export const RING_E = V(28, 1.4, -31);
 export const RADIO_ADMIN = V(-22, 5.8, -8), RADIO_CANTEEN = V(-19.5, 0.95, -43.8), POOL = V(0, 0.4, -27);
 export const PDOOR = V(0, 6.2, -7);
 export const BIO_DOOR = V(12, 6.2, -38);
+
+/** Copy the level's markers into the places above (positions in place: every importer sees the level's values). */
+export function bindPlaces(ctx: GameContext): void {
+  const get = (n: string): THREE.Object3D | undefined => { try { return ctx.level.object(n) ?? undefined; } catch { return undefined; } };
+  const at = (v: THREE.Vector3, n: string, keepY = false) => {
+    const o = get(n);
+    if (!o) return undefined;
+    const y = v.y;
+    o.updateWorldMatrix(true, false);
+    v.setFromMatrixPosition(o.matrixWorld);
+    if (keepY) v.y = y;
+    return o;
+  };
+  const h2 = at(OFFICE.seat, 'halv_h2');
+  if (h2) {
+    OFFICE.seatYaw = h2.rotation.y;
+    const d = h2.userData.desk as { front?: number; top?: number } | undefined;
+    if (d && Number.isFinite(d.front)) OFFICE.desk.front = d.front!;
+    if (d && Number.isFinite(d.top)) OFFICE.desk.top = d.top!;
+  }
+  at(OFFICE.phone, 'office_phone');
+  at(OFFICE.monitorArm, 'office_monitor_arm');
+  at(OFFICE.badge, 'office_badge');
+  at(OFFICE.speaker, 'office_speaker');
+  at(OFFICE.lamp, 'office_lamp');
+  at(OFFICE.visitor, 'office_chair');
+  at(OFFICE.visitorEye, 'c2_eye');
+  const end = at(OFFICE.endPos, 'c2_end');
+  if (end) OFFICE.endYaw = end.rotation.y;
+  at(OFFICE.aquarium, 'office_aquarium');
+  at(C1P.body, 'c1_body'); at(C1P.eye, 'c1_eye'); at(C1P.look, 'c1_look'); at(C1P.dolly, 'c1_dolly');
+  at(C1P.h1, 'halv_h1'); at(C1P.meet, 'halv_c1_meet'); at(C1P.walk, 'halv_c1_walk');
+  PUPPET_LOCK.forEach((v, i) => at(v, `puppet_lock_${i + 1}`));
+  PUPPET_PATH.forEach((v, i) => at(v, `puppet_path_${i}`));
+  PUPPET_END.forEach((v, i) => at(v, `puppet_end_${i + 1}`));
+  FEED_UNITS.forEach((v, i) => at(v, `feed_l2_unit_${i + 1}`));
+  at(FEED_WALK[0], 'feed_l2_walk_a'); at(FEED_WALK[1], 'feed_l2_walk_b');
+  at(CAM01.pos, 'cam01'); at(CAM01.look, 'cam01_look');
+  at(CAM04.pos, 'cam04'); at(CAM04.look, 'cam04_look');
+  // (the hatch markers are the void floors; the story wants the canteen-floor point under them)
+  at(HATCH_A, 'canteen_hatch_a_drop'); HATCH_A.y = 0;
+  at(HATCH_B, 'canteen_hatch_b_drop'); HATCH_B.y = 0;
+  at(RADIO_ADMIN, 'radio_admin'); at(RADIO_CANTEEN, 'canteen_radio');
+}
 
 /** Habitat screens that die at the takeover (§6.5: not the pressure panels, bio_*, door panels; lobby_status alerts). */
 export const DYING_SCREENS = [
@@ -109,7 +160,7 @@ export const DYING_SCREENS = [
   'canteen_menu', 'clinic_monitor', 'lift3_panel',
 ];
 const WARM_GROUPS = ['gallery_n', 'lobby', 'admin', 'stair_w', 'canteen', 'clinic', 'quarters'];
-const EMERG_GROUPS = ['gallery_emerg', 'lobby_emerg', 'admin_emerg', 'stair_w_emerg', 'canteen_emerg', 'clinic_emerg', 'atrium_emerg'];
+const EMERG_GROUPS = ['gallery_emerg', 'lobby_emerg', 'admin_emerg', 'stair_w_emerg', 'canteen_emerg', 'clinic_emerg', 'quarters_emerg', 'atrium_emerg'];
 /** Doors whose leaves the story listens for hits on (R3 conditions: `l3_halv_door`, the cabins). */
 const WATCHED_DOORS = ['d3_office', 'd3_q1', 'd3_q2', 'd3_q3', 'd3_q4', 'd3_q5', 'd3_q6'];
 
@@ -144,6 +195,7 @@ export abstract class Base3 extends StageBase<Flags3, PhaseId3, CheckpointIdL3, 
 
   constructor(ctx: GameContext, seq: Sequencer, director: MusicDirector, w: World, logs: Set<string>, hooks: HooksL3) {
     super(ctx, seq, director, w, logs, hooks, L3_DIALOGUE);
+    bindPlaces(ctx);
     this.talk.bindActor('halvorsen', () => this.halv);
     this.trackPlayer();
     ctx.events.on('bullet:impact', (e) => this.onImpact(e.point, e.surface));
@@ -231,23 +283,25 @@ export abstract class Base3 extends StageBase<Flags3, PhaseId3, CheckpointIdL3, 
     for (const g of WARM_GROUPS) w.lights(g, { enabled: false });
     for (const g of EMERG_GROUPS) w.lights(g, { enabled: true });
     w.lights('lock', { intensityScale: 0.5, flicker: 'alarm' });
-    // the atrium keys go out north → south over 3 s (each light by its z)
+    const fx = this.atriumFx();
+    // the atrium keys go out north → south with the lamp grid's rows (the grid owns their intensity and the
+    // emergency set; the light slots are released once a row has settled dark)
     let day: readonly { enabled: boolean; position: THREE.Vector3 }[] = [];
     try { day = this.ctx.render.lights.group('atrium_day'); } catch { /* ignore */ }
+    const grid = !!fx?.lampGrid?.setState;
     for (const h of day) {
       if (instant) { h.enabled = false; continue; }
-      const k = THREE.MathUtils.clamp((-12 - h.position.z) / 32, 0, 1);
-      this.S('lamp_wave', async () => { await this.hold(0.2 + 3 * k); h.enabled = false; });
+      const k = THREE.MathUtils.clamp((-14.35 - h.position.z) / 27.3, 0, 1);
+      this.S('lamp_wave', async () => { await this.hold((grid ? 0.75 : 0.2) + 3 * k); h.enabled = false; });
     }
-    this.grade(-0.6, instant ? 0 : 3);
-    const fx = this.atriumFx();
+    this.grade(-0.5, instant ? 0 : 3); // (§8.7 says −0.6; −0.5 keeps the emergency-lit rooms readable)
     try {
       fx?.viewport?.setState?.('cold', instant ? 0 : 3);
       fx?.falls?.setFlow?.(0, instant ? 0 : 6);
       fx?.pool?.setFlow?.(0, instant ? 0 : 6);
       fx?.pool?.setGlow?.(0, instant ? 0 : 1.5);
       fx?.lampGrid?.setState?.('dead', { wave: instant ? 0 : 3, flicker: instant ? 0 : 0.6 });
-      fx?.lampGrid?.setState?.('emergency', { wave: instant ? 0 : 3, delay: instant ? 0 : 4.5 });
+      fx?.lampGrid?.setState?.('emergency', instant ? { wave: 0, delay: 0, flicker: 0 } : { wave: 3, delay: 4.5 });
     } catch (e) { console.warn('[story] atrium fx failed', e); }
     for (const s of DYING_SCREENS) {
       if (instant) { this.screenOff(s); continue; }

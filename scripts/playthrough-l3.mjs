@@ -47,7 +47,7 @@ page.on('pageerror', (e) => { problems.push('pageerror: ' + e.message); console.
 // ───────────────────────────────────────────────────────────── in-page log + R4 watcher + (impatient) oracle
 await page.addInitScript(([LINES, ORACLE]) => {
   let game;
-  const L = window.__L3 = { beats: [], beatAt: {}, subs: [], toasts: [], spawned: [], early: [], firedInScene: [], fired: [], hits: [], denied: {}, reads: {}, viol: [], said: [], lines: [], noOracle: [], softLocks: [], died: {} };
+  const L = window.__L3 = { doorsAt: {}, beats: [], beatAt: {}, subs: [], toasts: [], spawned: [], early: [], firedInScene: [], fired: [], hits: [], denied: {}, reads: {}, viol: [], said: [], lines: [], noOracle: [], softLocks: [], died: {} };
   const NEED = { g3_admin: 'l3_admin_fight', g3_canteen_ha: 'l3_canteen_fight', g3_canteen_hb: 'l3_canteen_fight', g3_canteen_k: 'l3_canteen_fight', g3_breach: 'l3_breach', g3_garden: 'l3_breach', g3_breach_2: 'l3_purge' };
   Object.defineProperty(window, '__game', {
     configurable: true,
@@ -56,7 +56,13 @@ await page.addInitScript(([LINES, ORACLE]) => {
       game = g;
       const t = () => g.time;
       const beat = (id) => L.beats.includes(id);
-      g.events.on('story:beat', (e) => { L.beats.push(e.id); L.beatAt[e.id] = t(); });
+      g.events.on('story:beat', (e) => {
+        L.beats.push(e.id); L.beatAt[e.id] = t();
+        if (e.id === 'l3_quiet') {
+          const ids = ['d3_pressure', 'd3_lobby', 'd3_lobby_inner', 'd3_shutter_ne', 'd3_bio'];
+          L.doorsAt.l3_quiet = Object.fromEntries(ids.map((id) => { const d = g.level.door(id); return [id, d.locked ? 'L' : d.isOpen ? 'O' : 'S']; }));
+        }
+      });
       g.events.on('story:toast', (e) => L.toasts.push(e.text));
       g.events.on('weapon:fired', () => { L.fired.push(t()); if (g.state === 'cutscene') L.firedInScene.push({ t: t(), state: g.state }); });
       g.events.on('bullet:impact', (e) => L.hits.push({ t: t(), p: [e.point.x, e.point.y, e.point.z], s: e.surface }));
@@ -287,28 +293,29 @@ async function segRelease() {
   ok(t1 - t0 >= 1.9 && t1 - t0 < 3.5, `equalising ≈ 2.0 s (${(t1 - t0).toFixed(2)} s)`);
   await phaseIs('B2');
   await until(() => window.__game.level.door('d3_pressure').isOpen, null, 8000);
+  // B2 (I1): the gallery only — the shutter is down for the night (with its sign), the lobby door is Halvorsen's
+  const b2 = await doors(['d3_pressure', 'd3_lobby', 'd3_lobby_inner', 'd3_shutter_ne', 'd3_bio']);
+  ok(b2.d3_lobby === 'L' && b2.d3_shutter_ne === 'L' && b2.d3_lobby_inner === 'L' && b2.d3_bio === 'L', `phase B2 doors ${JSON.stringify(b2)}`);
+  ok(await ev(() => !!window.__game.level.object('shutter_night_sign')?.parent), 'the night sign stands in front of the shutter');
   await tp(0, 4.8, -9.6, 90);
   await waitBeat('l3_quiet', 20000);
-  await phaseIs('C');
-  const d = await doors(['d3_pressure', 'd3_lobby', 'd3_lobby_inner', 'd3_shutter_ne', 'd3_bio']);
-  ok(d.d3_pressure === 'L' && d.d3_lobby_inner === 'L' && d.d3_shutter_ne === 'O' && d.d3_bio === 'L', `phase C doors ${JSON.stringify(d)}`);
+  // (C1 starts 0.5 s after the latch: read C's doors from the moment of the beat, recorded in the page)
+  const d = await ev(() => window.__L3.doorsAt.l3_quiet);
+  ok(d && d.d3_pressure === 'L' && d.d3_lobby === 'L' && d.d3_lobby_inner === 'L' && d.d3_shutter_ne === 'L' && d.d3_bio === 'L', `phase C doors at the latch ${JSON.stringify(d)}`);
 }
-async function segQuiet() {
-  console.log('── the quiet side (reads, the BIO reader denies)');
-  for (const id of ['term3_lobby', 'note3_board', 'note3_guestbook']) { ok((await use(id)) === 'ok', `read ${id}`); await wait(400); await closeNote(); await wait(300); }
-  await tp(10.6, 4.8, -39.0, -90);
-  await use('bio_reader');
-  ok(await until(() => window.__game.story.lineLog.some((l) => l.said === 'l3_unit_bio_denied'), null, 8000), 'reader denies without the badge');
-  const s = await L3();
-  ok(!s.said.some((id) => id.startsWith('l3_choir')) && !(await ev(() => window.__game.story.lineLog.some((l) => l.said?.startsWith('l3_choir')))), 'no CHOIR line before C2 (D5)');
+/** I1: the habitat's readables are found after the takeover (the lobby once the admin group came through its door). */
+async function segLobbyReads() {
+  console.log('── the lobby, after the admin fight: its readables in the dark');
+  await tp(-16.5, 4.8, -10.5, 180); await wait(400);
+  for (const id of ['term3_lobby', 'note3_board', 'note3_guestbook']) { ok((await use(id)) === 'ok', `read ${id} (dark, torch)`); await wait(400); await closeNote(); await wait(300); }
 }
 let sceneStates = {};
 async function segMeet({ skip = false, film = false, poke = true } = {}) {
   console.log(`── C1 → C2${skip ? ' (skipped)' : ''}`);
-  await tp(-17.0, 4.8, -9.0, 90);
-  await wait(300);
-  await tp(-18.9, 4.8, -9.0, 90);
-  ok(await until(() => window.__game.story.debugState.scenes.cut?.id === 'l3_c1', null, 15000), 'C1 starts at the inner door');
+  ok(!(await ev(() => window.__game.story.lineLog.some((l) => l.said?.startsWith('l3_choir')))), 'no CHOIR line before C2 (D5)');
+  ok(await until(() => window.__game.story.debugState.scenes.cut?.id === 'l3_c1', null, 15000), 'C1 starts by itself in the gallery (he comes to meet the player)');
+  const c1at = await ev(() => window.__game.time - window.__L3.beatAt.l3_quiet);
+  ok(c1at < 4, `C1 within ${c1at.toFixed(2)} s of the latch`);
   const firedBefore = (await L3()).fired.length;
   if (skip) {
     await wait(600);
@@ -390,6 +397,9 @@ async function segCanteen() {
   const said = await saidOneOf(['l3_choir_canteen_stop', 'l3_choir_canteen_command']);
   const clog = await ev(() => window.__game.story.lineLog.filter((l) => l.id.includes('canteen')));
   ok(said.length === 1, `canteen line once (${said}) ${JSON.stringify(clog)}`);
+  // I1: the quiet side's readables are found now, after the takeover, by torch
+  await tp(-21.4, 0, -35.4, 0); await wait(300);
+  for (const id of ['note3_canteen', 'note3_quiz']) { ok((await use(id)) === 'ok', `read ${id} (after the takeover)`); await wait(300); await closeNote(); await wait(200); }
 }
 async function segBreach({ film = false } = {}) {
   console.log('── the breach (g3_breach in the lock, the shutter, the sentry)');
@@ -435,8 +445,8 @@ async function segPurge() {
   const l = await L3();
   ok(!l.early.length, `R4: no enemy before its beat (${l.early})`);
 }
-const SEGS = [segLock, segRelease, segQuiet, segMeet, segOffice, segCanteenCp, segCanteen, segBreach, segPurge];
-const CP_AFTER = { cp3_start: 0, cp3_office: 3, cp3_canteen: 5, cp3_balcony: 7 };
+const SEGS = [segLock, segRelease, segMeet, segOffice, segLobbyReads, segCanteenCp, segCanteen, segBreach, segPurge];
+const CP_AFTER = { cp3_start: 0, cp3_office: 2, cp3_canteen: 5, cp3_balcony: 7 };
 const PHASE_OF = { cp3_start: 'B', cp3_office: 'E', cp3_canteen: 'F', cp3_balcony: 'G' };
 
 // ───────────────────────────────────────────────────────────── modes
@@ -489,12 +499,21 @@ if (MODE === 'default') {
 } else if (MODE === 'skip') {
   console.log('\n══════════ natural run (marks both scenes seen) ══════════');
   await boot('&handoff=1'); await clearAll(); await boot('&handoff=1');
-  for (let i = 0; i <= 2; i++) await SEGS[i]();
+  for (let i = 0; i <= 1; i++) await SEGS[i]();
   const nat = await segMeet({ poke: false });
   console.log('\n══════════ second viewing: both skipped ══════════');
   await clearAll(false); await boot('&handoff=1');
   ok((await ev((k) => JSON.parse(localStorage.getItem(k) ?? '[]'), SEEN_KEY)).includes('l3_c2'), 'seen: l3_c1, l3_c2');
-  for (let i = 0; i <= 2; i++) await SEGS[i]();
+  await SEGS[0]();
+  // R-audit: sprints past the lobby door — the pressure door released, straight to the far end of the gallery
+  await tp(0, 4.8, -5.6, 0);
+  await waitBeat('l3_release', 20000);
+  await until(() => window.__game.level.door('d3_pressure').isOpen, null, 8000);
+  await tp(-11.4, 4.8, -9.5, 90);
+  await waitBeat('l3_quiet', 20000);
+  ok(await until(() => window.__game.story.debugState.scenes.cut?.id === 'l3_c1', null, 10000), 'at the lobby door: C1 still starts (body clamped into the gallery)');
+  const lob = await ev(() => window.__game.level.door('d3_lobby').locked);
+  void lob;
   const sk = await segMeet({ skip: true });
   for (const k of ['phase', 'pos', 'yaw', 'pitch', 'fov', 'controls', 'safe', 'keys', 'doors', 'lights', 'screens', 'halv', 'puppets', 'feedActors', 'feeds']) {
     ok(JSON.stringify(nat[k]) === JSON.stringify(sk[k]), `skip = natural: ${k} ${JSON.stringify(sk[k])}`);
@@ -503,7 +522,7 @@ if (MODE === 'default') {
   ok(JSON.stringify(fl(nat)) === JSON.stringify(fl(sk)), 'skip = natural: flags');
   const jumped = await ev(() => window.__game.player.velocity.y);
   ok(Math.abs(jumped) < 0.5, `no jump after the skip (vy ${jumped})`);
-  for (let i = 4; i < SEGS.length; i++) await SEGS[i]();
+  for (let i = 3; i < SEGS.length; i++) await SEGS[i]();
 } else if (MODE === 'impatient') {
   await runImpatient();
 }
@@ -517,19 +536,19 @@ async function runImpatient() {
   await tp(0, 4.8, -1.0, 0); await tp(0, 4.8, 1.0, 180); await wait(400); await tp(0, 4.8, -6.0, 0);
   await waitBeat('l3_lock', 20000);
   await waitBeat('l3_release', 20000);
-  // stands in the pressure doorway while it latches (latch fails, reopens, re-arms), then goes through
-  await tp(0, 4.8, -8.4, 0); await wait(200); await tp(0, 4.8, -7.0, 0); await wait(3000);
-  await tp(0, 4.8, -10.5, 90);
+  // stands in the pressure doorway while it latches (latch fails, reopens, re-arms) and SHOOTS THE SHUTTER from there,
+  // and the gallery glass
+  await tp(0, 4.8, -7.0, 0); await wait(400);
+  await fireAt(10.5, 6.0, -12, 2);
+  await fireAt(-4, 6, -12, 1);
+  const sh = await door('d3_shutter_ne');
+  ok(sh.locked && sh.closed, `the shutter shot: still down and locked (${JSON.stringify(sh)})`);
+  // RUNS EAST FIRST: through the door and straight to the shutter; tries it
+  await tp(9.6, 4.8, -10.6, 180);
+  await ev(() => window.__game.events.emit('door:denied', { id: 'd3_shutter_ne', position: window.__game.level.door('d3_shutter_ne').position }));
   await waitBeat('l3_quiet', 30000);
-  // later doors first: the BIO reader, the stair door, cabin 3; shoots the glazing, the viewport, cabin 3
-  await tp(10.6, 4.8, -39.1, -90); await use('bio_reader'); await wait(300); await use('bio_reader');
-  await fireAt(0, 2, -44, 2);                                  // the viewport before the takeover: CHOIR must say nothing
-  await tp(23, 0, -29.6, 0); await fireAt(23, 1.2, -28, 2);     // cabin 3
-  await tp(-19.0, 4.8, -18.5, 90); await wait(300);            // the staff door from the stair landing (locked in C)
-  await tp(-4, 4.8, -9.6, 180); await fireAt(-4, 6, -12, 2);    // the gallery glass
-  // runs at the inner door having fired: the shots variant
-  await tp(-18.9, 4.8, -9.0, 90);
-  ok(await until(() => window.__game.story.debugState.scenes.cut?.id === 'l3_c1', null, 15000), 'C1 starts');
+  ok((await L3()).toasts.some((x) => /closed for the night/i.test(x)), 'the shutter says why (night setting)');
+  ok(await until(() => window.__game.story.debugState.scenes.cut?.id === 'l3_c1', null, 10000), 'C1 starts (he comes up the gallery; the body is brought back west)');
   for (let i = 0; i < 8; i++) { await pokeInputs(); await wait(900); }
   ok(await until(() => window.__game.state === 'playing' && window.__game.story.debugState.beats.includes('l3_office'), null, 90000), 'control after C2');
   // tries to shoot Halvorsen, stands in the doorway (weapon stowed: no shot), leaves at once
@@ -547,6 +566,9 @@ async function runImpatient() {
   // sprints past the admin group, down the stair, through the canteen into the garden, shooting what it sees
   await tp(-21, 4.8, -18.5, -90); await wait(300); await tp(-17.5, 0, -32.6, 180); await wait(400);
   await tp(-15.5, 0, -37.2, 180); await wait(1500); await kill(); await wait(1500); await kill();
+  // cabin 3, shot from the corridor's west end (out of the resident's trigger)
+  await tp(22.6, 0, -30.8, 0); await fireAt(23, 1.3, -27.85, 3);
+  ok(await ev(() => window.__game.story.debugState.flags.shotDoors.includes("d3_q3")), "cabin 3 shot (registered)");
   await tp(-6, 0, -30, 160);
   await waitBeat('l3_breach', 10000);
   await wait(3500);

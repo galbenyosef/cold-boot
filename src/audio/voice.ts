@@ -11,7 +11,7 @@
  * estimated duration (CHOIR lines fall back to the synthesised `choirVoice`).
  */
 import * as THREE from 'three';
-import type { PlayOpts, VoiceHandle } from '../core/types';
+import type { PlayOpts, SayOpts, VoiceHandle } from '../core/types';
 import type { AudioEngine } from './engine';
 import { FX_SR, parseFx, renderVoiceFx } from './voicefx';
 
@@ -195,30 +195,32 @@ export class VoiceBank {
     }
   }
 
-  /** Processed buffer for a line (fetch → decode → fx), cached. Null when unavailable. */
-  processed(id: string): Promise<AudioBuffer | null> {
-    const hit = this.ready.get(id);
-    if (hit) { this.ready.delete(id); this.ready.set(id, hit); return Promise.resolve(hit); }
-    let p = this.pendingFx.get(id);
-    if (p) return p;
+  /** Processed buffer for a line (fetch → decode → fx), cached per (id, fx). `fx`: a per-call override. Null when unavailable. */
+  processed(id: string, fx?: string): Promise<AudioBuffer | null> {
     const e = this.table.get(id);
+    const fxName = fx ?? e?.fx ?? 'clean';
+    const key = fx && fx !== e?.fx ? `${id}|${fx}` : id;
+    const hit = this.ready.get(key);
+    if (hit) { this.ready.delete(key); this.ready.set(key, hit); return Promise.resolve(hit); }
+    let p = this.pendingFx.get(key);
+    if (p) return p;
     if (!e || !e.generated || !e.files.length) return Promise.resolve(null);
     p = (async () => {
       try {
         const raws = await Promise.all(e.files.map((f) => this.fetchBytes(f)));
         if (raws.some((r) => !r)) return null;
         const bufs = await Promise.all(raws.map((r) => this.decode(r!)));
-        const out = await renderVoiceFx(e.fx, bufs, id);
-        this.store(id, out);
+        const out = await renderVoiceFx(fxName, bufs, id);
+        this.store(key, out);
         return out;
       } catch (err) {
         this.warnOnce(id + ':fx', `[audio] voice ${id} failed to decode/process: ${(err as Error)?.message ?? err}`);
         return null;
       } finally {
-        this.pendingFx.delete(id);
+        this.pendingFx.delete(key);
       }
     })();
-    this.pendingFx.set(id, p);
+    this.pendingFx.set(key, p);
     return p;
   }
 
@@ -296,7 +298,7 @@ export class VoiceBank {
 
   // ───────────────────────── say
 
-  say(id: string, opts?: PlayOpts): VoiceHandle {
+  say(id: string, opts?: SayOpts): VoiceHandle {
     try {
       return this.sayInner(id, opts);
     } catch (e) {
@@ -307,7 +309,7 @@ export class VoiceBank {
     }
   }
 
-  private sayInner(id: string, opts?: PlayOpts): VoiceHandle {
+  private sayInner(id: string, opts?: SayOpts): VoiceHandle {
     const e = this.table.get(String(id));
     const duration = e?.duration ?? 2.5;
     let release: (() => void) | null = null;
@@ -330,7 +332,8 @@ export class VoiceBank {
     if (!e.generated) { fallback('not generated yet'); return h; }
     if (!this.eng.running) { h.finishAfter(duration); return h; } // before unlock: keep timing, no sound
     const t0 = performance.now();
-    this.processed(id).then((buf) => {
+    const fx = typeof opts?.fx === 'string' && opts.fx ? opts.fx : undefined;
+    this.processed(id, fx).then((buf) => {
       if (h.finished || h.stopped) return;
       if (!buf) { fallback('file missing'); return; }
       const late = (performance.now() - t0) / 1000;
@@ -339,14 +342,14 @@ export class VoiceBank {
         h.finishAfter(Math.max(0, duration - late));
         return;
       }
-      this.start(h, e, buf, opts, () => { release = this.duck(DUCK[parseFx(e.fx).name] ?? DUCK_DEFAULT); });
+      this.start(h, e, buf, opts, () => { release = this.duck(DUCK[parseFx(fx ?? e.fx).name] ?? DUCK_DEFAULT); });
     }).catch(() => fallback('error'));
     return h;
   }
 
-  private start(h: Handle, e: VoiceEntry, buf: AudioBuffer, opts: PlayOpts | undefined, onStart: () => void): void {
+  private start(h: Handle, e: VoiceEntry, buf: AudioBuffer, opts: SayOpts | undefined, onStart: () => void): void {
     const c = this.eng.ctx;
-    const fx = parseFx(e.fx).name;
+    const fx = parseFx(opts?.fx || e.fx).name;
     const src = c.createBufferSource();
     src.buffer = buf;
     if (opts?.pitch && Number.isFinite(opts.pitch)) src.playbackRate.value = Math.max(0.5, Math.min(2, opts.pitch));

@@ -34,12 +34,12 @@ export class ScriptL3 extends Scenes3 {
   /** For debugState (check-chain): how the run was armed. */
   loadout: 'carry' | 'direct' | 'none' | 'save' = 'none';
   private liftOpenAt = -1e9;
+  private quietAt = -1e9;
   private lastClockS = -1;
   private purgeLen = -1;
   private purgeEndAt = -1e9;
   private spawnLog: { group: string; t: number; seen: boolean }[] = [];
   private knockAt = 0;
-  private murmurPatched = false;
 
   constructor(ctx: GameContext, seq: Sequencer, director: MusicDirector, w: World, logs: Set<string>, hooks: HooksL3) {
     super(ctx, seq, director, w, logs, hooks);
@@ -61,7 +61,7 @@ export class ScriptL3 extends Scenes3 {
     '#lift_open': () => { this.f.liftOpen = true; },
     l3_lock: () => { this.f.latched = true; this.w.screen('lift3_panel', 'terminal_idle', SCREEN3.liftGone); },
     l3_release: () => { this.f.released = true; this.pressurePanels(SCREEN3.released); },
-    l3_quiet: () => { this.f.quiet = true; this.pressurePanels(SCREEN3.released); },
+    l3_quiet: () => { this.f.quiet = true; this.quietAt = this.now; this.pressurePanels(SCREEN3.released); },
     l3_meet: () => { this.f.met = true; },
     '#c2': () => { this.f.c2 = true; },
     l3_office_scene: () => { this.f.c2 = true; },
@@ -75,7 +75,7 @@ export class ScriptL3 extends Scenes3 {
     l3_admin_fight: () => { this.f.adminOpen = true; },
     l3_canteen_fight: () => { this.f.canteen = true; },
     l3_breach: () => { this.f.breach = true; },
-    '#shutter': () => { this.f.shutter = true; },
+    '#shutter': () => { this.f.shutter = true; this.nightSign(false); },
     '#garden': () => { this.f.garden = true; if (this.ff) this.w.vignette('atr_roof_hatch'); },
     l3_purge: () => { this.f.purge = true; },
     l3_bio_open: () => { this.f.bioOpen = true; this.w.screen('bio_panel', 'terminal_idle', SCREEN3.bioDone); },
@@ -99,20 +99,9 @@ export class ScriptL3 extends Scenes3 {
     for (let i = 1; i <= 3; i++) w.screen(`office_thumb_${i}`, 'camera_feed');
     w.screen('bio_reader', 'badge', SCREEN3.reader.idle);
     w.screen('bio_panel', 'terminal_idle', SCREEN3.bioPanel);
-    for (const g of ['gallery_emerg', 'lobby_emerg', 'admin_emerg', 'office_emerg', 'stair_w_emerg', 'canteen_emerg', 'clinic_emerg', 'atrium_emerg', 'feed_l2']) w.lights(g, { enabled: false });
+    for (const g of ['gallery_emerg', 'lobby_emerg', 'admin_emerg', 'office_emerg', 'stair_w_emerg', 'canteen_emerg', 'clinic_emerg', 'quarters_emerg', 'atrium_emerg', 'feed_l2']) w.lights(g, { enabled: false });
     this.resetMonitor(false);
     this.grade(0.35, 0);
-    this.patchMurmur();
-  }
-  /** §6.2 / §8.11: the murmur is played unintelligible (room + low-pass 400 Hz). The audio API has no per-call fx. */
-  private patchMurmur(): void {
-    if (this.murmurPatched) return;
-    this.murmurPatched = true;
-    try {
-      const v = (this.ctx.audio as unknown as { debug?: { voice?: { entry?(id: string): { fx: string } | undefined } } }).debug?.voice;
-      const e = v?.entry?.('l3_reyes_murmur');
-      if (e && !e.fx.includes(':')) e.fx = 'room:400';
-    } catch { /* ignore */ }
   }
 
   protected baselineMood(): 'silence' | 'ambient' | 'tension' {
@@ -162,7 +151,7 @@ export class ScriptL3 extends Scenes3 {
   protected objective(): string {
     if (!this.live || this.ended) return OBJ3.none;
     switch (this.phase) {
-      case 'C': return OBJ3.find;
+      // (C lasts half a second now — he comes to meet the player: no objective flashes up)
       case 'E': case 'F': case 'F_kitchen': case 'G': return OBJ3.post4;
       case 'H': case 'H_ring': return OBJ3.hold;
       case 'I': return OBJ3.enter;
@@ -189,6 +178,19 @@ export class ScriptL3 extends Scenes3 {
   protected override checkpointBlocked(): boolean {
     return this.inScene || !!this.cut?.busy || this.f.purge;
   }
+  /** The stand in front of the shutter (I1): there while the shutter is down for the night. */
+  private nightSign(on: boolean): void {
+    // (detached, not hidden: the level's room culling owns `visible`)
+    try {
+      const o = this.ctx.level.object('shutter_night_sign');
+      if (!o) return;
+      if (!on) { if (o.parent) { this.signParent = o.parent; o.removeFromParent(); } }
+      else if (!o.parent && this.signParent) this.signParent.add(o);
+    } catch { /* ignore */ }
+  }
+  private signParent: THREE.Object3D | null = null;
+  /** Review: the takeover's lights / grade / effects / screens now (no beat, no doors) — frames from anywhere. */
+  debugTakeover(): void { this.takeoverState(false); }
   /** Debug / check-chain: write a checkpoint now. */
   debugCheckpoint(id: CheckpointIdL3): boolean {
     try { this.hooks.checkpoint(id); if (!this.prog.checkpoints.includes(id)) this.prog.checkpoints.push(id); return true; } catch { return false; }
@@ -302,14 +304,18 @@ export class ScriptL3 extends Scenes3 {
     }
   }
 
-  /** C → C1 → C2 → E. */
+  /**
+   * C → C1 → C2 → E. I1: Halvorsen saw the lock release on his panel and comes out to meet the player — C1 starts a
+   * few steps into the gallery, as soon as the pressure door has latched behind them (no wandering an empty, locked
+   * habitat first: the shutter is down, the lobby door his).
+   */
   private async meet(): Promise<void> {
     if (this.f.office) return;
     for (;;) {
-      await this.until(() => this.f.quiet && !this.f.met && this.phase === 'C' && this.at('t3_lobby_inner') && this.ctx.state === 'playing');
+      await this.until(() => this.f.quiet && !this.f.met && this.phase === 'C' && this.ctx.state === 'playing' && this.now - this.quietAt >= 0.5);
       this.inScene = true;
       const r1 = await this.sceneC1();
-      if (r1 === 'refused') { this.inScene = false; await this.until(() => !this.at('t3_lobby_inner')); continue; }
+      if (r1 === 'refused') { this.inScene = false; await this.hold(0.5); continue; }
       break;
     }
     const r2 = await this.sceneC2();
@@ -398,16 +404,8 @@ export class ScriptL3 extends Scenes3 {
     const group = h === 'a' ? 'g3_canteen_ha' : 'g3_canteen_hb';
     this.w.vignette(h === 'a' ? 'canteen_hatch_a' : 'canteen_hatch_b');
     await this.hold(0.4);
-    const at = h === 'a' ? HATCH_A : HATCH_B;
-    // (level 3 data puts these spawns at the void floor, y 4.0; the husk's 'drop' adds its own 4 m — spawn at the
-    // canteen floor instead so it starts in the void: listed for the level)
-    const en = this.ctx.enemies as unknown as { spawnPose?: (t: string, p: THREE.Vector3, yaw: number, g: string, pose: string) => Enemy };
-    if (!this.prog.triggered.includes(group)) this.prog.triggered.push(group);
-    this.triggeredAt.set(group, this.now);
-    try {
-      if (typeof en.spawnPose === 'function') en.spawnPose('husk', at.clone(), Math.PI, group, 'drop');
-      else this.w.spawnGroup(group);
-    } catch (e) { console.warn('[story] hatch drop failed', e); }
+    // (the level's spawn: the canteen floor under the hatch, pose 'drop' — the husk starts 4 m up in the void)
+    this.engage(group, 'spawn');
     this.logSpawn(group, true);
   }
   private async kitchenHusk(): Promise<void> {
@@ -438,19 +436,17 @@ export class ScriptL3 extends Scenes3 {
     try { d?.unlock(); if (d) d.auto = false; d?.open(); } catch { /* ignore */ }
     this.sfx('pdoor_open', PDOOR, 1.0);
     this.pressurePanels(SCREEN3.open);
+    // §5.2: at 100 % open (+2.8 s) they come out. (I1: they stood idle in the lock until the shutter wait below
+    // ended at +8 s — the door opened on nothing.)
+    this.S('breach_go', async () => { await this.hold(2.6); this.rouse('g3_breach'); });
     this.S('breach_line', async () => {
       await this.hold(3);
       await this.say(this.choice === 'command' ? 'l3_choir_breach_command' : 'l3_choir_breach_stop', { pri: 'scene', ttl: 6 });
     });
     this.S('sentry', async () => {
       await this.hold(5.9);
-      // in the roof hatch void, above the closed panel. (The level's spawn at y 14.1 is 0.54 m over the panel: the
-      // sentry's spawn hover bump (< 0.8 m to the ground → +2.2 m) puts it inside the slab above the void. Spawned
-      // 0.84 m over the panel instead — listed for the level.)
-      const en = this.ctx.enemies as unknown as { spawnPose?: (t: string, p: THREE.Vector3, yaw: number, g: string) => Enemy };
-      if (!this.prog.triggered.includes('g3_garden')) this.prog.triggered.push('g3_garden');
-      this.triggeredAt.set('g3_garden', this.now);
-      try { if (typeof en.spawnPose === 'function') en.spawnPose('sentry', V(0, 14.4, -30), 0, 'g3_garden'); else this.w.spawnGroup('g3_garden'); } catch (e) { console.warn('[story] sentry spawn failed', e); }
+      // in the roof hatch void, 0.84 m over the closed panel (the level's spawn)
+      this.engage('g3_garden', 'spawn');
       this.logSpawn('g3_garden', false);
       await this.hold(0.1);
       this.once('garden');
@@ -573,6 +569,7 @@ export class ScriptL3 extends Scenes3 {
       return;
     }
     if (id.startsWith('d3_q') && !f.takeover) { this.toast(TOAST3.private, 4); return; }
+    if (id === 'd3_shutter_ne' && !f.takeover) { this.toast(TOAST3.night, 4); return; }
     if (SEALED_DOORS.includes(id) && f.takeover) {
       this.toast(TOAST3.sealed, 4);
       const badge = this.ctx.player.hasKey('facilities_badge');
@@ -614,6 +611,7 @@ export class ScriptL3 extends Scenes3 {
   /** `?nostory=1` (§3): every door auto except the cabins, kitchen, ring_e (locked), bio_inner (dark); evening; no actors. */
   openEverything(): void {
     this.baseline();
+    this.nightSign(false);
     applyPhase3(this.ctx, 'nostory', { snap: true });
   }
 

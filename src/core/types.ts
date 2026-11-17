@@ -700,6 +700,15 @@ export interface PlayOpts {
   pitch?: number;
 }
 
+/** `AudioSystem.say` options: PlayOpts plus a per-call voice processing override. */
+export interface SayOpts extends PlayOpts {
+  /**
+   * Voice fx for this call only, in the manifest's `fx` syntax (e.g. 'room:400' = room + low-pass 400 Hz), instead
+   * of the line's own. Processed buffers are cached per (id, fx).
+   */
+  fx?: string;
+}
+
 export interface LoopHandle {
   setVolume(v: number, fadeSeconds?: number): void;
   setPosition(p: THREE.Vector3): void;
@@ -731,7 +740,7 @@ export interface AudioSystem extends Updatable {
    * vocoder…) is chosen by audio from the line's speaker/fx in the manifest. Never throws: an unknown or
    * not-yet-generated id warns once and returns a silent handle whose duration is estimated from the text.
    */
-  say(id: string, opts?: PlayOpts): VoiceHandle;
+  say(id: string, opts?: SayOpts): VoiceHandle;
   /** Fetch + decode lines ahead of time (ids or id prefixes, e.g. 'l2_tomas_'). Resolves when ready; never rejects. */
   preloadVoice(idsOrPrefixes: string[]): Promise<void>;
   setMasterVolume(v: number): void;

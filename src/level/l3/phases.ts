@@ -64,10 +64,15 @@ const A: Doors = {
 const A2 = { ...A, d3_lift: 'open' } as Doors;
 const B = { ...A2, d3_lift: 'locked', d3_pressure: 'shut' } as Doors;
 const B2 = { ...B, d3_pressure: 'open' } as Doors;
-const C = { ...B2, d3_pressure: 'locked', d3_lobby: 'auto', d3_shutter_ne: 'open' } as Doors;
-const S1 = { ...C, d3_lobby_inner: 'open' } as Doors;
+/**
+ * I1 (the user's hand-play): no exploring an empty habitat before the meeting. The north gallery is the whole of C:
+ * the shutter at its east end stays down (night setting, signed) and the lobby door is Halvorsen's — he opens it in C1,
+ * which starts as soon as the pressure door has latched behind the player.
+ */
+const C = { ...B2, d3_pressure: 'locked' } as Doors;
+const S1 = { ...C, d3_lobby: 'open' } as Doors;
 /** C2 at t 0 (snapped in the black): the pressure door shut (the scene opens it on the feed), office shut. */
-const S2 = { ...C, d3_lobby_inner: 'locked', d3_office: 'shut' } as Doors;
+const S2 = { ...C, d3_lobby: 'auto', d3_lobby_inner: 'locked', d3_office: 'shut' } as Doors;
 /** The takeover (C2 t ≈ 19.4, D17): sector seal — pressure, lobby, inner, shutter, cabins locked. */
 const SEAL: Partial<Doors> = { d3_pressure: 'locked', d3_lobby: 'locked', d3_lobby_inner: 'locked', d3_shutter_ne: 'locked', ...cabins('locked') };
 const S2T = { ...S2, ...SEAL } as Doors;
@@ -88,6 +93,8 @@ type Check3 = PhaseCheck & { stressFloors?: number[] };
 const ROOMS_ALL = ['lift3', 'lock', 'gallery_n', 'lobby', 'admin', 'office', 'stair_w', 'canteen', 'atrium', 'clinic', 'quarters', 'bio_lock'];
 const ck = (c: Check3): Check3 => ({ ...c, forbid: [...c.forbid, ...ALWAYS3] });
 const A2_FORBID = ['gallery_n', 'lobby', 'admin', 'office', 'stair_w', 'canteen', 'atrium', 'clinic', 'quarters', 'bio_lock'];
+/** Before the scenes everything east and south of the north gallery (and the lobby) is out of reach (I1). */
+const NORTH_ONLY = ['lobby', 'admin', 'office', 'stair_w', 'canteen', 'atrium', 'garden', 'balcony', 'clinic', 'quarters', 'bio_lock'];
 const START_LIFT: [number, number, number] = [0, D2, 3.2];
 const START_LOCK: [number, number, number] = [0, D2, -3.5];
 const START_BIO_DOOR: [number, number, number] = [10.5, D2, -34];
@@ -98,14 +105,11 @@ export const PHASES3: Phase[] = [
   P('A', 'lift arriving (d3_lift locked)', A, ck({ start: START_LIFT, forbid: ROOMS_ALL.filter((r) => r !== 'lift3'), goal: ['lift3'], stressFloors: [D2] })),
   P('A2', 'lift open: the lock, nothing beyond', A2, ck({ start: START_LIFT, forbid: A2_FORBID, goal: ['lock', 'lift3'], stressFloors: [D2] })),
   P('B', 'lift latched (cp3_start): pressure door shut', B, ck({ start: START_LOCK, forbid: ['lift3', ...A2_FORBID], goal: ['lock', 'p3_lock_med'], stressFloors: [D2] })),
-  P('B2', 'pressure released: the gallery', B2, ck({ start: START_LOCK, forbid: ['lift3', 'admin', 'office', 'bio_lock'], goal: ['gallery_n'], stressFloors: [D2] })),
-  P('C', 'the quiet side: lobby, garden, balcony, canteen, clinic, quarters, west stair', C, ck({
-    start: [0, D2, -9.5], forbid: ['lift3', 'lock', 'admin', 'office', 'bio_lock'],
-    goal: ['gallery_n', 'lobby', 'garden', 'balcony', 'canteen', 'clinic', 'quarters', 'stair_w'],
-    use: ['term3_lobby', 'note3_guestbook', 'note3_board', 'note3_canteen', 'note3_quiz', 'note3_clinic_post4', 'note3_clinic_reyes', 'sign3_viewport', 'sign3_bio', 'note3_door', 'bio_reader'],
-    stressFloors: [0, D2],
+  P('B2', 'pressure released: the gallery (shutter down, lobby locked)', B2, ck({ start: START_LOCK, forbid: ['lift3', ...NORTH_ONLY], goal: ['gallery_n', 'lock'], stressFloors: [D2] })),
+  P('C', 'the pressure door latched: the north gallery only (C1 starts at once)', C, ck({
+    start: [0, D2, -9.5], forbid: ['lift3', 'lock', ...NORTH_ONLY], goal: ['gallery_n'], stressFloors: [D2],
   })),
-  P('S1', 'C1 (scene, no control): the inner door opens', S1),
+  P('S1', 'C1 (scene, no control): Halvorsen opens the lobby door and comes to meet the player in the gallery', S1),
   P('S2', 'C2 before the takeover (scene, no control)', S2),
   P('S2T', 'C2 after the takeover: sector seal (scene, no control)', S2T),
   P('E', 'office, control back (cp3_office): weapon stowed', E, ck({
@@ -115,7 +119,9 @@ export const PHASES3: Phase[] = [
   })),
   P('F', 'escape: office latched, admin group through the inner door', F, ck({
     start: [-27, D2, -15], forbid: ['lift3', 'lock', 'gallery_n', 'office', 'bio_lock'],
-    goal: ['admin', 'lobby', 'stair_w', 'canteen', 'garden', 'balcony'], use: ['bio_reader'], stressFloors: [0, D2],
+    goal: ['admin', 'lobby', 'stair_w', 'canteen', 'garden', 'balcony'], stressFloors: [0, D2],
+    // (I1: the habitat's readables are found after the takeover now — in the dark, by torch)
+    use: ['bio_reader', 'term3_lobby', 'note3_guestbook', 'note3_board', 'note3_canteen', 'note3_quiz', 'note3_clinic_post4', 'note3_clinic_reyes', 'sign3_viewport', 'sign3_bio', 'note3_door'],
   })),
   P('G', 'breach: pressure door and shutter open (gallery + lock a dead end)', G, ck({
     start: [0, 0, -22], forbid: ['lift3', 'office', 'bio_lock'], goal: ['garden', 'balcony', 'gallery_n', 'lock', 'admin', 'lobby'], use: ['bio_reader'], stressFloors: [0, D2],

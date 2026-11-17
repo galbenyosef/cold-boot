@@ -139,7 +139,7 @@ const stair_w: RoomDress = {
     lightsOf(L, [
       { group: 'stair_w', type: 'point', p: [-17.5, 7.2, -22.4], color: WARM, i: 12, d: 13 },
       { group: 'stair_w', type: 'point', p: [-19.67, 2.15, -32.5], color: WARM, i: 5, d: 7, min: 'medium' },
-      { group: 'stair_w_emerg', type: 'point', p: [-17.5, 7.95, -26.6], color: COLD, i: 3, d: 14, off: true },
+      { group: 'stair_w_emerg', type: 'point', p: [-17.5, 7.45, -26.6], color: COLD, i: 6, d: 16, off: true }, // (I1: 3 → 6: the flight read black after the takeover)
     ]);
     const s = STAIR_W, top = 8.0;
     const run = shade(L, 'stair_pendant', 1.7, 0xffcf96), low = shade(L, 'stair_sconce', 1.6, 0xffcf96);
@@ -218,8 +218,8 @@ const canteen: RoomDress = {
       { group: 'canteen', type: 'point', p: [-17.9, 2.52, -37.4], color: 0xffd2a4, i: 7, d: 10, prio: 0.5 },
       { group: 'canteen', type: 'point', p: [-20.9, 2.52, -36.0], color: 0xffd2a4, i: 3.5, d: 6, min: 'medium', prio: 0.5 },
       { group: 'canteen', type: 'point', p: [-13.9, 2.52, -41.95], color: 0xffd2a4, i: 3.5, d: 6, min: 'medium', prio: 0.5 },
-      { group: 'canteen_emerg', type: 'point', p: [-18, 3.56, -39.2], color: COLD, i: 3, d: 10, off: true },
-      { group: 'canteen_emerg', type: 'point', p: [-13.6, 3.56, -35.8], color: COLD, i: 2.5, d: 7, min: 'medium', off: true },
+      { group: 'canteen_emerg', type: 'point', p: [-18, 3.1, -39.2], color: COLD, i: 3.5, d: 11, off: true },
+      { group: 'canteen_emerg', type: 'point', p: [-13.6, 3.1, -35.8], color: COLD, i: 2.5, d: 7, min: 'medium', off: true },
     ]);
     const H = 3.6;
     const pend = shade(L, 'canteen_pendant', 1.25, 0xffc890);
@@ -357,14 +357,15 @@ const canteen: RoomDress = {
     b.detail(() => b.rbox(fabric(L, TINT.sage), -20.6, 0.72, -39.0 + 0.04, 0.4, 0.36, 0.05, -0.12, 0, 0.05));
 
     // ── vending machine + drinks fridge on the west wall (north of the viewport)
-    const vend = vendingMat(L, 0.9);
+    // (I1: 0.9 / 0.7 read as two white-hot bars with bloom through the canteen glass from the gallery and the garden)
+    const vend = vendingMat(L, 0.32);
     b.at(-23.42, 0, -35.75, PI / 2, () => vendingMachine(b, vend, paint(L, 0x8a2f2a, 0.45)));
     fixture(L, vend, -23.0, 1.2, -35.75);
     const fridgeGlow = canvasMat(L, 'canteen_fridge', 128, 256, (g, W, Hh) => {
       g.fillStyle = '#e8f0f2'; g.fillRect(0, 0, W, Hh);
       const cols = ['#c0392b', '#3f7a58', '#f2f2f2', '#e2b65c', '#2e6fa8'];
       for (let r = 0; r < 4; r++) { g.fillStyle = '#b8c4c8'; g.fillRect(0, 60 + r * 60, W, 3); for (let c = 0; c < 6; c++) { g.fillStyle = cols[(r + c * 2) % cols.length]; g.fillRect(8 + c * 20, 22 + r * 60, 13, 38); } }
-    }, 0.7);
+    }, 0.28);
     b.at(-23.47, 0, -36.58, PI / 2, () => {
       b.bx('plastic_white', -0.3, 0, -0.32, 0.3, 1.85, 0.3);
       b.bx('chrome', -0.29, 0.06, 0.3, 0.29, 1.8, 0.32);
@@ -448,7 +449,7 @@ const clinic: RoomDress = {
       // (inside the ceiling luminaires / the emergency box: no bare light core in the haze)
       { group: 'clinic', type: 'point', p: [14.6, 2.66, -19.0], color: 0xfff0dc, i: 8, d: 10 },
       { group: 'clinic', type: 'point', p: [18.1, 2.66, -16.2], color: 0xfff0dc, i: 4, d: 6, min: 'medium' },
-      { group: 'clinic_emerg', type: 'point', p: [16.8, 2.96, -20.6], color: COLD, i: 2.5, d: 8, off: true },
+      { group: 'clinic_emerg', type: 'point', p: [16.8, 2.5, -20.6], color: COLD, i: 2.5, d: 8, off: true },
     ]);
     const H = 3.0;
     const panel = shade(L, 'clinic_panel', 1.5, 0xfff2e2);
@@ -591,6 +592,10 @@ const quarters: RoomDress = {
       { group: 'quarters', type: 'point', p: [20, 2.92, -31], color: WARM, i: 9, d: 12 },
       { group: 'quarters', type: 'point', p: [14.2, 2.92, -31], color: WARM, i: 4, d: 7, min: 'medium' },
       { group: 'quarters', type: 'point', p: [25.8, 2.92, -31], color: WARM, i: 4, d: 7, min: 'medium' },
+      // (I1: the emergency lights hang 0.45 m under the ceilings — at 4 cm their hot spot on the ceiling read as a
+      // glaring white blob from across the atrium after the takeover)
+      // I1: the corridor had no emergency light — black after the takeover (breach 2 runs through it)
+      { group: 'quarters_emerg', type: 'point', p: [20, 2.45, -31], color: COLD, i: 3, d: 11, off: true },
     ]);
     const H = 3.0;
     const sc = shade(L, 'quarters_sconce', 1.6, 0xffcb90), dl = shade(L, 'quarters_down', 1.3, 0xffdcb4);

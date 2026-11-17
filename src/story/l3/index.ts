@@ -3,7 +3,8 @@
  * the checkpoint writer and resume are the shared scaffolding (../stage/page.ts); the script is ./script.ts (on
  * ./scenes.ts, ./base.ts). This file adds the level end (D19: the carry for 3b + the end card `THE QUIET SIDE` /
  * `TO BE CONTINUED` + the menu).
- * Test hooks on `__game.story`: `end()`, `checkpoint(id)`, `fire(name)`, `hurry(fast?)`, `debugState`, `lineLog`.
+ * Test hooks on `__game.story`: `end()`, `checkpoint(id)`, `fire(name)`, `hurry(fast?)`, `debugState`, `lineLog`,
+ * `takeoverPreview()` (review frames).
  */
 import type { GameContext, StorySystem } from '../../core/types';
 import { preload } from '../voice';
@@ -69,6 +70,8 @@ export async function createStoryL3(ctx: GameContext): Promise<StorySystem> {
   Object.assign(story, {
     end,
     checkpoint: (id: CheckpointIdL3 = 'cp3_start') => s.debugCheckpoint(id),
+    /** Review only (frames of the takeover from anywhere): the warm → cold switch, without beats or doors. */
+    takeoverPreview: () => s.debugTakeover(),
   });
   return story;
 }

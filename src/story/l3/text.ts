@@ -170,4 +170,5 @@ export const TOAST3 = {
   staff: 'Staff only',
   noBadge: 'Badge required',
   halvLocked: 'Locked from the inside',
+  night: 'Garden atrium — closed for the night (22:00–06:00)',
 };

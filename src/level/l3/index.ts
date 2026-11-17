@@ -164,15 +164,17 @@ function gameplay(L: LevelBuild) {
   // spawn mode only (R4: nothing hostile exists before its beat). g3_admin are the C2 puppets promoted (story).
   // g3_canteen (2 husks): the story spawns two of these three — hatch A (or hatch B when the player is within 3 m of
   // H-A) and the kitchen husk (or the other hatch when the player waits at the kitchen door).
-  L.enemy('g3_canteen_ha', 'husk', 'spawn', -18, 4.0, -41, PI, 'drop');
-  L.enemy('g3_canteen_hb', 'husk', 'spawn', -14.5, 4.0, -37.5, PI, 'drop');
+  // (y = the canteen floor: the husk's 'drop' pose starts it 4 m up, in the hatch void)
+  L.enemy('g3_canteen_ha', 'husk', 'spawn', -18, 0, -41, PI, 'drop');
+  L.enemy('g3_canteen_hb', 'husk', 'spawn', -14.5, 0, -37.5, PI, 'drop');
   L.enemy('g3_canteen_k', 'husk', 'spawn', -21, 0, -47.0, PI);
   // g3_breach: inside the windowless lock, facing the pressure door
   L.enemy('g3_breach', 'husk', 'spawn', -1.2, D2, -2.0, 0);
   L.enemy('g3_breach', 'husk', 'spawn', 0, D2, -3.4, 0);
   L.enemy('g3_breach', 'husk', 'spawn', 1.2, D2, -2.0, 0);
-  // g3_garden: the sentry in the roof hatch void, its whole body (r 0.42) above the closed panel (13.5 … 13.56)
-  L.enemy('g3_garden', 'sentry', 'spawn', 0, 14.1, -30, 0);
+  // g3_garden: the sentry in the roof hatch void, its whole body (r 0.42) above the closed panel (13.5 … 13.56);
+  // 0.84 m over the panel (its spawn hover bump fires under 0.8 m and would lift it into the slab above the void)
+  L.enemy('g3_garden', 'sentry', 'spawn', 0, 14.4, -30, 0);
   // g3_breach_2: behind d3_ring_e
   L.enemy('g3_breach_2', 'husk', 'spawn', 29.5, 0, -30.4, PI / 2);
   L.enemy('g3_breach_2', 'husk', 'spawn', 29.5, 0, -31.6, PI / 2);

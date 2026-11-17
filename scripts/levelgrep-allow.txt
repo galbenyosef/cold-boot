@@ -51,6 +51,7 @@ src/audio/dev/harness.ts :: levelId
 src/audio/impulses.ts :: level === 3
 src/materials/dev/harness.ts :: levelId: habView ? 3 : undefined
 src/materials/index.ts :: HABITAT_FROM
+src/fx/dev/habitat.ts :: levelId: 3 } as unknown as GameContext
 
 # ── false positives of the pattern (not about levels): Halvorsen's rig scale and a loop index
 src/enemies/human/halvorsen.ts :: i === 2

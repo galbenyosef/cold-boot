@@ -551,8 +551,10 @@ export class Halvorsen extends Human {
     _q.setFromAxisAngle(Y, this.yaw + Math.PI).multiply(_q2.setFromEuler(_e.set(-Math.PI / 2, 0, Math.PI / 2, 'YXZ')));
     _m.compose(_a.copy(base).add(_d.set(0, 0.018, 0)), _q, _s3.set(1, 1, 1));
     // ear: ear cup at the left ear, mouthpiece toward the mouth corner, cups facing the head
-    this.headPoint(0.088, 1.612, -0.01, _a);
-    this.headPoint(0.05, 1.53, 0.085, _b);
+    // (I1: ear cup on the ear canal, mouthpiece lower and further forward at the mouth corner — the receiver sat high,
+    // ear end to temple, mouth end at the ear)
+    this.headPoint(0.09, 1.585, -0.005, _a);
+    this.headPoint(0.045, 1.465, 0.1, _b);
     const yAx = _d.copy(_a).sub(_b).normalize();
     this.headPoint(0, 1.58, 0.0, _c);
     const zAx = _fw.copy(_c).sub(_a).normalize();
@@ -595,7 +597,10 @@ export class Halvorsen extends Human {
     if (H.seated) this.rigPoint(0.135, this.dT() + 0.034, this.dF() + 0.15, _b); else this.rigPoint(0.2, 0.95, 0.04, _b);
     _b.lerp(_a, reach);
     _b.y += tr(9) * 0.5;
-    this.ikArm(1, _b, -0.3, -0.2, 0.55, 1);
+    // elbow: out to the side while reaching for the cradle; at the ear it drops down and a little forward, the
+    // forearm rising beside the cheek (I1: the pole stayed out at shoulder height — a raised "wing" across his face)
+    const ear = H.phoneK;
+    this.ikArm(1, _b, -0.3 - 0.75 * ear, -0.2 + 0.32 * ear, 0.55 - 0.42 * ear, 1);
     if (reach > 0.5) {
       // palm on the receiver's back, fingers wrapping across it
       _q.setFromRotationMatrix(_m2.extractRotation(R));

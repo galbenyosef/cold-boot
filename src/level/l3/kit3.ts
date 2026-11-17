@@ -558,12 +558,22 @@ export function kettle(b: Builder, x: number, y: number, z: number) {
   b.cyl('chrome', x, y + 0.13, z, 0.085, 0.18, 'y', 12, 0.07);
   b.rod('plastic_dark', x - 0.06, y + 0.2, z, x - 0.1, y + 0.12, z, 0.012, 5);
 }
-export function deskPhone(b: Builder, L: LevelBuild) {
+/**
+ * Desk phone: the user sits on its −z side (keypad rows run along z, rising away from them); the cradle with the
+ * handset along z on its −x side. `handset: false` leaves the cradle empty (an actor draws his own receiver there).
+ */
+export function deskPhone(b: Builder, L: LevelBuild, handset = true) {
   const cream = paint(L, 0xe6dcc3, 0.45);
   b.rbox(cream, 0, 0.03, 0, 0.2, 0.06, 0.22, -0.15, 0, 0);
   b.detail(() => { for (let i = 0; i < 12; i++) b.box('plastic_dark', -0.04 + (i % 3) * 0.04, 0.066 - Math.floor(i / 3) * 0.006, 0.05 - Math.floor(i / 3) * 0.035, 0.025, 0.006, 0.022); });
-  b.rbox(cream, -0.065, 0.085, 0, 0.06, 0.05, 0.22, 0, 0, 0);
-  b.sphere(cream, -0.065, 0.085, 0.1, 0.035, 8); b.sphere(cream, -0.065, 0.085, -0.1, 0.035, 8);
+  if (handset) {
+    b.rbox(cream, -0.065, 0.085, 0, 0.06, 0.05, 0.22, 0, 0, 0);
+    b.sphere(cream, -0.065, 0.085, 0.1, 0.035, 8); b.sphere(cream, -0.065, 0.085, -0.1, 0.035, 8);
+  } else {
+    // the empty cradle: two rests and the hook switch between them
+    for (const z of [-0.075, 0.075]) b.rbox(cream, -0.065, 0.07, z, 0.06, 0.03, 0.045, 0, 0, 0);
+    b.box('plastic_dark', -0.065, 0.072, 0, 0.012, 0.012, 0.02);
+  }
 }
 /** Monitor w × h on a foot; screen face +z (a dead `screen_off` face unless a screen quad is put on it). */
 export function monitor(b: Builder, w = 0.52, h = 0.32, screen = true) {

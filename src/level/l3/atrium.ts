@@ -99,7 +99,11 @@ const atrium: RoomDress = {
     const from = V(2.6, -8, -66);
     const dir = beacon.clone().sub(from).normalize();
     const viewport = fx.viewport({
-      position: V(0, 5.1, -44.0), normal: V(0, 0, 1), width: 16, height: 9, spread: 1.4,
+      // (I1: spread 1.4 grew the sea's coverage proxy far behind the canteen and kitchen (x −33 at its 18 m depth); seen
+      // through gaps in that geometry from the gallery and the garden it drew the flood-lit water there — a large white
+      // glow toward the canteen that turned into "sparkles" (marine snow) close up. The shader marches every ray from the
+      // glass outward on its own, the proxy only has to be closed behind the pane: 0.2 keeps it inside x ±11.6.)
+      position: V(0, 5.1, -44.0), normal: V(0, 0, 1), width: 16, height: 9, spread: 0.2,
       cable: { from, to: beacon.clone().addScaledVector(dir, 60), radius: 0.55, beacon, markers: 2 },
       floods: [{ at: [-6.5, 4.6, 0.6], dir: [0.15, -1.3, 1], intensity: 0.12 }, { at: [6.5, 4.6, 0.6], dir: [-0.15, -1.3, 1], intensity: 0.1 }],
     });
@@ -109,11 +113,16 @@ const atrium: RoomDress = {
       falls, material: water, glow: 0.07,
       caustics: [{ position: V(0, 0.57, POOL.z0 + 0.004), normal: V(0, 0, 1), width: 5.4, height: 0.62 }],
     });
-    const lampGrid = fx.lampGrid({ center: V(0, 13.2, -28), cols: 6, rows: 8, pitch: [4.0, 3.9], panel: [2.6, 2.6], lights: day, emergencyLights: emerg });
+    const lampGrid = fx.lampGrid({ center: V(0, 13.2, -28), cols: 6, rows: 8, pitch: [4.0, 3.9], panel: [2.6, 2.6], lights: day, emergencyLights: emerg, emergencyIntensity: 0.9 });
     // grow-light strips and the café menu glow join the takeover wave by position
     for (const [m, p] of FIXTURES.get(L) ?? []) lampGrid.addFixture(m, p, m.emissiveIntensity, 0);
     const fxObj = L.marker('atrium_fx', 0, 0, -28);
     fxObj.userData = { viewport, falls, pool: poolFx, lampGrid, water };
+    // I1: hidden until the first level update, so the load-time reflection-probe bake (render.prepare) does not capture
+    // them — the sea volume's floods and beacon (HDR, up to 70×) baked into the atrium probe showed as a large white
+    // glare and "sparkles" on every glass surface reflecting it (the canteen's glass door from the stair foot, the
+    // gallery glazing). Progressive re-captures already hide everything outside the level root.
+    viewport.visible = false; lampGrid.mesh.visible = false; falls.mesh.visible = false; poolFx.mesh.visible = false;
     // the effects are not under the level root: hide them while the atrium is not drawn
     L.updaters.push(() => {
       const v = L.isVisible('atrium');
