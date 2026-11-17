@@ -10,6 +10,7 @@ import type { GameContext, VoiceHandle } from '../core/types';
 import l1raw from '../../voice/lines.l1.json?raw';
 import l2raw from '../../voice/lines.l2.json?raw';
 import l3raw from '../../voice/lines.l3.json?raw';
+import l4raw from '../../voice/lines.l4.json?raw';
 
 export interface VoiceLine {
   id: string;
@@ -21,7 +22,7 @@ export interface VoiceLine {
 }
 
 const DB = new Map<string, VoiceLine>();
-for (const raw of [l1raw, l2raw, l3raw]) {
+for (const raw of [l1raw, l2raw, l3raw, l4raw]) {
   try { for (const l of JSON.parse(raw) as VoiceLine[]) DB.set(l.id, l); } catch (e) { console.error('[story] voice lines did not parse', e); }
 }
 
@@ -51,7 +52,7 @@ export function estimateDuration(text: string): number {
   return Math.max(1.4, 0.7 + words * 0.36);
 }
 
-const NAMES: Record<string, string> = { choir: 'CHOIR', tomas: 'TOMAS', hale: 'D. HALE', unit: 'SERVICE UNIT', halvorsen: 'HALVORSEN', reyes: 'REYES', resident: 'RESIDENT' };
+const NAMES: Record<string, string> = { choir: 'CHOIR', tomas: 'TOMAS', hale: 'D. HALE', unit: 'SERVICE UNIT', halvorsen: 'HALVORSEN', reyes: 'REYES', resident: 'RESIDENT', sunde: 'DR. A. SUNDE' };
 
 /** Subtitle speaker label for a line (a unit speaking with a staff voice is still a unit). */
 export function speakerName(l: VoiceLine): string {

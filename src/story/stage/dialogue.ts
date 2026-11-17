@@ -59,6 +59,8 @@ export interface SayOpts {
    * gesture and its line begin together (scripts/check-voice-level.mjs, SYNC). `onStart` then runs inside `say`.
    */
   now?: boolean;
+  /** false (or a function returning false when the line starts): sound only, no subtitle (a screen out of sight). */
+  subtitle?: boolean | (() => boolean);
 }
 
 /** One decision of the channel, for the test oracle. `cond`: null = unconditional line. */
@@ -66,6 +68,13 @@ export interface LineLog {
   t: number; id: string; cond: boolean | null; said: string | null; pri: Pri | 'over';
   /** Queued at (script time) / performance.now() when queued and when started (sync checks: the cue IS the ask). */
   q?: number; qp?: number; sp?: number;
+}
+
+/** The subtitle flag of a line as it starts (default: shown). */
+function subOf(o: SayOpts): boolean {
+  const f = o.subtitle;
+  if (typeof f === 'function') { try { return f() !== false; } catch { return true; } }
+  return f !== false;
 }
 
 // ───────────────────────────────────────────────────────────── rules (R3)
@@ -198,7 +207,7 @@ export class Dialogue<F = unknown> {
     if (!d0.id) return 0;
     const l = this.lineOf(d0.id);
     const at = typeof opts.at === 'function' ? opts.at() : opts.at;
-    const s = speak(this.ctx, d0.id, { name: opts.name ?? (l ? speakerName(l) : undefined), position: at ?? undefined });
+    const s = speak(this.ctx, d0.id, { name: opts.name ?? (l ? speakerName(l) : undefined), position: at ?? undefined, subtitle: subOf(opts) });
     const d = this.fast ? 0.25 : s.duration;
     this.over.push({ handle: s.handle, endAt: this.seq.time + d, follow: typeof opts.at === 'function' ? opts.at : null });
     this.countStart(d0.id);
@@ -345,7 +354,7 @@ export class Dialogue<F = unknown> {
       try { this.ctx.audio.play(radio.sound, { volume: radio.volume ?? 0.5 }); } catch { /* ignore */ }
     }
     const at = typeof item.opts.at === 'function' ? item.opts.at() : item.opts.at;
-    const s = speak(this.ctx, id, { name: item.opts.name ?? (l ? speakerName(l) : undefined), position: at ?? undefined });
+    const s = speak(this.ctx, id, { name: item.opts.name ?? (l ? speakerName(l) : undefined), position: at ?? undefined, subtitle: subOf(item.opts) });
     const d = this.fast ? 0.25 : s.duration;
     this.lastSpoke.set(l?.fx === 'unit' ? 'unit' : speaker, now);
     this.countStart(id);

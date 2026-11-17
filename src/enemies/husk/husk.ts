@@ -123,6 +123,9 @@ export class Husk extends EnemyBase {
   private lurch = 0;       // freeze before the sprint
   private hitchTimer: number; private hitch = 0;
   private rage = 0;
+  /** Story `rush` (stage 3b): seconds left of a forced run toward the player, kept across the wake. */
+  private rushT = 0;
+  rush(seconds: number): void { if (!this.gentle) this.rushT = Math.max(this.rushT, seconds); }
   private limp: number;    // side with the bad leg
   private seed: number;
 
@@ -461,6 +464,7 @@ export class Husk extends EnemyBase {
     if (this.mode === 'dead') return;
     const w = this.world;
     if (this.rage > 0) this.rage -= dt;
+    if (this.rushT > 0) this.rushT -= dt;
     if (this.recentT > 0) { this.recentT -= dt; if (this.recentT <= 0) this.recentDmg = 0; }
     this.perceive(dt);
 
@@ -1299,7 +1303,7 @@ export class Husk extends EnemyBase {
     this.navigate(dt);
     const hd = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z);
     // walk → lurching run
-    const wantRun = !this.gentle && (this.rage > 0 || this.health < HP * 0.6 || (this.dist < 7.5 && this.seesPlayer));
+    const wantRun = !this.gentle && (this.rage > 0 || this.rushT > 0 || this.health < HP * 0.6 || (this.dist < 7.5 && this.seesPlayer));
     if (wantRun && !this.running) { this.running = true; this.lurch = 0.24; this.headYaw.v += 14 * (w.rand() - 0.5); this.headRoll.v += 8; }
     else if (!wantRun && this.running && this.dist > 11) this.running = false;
     // stiff micro-freezes while walking

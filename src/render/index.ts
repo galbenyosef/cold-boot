@@ -188,8 +188,8 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     vol.strength = settings.volumetric;
     scene.environmentIntensity = settings.envIntensity;
 
-    // (level 4 on: levels 1–3 keep their light selection exactly as before)
-    lights.roomVisible = ctx.levelId < 4 ? null : ((ctx as Partial<GameContext>).level?.root?.userData?.roomVisible as ((x: number, z: number) => boolean) | undefined) ?? null;
+    // (only a level that installs `roomVisible` on its root — level 4 — gets room-scored lights)
+    lights.roomVisible = ((ctx as Partial<GameContext>).level?.root?.userData?.roomVisible as ((x: number, z: number) => boolean) | undefined) ?? null;
     lights.update(dt, realDt, camPos, camera);
     if (teleported) { lights.snap(); probes.snapTo(camPos); }
     probes.update(realDt, camPos);

@@ -81,16 +81,17 @@ export const SCREEN4 = {
     'QUEUE: AUTO — ORDER 0031-H (YIELD)',
   ].join('\n'),
   cam: (cue: string, t: number, attempt: number) => `${cue}|${t.toFixed(2)}|${Math.round(attempt)}`,
-  tubeIdle: 'TUBE ACCESS — RELEASE FROM BOOTH',
-  tubeRefused: 'RELEASE REFUSED — PRESSURE DIFFERENTIAL 3.1 BAR — EQUALISE AT TUBE PLANT →',
-  tubeReady: 'RELEASE READY',
-  tubeOpen: 'OPEN',
-  gaugeIdle: 'TUBE Δp 3.1 BAR — EQUALISE',
-  gaugeRun: (left: number, dp: number) => `EQUALISING ${String(Math.max(0, left)).padStart(2, '0')} — Δp ${dp.toFixed(1)}`,
-  gaugeDone: 'Δp 0.0 — EQUALISED — RELEASE AT BOOTH',
-  gateIdle: 'POST 4 — PRESSURE GATE — NAVAL ACCESS ONLY',
-  gateEq: 'EQUALISING',
-  gateAuth: 'AUTHORISED: AAS, L. (LT.) — PALM — LIVE',
+  // (`[plain]`: the panel's text is its whole content — no scrolling log lines competing with it; screens.ts PLAIN)
+  tubeIdle: '[plain]TUBE ACCESS\nRELEASE FROM BOOTH',
+  tubeRefused: '[plain]RELEASE REFUSED\nPRESSURE DIFFERENTIAL 3.1 BAR\nEQUALISE AT TUBE PLANT →',
+  tubeReady: '[plain]RELEASE READY',
+  tubeOpen: '[plain]OPEN',
+  gaugeIdle: '[plain]TUBE Δp 3.1 BAR\nEQUALISE',
+  gaugeRun: (left: number, dp: number) => `[plain]EQUALISING ${String(Math.max(0, left)).padStart(2, '0')}\nΔp ${dp.toFixed(1)}`,
+  gaugeDone: '[plain]Δp 0.0 — EQUALISED\nRELEASE AT BOOTH',
+  gateIdle: '[plain]POST 4 — PRESSURE GATE\nNAVAL ACCESS ONLY',
+  gateEq: '[plain]EQUALISING',
+  gateAuth: '[plain]AUTHORISED: AAS, L. (LT.)\nPALM — LIVE',
 };
 
 /** §4.4 the arm's LINK field per cue. */

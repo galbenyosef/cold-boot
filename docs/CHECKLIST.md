@@ -35,14 +35,20 @@ Run everything here and fix what it finds. When the user finds a new class of de
 - `npm run voice:check` after any change to `voice/lines.*.json` (and `npm run voice` before it). `npm run voice` also
   writes every line's `lead` (seconds before the first word: breath, click, pause) into the manifest; the game skips
   it, so a scene's line starts with its gesture.
-- `playthrough-l3`: the end card is asserted per `nextOf(3)`: add `--next 3:4` to run the hand-over end (card without
-  TO BE CONTINUED, stored level 4).
-- Stage 3b (docs/plans/stage-3b.md §10; each runs once its task has written the script — before that the npm entry
-  prints a note and exits 0): `npm run check:weapons -- --url <url>` (armour + carbine, W1), `npm run check:fxleak --
-  --url <url> --level 3|4` (fx volumes drawn only with their rooms, W7), `npm run check:dark -- --url <url>` (level 4
-  lights-out readable by flashlight on LOW / MEDIUM, T), `npm run play:l4 -- <url>` (`--checkpoints`, `--impatient`,
-  `--order`, `--softlock`; T), `npm run check:voice-level -- --url <url> --level 4` (scene speech at conversation
-  level). `check:nav --level 4` once W4 adds level 4's cases.
+- `playthrough-l3`: the end card is asserted per `nextOf(3)` — since stage 3b `LEVELS[3].next = 4`, so the default
+  run ends with the hand-over (card without TO BE CONTINUED, stored level 4); `--next 3:4` forces the same end.
+- Stage 3b (docs/plans/stage-3b.md §10), on a static build:
+  - `npm run play:l4 -- <url>` (level 4, both choices; `LEVEL4 OK`), `--checkpoints`, `--impatient`, `--order` (a–e),
+    `--softlock` (a–h; (c) and (h: bay) run in their own page), `--frames` (10 fps sequences of §10.5 → `shots/l4/frames/`;
+    look at them); `node scripts/playthrough-l4-cases.mjs <url>` (§9 #7, #10, #15, #22).
+  - `npm run check:weapons -- --url <url>` (armour + carbine), `npm run check:fxleak -- --url <url> --level 3|4` (fx
+    volumes drawn only with their rooms), `npm run check:dark -- --url <url>` (level 4 lights-out readable by flashlight
+    on LOW / MEDIUM; `--measure a.png` prints the metric of a frame).
+  - `npm run check:voice -- --url <url> --level 4 [--choice command]` — Sunde's log from the PI desk and the office door,
+    a unit panel line, the gallery announcer at both ends: level + sync as level 3's scenes.
+  - `check:nav` runs level 4's cases with the others.
+- `node scripts/check-cards.mjs <url>` — title / intro / end cards keep their number of text lines and stay on screen
+  through the letter-spacing animation, at four window sizes.
 
 ## Design rules to check every scene against (docs/DESIGN.md → REVISION 5, R1–R7)
 - No gate that is only a spoken instruction; real barriers.

@@ -299,6 +299,12 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         k++;
       }
     },
+    rush(group, seconds = 30) {
+      for (let i = 0; i < all.length; i++) {
+        const e = all[i] as unknown as { group?: string; alive: boolean; rush?: (s: number) => void };
+        if (e.group === group && e.alive) e.rush?.(seconds);
+      }
+    },
     wakeGroup(group, stagger = 0.6) {
       let k = 0;
       for (let i = 0; i < all.length; i++) {

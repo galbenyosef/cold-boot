@@ -5,12 +5,13 @@
 //   boot    — every built level (1–4) boots directly; ?level=5/6/9 clamp to 4; bad ?level= → stored level;
 //             ?level=3 and ?level=4 direct-start loadout + facts (+ armour 0), ?choice= / ?units=
 //   chain   — L1 → L2 carry; L2 → L3 for both choices (carry + facts written, L2 save gone, no TO BE CONTINUED);
-//             L2 → L3 real hand-over (reload, one click); L3 end WITHOUT `?next=`: today's end (carry incl. testHour,
-//             stays on 3, card with TO BE CONTINUED); L3 → L4 through the test override `?next=3:4&handoff=1` for
+//             L2 → L3 real hand-over (reload, one click); L3 end WITHOUT `?next=` (LEVELS[3].next = 4): the live
+//             hand-over (carry incl. testHour, stored 4, card without TO BE CONTINUED, reload into level 4 with the
+//             carry); L3 → L4 through the test override `?next=3:4&handoff=1` for
 //             both choices (card without TBC, stored 4, L3/L4 saves gone, level 4 arrives with weapons, health,
-//             flashlight, facts, testHour, armour); carried armour 37 → 37, 900 → 100, NaN → 0; a 3 → 4 carry is
-//             ignored without the override; L3 → L4 real hand-over (reload keeps `next`); L4 end (carry incl.
-//             carbine + armour, stored level stays 4, card); the stub's end button
+//             flashlight, facts, testHour, armour); carried armour 37 → 37, 900 → 100, NaN → 0;
+//             L3 → L4 real hand-over (reload keeps `next`); L4 end (carry incl.
+//             carbine + armour, stored level stays 4, card)
 //   menu    — stored level 3 / 4: CONTINUE with and without a checkpoint, the chapter line; BEGIN → level 1, all cleared
 //   storage — v1 save + carry discarded once; corrupt / wrong-chain carry ignored; a carry without `carbine` loads
 //             it unowned; level-3 checkpoint round trip; a level-3 checkpoint written before stage 3b (no carbine,
@@ -220,11 +221,12 @@ if (want('chain')) {
   // autostart is still in the URL, so the level begins directly (a real run shows the one-click gate first)
   check(g.facts.choice === 'stop' && g.facts.unitsLeft === 30, `facts arrive: ${JSON.stringify(g.facts)}`);
 
-  console.log('══════════ L3 end (no ?next=: today\'s end on main) ══════════');
+  console.log('══════════ L3 end (no ?next=: LEVELS[3].next = 4 — the live hand-over, store + reload) ══════════');
   await wipe();
   await open('?level=3&autostart=1&god=1&handoff=1&choice=command&units=12'); await wait(800);
   await ev(() => window.__game.story.checkpoint('cp3_start'));
   check((await store()).saves.includes(3), 'a level-3 checkpoint is written');
+  await ev(() => { window.__game.debug.autostart = false; });          // as a real run: store + reload
   await ev(() => { void window.__game.story.end(); });
   await until(() => /QUIET SIDE/i.test(document.querySelector('.cb')?.innerText ?? ''), 15000);
   await wait(2500);
@@ -233,13 +235,19 @@ if (want('chain')) {
   check(s.carry?.from === 3 && s.carry.facts?.choice === 'command' && s.carry.facts?.unitsLeft === 12 && s.carry.facts?.badge === true && s.carry.facts?.halvorsenAlive === true && typeof s.carry.facts?.kills3 === 'number',
     `level 3's end writes the carry for 3b: ${JSON.stringify(s.carry?.facts)}`);
   check(typeof s.carry?.facts?.testHour === 'number' && s.carry.facts.testHour >= 62 && s.carry.facts.testHour < 63, `the carry holds testHour (D20): ${s.carry?.facts?.testHour}`);
-  check(s.level === '3' && !s.saves.includes(3), 'stored level stays 3 (next = null), its checkpoint cleared');
-  check(/THE QUIET SIDE/.test(t3) && /TO BE CONTINUED/.test(t3), `end card "${t3.slice(0, 60)}"`);
+  check(s.level === '4' && !s.saves.includes(3), `stored level 4 (next = 4), the level-3 checkpoint cleared (${s.level})`);
+  check(/THE QUIET SIDE/.test(t3) && !/TO BE CONTINUED/i.test(t3), `the 3a card without TO BE CONTINUED: "${t3.slice(0, 60)}"`);
   check((await game()).state === 'ended', 'state ended');
-  // without the override, level 4 does not take 3's carry (LEVELS[3].next is null): a direct start
-  await open('?level=4&autostart=1&god=1'); await wait(1000);
-  g = await game();
-  check(g.level === 4 && g.loadout === 'direct' && g.facts.choice === 'stop' && g.facts.testHour === undefined, `without ?next=3:4 level 4 ignores 3's carry (${g.loadout}, ${JSON.stringify(g.facts)})`);
+  {
+    const nav = page.waitForNavigation({ timeout: 20000 }).then(() => true, () => false);
+    await page.keyboard.press('Space');                                  // skip the card
+    const navigated = await nav;
+    await page.waitForFunction(() => window.__game?.ready, null, { timeout: 120000 }).catch(() => {});
+    await wait(1500);
+    g = await game();
+    check(navigated && g.level === 4 && !/level=/.test(g.url) && g.loadout === 'carry' && g.arrival?.from === 3 && g.facts.choice === 'command' && g.facts.unitsLeft === 12,
+      `after the card the page reloads into level 4 with 3's carry, no ?next= (${g.url}, level ${g.level}, ${g.loadout}, ${JSON.stringify(g.facts)})`);
+  }
 
   const armorOn = await probeArmor();
   for (const [choice, units] of [['stop', 26], ['command', 14]]) {
@@ -318,15 +326,10 @@ if (want('chain')) {
   check(s.level === '4' && !s.saves.includes(4), 'stored level stays 4 (next = null), its checkpoint cleared');
   check(/BIOLOGICAL SYSTEMS/.test(t4) && /TO BE CONTINUED/.test(t4), `end card "${t4.slice(0, 60)}"`);
   check((await game()).state === 'ended', 'state ended');
-  // the stub room's end button (until W4/ST replace the stub)
+  // the greybox's placeholder end button is gone (the real end is the gate lock)
   await wipe();
   await open('?level=4&autostart=1&god=1'); await wait(800);
-  const hasButton = await ev(() => !!window.__game.interactables.get('l4_stub_end'));
-  if (hasButton) {
-    await ev(() => { const g = window.__game; g.interactables.use(g.interactables.get('l4_stub_end')); });
-    await until(() => window.__game?.state === 'ended', 5000);
-    check((await game()).state === 'ended', 'the stub\'s end button ends level 4');
-  } else console.log('  note no l4_stub_end (the level-4 stub was replaced)');
+  check(!(await ev(() => !!window.__game.interactables.get('l4_stub_end'))), 'no placeholder end button l4_stub_end in level 4');
 }
 
 // ───────────────────────────────────────────────────────────── menu (stored level 3)

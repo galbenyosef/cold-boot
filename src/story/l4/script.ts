@@ -27,10 +27,10 @@ import { LIGHTS_OUT4 } from '../../level/l4/grey';
 import { fxLead } from '../../audio/voicefx';
 import { Base4, V, type Flags4, type HooksL4 } from './base';
 import { line4 } from './dialogue';
-import { FRAGMENTS4, OBJ4, READ_ROOM4, SCREEN4, SUNDE_LOG, TOAST4, doorOpenSeconds, hms, linkOf } from './text';
+import { FRAGMENTS4, OBJ4, READ_ROOM4, SCREEN4, SUNDE_LOG, TOAST4, doorOpenSeconds, hms } from './text';
 
 /** Deck-2 groups (removed on a load past lights-out; the ambush's stranded watch). */
-const DECK2_GROUPS = ['g4_wet', 'g4_rec', 'g4_viv', 'g4_bay', 'g4_vent'];
+const DECK2_GROUPS = ['g4_wet', 'g4_rec', 'g4_viv', 'g4_bay', 'g4_vent_a', 'g4_vent_b'];
 /** F5 + the plant skitters (the F6 rule, `cp4_armed`). */
 const F5_GROUPS = ['g4_chk_sentry', 'g4_store', 'g4_plant'];
 /** Groups that exist dormant from load and may wake on their own (shot, damage, proximity): recorded as triggered. */
@@ -159,7 +159,6 @@ export class ScriptL4 extends Base4 {
     this.tubePanels(SCREEN4.tubeIdle);
     s('plant_gauge', 'terminal_idle', SCREEN4.gaugeIdle);
     s('gate_panel', 'terminal_idle', SCREEN4.gateIdle);
-    this.theatreScreens(this.arm.cue() || 'approach');
     for (const id of ['cold_ack', 'valve4', 'booth_release', 'log4_video']) this.usable(id, true);
     this.w.setPrompt('log4_video', 'Play log');
     this.w.lights('plant_beacon', { enabled: false });
@@ -216,7 +215,7 @@ export class ScriptL4 extends Base4 {
     this.rosterSeen = this.sees(this.mk('mk4_roster'), 6) ? this.rosterSeen + step : 0;
     if (f.clean && !f.suite && !f.holdSeen) {
       const d = this.door('d4_surg');
-      if (d && this.sees(d.position.clone().setY((d.y ?? 0) + 1.4), 8)) f.holdSeen = true;
+      if (d && this.sees(d.position.clone().setY(this.doorFloor(d) + 1.4), 8)) f.holdSeen = true;
     }
     // CHOIR's sight / act lines (rules decide at the start; 'talk': they never cut a scene line)
     const idle = this.quietNow();
@@ -264,7 +263,7 @@ export class ScriptL4 extends Base4 {
     cp4_clean: { when: () => this.f.clean && this.f.cleanSeen, valid: () => !this.f.override },
     cp4_cold: { when: () => this.f.clean && this.at('t4_cold', () => this.inRoom('cold')), valid: () => !this.f.override },
     cp4_hold: {
-      when: () => this.f.suite && this.f.bayDone && this.f.vent !== '' && this.fought('g4_bay', 3) && this.fought('g4_vent', 3)
+      when: () => this.f.suite && this.f.bayDone && this.f.vent !== '' && this.fought('g4_bay', 3) && this.fought(`g4_vent_${this.f.vent}`, 3)
         && (CORRIDORS.includes(this.w.room() ?? '') || this.inRoom('scrub')),
       valid: () => !this.f.lower,
     },
@@ -418,7 +417,7 @@ export class ScriptL4 extends Base4 {
   private async latch(id: string, keepSide: () => boolean): Promise<boolean> {
     const d = this.door(id);
     if (!d) return keepSide();
-    const inDoorway = () => Math.abs(this.pos.x - d.position.x) < 1.1 && Math.abs(this.pos.z - d.position.z) < 0.9 && Math.abs(this.pos.y - (d.y ?? 0)) < 1.5;
+    const inDoorway = () => Math.abs(this.pos.x - d.position.x) < 1.1 && Math.abs(this.pos.z - d.position.z) < 0.9 && Math.abs(this.pos.y - this.doorFloor(d)) < 1.5;
     if (!inDoorway()) {
       d.lock();
       const t0 = this.now;
@@ -503,8 +502,7 @@ export class ScriptL4 extends Base4 {
     if (this.f.lightsOut) return;
     this.beat('l4_lights_out');
     this.stamp('lights_out');
-    this.vig('lights_out4');
-    this.sfx('lights_thunk', this.mk('mk4_cold_panel').setY(7.5), 0.9);
+    this.vig('lights_out4');                                   // (its power_down + lights_thunk are the vignette's)
     this.director.setMood('tension');
     if (this.w.alive('g4_wet') > 0) { this.wakeGroup('g4_wet', 'wet-lab bench (lights-out)'); this.rouse('g4_wet'); }
     if (this.w.alive('g4_rec') > 0) this.wakeGroup('g4_rec', 'records (lights-out)');
@@ -523,9 +521,8 @@ export class ScriptL4 extends Base4 {
     this.sfx('bay_door', this.mk('mk4_bay_door').setY(6.2), 0.9);
     await this.until(() => this.now >= L + 2.9);
     this.rouse('g4_bay');
-    const opened = this.now;
+    this.runOnceOut('g4_bay', (e) => e.position.x < 14.6);
     await this.untilOr(() => this.members('g4_bay').every((e) => e.position.x < 14.6), 10);
-    void opened;
     // latch: the player must not be in the bay / its doorway (plan: x < 14.6 — the corridor's east edge)
     for (;;) {
       const ok = await this.closeBehind('d4_bay', () => !this.inRoom('bay') && this.pos.x < 14.6);
@@ -534,6 +531,17 @@ export class ScriptL4 extends Base4 {
     }
     this.once('bay_done');
     this.stamp('bay_closed');
+  }
+
+  /**
+   * §4.3 / §4.6 "walk out, RUN after 3 m": a wave sent out of a sealed room walks through its door, then runs to the
+   * player (`rush`: it must arrive — the ambush, the holdout, the tube fight), from the first member out (≤ 4 s).
+   */
+  private runOnceOut(group: string, out: (e: { position: THREE.Vector3 }) => boolean): void {
+    this.S('run_' + group, async () => {
+      await this.untilOr(() => this.members(group).some(out), 4);
+      if (this.members(group).length) { this.rush(group, 40); this.stamp(`run:${group}`); }
+    });
   }
 
   /** L + 5.0: the vent farther from the player (≥ 4 m, else ≤ 4 s, then the other); grille, + 0.4 s the pair. */
@@ -551,33 +559,21 @@ export class ScriptL4 extends Base4 {
     this.vig(side === 'a' ? 'vent_s_a' : 'vent_s_b');
     this.once(side === 'a' ? 'vent_a' : 'vent_b');
     await this.hold(0.4);
-    // the level holds both pairs in g4_vent (W4); only the chosen vent's pair comes out
-    const spawns = this.w.spawns('g4_vent').filter((s) => (side === 'a' ? s.position.x < 0 : s.position.x > 0));
-    const en = this.ctx.enemies as unknown as { spawnPose?: (t: string, p: THREE.Vector3, y?: number, g?: string, pose?: string) => unknown };
-    if (!this.prog.triggered.includes('g4_vent')) this.prog.triggered.push('g4_vent');
-    this.triggeredAt.set('g4_vent', this.now);
-    if (typeof en.spawnPose === 'function' && spawns.length) {
-      for (let i = 0; i < spawns.length; i++) {
-        if (i > 0) await this.hold(0.45);
-        try { en.spawnPose(spawns[i].type, spawns[i].position.clone(), spawns[i].yaw, 'g4_vent', spawns[i].pose); } catch (e) { console.warn('[story] g4_vent spawn failed', e); }
-      }
-    } else this.w.spawnGroup('g4_vent');
-    this.logSpawn('g4_vent', `vent_s_${side} grille`);
-    this.S('out_g4_vent', () => this.fightOut('g4_vent', 60));
+    // the level holds one pair per vent (g4_vent_a / g4_vent_b): only the chosen vent's pair comes out
+    const group = `g4_vent_${side}`;
+    this.engage(group, 'spawn');
+    this.logSpawn(group, `vent_s_${side} grille`);
+    this.S('out_' + group, () => this.fightOut(group, 60));
   }
 
   // ── §4.4 the theatre (the loop never waits) ──
 
-  private theatreScreens(cue: string): void {
-    const att = this.attempt();
-    const into = Math.max(0, this.arm.t() - this.arm.cueStart(cue));
-    this.screen('theatre_cam', 'theatre_cam', SCREEN4.cam(cue, into, att));
-    this.screen('theatre_screen', 'terminal_alert', SCREEN4.theatre(att, linkOf(cue)));
-  }
-  /** Every cue of the arm: the screens (once per cue), and the announcer while the player is in the gallery. */
+  /**
+   * Every cue of the arm: the announcer while the player is in the gallery. (The theatre's two screens, `theatre_cam`
+   * and `theatre_screen`, are driven by the surgical dressing from the arm's cycle — cue, LED, attempt, parked — not here.)
+   */
   private armCue(cue: string): void {
     if (!this.started) return;
-    this.theatreScreens(cue);
     this.theatreLog.push({ cue, t: +this.now.toFixed(2), attempt: this.attempt() });
     if (this.theatreLog.length > 60) this.theatreLog.shift();
     if (!this.live || this.ctx.state !== 'playing' || !this.facts.inGallery) return;
@@ -635,9 +631,9 @@ export class ScriptL4 extends Base4 {
     this.S('out_g4_store', () => this.fightOut('g4_store', 60));
     await this.hold(0.4);
     this.set('storeOpen', true);                               // D_store
-    this.sfx('door_open', this.mk('mk4_store_door').setY(6.2), 0.7);
     await this.hold(0.9);
     this.rouse('g4_store');
+    this.runOnceOut('g4_store', (e) => e.position.x < 3.6);
     await this.untilOr(() => this.members('g4_store').every((e) => e.position.x < 3.6), 10);
     // latch: not with the player in the store / its doorway (plan: x < 3.6 — read as "not on the store side")
     for (;;) {
@@ -673,8 +669,8 @@ export class ScriptL4 extends Base4 {
     this.vig('valve_open');
     const gauge = this.mk('mk4_gauge');
     void this.unit('l4_unit_equalise', { at: gauge, cue: t0 });
-    // (no pump marker in §8.10: the loop sits in the plant room, 1 m up — audible across the checkpoint)
-    this.startLoop('pumps', 'pump_loop', this.roomPoint('plant4', 1.0).setX(this.roomPoint('plant4').x - 2.5), 1.0);
+    // (`mk4_pumps`: between the two pump sets, 1 m up — audible across the checkpoint)
+    this.startLoop('pumps', 'pump_loop', this.obj('mk4_pumps') ? this.mk('mk4_pumps') : this.roomPoint('plant4', 1.0).setX(this.roomPoint('plant4').x - 2.5), 1.0);
     this.startLoop('beacon', 'alarm_beacon', this.roomPoint('plant4', 3.0), 0.6);
     this.w.lights('plant_beacon', { enabled: true });
     if (!this.f.armed) this.S('armed', () => this.armed());
@@ -737,6 +733,7 @@ export class ScriptL4 extends Base4 {
     this.set('tubeOpen', true);                                // F_open: d4_tube_s held open
     await this.hold(2.0);
     this.rouse('g4_tube');
+    this.runOnceOut('g4_tube', (e) => e.position.z > -106.4);
     await this.untilOr(() => this.members('g4_tube').every((e) => e.position.z > -105), 12);
     this.once('gate_open');                                    // F: the gate lock door auto
     this.stamp('gate_open');
@@ -809,7 +806,8 @@ export class ScriptL4 extends Base4 {
       if (tok !== this.vlog.token) return;
       // a line that is not the log's own (a scene line, CHOIR) holds the channel: the log pauses at this line's start
       // (the press itself waits a moment for a line already playing — CHOIR on the PA — to end)
-      if (i === first && this.talk.busy) await this.untilOr(() => !this.talk.busy || tok !== this.vlog.token, 8);
+      // (and the channel's gap after the last line: a line asked inside it would start up to 0.35 s after the press)
+      if (i === first && !this.channelFree()) await this.untilOr(() => this.channelFree() || tok !== this.vlog.token, 8);
       if (tok !== this.vlog.token) return;
       if (this.talk.busy) { this.pauseLog(); return; }
       const L = SUNDE_LOG[i];

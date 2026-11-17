@@ -45,9 +45,8 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     keycardName: 'FACILITIES BADGE', endEyebrow: 'End of the Quiet Side', menuLine: 'Chapter 3  —  The Quiet Side', subtitles: 'stacked',
     cast: { foreman: false, human: true, tomasHead: false },
     direct: { facts: { choice: 'stop', unitsLeft: 28 }, loadout: { ...DIRECT, flashlight: true } }, healthFloor: 50,
-    // stage 3b D4: stays null on main until integration (I1) sets 4 — finishing 3a keeps today's end card + menu.
-    // Tests walk 3 → 4 through `?next=3:4` (`nextOf`).
-    next: null,
+    // stage 3b D4 (integration): finishing 3a hands over to level 4 (Biological Systems).
+    next: 4,
   },
   4: {
     id: 4, tag: 'l4', built: true, title: 'BIOLOGICAL SYSTEMS', place: 'Biological Systems', bootStatus: 'biological systems',

@@ -1,5 +1,6 @@
 // Voice level + speech sync, MEASURED at the listener (REVISION 4 → Voices; task: Halvorsen too quiet, C1 late).
 //   node scripts/check-voice-level.mjs [--url http://127.0.0.1:5173] [--choice stop|command] [--mode cold|from2|level2]
+//        [--level 4] (= --mode level4)
 //        [--json shots/checks/voice-level.json] [--no-fail] [--evict]
 // On a static build (vite build + vite preview). Exit 1 on any failure.
 //
@@ -22,6 +23,8 @@
 // Modes: cold   — `?level=3`, straight out of the lift (teleports, no dawdling: the shortest preload window), C1, C2,
 //                 the office, his door, the PA. Level + sync.
 //        from2  — the chain: level 2 ends (store + reload, no ?level=), level 3 starts from the carry; C1 + C2 sync.
+//        level4 — level 4 (stage 3b §8.12): Sunde's video log from the PI desk (2 m) and the office door (6 m), a unit
+//                 panel line from 3 m, the gallery announcer from both ends of the gallery. Level + sync.
 //        level2 — level 2's lines through the same audio path (its gestures run in the dialogue's onStart, on the
 //                 frame the line starts): the takes with a lead-in and a few without, said after the level's
 //                 preload; speech onset − say ≤ 0.12 s.
@@ -33,7 +36,7 @@ import { launch, parseArgs } from './lib/check-common.mjs';
 
 const args = parseArgs();
 const base = (args.url ?? process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'http://127.0.0.1:5173').replace(/\/$/, '');
-const MODE = args.mode ?? 'cold';
+const MODE = args.mode ?? (String(args.level ?? '') === '4' ? 'level4' : 'cold');
 const CHOICE = args.choice ?? 'stop';
 const NOFAIL = !!args['no-fail'];
 const problems = [];
@@ -211,6 +214,43 @@ if (MODE === 'cold') {
   note = `${ids.length} level-2 lines`;
 }
 
+if (MODE === 'level4') {
+  // stage 3b §8.12 / D30: level 4's scene speech at the listener — Sunde's video log from the PI desk (2 m) and the office
+  // door (6 m), the gallery announcer from both ends of the gallery, a unit panel line from 3 m; the reference CHOIR line
+  // (level 3's PA line, said directly in the ear) for the level.
+  console.log(`══════════ level 4 (choice ${CHOICE}) ══════════`);
+  const q = `?level=4&autostart=1&god=1&noenemies=1&choice=${CHOICE}`;
+  await boot(q); await clearAll(); await boot(q);
+  await ev(() => window.__game.audio.preloadVoice(['l4_', 'l3_choir_pa_residents']));
+  await wait(1500);
+  await ev(async (id) => { const h = window.__game.audio.say(id); await h.done; }, REF_ID);
+  await wait(500);
+  check(await beat('l4_decon_done', 20000), 'l4_decon_done');
+  await ev(() => window.__game.story.fire('lights_out'));      // phase D without the ambush (noenemies)
+  await wait(4000);
+  // the video log: 2 m from the screen, then from the office door (6 m)
+  await tp(8.0, 4.8, -14.4, 0);
+  await wait(300);
+  check((await use('log4_video')) === 'ok', 'Play log');
+  check(await said('l4_sunde_4', 30000), 'l4_sunde_4 started (2 m)');
+  await tp(11.5, 4.8, -17.5, 35);
+  await wait(300);
+  check(await until(() => window.__game.story.lineLog.some((l) => l.said === 'l4_sunde_9' && typeof l.end === 'number'), null, 60000), 'the log ran to its cut (6 m from l4_sunde_5)');
+  // a unit panel line from 3 m (the tube door, D)
+  await tp(32, 0, -64, 180);
+  await wait(500);
+  await ev(() => { const g = window.__game; const d = g.level.doors.find((x) => x.id === 'd4_tube_n'); g.events.emit('door:denied', { id: 'd4_tube_n', position: d.position }); });
+  check(await said('l4_unit_tube_denied', 5000), 'l4_unit_tube_denied (3 m)');
+  // the gallery: west end, then east end
+  await tp(-9.2, 4.8, -45.5, 180);
+  check(await said('l4_unit_theatre_2', 60000), 'l4_unit_theatre_2 (west end)');
+  await tp(9.2, 4.8, -45.5, 180);
+  check(await said('l4_unit_theatre_3', 30000), 'l4_unit_theatre_3 (east end)');
+  check(await said('l4_unit_theatre_1', 45000), 'l4_unit_theatre_1');
+  await wait(3000);
+  note = 'level 4';
+}
+
 const data = await ev(() => ({
   frames: window.__vtap.frames, offset: window.__vtap.offset, offsets: window.__vtap.offsets ?? [], installed: window.__vtap.installed, err: window.__vtap.err,
   trace: window.__game.audio.debug.voice.trace, log: window.__game.story.lineLog,
@@ -244,7 +284,10 @@ function measure(tr) {
   for (let j = 0; j < v.length; j++) if (v[j] > 0.25 * p95) { s += v[j] * v[j]; sm += m[j] * m[j]; k++; }
   // speech onset: the first frame above 0.1 × p95 (−20 dB) that starts a run (3 of the next 5 frames) and reaches
   // 0.3 × p95 within 200 ms — the same definition as the voice tool's `lead` (a breath or a click is not speech)
-  const on = idx.find((i, j) => v[j] > 0.1 * p95 && v.slice(j, j + 5).filter((x) => x > 0.1 * p95).length >= 3 && Math.max(...v.slice(j, j + 20)) > 0.3 * p95);
+  // (a chain with a designed lead — a squelch, a speaker click, a tape clunk — makes its noise inside the lead: the
+  // voice is looked for after it, so the click is never taken for the onset)
+  const after = tr.startT + Math.max(0, (tr.fxLead ?? 0) - 0.02);
+  const on = idx.find((i, j) => T(i) >= after && v[j] > 0.1 * p95 && v.slice(j, j + 5).filter((x) => x > 0.1 * p95).length >= 3 && Math.max(...v.slice(j, j + 20)) > 0.3 * p95);
   return { rms: db(Math.sqrt(s / k)), master: db(Math.sqrt(sm / k)), onsetT: on !== undefined ? T(on) - 0.005 : null };
 }
 
@@ -260,7 +303,7 @@ function speakerOf(id) { const m = /^l\d_([a-z]+)_/.exec(id); return m ? m[1] : 
 
 const ref = rows.find((r) => r.id === REF_ID && r.rms !== undefined);
 const refDb = ref?.rms ?? null;
-if (MODE === 'cold') check(refDb !== null, `reference ${REF_ID} measured (${refDb?.toFixed(1)} dB)`);
+if (MODE === 'cold' || MODE === 'level4') check(refDb !== null, `reference ${REF_ID} measured (${refDb?.toFixed(1)} dB)`);
 const sceneOf = (r) => {
   if (!data.times || r.q === undefined) return null;
   const c = data.log; void c;
@@ -268,7 +311,7 @@ const sceneOf = (r) => {
 };
 void sceneOf;
 // which lines were said inside a scene: C1/C2 by their queue time against the scene log
-const inScene = (r) => /^l3_(halv_c[12]_|reyes_(phone|come)|choir_(told|quiet))/.test(r.id);
+const inScene = (r) => /^l3_(halv_c[12]_|reyes_(phone|come)|choir_(told|quiet))/.test(r.id) || /^l4_(sunde_|unit_theatre_|unit_decon|unit_cold_ack|unit_gate$)/.test(r.id);
 
 {
   const o = data.offsets.map((x) => x[1]);
@@ -291,8 +334,8 @@ for (const r of rows) {
   const pass = limit === null || d >= limit;
   r.delta = d; r.limit = limit;
   console.log(`  ${r.id.padEnd(26)} ${String(r.fx).padEnd(7)} ${r.positional ? 'y' : '-'}  ${r.dist !== undefined ? r.dist.toFixed(1).padStart(5) : '    -'}  ${r.occluded ? 'OCC ' : '    '} ${r.distGain !== undefined ? r.distGain.toFixed(2) : '   -'}  ${r.rms.toFixed(1).padStart(6)}  ${d !== null ? (d >= 0 ? '+' : '') + d.toFixed(1) : '  -'}  ${limit !== null ? limit.toFixed(1).padStart(5) : '    -'}  ${r.master.toFixed(1)}${pass ? '' : '   << FAIL'}`);
-  if (MODE === 'cold' && limit !== null && !pass) bad(`${r.id}: ${d.toFixed(1)} dB vs the reference (limit ${limit.toFixed(1)}; dist ${r.dist?.toFixed(1) ?? 'in the ear'}${r.occluded ? ', occluded' : ''})`);
-  if (MODE === 'cold' && person && r.positional && r.occluded && (inScene(r) || (/^clean/.test(r.fx) && r.dist <= 6))) bad(`${r.id}: occluded (dist ${r.dist.toFixed(1)}) — a person in the same room / in a scene`);
+  if ((MODE === 'cold' || MODE === 'level4') && limit !== null && !pass) bad(`${r.id}: ${d.toFixed(1)} dB vs the reference (limit ${limit.toFixed(1)}; dist ${r.dist?.toFixed(1) ?? 'in the ear'}${r.occluded ? ', occluded' : ''})`);
+  if ((MODE === 'cold' || MODE === 'level4') && person && r.positional && r.occluded && (inScene(r) || (/^clean/.test(r.fx) && r.dist <= 6))) bad(`${r.id}: occluded (dist ${r.dist.toFixed(1)}) — a person in the same room / in a scene`);
 }
 
 console.log('\n  SYNC (s): cue → dialogue start, say → buffer start, cue → speech onset (rendered; heard = + the device latency)');
@@ -314,7 +357,7 @@ for (const r of rows) {
   if (scene && !pass) bad(`${r.id}: speech heard ${on === null ? '?' : on.toFixed(3)} s after its cue (limit ${SYNC_MAX})`);
 }
 for (const r of rows) if (r.skip && r.skip !== 'silent' && (inScene(r) || MODE === 'level2')) bad(`${r.id}: not played (${r.skip})`);
-if (MODE !== 'level2') {
+if (MODE !== 'level2' && MODE !== 'level4') {
   const want = ['l3_halv_c1_1', 'l3_halv_c1_3', 'l3_halv_c2_9'];
   for (const id of want) check(rows.some((r) => r.id.startsWith(id.replace(/_1$/, '_1')) && r.startT !== undefined) || rows.some((r) => r.id === id + '_shots'), `${id} played`);
 }

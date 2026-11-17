@@ -203,11 +203,11 @@ function gameplay(L: LevelBuild) {
   L.enemy('g4_viv', 'skitter', 'spawn', -23.7, 8.1, -22.0, 0);
   L.enemy('g4_viv', 'skitter', 'spawn', -22.1, 8.1, -22.0, 0);
   for (const [px, pz] of [[17.0, -18.2], [18.6, -19.6], [17.0, -20.6]] as const) L.enemy('g4_bay', 'husk', 'spawn', px, D2, pz, PI / 2, undefined, undefined, lab);
-  // g4_vent: the story spawns the pair at the vent farther from the player (A: the first two, B: the last two)
-  L.enemy('g4_vent', 'skitter', 'spawn', -6.8, 7.7, -35.5, 0);
-  L.enemy('g4_vent', 'skitter', 'spawn', -5.2, 7.7, -35.5, 0);
-  L.enemy('g4_vent', 'skitter', 'spawn', 5.2, 7.7, -35.5, 0);
-  L.enemy('g4_vent', 'skitter', 'spawn', 6.8, 7.7, -35.5, 0);
+  // g4_vent_a / g4_vent_b: the story spawns the pair at the vent farther from the player (§4.3)
+  L.enemy('g4_vent_a', 'skitter', 'spawn', -6.8, 7.7, -35.5, 0);
+  L.enemy('g4_vent_a', 'skitter', 'spawn', -5.2, 7.7, -35.5, 0);
+  L.enemy('g4_vent_b', 'skitter', 'spawn', 5.2, 7.7, -35.5, 0);
+  L.enemy('g4_vent_b', 'skitter', 'spawn', 6.8, 7.7, -35.5, 0);
   L.enemy('g4_store', 'husk', 'spawn', 5.4, D2, -40.2, PI / 2, undefined, undefined, lab);
   L.enemy('g4_store', 'husk', 'spawn', 6.8, D2, -41.8, PI / 2, undefined, undefined, lab);
   // plant-room skitters in the floor sump (emerge, as l2/relay.ts)
@@ -220,7 +220,13 @@ function gameplay(L: LevelBuild) {
 
 /** §8.10 markers that are lists, not points. */
 function storyMarkers(L: LevelBuild) {
-  L.marker('mk4_bodies', 0, 0, 0).userData.list = BODIES4.map((b) => ({ name: b.name, p: [...b.p] }));
+  // where the dressing really put each body (setpieces `body()` registers `{ name, position }`); the plan's point
+  // only for a body no dressing placed
+  const placed = new Map<string, number[]>();
+  for (const e of (L.objects.get('mk4_bodies')?.userData.list ?? []) as { name?: string; position?: number[] }[]) {
+    if (e?.name && Array.isArray(e.position) && e.position.length >= 3) placed.set(e.name, e.position.slice(0, 3));
+  }
+  L.marker('mk4_bodies', 0, 0, 0).userData.list = BODIES4.map((b) => ({ name: b.name, p: placed.get(b.name) ?? [...b.p] }));
   L.marker('mk4_glass', 0, 0, 0).userData.panes = PANES4.map((p) => ({ id: p.id, box: [...p.box] }));
 }
 

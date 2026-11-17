@@ -222,6 +222,8 @@ export function chainOf(name: VoiceFxName): VoiceFxName {
 
 /** Seconds an fx chain puts before the voice by design (squelch, tape clunk, speaker click) — the sync point is there. */
 export function fxLead(fx: VoiceFxName): number {
+  // `screen` (a monitor playing a log) has no tape start: no clunk, no lead — its line starts with the voice
+  if (fx === 'screen') return 0;
   const name = chainOf(fx);
   return name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'pa' ? 0.04 : name === 'door' ? 0.05 : name === 'room' ? 0.02 : 0;
 }
@@ -235,7 +237,7 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
   const base = src[0];
   const dur = base.length / FX_SR;
   const stereo = name === 'choir';
-  const lead = fxLead(name);
+  const lead = fxLead(parsed);
   const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : 0.01;
   const longest = Math.max(...src.map((d) => d.length)) / FX_SR + (name === 'foreman' ? 0.22 : 0);
   const len = Math.ceil((lead + longest + tail) * FX_SR);
@@ -348,9 +350,11 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
     const hissHp = filt(c, 'highpass', 1800);
     play(c, hiss, 0, hissHp);
     chain(hissHp, filt(c, 'lowpass', 7000), hg, out);
-    // play-button clunk; stop clunk
-    thump(c, 0.02, 140, 0.25, out); click(c, 0.02, 0.2, out);
-    thump(c, all - 0.1, 160, 0.2, out); click(c, all - 0.1, 0.15, out);
+    // play-button clunk; stop clunk (a pocket recorder only — a screen's log, `screen`, plays without them)
+    if (parsed !== 'screen') {
+      thump(c, 0.02, 140, 0.25, out); click(c, 0.02, 0.2, out);
+      thump(c, all - 0.1, 160, 0.2, out); click(c, all - 0.1, 0.15, out);
+    }
   } else if (name === 'pa') {
     const first = gain(c, 1);
     const band = chain(first, filt(c, 'highpass', 430, 0.9), filt(c, 'peaking', 1500, 1.2, 5), shaper(c, 2.0),

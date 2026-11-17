@@ -564,7 +564,7 @@ export class ScriptL3 extends Scenes3 {
     if (!this.started) return;
     const f = this.f;
     const door = this.door(id);
-    const at = door ? door.position.clone().setY((door.y ?? 0) + 1.6) : undefined;
+    const at = door ? door.position.clone().setY(this.doorFloor(door) + 1.6) : undefined;
     if (id === 'd3_office' && f.left) {
       this.toast(TOAST3.halvLocked, 4);
       void this.say('l3_halv_door', { pri: 'talk', ttl: 3, at: V(-30, 6.2, -20.6) });

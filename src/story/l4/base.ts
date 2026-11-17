@@ -20,7 +20,6 @@ import type { CheckpointIdL4, ProgressL4 } from '../save';
 import { emptyProgressL4 } from '../save';
 import { StageBase, V, DEG, type StageHooks } from '../stage/base';
 import type { LineLog, SayOpts } from '../stage/dialogue';
-import { voiceLine } from '../voice';
 import { applyPhase4, type PhaseId4 } from '../../level/l4/phases';
 import { L4_DIALOGUE, line4, phaseRank4, speaker4, type Facts4 } from './dialogue';
 import { ARRIVAL_DEFAULT } from './text';
@@ -194,7 +193,7 @@ export abstract class Base4 extends StageBase<Flags4, PhaseId4, CheckpointIdL4, 
     const d = this.door(id);
     if (!d) return this.pos.clone().setY(this.pos.y + 1.6);
     const p = d.position.clone();
-    p.y = (d.y ?? 0) + 1.6;
+    p.y = this.doorFloor(d) + 1.6;
     const dx = this.pos.x - p.x, dz = this.pos.z - p.z, l = Math.hypot(dx, dz) || 1;
     p.x += (dx / l) * 0.4; p.z += (dz / l) * 0.4;
     return p;
@@ -270,9 +269,9 @@ export abstract class Base4 extends StageBase<Flags4, PhaseId4, CheckpointIdL4, 
   // ───────────────────────────────────────────────────────────── speech (subtitles, timed-line log)
 
   /**
-   * Every level-4 line goes through here. Adds the subtitle name, and the subtitle itself while the shared story DB
-   * (src/story/voice.ts) does not load `lines.l4.json` (then `speak` has no text to show); records each start against
-   * its cue in `cueLog` (§8.12: `cue` = when the line was asked for, unless the caller names its beat's instant).
+   * Every level-4 line goes through here. Adds the subtitle name and the subtitle rule (`subtitleIf`: Sunde's log shows
+   * text only within 14 m or with sight of the screen); records each start against its cue in `cueLog` (§8.12: `cue` =
+   * when the line was asked for, unless the caller names its beat's instant).
    */
   protected override say(id: string, opts: SayOpts & { cue?: number; subtitleIf?: () => boolean } = {}): Promise<boolean> {
     // timed (§8.12) = asked on its beat with the channel free; a line that must wait its turn by design (CHOIR after the
@@ -285,18 +284,13 @@ export abstract class Base4 extends StageBase<Flags4, PhaseId4, CheckpointIdL4, 
     const p = super.say(id, {
       name: opts.name ?? speaker4(l),
       ...opts,
+      subtitle: opts.subtitleIf ?? opts.subtitle,
       onStart: (d) => {
         entry = this.talk.log[this.talk.log.length - 1] ?? null;
         const said = entry?.said ?? id;
         if (entry) { entry.dur = +d.toFixed(3); if (timed) entry.cue = +cue.toFixed(3); }
         this.cueLog.push({ id, said, cue: +cue.toFixed(3), start: +this.now.toFixed(3), d: +d.toFixed(3) });
         if (this.cueLog.length > 400) this.cueLog.splice(0, this.cueLog.length - 400);
-        if (!voiceLine(said)) {
-          const sl = line4(said);
-          if (sl?.text && (!opts.subtitleIf || opts.subtitleIf())) {
-            this.ctx.events.emit('story:subtitle', { speaker: speaker4(sl), text: sl.text, duration: d + 0.25 });
-          }
-        }
         user?.(d);
       },
     });
@@ -328,7 +322,6 @@ export abstract class Base4 extends StageBase<Flags4, PhaseId4, CheckpointIdL4, 
     const said = entry?.said ?? id;
     if (entry) { entry.dur = +d.toFixed(3); entry.cue = +cue.toFixed(3); entry.q = +this.now.toFixed(3); entry.qp = qp; entry.sp = performance.now(); }
     this.cueLog.push({ id, said, cue: +cue.toFixed(3), start: +this.now.toFixed(3), d: +d.toFixed(3) });
-    if (!voiceLine(said)) { const sl = line4(said); if (sl?.text) this.ctx.events.emit('story:subtitle', { speaker: speaker4(sl), text: sl.text, duration: d + 0.25 }); }
     try { opts.onStart?.(d); } catch (e) { console.warn('[story] unit onStart failed', e); }
     return new Promise((resolve) => {
       this.S('unit_' + id, async () => { await this.hold(d); if (entry) entry.end = +this.now.toFixed(3); resolve(true); });

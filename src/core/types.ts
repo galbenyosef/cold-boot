@@ -1122,6 +1122,13 @@ export interface EnemyManager extends Updatable {
   alertNoise(point: THREE.Vector3, radius: number): void;
   aliveInGroup(group: string): number;
   /**
+   * Stage 3b (integration, item 8): a story-called group that must ARRIVE (an ambush, a wave sent at a holdout) runs
+   * instead of walking: every living, awake husk of `group` keeps its run (as when raged) for `seconds` (default 30),
+   * wherever the player is and whether or not it sees him. Skitters / sentries are fast already (no-op). Optional:
+   * an enemies build without it leaves the story's waves walking (1.3 m/s).
+   */
+  rush?(group: string, seconds?: number): void;
+  /**
    * Revision 2: a non-hostile, non-shootable puppet using the same model + animation as a real enemy,
    * for scripted scares (a silhouette crossing a doorway, a figure that is gone after a flicker).
    * Not listed in `all`, never perceives or attacks, emits no enemy:* events except `enemy:step`.

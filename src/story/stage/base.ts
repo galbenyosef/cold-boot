@@ -304,6 +304,14 @@ export abstract class StageBase<Fl, Ph extends string, Cp extends string, F, P e
   protected door(id: string): Door | null {
     try { return this.w.hasDoor(id) ? this.ctx.level.door(id) : null; } catch { return null; }
   }
+  /**
+   * Floor y of a door's frame / sill: `Door.y` (contract), else the level's `DoorImpl.floor` (the door class names it
+   * `floor` and does not expose `y` — without this every Deck-2 door read as standing at y 0).
+   */
+  protected doorFloor(d: Door): number {
+    const o = d as { y?: number; floor?: number };
+    return typeof o.y === 'number' ? o.y : typeof o.floor === 'number' ? o.floor : 0;
+  }
   protected doorStatus(id: string, status: 'cycling' | 'dark' | null): void {
     try { this.door(id)?.setStatus?.(status); } catch { /* a level build without setStatus */ }
   }
@@ -380,6 +388,14 @@ export abstract class StageBase<Fl, Ph extends string, Cp extends string, F, P e
     }
     // (wakeGroup skips the awake and the already waking — an emerging 'drop' / 'hoist' keeps its own clock)
     if (sleeping) this.w.wakeGroup(group, 0.4);
+  }
+  /**
+   * A group that must arrive runs (husks; `EnemyManager.rush`, optional in the contract): rousing alone leaves an
+   * alerted husk walking at 1.3 m/s until it sees the player within 7.5 m.
+   */
+  protected rush(group: string, seconds = 30): void {
+    this.rouse(group);
+    try { this.ctx.enemies.rush?.(group, seconds); } catch { /* an enemies build without it: they walk */ }
   }
   /** The player is near `e` or can see it: a fight with it is going on. */
   protected engaged(e: Enemy, near = 9): boolean {

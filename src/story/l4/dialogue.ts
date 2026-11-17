@@ -10,7 +10,7 @@ import { voiceLine, type VoiceLine } from '../voice';
 import type { PhaseId4 } from '../../level/l4/phases';
 import l4raw from '../../../voice/lines.l4.json?raw';
 
-/** Level 4's lines (the shared story DB loads levels 1–3 only; see the subtitle fallback in base.ts). */
+/** Level 4's lines with their `cut` (the shared story DB, src/story/voice.ts, holds the same lines without it). */
 export const LINES4 = new Map<string, VoiceLine & { cut?: number }>();
 try { for (const l of JSON.parse(l4raw) as (VoiceLine & { cut?: number })[]) LINES4.set(l.id, l); } catch (e) { console.error('[story] lines.l4.json did not parse', e); }
 export const line4 = (id: string): (VoiceLine & { cut?: number }) | undefined => LINES4.get(id) ?? voiceLine(id);

@@ -92,12 +92,12 @@ const MARKERS4 = ['mk4_start', 'mk4_decon_panel', 'mk4_gate_panel', 'mk4_booth',
 const USES4 = ['note4_signout', 'note4_gown', 'note4_cards', 'log4_viv', 'note4_wet', 'term4_pi', 'log4_video', 'note4_consent', 'note4_tveit', 'note4_list', 'sign4_theatre', 'term4_ctrl', 'note4_guard', 'note4_bunk', 'cold_ack', 'booth_release', 'valve4'];
 const PICKUPS4 = ['p4_gown_med', 'p4_viv_ammo', 'p4_wet_ammo', 'p4_pi_med', 'p4_rec_ammo', 'p4_rec_shells', 'p4_cold_med', 'p4_scrub_med', 'p4_scrub_shells', 'p4_lcorr_med', 'p4_lcorr_ammo', 'p4_booth_med', 'p4_carbine', 'p4_vest_1', 'p4_vest_2', 'p4_cage_ammo', 'p4_cage_plate', 'p4_guard_plate', 'p4_guard_shells', 'p4_plant_plate', 'p4_plant_ammo', 'p4_plant_med', 'p4_tube_plate', 'p4_tube_ammo'];
 const SCREENS4 = ['decon_panel', 'shower_in_panel', 'shower_out_panel', 'fumig_status', 'surg_hold', 'cold_panel', 'node2_screen', 'pi_video', 'theatre_screen', 'theatre_cam', 'roster', 'booth_panel', 'tube_n_panel', 'plant_gauge', 'gate_panel'];
-const GROUPS4 = { g4_wet: 1, g4_rec: 1, g4_viv: 2, g4_bay: 3, g4_vent: 2, g4_lower: 1, g4_chk_sentry: 1, g4_store: 2, g4_plant: 2, g4_tube: 5 };
+const GROUPS4 = { g4_wet: 1, g4_rec: 1, g4_viv: 2, g4_bay: 3, g4_vent_a: 2, g4_vent_b: 2, g4_lower: 1, g4_chk_sentry: 1, g4_store: 2, g4_plant: 2, g4_tube: 5 };
 const DORMANT4 = ['g4_wet', 'g4_rec', 'g4_lower', 'g4_chk_sentry'];
 /** R4: a spawned group's beat (a `t` key in debugState). */
-const NEED4 = { g4_viv: 'vignette:viv_vent', g4_bay: 'l4_lights_out', g4_vent: 'l4_lights_out', g4_store: 'l4_armed', g4_plant: 'l4_equalise', g4_tube: 'l4_tube_fight' };
+const NEED4 = { g4_viv: 'vignette:viv_vent', g4_bay: 'l4_lights_out', g4_vent_a: 'l4_lights_out', g4_vent_b: 'l4_lights_out', g4_store: 'l4_armed', g4_plant: 'l4_equalise', g4_tube: 'l4_tube_fight' };
 /** Spawn visibility: what may have just opened in front of the group (door id | vignette ids). */
-const OPENING4 = { g4_bay: { door: 'd4_bay' }, g4_store: { door: 'd4_store' }, g4_tube: { door: 'd4_tube_s' }, g4_vent: { vig: ['vent_s_a', 'vent_s_b'] }, g4_viv: { vig: ['viv_vent'] }, g4_plant: { vig: ['plant_sump'] } };
+const OPENING4 = { g4_bay: { door: 'd4_bay' }, g4_store: { door: 'd4_store' }, g4_tube: { door: 'd4_tube_s' }, g4_vent_a: { vig: ['vent_s_a'] }, g4_vent_b: { vig: ['vent_s_b'] }, g4_viv: { vig: ['viv_vent'] }, g4_plant: { vig: ['plant_sump'] } };
 // §3 doors per phase: L locked / cycling, A auto, O held open
 const LABS = ['d4_wet_w', 'd4_wet_e', 'd4_pi', 'd4_viv', 'd4_rec'], OPEN_ROUTE = ['d4_gal', 'd4_gal_e', 'd4_stair_s', 'd4_chk', 'd4_guard', 'd4_plant'];
 const PH = {};
@@ -466,10 +466,20 @@ async function staticPass() {
   const upper = LINES_JSON.filter((l) => l.speaker === 'unit' && /\b[A-Z]{2,}\b/.test(l.spoken ?? l.text)).map((l) => l.id);
   ok(!upper.length, `no uppercase stress in a unit line (${upper})`);
   ok(typeof SUNDE_CUT === 'number' && DUR.l4_sunde_9 && SUNDE_CUT < DUR.l4_sunde_9, `l4_sunde_9 cut ${SUNDE_CUT} inside the file (${DUR.l4_sunde_9} s)`);
+  // the user's rule (D10, review B2): nothing in 3b says OUTRIGHT that navy people are taken or controlled — every
+  // spoken line, readable and screen text of the level is grepped for the words that would say it
+  const OUTRIGHT = /\b(controlled|under (its|choir'?s?) control|taken over|possessed|puppets?|enslaved|hijacked|mind[- ]control)\b/i;
+  const texts = [...LINES_JSON.flatMap((l) => [[l.id, l.text], [l.id + ' (spoken)', l.spoken ?? '']]), ['src/story/l4/text.ts', readFileSync('src/story/l4/text.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')]];
+  const say = texts.filter(([, t]) => OUTRIGHT.test(t)).map(([id, t]) => `${id}: "${t.match(OUTRIGHT)[0]}"`);
+  ok(!say.length, `no level-4 text says outright that the navy people are taken / controlled${say.length ? ' — ' + say.join('; ') : ''}`);
+  const roster = /term4_ctrl[\s\S]*?body:\s*'([^']*)'/.exec(readFileSync('src/story/l4/text.ts', 'utf8'))?.[1] ?? '';
+  ok(roster && !/CHOIR/i.test(roster), `the controller roster (term4_ctrl) never names CHOIR (D10)`);
 }
 
 // ───────────────────────────────────────────────────────────── segments (a run is these in order)
 let routeBroken = null;
+/** The cage segment ran this run (vests put on): armour must be carried. */
+let ranCage = false;
 let skipped = [];
 /** Run a segment if its needs exist and the route still stands; `exit` = the condition the next segment relies on. */
 async function seg(name, needs, fn) {
@@ -524,7 +534,13 @@ async function segShower({ doorway = false } = {}) {
   await tp(0, 4.8, -4.5, 0);
   await wait(300);
   if (doorway) {   // softlock (b): arm the latch, stand in the doorway (z −6), the latch fails, reopens, re-arms
-    await tp(0, 4.8, -7.0, 0); await wait(250); await tp(0, 4.8, -6.05, 0);
+    // into the shower (the latch arms: d4_shower_in locks), then into the doorway within 0.1 s, before the leaves close
+    await tp(0, 4.8, -7.0, 0);
+    await until(() => {
+      const g = window.__game; const d = g.level.doors.find((x) => x.id === 'd4_shower_in');
+      if (!d?.locked) return false;
+      g.player.teleport(new (g.player.position.constructor)(0, 4.8, -6.05), 0, 0); return true;
+    }, null, 3000);
     await wait(2500);
     const d = await doorStates(['d4_shower_in']);
     ok(d.d4_shower_in !== 'L' && !(await hasBeat('l4_shower')), `shower latch with the player in the doorway: door stays unlatched (${d.d4_shower_in}), no l4_shower yet`);
@@ -532,7 +548,7 @@ async function segShower({ doorway = false } = {}) {
   await tp(0, 4.8, -7.6, 0);
   await film('shower', () => window.__game.story.debugState.phaseApplied === 'C', 10);
   if (!await waitBeat('l4_shower', 12000)) return false;
-  await phaseIs('S', 2000); await checkDoors('S');
+  await phaseSeen('S', 2000); await checkDoors('S');   // (seen, not current: with --frames the film ran through it)
   await heardWait('l4_unit_shower', 3000);
   if (!await phaseIs('C', 10000)) return false;
   await checkDoors('C');
@@ -558,6 +574,7 @@ async function segWetWindow() {
   await tp(-6, 4.8, -10.8, 0);
   await film('worker', null, 4);
   await wait(800);
+  if (MODE === 'impatient') return;   // (the impatient run shot the worker through the window already)
   const w = await ev(() => window.__game.enemies.all.filter((e) => e.group === 'g4_wet').map((e) => ({ alive: e.alive, state: e.state })));
   ok(w.length === 1 && w[0].state === 'dormant', `the worker at hood 2, dormant (${JSON.stringify(w)})`);
 }
@@ -639,7 +656,11 @@ async function segOverride({ stayInCold = false, intoBay = false } = {}) {
   await checkDoors('D_bay');
   const t2 = (await dbg()).t ?? {};
   ok(Math.abs(t2['phase:D_bay'] - t2.l4_lights_out - 2.0) <= 0.15, `d4_bay opens at L + 2.0 (${(t2['phase:D_bay'] - t2.l4_lights_out).toFixed(2)})`);
-  ok(await until(() => window.__game.enemies.all.filter((e) => e.group === 'g4_vent').length === 2, null, 12000), 'g4_vent: 2 skitters from a corr_s vent (L + 5.0, the far one)');
+  ok(await until(() => window.__game.enemies.all.filter((e) => /^g4_vent_[ab]$/.test(e.group)).length === 2, null, 12000), 'g4_vent_a|b: 2 skitters from a corr_s vent (L + 5.0, the far one)');
+  {
+    const v = await ev(() => { const d = window.__game.story.debugState; const side = d.flags.vent; const groups = [...new Set(window.__game.enemies.all.filter((e) => /^g4_vent_/.test(e.group)).map((e) => e.group))]; return { side, groups }; });
+    ok(v.groups.length === 1 && v.groups[0] === `g4_vent_${v.side}`, `only the chosen vent's pair came out (vent ${v.side}: ${v.groups})`);
+  }
   const lit = await ev(() => { const L = window.__game.render.lights; const n = L.groups instanceof Map ? [...L.groups.keys()] : []; return { emerg: n.filter((x) => x.endsWith('_emerg') && L.group(x).some((h) => h.enabled)), stillOn: n.filter((x) => ['corr_n', 'corr_w', 'corr_e', 'corr_s', 'wetlab', 'cold', 'records', 'vivarium', 'scrub', 'gallery', 'gown', 'shower', 'pi_office'].includes(x) && L.group(x).some((h) => h.enabled && h.factor > 0.01)), keep: ['theatre', 'node2', 'lock4'].filter((x) => L.group(x).some((h) => h.enabled)) }; });
   ok(lit.emerg.length >= 4 && !lit.stillOn.length, `lights-out: emergency groups on (${lit.emerg.length}), Deck-2 groups off (${lit.stillOn})`);
   ok(lit.keep.length === 3, `theatre, node2, lock4 keep their lights (${lit.keep})`);
@@ -678,7 +699,11 @@ async function segTheatre() {
   const c = await choiceOf();
   ok(await until((c) => (window.__game.story.lineLog ?? []).some((l) => l.said === `l4_choir_theatre_${c}`), c, 100000), `theatre lines through CHOIR's (l4_choir_theatre_${c})`);
   const s = await L4();
-  await until(() => window.__L4.cues.filter((c) => c.cue === 'approach').length >= 2, null, 45000);
+  // two `approach` cues on GAME time (the cycle is 40 s; the first may be up to a cycle away: ≤ 90 s of game time)
+  {
+    const g0 = await ev(() => window.__game.time);
+    await until((g0) => window.__L4.cues.filter((c) => c.cue === 'approach').length >= 2 || window.__game.time - g0 > 90, g0, 240000);
+  }
   const s2 = await L4(); s.cues = s2.cues;
   const appr = s.cues.filter((x) => x.cue === 'approach');
   const fh = (await dbg()).failHold;
@@ -719,12 +744,13 @@ async function segLcorr() {
 }
 async function boothRefusal() {
   await tp(28, 0, -56.8, 180); await wait(300);
+  const armedBefore = (await dbg()).flags?.armed;   // (impatient: the dock may have been shot already — F5 by that)
   ok((await use('booth_release')) === 'ok', 'press booth_release (before equalising)');
   await heardWait('l4_unit_release_refused', 4000);
   ok(await objectiveSeen('Equalise the tube — the plant room'), 'objective → the plant room');
   ok(await until(() => /REFUSED/.test(window.__game.level.screen('booth_panel')?.userData?.screenText ?? '') && /REFUSED/.test(window.__game.level.screen('tube_n_panel')?.userData?.screenText ?? ''), null, 3000), 'booth_panel + tube_n_panel say RELEASE REFUSED');
   const d = await dbg();
-  ok(d.flags?.refused && !d.flags?.armed && !(d.beats ?? []).includes('l4_armed'), `refusal does not start F5 (refused ${d.flags?.refused}, armed ${d.flags?.armed})`);
+  ok(d.flags?.refused && (armedBefore || (!d.flags?.armed && !(d.beats ?? []).includes('l4_armed'))), `refusal does not start F5 (refused ${d.flags?.refused}, armed ${armedBefore ? 'before the press' : d.flags?.armed})`);
   ok((await doorStates(['d4_tube_n'])).d4_tube_n === 'L', 'd4_tube_n still held');
 }
 async function segBooth() {
@@ -737,8 +763,11 @@ async function segBooth() {
   }
 }
 async function segCage() {
+  ranCage = true;
   await tp(37.4, 0, -62.2, 180); await wait(200);
   await tp(37.8, 0, -64.5, -90); await wait(300);
+  // (a CHOIR / unit line still playing would make the armoury line — ttl 2.4 s — stale: take it when the channel is free)
+  await until(() => { const d = window.__game.story.debugState; return !d.talking && !d.speaking; }, null, 20000);
   ok((await use('p4_carbine')) === 'ok', 'take p4_carbine');
   ok(await toastSeen('^Carbine$'), 'toast Carbine');
   await waitBeat('l4_armed', 3000);
@@ -759,7 +788,7 @@ async function segCage() {
 async function armedWaves({ inPlant = false } = {}) {
   ok(await until(() => window.__game.enemies.all.some((e) => e.group === 'g4_chk_sentry' && e.alive && e.state !== 'dormant') || window.__L4.died.g4_chk_sentry, null, 5000), 'g4_chk_sentry wakes (l4_armed)');
   if (FRAMES) {   // §10.5: the navy sentry undocking, then a 30-round carbine dump at it
-    await tp(30, 0, -60, 30, 20); await film('sentry_undock', null, 4);
+    await tp(30, 0, -60, 148, 28); await film('sentry_undock', null, 4);   // (facing the dock at (28, 3.6, −56.8))
     if (await ev(() => window.__game.player.weapons.carbine.owned)) {
       await ev(() => { const p = window.__game.player; p.debug.switchTo?.('carbine'); });
       await wait(600); await ev(() => window.__game.player.debug.hold(true));
@@ -848,12 +877,13 @@ async function segEnd({ natural = true } = {}) {
       await killUntil('!g.enemies.all.some((e) => e.alive && g.level.roomAt(e.position)?.id === "gatel")', 30000);
       await heardWait('l4_unit_gate', 15000);
       const c = await choiceOf();
+      await tp(32.6, 0, -110.5, 0);   // face the gate and its panel (the film is of the gate, the dogs and the panel)
       await film('gate', () => window.__game.state === 'ended', 14);
       await heardWait(`l4_choir_end_${c}`, 20000);
       const ug = await lineOf('l4_unit_gate'), t = (await dbg()).t ?? {};
       const dogs = t['vignette:gate_dogs'];
       ok(ug?.end !== undefined && dogs !== undefined && Math.abs(dogs - ug.end - 0.3) <= 0.12, `gate dogs at unit line end + 0.3 (${ug?.end !== undefined && dogs !== undefined ? (dogs - ug.end).toFixed(2) : '?'})`);
-      ok(/AAS, L\. \(LT\.\) — PALM — LIVE/.test(await ev(() => window.__game.level.screen('gate_panel')?.userData?.screenText ?? '')), 'gate panel AUTHORISED: AAS, L. (LT.) — PALM — LIVE');
+      ok(/AAS, L\. \(LT\.\)[\s—]*PALM — LIVE/.test(await ev(() => window.__game.level.screen('gate_panel')?.userData?.screenText ?? '')), 'gate panel AUTHORISED: AAS, L. (LT.) — PALM — LIVE');
     }
   }
   let natEnd = await until(() => window.__game.state === 'ended' || (window.__game.story.debugState.beats ?? []).includes('l4_end'), null, natural && !routeBroken ? 30000 : 1500);
@@ -879,7 +909,7 @@ async function segEnd({ natural = true } = {}) {
   if (!routeBroken && natural) {
     ok(c.facts.l4_theatre === true && c.facts.l4_equalised === true, `carry first-view flags l4_theatre ${c.facts.l4_theatre}, l4_equalised ${c.facts.l4_equalised}, l4_video ${c.facts.l4_video}, l4_roster ${c.facts.l4_roster}`);
     if (opt.carbine) ok(c.weapons.carbine?.owned, 'carbine carried');
-    if (opt.vests) ok(c.armor > 0, `armour carried (${c.armor})`);
+    if (opt.vests && ranCage) ok(c.armor > 0, `armour carried (${c.armor})`);
   }
   ok(s.level === '4' && s.save === null, `stored level stays 4 (${s.level}), checkpoint cleared (${s.save === null})`);
 }
@@ -921,7 +951,7 @@ const NEEDS = {
   rec: N('room:records', 'use:note4_consent', 'use:note4_tveit', 'group:g4_rec'),
   surg: N('door:d4_surg', 'screen:surg_hold'),
   cold: N('room:cold', 'use:cold_ack', 'door:d4_cold'),
-  override: N('use:cold_ack', 'group:g4_bay', 'group:g4_vent', 'door:d4_bay', 'marker:mk4_vent_s_a', 'marker:mk4_vent_s_b'),
+  override: N('use:cold_ack', 'group:g4_bay', 'group:g4_vent_a', 'group:g4_vent_b', 'door:d4_bay', 'marker:mk4_vent_s_a', 'marker:mk4_vent_s_b'),
   theatre: N('room:gallery', 'arm', 'use:note4_list', 'ds:failHold', 'marker:mk4_gallery_spk'),
   stair: N('room:stair4', 'door:d4_stair_s'),
   lcorr: N('room:lcorr', 'room:chk', 'group:g4_lower', 'door:d4_tube_n'),
@@ -932,7 +962,7 @@ const NEEDS = {
   tube: N('room:tube', 'room:gatel', 'group:g4_tube', 'door:d4_tube_s'),
 };
 async function freshRun(query) {
-  routeBroken = null; skipped = [];
+  routeBroken = null; skipped = []; ranCage = false;
   await boot(query); await clearAll(); await boot(query + '&handoff=1');
   await segBoot();
 }
@@ -1077,7 +1107,7 @@ if (MODE === 'default') {
       await boothRefusal();
       await tp(32, 0, -65.8, 0); await deny('d4_tube_n'); await heardWait('l4_unit_tube_denied', 5000);
       await fireAt(29, 1.5, -58.2, 1);                                            // booth glass
-      await tp(28, 0, -58.8, 0); await fireAt(28, 3.6, -56.8, 3);               // the navy sentry dock: wakes, counts as l4_armed
+      await tp(28, 0, -61, 0); await fireAt(28, 3.6, -56.8, 3);               // the navy sentry dock: wakes, counts as l4_armed
       ok(await until(() => (window.__game.story.debugState.beats ?? []).includes('l4_armed'), null, 4000), 'shooting the dock is l4_armed (§9 #18)');
       await killUntil('g.enemies.all.every((e) => !(e.alive && e.group === "g4_chk_sentry"))', 20000);
     },
@@ -1116,20 +1146,35 @@ if (MODE === 'default') {
   }
 } else if (MODE === 'softlock') {
   const has = (c) => CASES.includes(c);
-  if (['a', 'b', 'c', 'd', 'f', 'g', 'h'].some(has)) {
-    console.log('\n══════════ SOFTLOCK run 1: (a) (b) (c) (d) (f) (g) (h: bay) ══════════');
+  const base = { reads: false, video: false, theatre: 'quick', noLabs: true, vests: false };
+  // (c) and (h: bay) change the ambush (the fight comes into the cold store / the player stands in the bay): each in
+  // its own run, so neither hides the other's outcome
+  if (['a', 'b', 'd', 'f', 'g'].some(has)) {
+    console.log('\n══════════ SOFTLOCK run 1: (a) (b) (d) (f) (g) ══════════');
     await freshRun('&choice=stop');
     await preflight();
-    await route({ reads: false, video: false, theatre: 'quick', noLabs: true, vests: false, showerDoorway: has('b'), stayInCold: has('c'), intoBay: has('h'), hideInGuard: has('d'), leaveTwo: has('g'), gateDoorway: has('f') }, {
+    await route({ ...base, showerDoorway: has('b'), hideInGuard: has('d'), leaveTwo: has('g'), gateDoorway: has('f') }, {
       afterDecon: has('a') ? segStayLock : undefined,
     });
     await runChecks('softlock 1');
   }
-  if (has('e') || has('h')) {
-    console.log('\n══════════ SOFTLOCK run 2: (e) leave the plant room while equalising; (h: store) ══════════');
+  if (has('c')) {
+    console.log('\n══════════ SOFTLOCK run 2: (c) the ambush with the player in the cold store ══════════');
     await freshRun('&choice=command');
-    await route({ reads: false, video: false, theatre: 'quick', noLabs: true, vests: false, valveFirst: true, carbine: false, leaveToChk: has('e'), intoStore: has('h') });
-    await runChecks('softlock 2');
+    await route({ ...base, stayInCold: true });
+    await runChecks('softlock 2 (c)');
+  }
+  if (has('h')) {
+    console.log('\n══════════ SOFTLOCK run 3: (h: bay) into the bay while it is open ══════════');
+    await freshRun('&choice=stop');
+    await route({ ...base, intoBay: true });
+    await runChecks('softlock 3 (h: bay)');
+  }
+  if (has('e') || has('h')) {
+    console.log('\n══════════ SOFTLOCK run 4: (e) leave the plant room while equalising; (h: store) ══════════');
+    await freshRun('&choice=command');
+    await route({ ...base, valveFirst: true, carbine: false, leaveToChk: has('e'), intoStore: has('h') });
+    await runChecks('softlock 4');
   }
 }
 

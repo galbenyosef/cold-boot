@@ -51,9 +51,11 @@ const T = { cone: 0.16, detail: 0.08, frame: 0.04, ringPx: 0.06, ringFrac: 0.03,
 const VIEWS = [
   { id: 'corr_w', spawn: [-13.5, 4.8, -20, 0], room: 'corr_w' },
   { id: 'corr_s', spawn: [-10, 4.8, -35.5, -90], room: 'corr_s' },
-  { id: 'viv_door', spawn: [-16, 4.8, -22, 90], room: 'corr_w', door: 'd4_viv' },
-  { id: 'cold_door', spawn: [-11, 4.8, -29, -90], room: 'cold', door: 'd4_cold' },
-  { id: 'rec_door', spawn: [11, 4.8, -29, 90], room: 'records', door: 'd4_rec' },
+  // (the three "door" views stand just inside the door, looking INTO the room as the player enters it: the door is
+  // behind the camera — §10.4's spawns; integration: the view room corrected, the door is not a faced target)
+  { id: 'viv_door', spawn: [-16, 4.8, -22, 90], room: 'vivarium' },
+  { id: 'cold_door', spawn: [-11, 4.8, -29, -90], room: 'cold' },
+  { id: 'rec_door', spawn: [11, 4.8, -29, 90], room: 'records' },
   { id: 'scrub', spawn: [0, 4.8, -38, 0], room: 'scrub' },
 ];
 const want = args.views ? new Set(args.views.split(',')) : null;
@@ -245,6 +247,9 @@ for (const q of QUALITIES) {
     const line = `${q}/${v.id}: ${verdict(m)}`;
     for (const [k, p] of Object.entries(m.pass)) if (!p) bad(`${q}/${v.id}: ${k.toUpperCase()} below threshold — ${verdict(m)}`);
     if (Object.values(m.pass).every(Boolean)) ok(line);
+    // mood (reported, not judged — stage 3b integration B7): the same corridor lit reads ≈ 0.55 frame mean; the
+    // readable dark frames of the run (gallery, chk by flashlight) sit at 0.14–0.19. A blackout should land there.
+    if (m.frame > 0.22) console.log(`  note ${q}/${v.id}: frame mean ${f3(m.frame)} > 0.22 — reads lit rather than blacked out (B7 mood)`);
     for (const t of m.targets) (t.pass ? ok : bad)(`${q}/${v.id}: ${t.kind} ${t.id} at ${t.dist} m: p95 ${f3(t.p95)} (≥ ${T.target})`);
     if (v.door && !m.targets.some((t) => t.id === v.door)) bad(`${q}/${v.id}: the faced door ${v.door} is not a judged target (out of sight / > ${T.targetDist} m / missing)`);
     if (tg.far.length) console.log(`  (not judged: ${tg.far.map((t) => `${t.kind} ${t.id} ${t.dist} m${t.los ? '' : ' no LOS'}`).join(', ')})`);

@@ -110,6 +110,8 @@ export class DoorImpl implements Door {
   readonly y0: number;
   /** Floor the door stands on, world y (DoorSpec.y). */
   readonly floor: number;
+  /** `Door.y` of the contract: the floor the door stands on. */
+  get y(): number { return this.floor; }
   private idle = 0;
   private deniedArmed = true;
   private deniedFlash = 0;

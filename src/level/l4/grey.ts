@@ -115,14 +115,14 @@ export const PANES4: { id: 'theatre' | 'tube_w' | 'tube_e' | 'node2' | 'wet' | '
 export const BODIES4: { name: string; p: [number, number, number] }[] = [
   { name: 'Dahl', p: [1.5, D2, -7.6] },
   { name: 'Berg', p: [-23.5, D2, -27.5] },
-  { name: 'Holm', p: [-10.7, D2, -29.0] },
-  { name: 'Ness', p: [3.0, D2, -28.2] },
+  { name: 'Holm', p: [-10.25, D2, -29.0] },
+  { name: 'Ness', p: [3.0, D2, -28.0] },
   { name: 'Moe', p: [8.5, D2, -32.8] },
   { name: 'Foss', p: [-3.2, D2, -40.5] },
   { name: 'Strand', p: [0, 0, -53.5] },
   { name: 'Haugen', p: [5.5, 0, -50.2] },
   { name: 'Lie', p: [5.5, 0, -56.0] },
-  { name: 'Eng', p: [37.4, 0, -61.9] },
+  { name: 'Eng', p: [36.2, 0, -62.32] },
 ];
 
 // ───────────────────────────────────────────────────────────── lights (§2.7) — placeholder tables
@@ -578,6 +578,7 @@ export const SHELLS4: Record<RoomId4, Shell> = {
     L.interact('valve4', 'lever', 'Open equalising valve', 55.75, 1.2, -59.0, true, 2.0);
     L.marker('mk4_gauge', 55.78, 2.4, -59.0, -PI / 2);
     L.marker('mk4_sump', 52.0, 0, -62.0, 0);
+    L.marker('mk4_pumps', 48.5, 1.0, -59.0, 0);   // the pump loop between pump sets A / B (§4.5)
     // the valve lever (vignette `valve_open` swings it; D3a dresses it)
     const lever = L.part('valve4:lever');
     lever.bx(standin, -0.04, -0.6, -0.04, 0.04, 0.0, 0.04);
@@ -614,9 +615,6 @@ export const SHELLS4: Record<RoomId4, Shell> = {
     L.screen('gate_panel', 'terminal_idle', 0.4, 0.26, 34.1, 1.6, -112.78, '+z', { text: 'POST 4 — PRESSURE GATE — NAVAL ACCESS ONLY' });
     L.marker('mk4_gate_panel', 33.9, 1.6, -112.78, 0);
     roomLabel(b, 'POST 4 — GATE LOCK', 29.2, 2.4, -110, '+x', 2.8);
-    // K's stub story ends on this button (src/story/l4 stub): a greybox placeholder in the end room — ST / I1 remove it
-    b.bx('emissive_green', 29.92, 1.12, -112.8, 30.08, 1.28, -112.77);
-    L.interact('l4_stub_end', 'button', 'End of the level-4 build (placeholder)', 30.0, 1.2, -112.75, true, 2.0);
   },
 };
 

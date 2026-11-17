@@ -4984,7 +4984,7 @@
       "tries": 1,
       "seed": 413270165,
       "info": "match=1.00 miss=0 extra=0 stall=0 audio=4.02s",
-      "lead": 0.0
+      "lead": 0.08
     },
     "l4_sunde_9": {
       "speaker": "sunde",

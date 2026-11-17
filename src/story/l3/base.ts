@@ -330,7 +330,7 @@ export abstract class Base3 extends StageBase<Flags3, PhaseId3, CheckpointIdL3, 
     for (const id of WATCHED_DOORS) {
       const d = this.door(id);
       if (!d) continue;
-      const y0 = d.y ?? 0;
+      const y0 = this.doorFloor(d);
       if (Math.hypot(p.x - d.position.x, p.z - d.position.z) < 0.9 && p.y > y0 && p.y < y0 + 2.5) {
         this.doorHitAt.set(id, this.now);
         const list = this.f.shotDoors ? this.f.shotDoors.split(',') : [];
