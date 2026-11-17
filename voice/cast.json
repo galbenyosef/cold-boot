@@ -155,7 +155,7 @@
       "describe": "male, middle-aged, moderate pitch, british accent",
       "seed": 1,
       "refText": "Facilities, Halvorsen. I have the schedule open in front of me. It's all in order, as far as I can see. Please, sit down.",
-      "fx": "room",
+      "fx": "clean",
       "variants": {
         "whisper": {
           "describe": "male, middle-aged, british accent, whispering",
@@ -181,7 +181,7 @@
       "describe": "male, middle-aged, low pitch",
       "seed": 2,
       "refText": "I came up from Line Two. I haven't slept. I need a phone, and I need it now.",
-      "fx": "room",
+      "fx": "clean",
       "why": "STAGE 3a, measurement only: F0 ~152 Hz, centroid ~2199 Hz; 3 lines. Hoarseness cannot be measured. Runner-ups: auditions 2, 3 (voice/auditions/reyes)."
     },
     "resident": {

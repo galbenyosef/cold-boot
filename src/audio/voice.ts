@@ -75,7 +75,7 @@ const POS: Record<string, { ref: number; rolloff: number; send: number }> = {
   foreman: { ref: 4, rolloff: 0.9, send: 0.9 },
   recorder: { ref: 1.5, rolloff: 1.2, send: 0.4 },
   pa: { ref: 7, rolloff: 0.6, send: 1.1 },
-  clean: { ref: 2.5, rolloff: 1.0, send: 0.7 },
+  clean: { ref: 4, rolloff: 0.6, send: 0.7 }, // a person speaking in the room: must carry down a corridor (−6 dB at ~11 m)
   choir: { ref: 8, rolloff: 0.5, send: 1 },
   room: { ref: 2.5, rolloff: 1.1, send: 0.35 }, // a small speaker / a person in an office
   door: { ref: 2, rolloff: 1.3, send: 0.3 }, // behind a sealed cabin door
