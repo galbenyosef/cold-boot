@@ -5,7 +5,7 @@
 import { mulberry } from './synth/core';
 
 export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate' | 'dead' | 'cistern' | 'clean'
-  | 'office' | 'tiled' | 'atrium' | 'lock';
+  | 'office' | 'tiled' | 'atrium' | 'lock' | 'whiteroom' | 'tube';
 
 interface IrSpec {
   len: number;
@@ -44,6 +44,11 @@ const SPECS: Record<IrName, IrSpec> = {
   atrium: { len: 4.6, rt: [3.4, 3.0, 1.7], predelay: 0.035, early: 20, earlyWin: 0.14, earlyGain: 0.35, build: 0.16, gain: 1.05 },
   // pressure lock: white steel box, small, ringing a little
   lock: { len: 1.6, rt: [1.0, 1.0, 0.7], predelay: 0.003, early: 14, earlyWin: 0.02, earlyGain: 0.6, flutter: 0.0062, flutterGain: 0.3, ring: [260, 610, 1180], ringGain: 0.04, build: 0.008, gain: 1 },
+  // level 4 clean side: white laminate panels and epoxy floors — hard, bright, short, no metal ring, a little flutter
+  whiteroom: { len: 1.4, rt: [0.8, 0.95, 0.85], predelay: 0.003, early: 16, earlyWin: 0.025, earlyGain: 0.6, flutter: 0.0068, flutterGain: 0.22, build: 0.008, gain: 1 },
+  // level 4 transfer tube: 40 m of curved glass between steel ribs — long, bright, a strong short flutter (the
+  // cylinder), the ribs ringing low
+  tube: { len: 3.8, rt: [2.8, 2.6, 1.6], predelay: 0.006, early: 18, earlyWin: 0.05, earlyGain: 0.55, flutter: 0.0118, flutterGain: 0.4, ring: [143, 389, 1210], ringGain: 0.045, build: 0.03, gain: 1 },
   plate: { len: 3.2, rt: [2.4, 2.8, 2.2], predelay: 0.012, early: 0, earlyWin: 0.01, earlyGain: 0, build: 0.005, gain: 1 },
 };
 
@@ -119,7 +124,8 @@ export interface RoomPreset {
   quiet?: boolean;
   /** Room-local recurring one-offs (not "distant" — independent of the single distant-event slot). */
   local?: LocalEvent[];
-  /** Level-3 habitat: the preset after the takeover (engine.setMood(true)); fields given here replace the warm ones. */
+  /** Level 3: the habitat after the takeover; level 4: the clean side after lights-out (engine.setMood(true)). Fields given
+   *  here replace the normal ones. */
   cold?: Partial<Omit<RoomPreset, 'cold'>>;
 }
 
@@ -203,6 +209,50 @@ export const ROOMS_L3: Record<string, RoomPreset> = {
   quarters: { ir: 'office', wet: 0.28, bed: { amb_hab: 0.75 }, events: HAB_WARM, cold: { ...COLD_ROOM, ir: 'office', wet: 0.3, bed: { amb_hab_cold: 1 } } },
   bio_lock: { ir: 'tiled', wet: 0.5, bed: { amb_lock: 1 }, events: {}, cold: { bed: { amb_lock: 0.6, amb_hab_cold: 0.35 }, wet: 0.55 } },
 };
+// ── level 4 "BIOLOGICAL SYSTEMS" (stage 3b, plan §2.1). Room ids are the plan's; only consulted when the engine runs
+// level 4 (presetFor(id, 4)). The `cold` form is the clean side after lights-out (§4.3: story:beat `l4_lights_out`; Deck 2
+// except theatre, node2, lock4): the air handling and the cold store stop, the bed becomes the sealed hum, dread palette.
+const CLEAN_QUIET = { pipe_tick: 1.2, door_far: 0.7, far_steps: 0.6, dist_knock: 0.5, hull_creak: 0.5, metal_groan: 0.3 };
+const CLEAN_DARK = { far_steps: 1.4, drag_far: 1, door_far: 0.6, pipe_tick: 1, hull_creak: 1, breath_far: 0.4, vent_scuttle: 0.5, dist_knock: 0.6 };
+const NAVY = { hull_creak: 1.2, metal_groan: 1, dist_clank: 0.8, pipe_tick: 1, dist_knock: 0.8, far_steps: 0.6, drip: 0.5 };
+const DARK4 = { quiet: true, events: CLEAN_DARK, bed: { amb_hab_cold: 1 } };
+export const ROOMS_L4: Record<string, RoomPreset> = {
+  lock4: { ir: 'lock', wet: 0.5, bed: { amb_clean: 0.6, amb_lock: 0.5 }, events: {} },
+  gown: { ir: 'whiteroom', wet: 0.4, bed: { amb_clean: 0.9 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.45 } },
+  shower: { ir: 'lock', wet: 0.45, bed: { amb_clean: 0.8 }, events: {}, cold: { bed: { amb_hab_cold: 0.9 }, wet: 0.5 } },
+  corr_n: { ir: 'whiteroom', wet: 0.55, bed: { amb_clean: 1 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.6 } },
+  corr_w: { ir: 'whiteroom', wet: 0.55, bed: { amb_clean: 1 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.6 } },
+  corr_e: { ir: 'whiteroom', wet: 0.55, bed: { amb_clean: 1 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.6 } },
+  corr_s: { ir: 'whiteroom', wet: 0.55, bed: { amb_clean: 1 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.6 } },
+  wetlab: { ir: 'whiteroom', wet: 0.45, bed: { amb_clean: 0.9 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.5 } },
+  pi_office: { ir: 'office', wet: 0.3, bed: { amb_clean: 0.6 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, ir: 'office', wet: 0.32, bed: { amb_hab_cold: 0.8 } } },
+  node2: { ir: 'machine', wet: 0.4, bed: { amb_clean: 0.6, amb_gen: 0.3 }, events: {} }, // sealed, keeps its power
+  cold: {
+    ir: 'lock', wet: 0.45, bed: { amb_cold: 1 }, events: CLEAN_QUIET, quiet: true,
+    cold: { ...DARK4, wet: 0.5, bed: { amb_hab_cold: 0.9 } },
+  },
+  records: { ir: 'office', wet: 0.3, bed: { amb_clean: 0.75 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, ir: 'office', wet: 0.32 } },
+  vivarium: { ir: 'whiteroom', wet: 0.5, bed: { amb_clean: 0.9 }, events: { ...CLEAN_QUIET, husk_whisper: 0.3 }, quiet: true, cold: { ...DARK4, wet: 0.55 } },
+  bay: { ir: 'machine', wet: 0.45, bed: { amb_clean: 0.6, amb_gen: 0.2 }, events: {}, cold: { ...DARK4, ir: 'machine', wet: 0.5 } },
+  scrub: { ir: 'whiteroom', wet: 0.45, bed: { amb_clean: 0.85 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.5 } },
+  store4: { ir: 'dead', wet: 0.25, bed: { amb_clean: 0.6 }, events: {}, cold: { ...DARK4, ir: 'dead', wet: 0.28 } },
+  gallery: { ir: 'whiteroom', wet: 0.5, bed: { amb_clean: 0.8 }, events: CLEAN_QUIET, quiet: true, cold: { ...DARK4, wet: 0.55 } },
+  theatre: { ir: 'clean', wet: 0.55, bed: { amb_clean: 0.8 }, events: {} }, // never entered; keeps its power (the loop runs)
+  stair4: { ir: 'shaft', wet: 0.5, bed: { amb_clean: 0.4, amb_navy: 0.5 }, events: NAVY, quiet: true, cold: { bed: { amb_hab_cold: 0.5, amb_navy: 0.5 }, events: CLEAN_DARK } },
+  lcorr: { ir: 'corridor', wet: 0.55, bed: { amb_navy: 1 }, events: NAVY, quiet: true },
+  chk: { ir: 'machine', wet: 0.55, bed: { amb_navy: 1 }, events: NAVY },
+  guard: { ir: 'dead', wet: 0.25, bed: { amb_navy: 0.7 }, events: NAVY, quiet: true },
+  plant4: {
+    ir: 'cistern', wet: 0.55, bed: { amb_plant: 1, amb_navy: 0.3 }, events: { ...NAVY, water_slosh: 0.6, pipe_knock: 0.8 },
+    local: [{ id: 'drip', every: [1.5, 5], vol: [0.25, 0.6], y: [2.5, 4.2] }],
+  },
+  tube: {
+    ir: 'tube', wet: 0.62, bed: { amb_tube: 1 }, events: { hull_creak: 1, metal_groan: 0.6, dist_knock: 0.4 },
+    local: [{ id: 'tube_groan', every: [9, 22], vol: [0.45, 0.9], y: [2.4, 3.4] }],
+  },
+  gatel: { ir: 'lock', wet: 0.5, bed: { amb_navy: 0.6, amb_tube: 0.45 }, events: NAVY },
+};
+const LEVEL_ROOMS: Record<number, Record<string, RoomPreset>> = { 3: ROOMS_L3, 4: ROOMS_L4 };
 export const DEFAULT_ROOM: RoomPreset = { ir: 'corridor', wet: 0.5, bed: { amb_room: 0.8 }, events: ROOM_EVENTS };
 
 /** Unknown / renamed room ids fall back to the closest known preset by name, then to DEFAULT_ROOM. */
@@ -215,8 +265,9 @@ const ALIASES: Array<[RegExp, string]> = [
 const resolved = new Map<string, RoomPreset>();
 const coldCache = new WeakMap<RoomPreset, RoomPreset>();
 export function presetFor(id: string, level = 0, cold = false): RoomPreset {
-  if (level === 3) {
-    const p = ROOMS_L3[id];
+  const table = LEVEL_ROOMS[level];
+  if (table) {
+    const p = table[id];
     if (p) {
       if (!cold || !p.cold) return p;
       let c = coldCache.get(p);

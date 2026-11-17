@@ -13,6 +13,10 @@
  *   hab              — level 3 (stage 3a): every habitat room preset warm and cold (IR, wet, bed, events), each IR
  *                      auditioned with `door_chime` (click a cell). Plain `mode=sounds&filter=^(pdoor_|purge_|radio_|…)`
  *                      auditions the new level-3 ids: CLICK ANY SPECTROGRAM to play it (loops repeat; click again to stop).
+ *   l4               — level 4 (stage 3b): every room preset normal and after lights-out, auditioned with `carbine_fire`
+ *                      + its `carbine_tail` (click a cell); &live=1 runs the real system on level 4 and records which ids the
+ *                      game events trigger (carbine burst + tail, reloads, armour, body hits, floors, lights-out mood).
+ *                      The new ids themselves: `mode=sounds&filter=<rev9 ids>` (see SOUNDS.md → Level 4).
  * Results on window.__audioReport; window.__game = { ready: true } when done.
  */
 import * as THREE from 'three';
@@ -191,6 +195,94 @@ async function modeHab() {
     report.live = out;
   }
   head.textContent = `hab: ${Object.keys(ROOMS_L3).length} level-3 rooms × warm/cold — click to hear a chime in the room`;
+}
+
+async function modeL4() {
+  const { ROOMS_L4, presetFor } = await import('../impulses');
+  const shot = (await renderDef(SOUND_MAP.get('carbine_fire')!))[0];
+  const tails = await renderDef(SOUND_MAP.get('carbine_tail')!);
+  const SIZE: Record<string, number> = { dead: 0, padded: 0, office: 0, lock: 0, whiteroom: 1, tiled: 1, corridor: 1, machine: 1 };
+  const rows: Record<string, unknown> = {};
+  const W = 340, H = 80;
+  for (const id of Object.keys(ROOMS_L4)) {
+    for (const dark of [false, true]) {
+      const p = presetFor(id, 4, dark);
+      if (dark && p === presetFor(id, 4, false)) continue; // no lights-out form (deck 1, theatre, node2, lock4)
+      const tail = tails[SIZE[p.ir] ?? 2];
+      // three rounds 0.1 s apart, the tail 0.11 s after the last; dry + IR × wet (offline)
+      const oc = new OfflineAudioContext(1, Math.ceil((0.5 + tail.duration + 3) * SR), SR);
+      const mix = oc.createGain();
+      const dry = oc.createGain(); dry.gain.value = 0.35;
+      const conv = oc.createConvolver(); conv.buffer = makeIR(p.ir, SR);
+      const wet = oc.createGain(); wet.gain.value = p.wet * 0.3;
+      mix.connect(dry); dry.connect(oc.destination); mix.connect(conv); conv.connect(wet); wet.connect(oc.destination);
+      for (let i = 0; i < 3; i++) { const src = oc.createBufferSource(); src.buffer = shot; const g = oc.createGain(); g.gain.value = 0.72; src.connect(g); g.connect(mix); src.start(i * 0.1); }
+      const ts = oc.createBufferSource(); ts.buffer = tail; const tg = oc.createGain(); tg.gain.value = 0.5; ts.connect(tg); tg.connect(mix); ts.start(0.31);
+      const r = await oc.startRendering();
+      const st = stats(chansOf(r), SR);
+      rows[`${id}${dark ? ':dark' : ''}`] = { ir: p.ir, wet: p.wet, bed: p.bed, quiet: !!p.quiet, events: Object.keys(p.events), local: (p.local ?? []).map((e) => e.id), tailMs: st.tailMs, peakDb: st.peakDb };
+      const cv = cell(`${id}${dark ? ' DARK' : ''}  ir=${p.ir} wet=${p.wet}${p.quiet ? ' quiet' : ''}\nbed ${JSON.stringify(p.bed)}\ntail ${st.tailMs}ms`, W, H);
+      draw(cv, chansOf(r), SR);
+      cv.style.cursor = 'pointer';
+      cv.onclick = () => audition(r, false, 1);
+    }
+  }
+  Object.assign(report, { rooms: rows });
+  if (q.get('live')) {
+    const ctx = fakeCtx() as unknown as { levelId: number; events: ReturnType<typeof createEvents>; player: any };
+    ctx.levelId = 4;
+    ctx.player.weapons.carbine = { clip: 0, clipSize: 30, reserve: 90 };
+    const audio = await createAudio(ctx as unknown as GameContext);
+    await audio.unlock();
+    const dbg = (audio as any).debug;
+    const eng = dbg.engine;
+    const played: string[] = [];
+    const orig = eng.play.bind(eng);
+    eng.play = (id: string, p?: { variant?: number }) => { played.push(p?.variant !== undefined ? `${id}#${p.variant}` : id); orig(id, p as never); };
+    const tick = async (ms: number) => { const end = performance.now() + ms; while (performance.now() < end) { audio.update(0.016); await new Promise((r) => setTimeout(r, 16)); } };
+    const V = () => new THREE.Vector3();
+    const E = ctx.events;
+    const out: Record<string, unknown> = { level: eng.level };
+    const take = (k: string) => { out[k] = played.splice(0); };
+    audio.setRoom('corr_n'); take('setup');
+    out.corr_n = { ir: eng.room.ir, bed: eng.room.bed, quiet: !!eng.room.quiet };
+    for (let i = 0; i < 5; i++) { E.emit('weapon:fired', { weapon: 'carbine', origin: V(), direction: V() }); await tick(100); }
+    await tick(250); take('burst5');
+    audio.setRoom('tube');
+    E.emit('weapon:fired', { weapon: 'carbine', origin: V(), direction: V() }); await tick(300); take('singleInTube');
+    E.emit('weapon:empty', { weapon: 'carbine' }); E.emit('weapon:switched', { weapon: 'carbine' }); take('emptySwitch');
+    E.emit('weapon:reload', { weapon: 'carbine', duration: 2.6 }); take('reloadEmpty');
+    ctx.player.weapons.carbine.clip = 12;
+    E.emit('weapon:reload', { weapon: 'carbine', duration: 2.2 }); take('reloadPartial');
+    E.emit('player:armor', { armor: 50, delta: 50 }); take('vest');
+    await tick(400);
+    E.emit('player:armor', { armor: 65, delta: 15 }); take('plate');
+    E.emit('pickup', { kind: 'vest', amount: 50, position: V() }); E.emit('pickup', { kind: 'plate', amount: 15, position: V() }); take('pickupVestPlateSilent');
+    E.emit('pickup', { kind: 'carbine', amount: 30, position: V() }); E.emit('pickup', { kind: 'ammo_carbine', amount: 30, position: V() }); take('pickupCarbineAmmo');
+    E.emit('player:damaged', { amount: 6, health: 94, from: null, absorbed: 12, armor: 38 }); take('hitAbsorbed');
+    await tick(100);
+    E.emit('player:damaged', { amount: 25, health: 69, from: null, absorbed: 5, armor: 0 }); take('hitBreak');
+    await tick(100);
+    E.emit('player:damaged', { amount: 18, health: 51, from: null }); take('hitNoArmour');
+    E.emit('player:armor', { armor: 0, delta: -5 }); take('armorLossSilent');
+    E.emit('bullet:impact', { point: V(), normal: new THREE.Vector3(0, 1, 0), surface: 'flesh' }); take('bodyHit');
+    audio.setRoom('gown');
+    E.emit('player:footstep', { position: V(), surface: 'concrete', running: false }); take('stepGown');
+    audio.setRoom('tube');
+    E.emit('player:footstep', { position: V(), surface: 'metal', running: false }); take('stepTube');
+    audio.setRoom('chk');
+    E.emit('player:footstep', { position: V(), surface: 'metal', running: false }); take('stepChk');
+    audio.setRoom('corr_w');
+    const before = { ir: eng.room.ir, bed: eng.room.bed };
+    E.emit('story:beat', { id: 'l4_lights_out' });
+    out.lightsOut = { before, after: { ir: eng.room.ir, bed: eng.room.bed, quiet: !!eng.room.quiet, cold: eng.cold } };
+    audio.setRoom('chk');
+    out.chkAfterLightsOut = { bed: eng.room.bed };
+    for (const id of ['pump_loop', 'alarm_beacon', 'amb_tube']) { const h = audio.loop(id, { position: new THREE.Vector3(2, 1, 0) }); await new Promise((r) => setTimeout(r, 300)); h.stop(0.1); }
+    out.bank = ['carbine_fire', 'carbine_tail', 'vest_on', 'body_hit', 'decon_hiss', 'amb_clean', 'pump_loop'].map((id) => `${id}:${eng.buffers(id) ? 'ready' : 'missing'}`);
+    report.live = out;
+  }
+  head.textContent = `l4: ${Object.keys(ROOMS_L4).length} level-4 rooms (normal / lights-out) — click to hear a 3-round burst + tail in the room`;
 }
 
 async function loadMusicBank(): Promise<Map<string, AudioBuffer[]>> {
@@ -580,6 +672,7 @@ async function modeVoice() {
     else if (mode === 'choir') await modeChoir();
     else if (mode === 'live') await modeLive();
     else if (mode === 'hab') await modeHab();
+    else if (mode === 'l4') await modeL4();
     else await modeSounds();
   } catch (e) {
     report.error = String((e as Error)?.stack ?? e);

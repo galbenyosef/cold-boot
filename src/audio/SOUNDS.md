@@ -194,7 +194,7 @@ Level-2 quiet rooms use a dread palette without husk whispers.
 
 ## Dev harness
 
-`/dev/audio.html` (`?mode=sounds|music|choir|live|ambience|voice`, `&filter=regex`). `mode=voice&ids=l2_tomas_&fx=all`
+`/dev/audio.html` (`?mode=sounds|music|choir|live|ambience|voice|hab|l4`, `&filter=regex`). `mode=voice&ids=l2_tomas_&fx=all`
 renders recorded lines through the fx chains (stats per line × chain, click a spectrogram to listen; `&live=1`
 runs `say()` through a real `createAudio()`; `&dump=1` adds the processed PCM to the report for an ASR check).
 The other modes: shows per-sound stats on
@@ -240,3 +240,49 @@ room preset has a `cold` form (bed crossfades over ~1.2 s, reverb changes, the r
 
 Dev: `/dev/audio.html?mode=sounds&filter=^(pdoor_|purge_)` (click a spectrogram to hear it), `?mode=hab` (every room × warm/cold),
 `?mode=hab&live=1` (real system on level 3), `?mode=voice&ids=<line>&fx=room,room:400,door`.
+
+## Level 4 — BIOLOGICAL SYSTEMS (stage 3b, `sounds/rev9.ts`)
+
+Carbine + armour ids pre-render (`idle`) on level 4 and later (they carry); everything else is `levels: [4]` (one-shots
+`late`, loops `lazy`, beds + `decon_hiss` / `body_hit` / `tube_groan` `idle`). All render on demand anywhere.
+
+**Automatic** (do not also play):
+
+| event | sound(s) |
+|---|---|
+| `weapon:fired` carbine | `carbine_fire` (2D, 3 variants) + `casing_metal`; when no round for 0.11 s, **`carbine_tail`** once — variant by the room's IR: 0 small (dead/padded/office/lock), 1 medium (whiteroom/tiled/corridor/machine), 2 large (hall/shaft/cistern/atrium/clean/tube) |
+| `weapon:empty` carbine | `carbine_empty` (not `dry_fire`) |
+| `weapon:switched` carbine | `carbine_raise` (not `weapon_switch`) |
+| `weapon:reload` carbine | `carbine_mag_out` → `gear_rattle` → `carbine_mag_in`; from empty (clip 0 or duration ≥ 2.45 s) + `carbine_bolt` at 0.78 × duration |
+| `player:armor` with `delta > 0` | `vest_on` when delta ≥ 30 (vest +50, at the end of the strap), else `plate_in` (+15). Losses are silent here |
+| `player:damaged` with `absorbed > 0` | `armor` left 0 → `armor_break`; else absorbed ≥ 60 % of the hit → `armor_hit`; `hurt_impact` stays, at 0.7 × volume |
+| `pickup` | `carbine` → `pickup_weapon`, `ammo_carbine` → `pickup_ammo`; `vest` / `plate` → nothing (the `player:armor` above) |
+| `bullet:impact` `flesh` (level 4) | `body_hit` (the dead in tyvek; the enemies are machines) instead of `impact_flesh` |
+| `player:footstep` (level 4) | `step_tile` on the clean side (gown shower corr_* wetlab pi_office cold records vivarium scrub store4 gallery bay), `step_grate` in tube / gatel; navy rooms keep the surface's step. Any surface but glass / flesh / robot |
+| `story:beat` `l4_lights_out` (level 4) | the clean side's lights-out mood: Deck-2 rooms (not theatre, node2, lock4) switch to their dark preset — bed `amb_hab_cold` (air handling and the cold store stop), dread palette. **Emit it again when restoring a checkpoint past lights-out** (as level 3 does with `habitat_takeover`) |
+
+**Story / level one-shots** (positional, `{ position }`): `decon_hiss` (8.0 s mist from 0 to 8.0 + valve/bleed, 8.8 s; play at the
+decon cue) · `shower_jets` (stereo; spin-up 0.5 s, jets to 6.0 s, spin-down to 7.5 s; play at the jets cue) · `hold_beep`
+(two tones, 0.47 s; repeat every 2–4 s while a hold panel is amber) · `cold_jam_beep` (actuator twitch + obstruction chirp; with
+each `nudge`) · `lights_thunk` (2.6 s contactor wave; with `power_down` at L) · `bay_door` (bolts, 0.85 s travel, stop at 0.9 s) ·
+`vent_grille` (push, screws, lands ≈ 0.77 s, rattles; spawn at + 0.4 s) · `clasp_click` (servo, collar closes at 0.14 s; theatre
+cue `fit`) · `gel_dip` (cue `regel`) · `valve_pull` (ratchet, lever home at 0.42 s, water moves) · `sump_lift` (two blows from
+below, the grille lands at 0.85 s) · `gate_dogs` (8 dogs 0.25–1.45 s, last at 1.85 s, 2.8 s) · `tube_groan` (also the tube's
+room-local event) · `body_hit`.
+
+**Loops**: `pump_loop` (stereo, two pump sets, loud: ref 8, rolloff 0.6 — audible across chk; `stop(3)` = the 3 s wind-down) ·
+`alarm_beacon` (800/600 Hz two-tone sounder + beacon motor, 2 s period) · `arm_servo_loop` is the level-1 id, unchanged.
+Beds via the presets: `amb_clean`, `amb_cold`, `amb_navy`, `amb_plant`, `amb_tube` (+ `amb_lock`, `amb_gen`, `amb_hab_cold` reused).
+
+**Rooms** (`ROOMS_L4`, only when `levelId === 4`; new IRs `whiteroom` — white panels, short and bright — and `tube` — 40 m of
+glass, long with a cylinder flutter): lock4/shower/cold/gatel `lock` · gown, corr_*, wetlab, vivarium, scrub, gallery `whiteroom`
+· pi_office, records `office` · store4, guard `dead` · node2, bay, chk `machine` · theatre `clean` · stair4 `shaft` · lcorr
+`corridor` · plant4 `cistern` (+ drips) · tube `tube` (+ `tube_groan` every 9–22 s). Clean side quiet (dread palette, no husk
+whispers except the vivarium); navy palette `hull_creak metal_groan dist_clank pipe_tick dist_knock far_steps drip`.
+
+**Voice fx `screen`** (D17): a monitor's speaker playing a recording = the `recorder` chain (`voicefx.chainOf`, same lead
+0.28 s), placed with `POS.screen` = ref 4 m, rolloff 0.7, gain 1.3 (the in-room gain of `clean`, conversation level).
+
+Dev: `/dev/audio.html?mode=l4` (every level-4 room normal / dark with a 3-round burst + tail; `&live=1` runs the real system on
+level 4 and lists which ids each event triggers), `?mode=sounds&filter=^(carbine_|armor_|vest_on|plate_in|decon_|shower_|hold_|cold_jam|lights_thunk|bay_door|vent_grille|clasp_|gel_dip|pump_loop|valve_pull|sump_lift|alarm_beacon|gate_dogs|tube_groan|body_hit|amb_(clean|cold|navy|plant|tube))`
+(click a spectrogram to hear it), `?mode=voice&ids=l1_hale_recorder&fx=recorder,screen`.

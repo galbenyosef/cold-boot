@@ -30,7 +30,8 @@ const OUT_RMS = 0.13;
 
 export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen';
 
-// `screen` (stage 3b D17): K placeholder entry — rendered as `recorder` until W2b gives it its own profile
+// `screen` (stage 3b D17): a monitor's speaker playing a recording = the `recorder` DSP chain (chainOf); only its
+// position profile differs (voice.ts POS.screen: ref 4 m, rolloff 0.7)
 export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door', 'screen'];
 
 export function parseFx(fx: string | undefined | null): { name: VoiceFxName; arg: number | null } {
@@ -214,15 +215,21 @@ function thump(c: Ctx, at: number, f0: number, level: number, dst: AudioNode): v
 
 // ───────────────────────────────────────────── chains
 
+/** The DSP chain an fx name renders through: `screen` is an alias of `recorder` (stage 3b D17); the rest are their own. */
+export function chainOf(name: VoiceFxName): VoiceFxName {
+  return name === 'screen' ? 'recorder' : name;
+}
+
 /** Seconds an fx chain puts before the voice by design (squelch, tape clunk, speaker click) — the sync point is there. */
-export function fxLead(name: VoiceFxName): number {
+export function fxLead(fx: VoiceFxName): number {
+  const name = chainOf(fx);
   return name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'pa' ? 0.04 : name === 'door' ? 0.05 : name === 'room' ? 0.02 : 0;
 }
 
 /** Render `fx` over the clean take(s). `layers[0]` is the line; more layers only for multi-voice lines. */
 export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedKey: string, leadIn = 0): Promise<AudioBuffer> {
   const { name: parsed, arg } = parseFx(fxName);
-  const name: VoiceFxName = parsed === 'screen' ? 'recorder' : parsed; // K placeholder (W2b: `screen` = recorder alias)
+  const name = chainOf(parsed); // `screen` renders through the recorder chain
   const rnd = mulberry(hashStr(seedKey) ^ 0x5eed);
   const src = layers.map((b) => skipLead(monoAt24k(b), leadIn));
   const base = src[0];
