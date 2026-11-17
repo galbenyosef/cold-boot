@@ -11,6 +11,9 @@ import { SkipRing } from './extra';
 import { levelOf } from '../core/progress';
 
 const SEGMENTS = 20;
+/** Flashlight cell meter: segments, and the charge below which it reads as low (the player's TORCH.warn). */
+const CELL_SEGMENTS = 10;
+const CELL_LOW = 0.2;
 /** Armour bar: an empty outline stays this long (s) after armour hits 0, then the bar hides (§8.2). */
 const ARMOUR_EMPTY_HOLD = 3;
 const WEAPON_NAMES: Record<WeaponId, string> = { pistol: 'HD-9 SIDEARM', shotgun: 'HD-12 BREACHER', carbine: 'CARBINE' };
@@ -39,6 +42,8 @@ export class Hud {
   private torch: HTMLDivElement;
   private torchState: HTMLSpanElement;
   private torchHint: HTMLSpanElement;
+  private cell: HTMLDivElement;
+  private cellSegs: HTMLDivElement[] = [];
   private weapon: HTMLDivElement;
   private wName: HTMLSpanElement;
   private wIcon: HTMLSpanElement;
@@ -70,6 +75,7 @@ export class Hud {
   private c = {
     armor: -1, armOn: -1, hp: -1, segsOn: -1, low: false, weapon: undefined as WeaponId | null | undefined, clip: -1, clipSize: -1, reserve: -1,
     reloading: false, focus: null as string | null, torch: null as boolean | null, spread: -1, hit: -1, visible: false,
+    cellKey: '', cellOn: -1, aimed: false,
   };
   private spread = 0;
   private toastQueue: { text: string; alert: boolean }[] = [];
@@ -114,6 +120,9 @@ export class Hud {
     this.torch = h('div', 'torch', this.vitals);
     h('i', '', this.torch);
     this.torchState = h('span', '', this.torch, 'LIGHT OFF');
+    // the cell (battery): shown while the lamp is on or recharging, hidden when full and off
+    this.cell = h('div', 'cell hide', this.torch);
+    for (let i = 0; i < CELL_SEGMENTS; i++) this.cellSegs.push(h('div', 'cell-seg', this.cell));
     this.torchHint = h('span', 'hint hidden', this.torch, '[F]');
 
     // weapon
@@ -308,10 +317,25 @@ export class Hud {
     toggle(this.armour, 'off', !(armor > 0 || (this.armourEver && this.armourEmptyLeft > 0)));
 
     const torch = !!p.flashlightOn;
-    if (torch !== c.torch) {
-      c.torch = torch;
-      toggle(this.torch, 'on', torch);
-      setText(this.torchState, torch ? 'LIGHT ON' : 'LIGHT OFF');
+    const charge = typeof p.flashlightCharge === 'number' ? Math.max(0, Math.min(1, p.flashlightCharge)) : 1;
+    const flat = !torch && p.flashlightReady === false;
+    if (torch !== c.torch) { c.torch = torch; toggle(this.torch, 'on', torch); }
+    const state = torch ? 'LIGHT ON' : flat ? 'CELL FLAT' : 'LIGHT OFF';
+    if (state !== this.torchState.textContent) setText(this.torchState, state);
+    // cell meter: lit segments = charge; amber + pulsing when low and on; dim and filling while it recharges
+    const cellOn = Math.ceil(charge * CELL_SEGMENTS - 1e-6);
+    const show = torch || charge < 0.999;
+    const key = `${show ? 1 : 0}${torch ? 1 : 0}${torch && charge < CELL_LOW ? 1 : 0}${flat ? 1 : 0}`;
+    if (key !== c.cellKey) {
+      c.cellKey = key;
+      toggle(this.cell, 'hide', !show);
+      toggle(this.cell, 'charging', !torch);
+      toggle(this.cell, 'low', torch && charge < CELL_LOW);
+      toggle(this.torch, 'flat', flat);
+    }
+    if (cellOn !== c.cellOn) {
+      c.cellOn = cellOn;
+      this.cellSegs.forEach((sg, i) => { toggle(sg, 'off', i >= cellOn); toggle(sg, 'edge', i === cellOn - 1); });
     }
     // Flashlight hint: pulse "[F]" only when the story asks for it, until the player has used it once.
     if (this.torchHintWanted && !this.torchEverToggled && !torch && ctx.state === 'playing') {
@@ -364,12 +388,14 @@ export class Hud {
     // ── prompt + crosshair
     const focus = p.focus && p.focus.enabled && !this.promptSuppressed ? p.focus : null;
     const safe = !!p.safe; // weapon lowered and locked (stage 3a §8.3): no crosshair
-    const fkey = (focus ? focus.id + '|' + focus.prompt : '') + (safe ? '|safe' : '');
+    // aiming down the carbine's sights: the iron sight is the crosshair
+    const aimed = (p.aiming ?? 0) > 0.35;
+    const fkey = (focus ? focus.id + '|' + focus.prompt : '') + (safe ? '|safe' : '') + (aimed ? '|aim' : '');
     if (fkey !== c.focus) {
       c.focus = fkey;
       if (focus) setText(this.promptText, focus.prompt);
       toggle(this.prompt, 'show', !!focus);
-      toggle(this.xhair, 'off', !!focus || safe);
+      toggle(this.xhair, 'off', !!focus || safe || aimed);
     }
     this.spread = Math.max(0, this.spread - dt * 3.2);
     const sp = Math.round(this.spread * 40) / 40;

@@ -26,8 +26,22 @@ export const WEAPON_STATS = {
     clipSize: 30, damage: 18, interval: 0.1, range: 80, falloffFrom: 40, falloff: 0.8, baseSpread: 0.003, bloom: 0.0035,
     bloomCap: 0.028, bloomDecay: 0.05, moving: 0.008, airborne: 0.03, crouch: 0.7, noise: 36, maxReserve: 180, light: 90,
     reload: 2.2, reloadEmpty: 2.6, raise: 0.38,
+    /**
+     * Aim down the sights (hold, `AIM_BINDINGS`): `in` / `out` s to the eye and back; `fov` the camera's vertical fov at
+     * the eye (hip 72); spread terms replace the hip ones (`bloom` is the hip accumulator × bloomCap/hip bloomCap);
+     * `climb` / `yaw` scale the recoil climb and kick, `kick` the camera punch + shake, `move` caps the walk speed
+     * (× walk; no sprint), `sway` scales the gun's bob / look lag / breathing, `light` the muzzle light (pushed
+     * `lightAhead` m further out so it lights the room, not the sight picture), `flash` the muzzle-flash size.
+     */
+    ads: {
+      in: 0.2, out: 0.15, fov: 50, baseSpread: 0.0006, moving: 0.003, airborne: 0.02, bloomCap: 0.005,
+      climb: 0.6, yaw: 0.5, kick: 0.45, move: 0.55, sway: 0.25, light: 0.35, lightAhead: 0.9, flash: 0.55,
+    },
   },
 } as const;
+
+/** Aim (hold) bindings — one table, so they can be changed: `MouseEvent.button` numbers and `KeyboardEvent.code`s. */
+export const AIM_BINDINGS: { mouse: readonly number[]; keys: readonly string[] } = { mouse: [2], keys: [] };
 
 /**
  * Stage 3b §8.3 carbine recoil: per shot the view climbs `pitch + 0…pitchRand` rad and kicks ±`yaw` + `drift` to the
@@ -44,6 +58,8 @@ export interface WeaponInput {
   reload: boolean;
   slot: WeaponId | null;
   wheel: number;
+  /** Aim held (carbine only). */
+  aim?: boolean;
 }
 
 export interface Aim {
@@ -110,6 +126,15 @@ export class Weapons {
   /** One pooled muzzle light for the carbine, held through a burst (created on the first shot). */
   private muzzleLight: LightHandle | null = null;
   private muzzleT = 0;
+  /** Aim-down-sights: raw 0..1 progress (linear in time) and whether it is wanted and allowed this frame. */
+  private adsT = 0;
+  aimingNow = false;
+  /** Eased ADS blend 0 (hip) … 1 (at the eye). */
+  get ads() { const x = this.adsT; return x * x * (3 - 2 * x); }
+  /** Raw (linear) ADS progress (the viewmodel shapes its own raise arc from it). */
+  get adsRaw() { return this.adsT; }
+  /** Drop out of aim at once (cutscene, teleport, death). */
+  resetAim() { this.adsT = 0; this.aimingNow = false; }
 
   constructor(private ctx: GameContext, private vm: Viewmodel, private cam: CameraRig, m: VmMats) {
     const cg = buildCasingGeo();
@@ -416,6 +441,7 @@ export class Weapons {
     this.cam.kickPitch.target = gl ? gl.x : 0;
     this.cam.kickYaw.target = gl ? gl.y : 0;
 
+    this.updateAds(dt, inp, sprintBlend);
     // stowed (palm scan): held down; a switch that was under way still completes out of sight
     if (this.stowed) {
       // a switch under way still goes all the way down (and swaps out of sight) before settling at the stow level
@@ -495,13 +521,28 @@ export class Weapons {
     this.fire(id, aim);
   }
 
+  /**
+   * ADS: wanted (held) and allowed — the carbine, raised and idle (not switching, reloading, stowed), out of the
+   * sprint pose. A reload or a switch drops out of it; holding on brings it back once the gun is free again.
+   */
+  private updateAds(dt: number, inp: WeaponInput | null, sprintBlend: number) {
+    const A = WEAPON_STATS.carbine.ads;
+    const c = this.states.carbine;
+    this.aimingNow = !!inp?.aim && this.current === 'carbine' && !this.stowed && this.phase === 'idle' && !this.pending
+      && !c.reloading && sprintBlend < 0.35 && this.lower <= 0.05;
+    this.adsT = this.aimingNow ? Math.min(1, this.adsT + dt / A.in) : Math.max(0, this.adsT - dt / A.out);
+  }
+
   private fireCarbine(aim: Aim) {
     const s = this.states.carbine, st = WEAPON_STATS.carbine, ctx = this.ctx, origin = aim.origin;
     s.clip--;
     this.burstN++;
     this.sinceShot = 0;
     const walk = clamp(aim.moving * MOVE.sprint / MOVE.walk, 0, 1);
-    const spread = this.aimLock ? 0 : (st.baseSpread + walk * st.moving + (aim.airborne ? st.airborne : 0) + this.bloom) * (aim.crouched ? st.crouch : 1);
+    const A = st.ads, k = this.ads;
+    const hip = (st.baseSpread + walk * st.moving + (aim.airborne ? st.airborne : 0) + this.bloom) * (aim.crouched ? st.crouch : 1);
+    const ads = (A.baseSpread + walk * A.moving + (aim.airborne ? A.airborne : 0) + this.bloom * (A.bloomCap / st.bloomCap)) * (aim.crouched ? st.crouch : 1);
+    const spread = this.aimLock ? 0 : hip + (ads - hip) * k;
     this.bloom = Math.min(st.bloomCap, this.bloom + st.bloom);
     if (this.aimLock) _d.copy(this.aimLock).sub(origin).normalize();
     else {
@@ -515,15 +556,16 @@ export class Weapons {
       _end.copy(origin).addScaledVector(_d, dist);
       this.tracers.spawn(_muz, _end, 0.012, 6, 3.6, 1.6);
     }
-    this.vm.carbine.fire(s.clip === 0);
+    const kk = 1 + (A.kick - 1) * k;
+    this.vm.carbine.fire(s.clip === 0, kk);
     this.syncRounds();
     // view: a small punch that springs back (camera) + the climb that stays until recovered (aim)
-    this.cam.kick(0.35 + Math.random() * 0.15, (Math.random() - 0.5) * 0.25);
-    this.cam.shake(0.035);
+    this.cam.kick((0.35 + Math.random() * 0.15) * kk, (Math.random() - 0.5) * 0.25 * kk);
+    this.cam.shake(0.035 * kk);
     const R = CARBINE_RECOIL;
-    const dp = R.pitch + Math.random() * R.pitchRand;
+    const dp = (R.pitch + Math.random() * R.pitchRand) * (1 + (A.climb - 1) * k);
     this.pendPitch += dp;
-    this.pendYaw -= (Math.random() * 2 - 1) * R.yaw + R.drift; // yaw > 0 turns left: the drift goes right
+    this.pendYaw -= ((Math.random() * 2 - 1) * R.yaw + R.drift) * (1 + (A.yaw - 1) * k); // yaw > 0 turns left: the drift goes right
     this.recoverable += dp * R.recover;
     ctx.events.emit('weapon:fired', { weapon: 'carbine', origin: origin.clone(), direction: _d.clone() });
     ctx.enemies?.alertNoise(origin, st.noise);
@@ -563,10 +605,12 @@ export class Weapons {
       });
     }
     const h = this.muzzleLight;
-    // a little ahead of the muzzle: it lights the room more than the hands that hold the gun
-    h.position.copy(p).addScaledVector(this.aimCache.forward, 0.4);
+    // a little ahead of the muzzle: it lights the room more than the hands that hold the gun; aimed, further out and
+    // weaker (the top of the gun is right under the eye: the flash must not wash out the sight picture)
+    const A = WEAPON_STATS.carbine.ads, k = this.ads;
+    h.position.copy(p).addScaledVector(this.aimCache.forward, 0.4 + A.lightAhead * k);
     h.enabled = true;
-    h.intensityScale = 0.6 + Math.random() * 0.35;
+    h.intensityScale = (0.6 + Math.random() * 0.35) * (1 + (A.light - 1) * k);
     this.muzzleT = 0.07;
   }
   private updateMuzzleLight(dt: number) {

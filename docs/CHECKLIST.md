@@ -41,9 +41,17 @@ Run everything here and fix what it finds. When the user finds a new class of de
   - `npm run play:l4 -- <url>` (level 4, both choices; `LEVEL4 OK`), `--checkpoints`, `--impatient`, `--order` (a–e),
     `--softlock` (a–h; (c) and (h: bay) run in their own page), `--frames` (10 fps sequences of §10.5 → `shots/l4/frames/`;
     look at them); `node scripts/playthrough-l4-cases.mjs <url>` (§9 #7, #10, #15, #22).
-  - `npm run check:weapons -- --url <url>` (armour + carbine), `npm run check:fxleak -- --url <url> --level 3|4` (fx
+  - `npm run check:weapons -- --url <url>` (armour + carbine; `--only ads` carbine aim down the sights: aimed vs hip
+    spread and climb over 30 rounds at 20 m, fov 50, walk × 0.55 / no sprint, aim + reload / sprint / switch / safe /
+    cinematic, levels 1–3 unaffected; `--only torch` flashlight battery: drain 10 s, recharge 4 s, warning sag, death
+    flicker + `cause: 'empty'`, refused below 15 %, HUD cell meter, no drain in a scene / safe state / pause, checkpoint
+    save + restore, `?torch=inf`), `npm run check:fxleak -- --url <url> --level 3|4` (fx
     volumes drawn only with their rooms), `npm run check:dark -- --url <url>` (level 4 lights-out readable by flashlight
-    on LOW / MEDIUM; `--measure a.png` prints the metric of a frame).
+    at FULL charge on LOW / MEDIUM, and NO LAMP: the same views followable by the emergency lighting alone — the lamp is
+    off ≈ 30 % of the time; `--measure a.png` prints the metric of a frame).
+  - Flashlight battery (player/flashlight.ts `TORCH`): any new dark section must stay followable with the lamp off
+    (strips / lit panels / emergency pools) and readable with it on. `?torch=inf` (no drain) is for tests that are not
+    about the lamp; `player.debug.torch(v)` sets the cell.
   - `npm run check:voice -- --url <url> --level 4 [--choice command]` — Sunde's log from the PI desk and the office door,
     a unit panel line, the gallery announcer at both ends: level + sync as level 3's scenes.
   - `check:nav` runs level 4's cases with the others.

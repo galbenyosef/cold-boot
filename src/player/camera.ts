@@ -24,6 +24,9 @@ export interface CamState {
   shudder?: number;
   /** Carry speed in m/s (drives the slat-seam bumps). Optional. */
   carrySpeed?: number;
+  /** Aim-down-sights zoom: blend 0..1 toward `zoomFov` (degrees). Optional. */
+  zoom?: number;
+  zoomFov?: number;
 }
 
 export class CameraRig {
@@ -138,8 +141,20 @@ export class CameraRig {
     cam.position.copy(this.pos);
     cam.rotation.set(pitch, yaw, roll, 'YXZ');
     const target = this.baseFov + s.sprint * 6;
-    const nf = damp(this.fov, target, 5, dt);
-    if (Math.abs(nf - cam.fov) > 1e-3) { this.fov = nf; cam.fov = nf; cam.updateProjectionMatrix(); }
+    this.fov = damp(this.fov, target, 5, dt);
+    const z = clamp(s.zoom ?? 0, 0, 1);
+    const nf = z > 0 ? this.fov + ((s.zoomFov ?? this.fov) - this.fov) * z : this.fov;
+    this.lastFov = nf;
+    if (Math.abs(nf - cam.fov) > 1e-3) { cam.fov = nf; cam.updateProjectionMatrix(); }
+  }
+  private lastFov = 0;
+  /** The fov without the aim zoom (sprint kick included) and the one set this frame. */
+  get hipFov() { return this.fov; }
+  get fovNow() { return this.lastFov || this.fov; }
+  /** tan(fov/2) of this frame against the unzoomed one: what the aim zoom does to angles on screen (1 at the hip). */
+  get zoomScale() {
+    const h = Math.tan(THREE.MathUtils.degToRad(this.fov) / 2), n = Math.tan(THREE.MathUtils.degToRad(this.fovNow) / 2);
+    return h > 0 ? n / h : 1;
   }
 }
 

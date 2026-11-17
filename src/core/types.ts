@@ -250,7 +250,12 @@ export interface GameEvents {
   'player:footstep': { position: THREE.Vector3; surface: Surface; running: boolean };
   'player:jump': {};
   'player:land': { speed: number };
-  'player:flashlight': { on: boolean };
+  /**
+   * The lamp changed (or refused to). `cause` (battery, optional): 'toggle' = the player's F, 'empty' = the cell ran
+   * out (after the death flicker), 'refused' = F pressed while the cell is below its switch-on minimum (`on` false,
+   * the lamp stays off: a dead click), 'story' = a story / save / debug set. Absent = 'toggle' (older emitters).
+   */
+  'player:flashlight': { on: boolean; cause?: 'toggle' | 'empty' | 'refused' | 'story' };
 
   'weapon:fired': { weapon: WeaponId; origin: THREE.Vector3; direction: THREE.Vector3 };
   'weapon:empty': { weapon: WeaponId };
@@ -983,6 +988,15 @@ export interface Player extends Updatable {
   /** When false the player ignores movement/weapon input (cutscenes); camera still updates from yaw/pitch. */
   controlsEnabled: boolean;
   readonly flashlightOn: boolean;
+  /**
+   * Flashlight cell 0 … 1 (battery: drains while on, recharges while off; player/flashlight.ts `TORCH`). Optional so
+   * mocks need not model it; the player module always provides it.
+   */
+  readonly flashlightCharge?: number;
+  /** The cell holds enough to switch the lamp on (false right after it ran flat, until the minimum has recharged). */
+  readonly flashlightReady?: boolean;
+  /** Carbine aim-down-sights blend 0 (hip) … 1 (at the eye). 0 for every other weapon. Optional for mocks. */
+  readonly aiming?: number;
   readonly weapons: Record<WeaponId, WeaponState>;
   /** Currently held weapon, or null (unarmed at game start). */
   readonly currentWeapon: WeaponId | null;
@@ -1079,6 +1093,8 @@ export interface PlayerSave {
   pickups: string[];
   /** §8.1 (stage 3a): armour points; absent = 0 (saves written before stage 3b). `restore` clamps to 0 … maxArmor. */
   armor?: number;
+  /** Flashlight cell 0 … 1 (battery); absent = full (older saves). `restore` / `applyLoadout` clamp it. */
+  torch?: number;
 }
 
 // ───────────────────────────────────────────────────────────── enemies (src/enemies)

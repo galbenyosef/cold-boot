@@ -22,7 +22,8 @@ import { MuzzleFlash } from './muzzle';
 import { Spring, Spring3, clamp, damp, noise1 } from '../math';
 import { setViewmodel } from '../geom';
 import { PISTOL_CLIPS, SHOTGUN_CLIPS, CARBINE_CLIPS } from './clips';
-import { buildCarbine, buildCarbineMag, carbineProxy, carbineMagProxy, C_BORE, CH_POS, CH_TRAVEL, MAG_SEAT, type CarbineModel, type CarbineMag } from './carbine';
+import { buildCarbine, buildCarbineMag, carbineProxy, carbineMagProxy, C_BORE, CH_POS, CH_TRAVEL, MAG_SEAT, SIGHT, type CarbineModel, type CarbineMag } from './carbine';
+import { WEAPON_STATS } from '../weapons';
 import { placeHand, wrapFinger, reachFinger, reachThumb, handProxy, gripReport, union, placed, capsuleSdf, type Sdf } from './grip';
 
 const _v = new THREE.Vector3();
@@ -66,6 +67,13 @@ export interface RigMotion {
   /** 0..1 holster amount (equip/switch/death). */
   lower: number;
   strafe: number;
+  /** Carbine aim-down-sights: eased blend 0..1 and the raw (linear) progress. Optional (0). */
+  ads?: number;
+  adsRaw?: number;
+  /** Scale of bob / look lag / breathing on the gun (1 at the hip; small at the eye). Optional (1). */
+  swayK?: number;
+  /** x/y scale of the viewmodel against the camera's zoom (tan(fov/2) / tan(hip fov/2)): the gun keeps its size. */
+  fovScale?: number;
 }
 
 /** Channel scratch buffers. */
@@ -90,6 +98,19 @@ export abstract class GunRig {
   readonly basePos = new THREE.Vector3();
   readonly baseRot = new THREE.Euler();
   readonly baseQuat = new THREE.Quaternion();
+  /** The hip pose `setBase` sets; with an ADS pose the live base blends from it to `adsPos` / `adsQuat`. */
+  readonly hipPos = new THREE.Vector3();
+  readonly hipQuat = new THREE.Quaternion();
+  readonly adsPos = new THREE.Vector3();
+  readonly adsQuat = new THREE.Quaternion();
+  hasAds = false;
+  /** Eased ADS blend and raw progress (set by the Viewmodel each frame). */
+  ads = 0;
+  adsRaw = 0;
+  /** How far the elbows follow the base as it moves to the eye (container space). */
+  private readonly elbowShift = new THREE.Vector3();
+  private readonly _rE = new THREE.Vector3();
+  private readonly _lE = new THREE.Vector3();
   /** Sprint pose offsets (pos in base frame, euler). */
   readonly sprintPos = new THREE.Vector3();
   readonly sprintRot = new THREE.Euler();
@@ -175,6 +196,8 @@ export abstract class GunRig {
     this.basePos.set(x, y, z);
     this.baseRot.set(rx, ry, rz);
     this.baseQuat.setFromEuler(this.baseRot);
+    this.hipPos.copy(this.basePos);
+    this.hipQuat.copy(this.baseQuat);
   }
 
   play(clip: Clip, onDone?: () => void, startAt = 0) {
@@ -311,6 +334,22 @@ export abstract class GunRig {
     const playing = this.player.playing;
     const t = this.time;
 
+    // aim down the sights: the base pose travels from the hip to the eye on a short arc (the gun dips and cants a
+    // touch on the way up, as it is thrown into the shoulder); the elbows come along
+    let steady = 1;
+    if (this.hasAds) {
+      const k = this.ads;
+      this.basePos.lerpVectors(this.hipPos, this.adsPos, k);
+      this.baseQuat.slerpQuaternions(this.hipQuat, this.adsQuat, k);
+      const r = this.adsRaw, arc = r > 0 && r < 1 ? 4 * r * (1 - r) : 0;
+      if (arc > 0) {
+        this.basePos.y -= 0.014 * arc; this.basePos.x += 0.008 * arc;
+        this.baseQuat.multiply(_q3.setFromEuler(_e.set(-0.05 * arc, 0, 0.13 * arc)));
+      }
+      this.elbowShift.subVectors(this.basePos, this.hipPos).multiplyScalar(0.85);
+      steady = 1 - 0.8 * k;
+    }
+
     // gun: authored target (clip + sprint + a living wrist) chased with mass, plus recoil / arm / impact layers
     GUN.fill(0);
     this.player.get('gun', GUN);
@@ -320,9 +359,9 @@ export abstract class GunRig {
     const fp = this.followPos, fr = this.followRot;
     fp.target.set(GUN[0] + this.sprintPos.x * sp, GUN[1] + this.sprintPos.y * sp, GUN[2] + this.sprintPos.z * sp);
     fr.target.set(
-      GUN[3] + this.sprintRot.x * sp + noise1(t * 0.31, 51) * 0.007 * calm,
-      GUN[4] + this.sprintRot.y * sp + noise1(t * 0.27, 52) * 0.006 * calm,
-      GUN[5] + this.sprintRot.z * sp + noise1(t * 0.19, 53) * 0.014 * calm,
+      GUN[3] + this.sprintRot.x * sp + noise1(t * 0.31, 51) * 0.007 * calm * steady,
+      GUN[4] + this.sprintRot.y * sp + noise1(t * 0.27, 52) * 0.006 * calm * steady,
+      GUN[5] + this.sprintRot.z * sp + noise1(t * 0.19, 53) * 0.014 * calm * steady,
     );
     fp.update(dt); fr.update(dt);
     this.recoilPos.update(dt); this.recoilRot.update(dt);
@@ -402,8 +441,8 @@ export abstract class GunRig {
 
     // forearms aim from the wrist to an elbow that trails the wrist with a soft lag
     this.container.updateMatrix();
-    this.orientArm(this.rf, this.rh.root, this.rElbow, this.rElbS, dt, _v.copy(this.rh.root.position).applyQuaternion(this.baseQuat).add(this.basePos));
-    this.orientArm(this.lf, this.lh.root, this.lElbow, this.lElbS, dt, _v.copy(this.lhRestPos).applyQuaternion(this.baseQuat).add(this.basePos));
+    this.orientArm(this.rf, this.rh.root, this._rE.copy(this.rElbow).add(this.elbowShift), this.rElbS, dt, _v.copy(this.rh.root.position).applyQuaternion(this.baseQuat).add(this.basePos));
+    this.orientArm(this.lf, this.lh.root, this._lE.copy(this.lElbow).add(this.elbowShift), this.lElbS, dt, _v.copy(this.lhRestPos).applyQuaternion(this.baseQuat).add(this.basePos));
     this.afterHands();
   }
 
@@ -934,17 +973,34 @@ export class CarbineRig extends GunRig {
     this.spareMag = buildCarbineMag(m);
     this.spareMag.root.visible = false;
     this.container.add(this.spareMag.root);
+    this.solveAds();
+  }
+
+  /**
+   * Eye relief (m, container space before the viewmodel's x/y squash) from the eye to the rear aperture when aimed,
+   * and how far the sight line drops below the eye (m): 0 = the post tip exactly on the point of aim.
+   */
+  static ADS = { eye: 0.15, drop: 0 };
+  /** The ADS base pose: the sight line (rear aperture → front post tip) on the view axis, the rear ring `eye` ahead. */
+  solveAds() {
+    const A = SIGHT.rear, P = SIGHT.front;
+    const dy = P.y - A.y, dz = P.z - A.z;
+    this.adsQuat.setFromAxisAngle(_v.set(1, 0, 0), Math.atan(dy / dz));
+    this.adsPos.set(0, -CarbineRig.ADS.drop, -CarbineRig.ADS.eye).sub(_v.copy(A).applyQuaternion(this.adsQuat));
+    this.hasAds = true;
   }
 
   get busy() { return this.player.playing; }
 
-  fire(lastRound: boolean) {
+  /** `kick` scales the recoil the hands show (aimed: a shorter, straighter push). */
+  fire(lastRound: boolean, kick = 1) {
     this.flash.fire();
+    this.flash.root.scale.setScalar(1 + (WEAPON_STATS.carbine.ads.flash - 1) * this.ads);
     this.pullTrigger();
     // a straight push into the shoulder with a little flip, then a buzz as the bursts stack up in the springs
     const h = this.heat;
-    this.kick(0.42 + h * 0.18, 2.3 + h * 1.1, 1.3 + h * 0.6);
-    this.knock((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02, 0.02, (Math.random() - 0.5) * 0.35, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.6);
+    this.kick((0.42 + h * 0.18) * kick, (2.3 + h * 1.1) * kick, (1.3 + h * 0.6) * kick);
+    this.knock((Math.random() - 0.5) * 0.02 * kick, (Math.random() - 0.5) * 0.02 * kick, 0.02 * kick, (Math.random() - 0.5) * 0.35 * kick, (Math.random() - 0.5) * 0.3 * kick, (Math.random() - 0.5) * 0.6 * kick);
     this.heat = Math.min(1, this.heat + 0.11);
     if (lastRound) { this.chargerLocked = true; this.chargerVel = 0; }
   }
@@ -1100,7 +1156,13 @@ export class Viewmodel {
 
   update(dt: number, mo: RigMotion) {
     const rig = this.active;
+    this.carbine.ads = mo.ads ?? 0;
+    this.carbine.adsRaw = mo.adsRaw ?? 0;
+    const fs = mo.fovScale ?? 1;
+    this.root.scale.set(VM_SCALE * fs, VM_SCALE * fs, 1);
     if (dt <= 0) { rig?.update(0, this.sprintS.x, mo.lower); return; }
+    const swk = mo.swayK ?? 1;
+    const adsK = mo.ads ?? 0;
     // look lag: rotate opposite to view rotation, spring back
     const lx = clamp(mo.lookX, -0.08, 0.08), ly = clamp(mo.lookY, -0.08, 0.08);
     this.lookSpring.impulse(-ly * 9, -lx * 9, 0);
@@ -1142,15 +1204,18 @@ export class Viewmodel {
     if (ls.x < ls.target) { ls.x = ls.target; if (ls.v < 0) ls.v = 0; }
     const lowE = ls.x;
     const s = this.sway;
+    // aimed (swk < 1): the eye is on the sights, so bob, look lag, breathing and lean shrink to a small sway, and a
+    // wall no longer pulls the gun back into the face (the sight would pass the near plane)
+    const wl = this.wall * (1 - adsK);
     s.position.set(
-      bx + ix + this.lookPos.x.x * 0.06 - this.crouch * 0.008 - this.strafeLean * 0.006 + lowE * 0.05,
-      by + iy + this.vert.x + this.lookPos.x.y * 0.06 - this.crouch * 0.006 - lowE * 0.21,
-      this.wall * 0.11 + this.crouch * 0.006 + lowE * 0.07,
+      (bx + ix + this.lookPos.x.x * 0.06 - this.crouch * 0.008 - this.strafeLean * 0.006) * swk + lowE * 0.05,
+      (by + iy + this.vert.x + this.lookPos.x.y * 0.06 - this.crouch * 0.006) * swk - lowE * 0.21,
+      wl * 0.11 + this.crouch * 0.006 * swk + lowE * 0.07,
     );
     s.rotation.set(
-      ipitch + pump + this.lookSpring.x.x * 0.05 - this.vert.x * 1.4 - lowE * 0.75 + this.wall * 0.35,
-      iyaw + this.lookSpring.x.y * 0.05 + this.wall * 0.3 - lowE * 0.25 + pump * 0.4,
-      broll + this.lookSpring.x.y * 0.06 + this.strafeLean * 0.03 + this.crouch * 0.025 + lowE * 0.4,
+      (ipitch + pump + this.lookSpring.x.x * 0.05 - this.vert.x * 1.4) * swk - lowE * 0.75 + wl * 0.35,
+      (iyaw + this.lookSpring.x.y * 0.05 + pump * 0.4) * swk + wl * 0.3 - lowE * 0.25,
+      (broll + this.lookSpring.x.y * 0.06 + this.strafeLean * 0.03 + this.crouch * 0.025) * swk + lowE * 0.4,
       'YXZ',
     );
     rig?.update(dt, spr, low);

@@ -35,6 +35,15 @@
 // the running game pushed through the same screenshot + decode path with the canvas forced black (CSS
 // brightness(0)). If any of those passes, the check itself is broken: exit 1.
 //
+// FLASHLIGHT BATTERY (the lamp drains in 10 s and recharges in 4 s): every view is judged twice —
+//   LAMP    the frame above with the cell FULL (set just before the screenshot; the beam at full brightness): the
+//           level must be readable by flashlight;
+//   NO LAMP the same view with the lamp OFF (it is off ≈ 30 % of the time even when used well): the route must still be
+//           followable by the emergency lighting alone (§8.11: strips, lit door panels, `<room>_emerg`):
+//             GLOW  ≥ 1.5 % of ALL pixels have Y' ≥ 0.06 (strips / panels / emergency pools exist in the frame), and
+//             FAR   the frame mean ≥ 0.015 (not a black screen with a few dots).
+//           Doors and interactables within 10 m in the central 60 % are listed with their p95 (reported, not judged:
+//           a door panel 8 m off may be a few pixels).
 // Views (§10.4): corr_w, corr_s, vivarium door, cold door, records door, scrub. On a level without them (K's stub, a
 // greybox without `lights_out4`), each missing room / door / vignette is a named failure; the stub's spawn view is still
 // measured as a pipeline smoke run (reported, not a pass).
@@ -46,7 +55,7 @@ const args = parseArgs();
 const base = (args.url ?? process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'http://127.0.0.1:5173').replace(/\/$/, '');
 const QUALITIES = (args.quality ?? 'low,medium').split(',');
 const W = 1280, H = 720;
-const T = { cone: 0.16, detail: 0.08, frame: 0.04, ringPx: 0.06, ringFrac: 0.03, target: 0.12, targetDist: 10 };
+const T = { cone: 0.16, detail: 0.08, frame: 0.04, ringPx: 0.06, ringFrac: 0.03, target: 0.12, targetDist: 10, glowFrac: 0.015, darkFrame: 0.015 };
 /** §10.4 views: spawn = feet x, y, z, yaw° (+90 = −x), pitch°; `room` the plan room the view stands in; `door` faced. */
 const VIEWS = [
   { id: 'corr_w', spawn: [-13.5, 4.8, -20, 0], room: 'corr_w' },
@@ -107,7 +116,9 @@ async function measure(png, kind = 'png', targets = []) {
       cone: mean(cen), detail: pct(cen, 0.9) - pct(cen, 0.1), frame: mean(Y),
       ringFrac: ring.filter((v) => v >= T.ringPx).length / ring.length, ringMedian: pct(ring, 0.5),
     };
+    m.glowFrac = Y.filter((v) => v >= T.ringPx).length / Y.length;
     m.pass = { cone: m.cone >= T.cone, detail: m.detail >= T.detail, frame: m.frame >= T.frame, strips: m.ringFrac >= T.ringFrac };
+    m.passDark = { glow: m.glowFrac >= T.glowFrac, far: m.frame >= T.darkFrame };
     m.targets = targets.map((t) => { const v = pct(box(t.x0, t.y0, t.x1, t.y1), 0.95); return { ...t, p95: v, pass: v >= T.target }; });
     m.ok = Object.values(m.pass).every(Boolean) && m.targets.every((t) => t.pass);
     return m;
@@ -135,6 +146,7 @@ async function lightsOut() {
   const r = await ev(() => {
     const g = window.__game;
     g.level.vignette('lights_out4');
+    g.player.debug.torch?.(1);
     g.player.debug.flashlight(true);
     g.ui.setHudVisible(false);
     return true;
@@ -203,6 +215,7 @@ if (!args['no-selftest']) {
   await boot('low', null);
   const blk = await measure(null, 'black');
   check(!blk.ok && !blk.pass.cone && !blk.pass.detail && !blk.pass.frame && !blk.pass.strips, `synthetic black frame fails every term: ${verdict(blk)}`);
+  check(!blk.passDark.glow && !blk.passDark.far, `synthetic black frame fails the NO LAMP terms too`);
   const grey = await measure(null, 'grey');
   check(!grey.ok && grey.pass.cone && grey.pass.frame && grey.pass.strips && !grey.pass.detail, `uniform 0.25 grey passes cone/frame/strips but fails DETAIL: ${verdict(grey)}`);
   await ev(() => { window.__game.renderer.domElement.style.filter = 'brightness(0)'; window.__game.ui.setHudVisible(false); });
@@ -242,6 +255,9 @@ for (const q of QUALITIES) {
     const room = await ev(() => window.__game.level.roomAt(window.__game.player.position)?.id ?? null);
     if (v.room && room !== v.room) bad(`${q}/${v.id}: the view stands in ${room}, the plan says ${v.room}`);
     const tg = await targetsInView();
+    // battery: judged at full charge (the cell would be part-drained after the 4.5 s settle)
+    const cell = await ev(async () => { const p = window.__game.player; p.debug.torch?.(1); p.debug.flashlight(true); await new Promise((r) => setTimeout(r, 120)); return p.debug.torch?.() ?? null; });
+    if (cell && !(cell.on && cell.charge > 0.97 && cell.bright === 1)) bad(`${q}/${v.id}: the lamp is not on at full charge for the frame (${JSON.stringify(cell)})`);
     const png = await page.screenshot({ path: `${OUT}/${q}-${v.id}.png` });
     const m = await measure(png, 'png', tg.out);
     const line = `${q}/${v.id}: ${verdict(m)}`;
@@ -253,7 +269,16 @@ for (const q of QUALITIES) {
     for (const t of m.targets) (t.pass ? ok : bad)(`${q}/${v.id}: ${t.kind} ${t.id} at ${t.dist} m: p95 ${f3(t.p95)} (≥ ${T.target})`);
     if (v.door && !m.targets.some((t) => t.id === v.door)) bad(`${q}/${v.id}: the faced door ${v.door} is not a judged target (out of sight / > ${T.targetDist} m / missing)`);
     if (tg.far.length) console.log(`  (not judged: ${tg.far.map((t) => `${t.kind} ${t.id} ${t.dist} m${t.los ? '' : ' no LOS'}`).join(', ')})`);
-    report.runs.push({ quality: q, view: v.id, spawn: v.spawn, room, lightsOut: l, metric: m });
+    // NO LAMP: the same view by the emergency lighting alone
+    await ev(() => window.__game.player.debug.flashlight(false));
+    await wait(1500);
+    const pngD = await page.screenshot({ path: `${OUT}/${q}-${v.id}-nolamp.png` });
+    const md = await measure(pngD, 'png', tg.out);
+    const lineD = `${q}/${v.id} NO LAMP: glow ${(md.glowFrac * 100).toFixed(2)} % (≥ ${T.glowFrac * 100} %) · frame ${f3(md.frame)} (≥ ${T.darkFrame}) · cone ${f3(md.cone)} · ring lit ${(md.ringFrac * 100).toFixed(1)} %`;
+    if (Object.values(md.passDark).every(Boolean)) ok(lineD);
+    else bad(`${lineD} — the route is not followable without the flashlight here (coordinator: emergency lighting / strips)`);
+    if (md.targets.length) console.log(`  (no lamp, not judged: ${md.targets.map((t) => `${t.kind} ${t.id} p95 ${f3(t.p95)}`).join(', ')})`);
+    report.runs.push({ quality: q, view: v.id, spawn: v.spawn, room, lightsOut: l, metric: m, noLamp: md });
   }
   if (missingRooms.length) {
     // pipeline smoke on what exists (the stub): proves the views would be measured; never a pass

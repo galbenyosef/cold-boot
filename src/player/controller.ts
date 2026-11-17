@@ -34,8 +34,10 @@ export interface MoveInput {
   jump: boolean;
   crouchToggle: boolean;
   crouchHold: boolean;
-  /** Sprinting not allowed (reloading / firing). */
+  /** Sprinting not allowed (reloading / firing / aiming). */
   noSprint: boolean;
+  /** Speed cap (m/s) on top of walk / crouch (aiming down the sights). Optional. */
+  maxSpeed?: number;
 }
 
 export interface MoveEvents {
@@ -131,6 +133,7 @@ export class Controller {
     const sprintOk = !!inp && inp.sprint && fwd > 0.3 && !this.crouched && !inp.noSprint && (b.onGround || this.sprinting);
     this.sprinting = sprintOk;
     let speed = this.crouched ? MOVE.crouch : sprintOk ? MOVE.sprint : MOVE.walk;
+    if (inp?.maxSpeed !== undefined) speed = Math.min(speed, inp.maxSpeed);
     if (fwd < 0) speed *= MOVE.backMul + (1 - MOVE.backMul) * (1 - Math.abs(fwd));
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
     _wish.set(-sin * fwd + cos * strafe, 0, -cos * fwd - sin * strafe).multiplyScalar(speed);

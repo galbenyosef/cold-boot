@@ -24,7 +24,15 @@ const U = {
   uVmKeyDir: { value: VM_LIGHT.keyDir },
   uVmRim: { value: new THREE.Vector3() },
   uVmRimDir: { value: VM_LIGHT.rimDir },
+  uVmNear: { value: 0 },
 };
+
+/**
+ * Aiming down the sights the eye sits over the stock: anything of the viewmodel nearer than `d` m (view depth) is the
+ * shooter's own cheek / chin territory and is not drawn (0 = off). The stock, cheek pad and hinge would otherwise
+ * fill the bottom of the sight picture.
+ */
+export function setVmNear(d: number) { U.uVmNear.value = d; }
 
 /**
  * The room around the player: linear RGB of what its lights throw at the surroundings + at the eye (smoothed), and
@@ -63,7 +71,7 @@ export function setVmLight(level: number, scale = 1) {
 setVmLight(0);
 
 const PARS = /* glsl */ `
-uniform vec3 uVmKey; uniform vec3 uVmKeyDir; uniform vec3 uVmRim; uniform vec3 uVmRimDir;
+uniform vec3 uVmKey; uniform vec3 uVmKeyDir; uniform vec3 uVmRim; uniform vec3 uVmRimDir; uniform float uVmNear;
 `;
 const TERM = /* glsl */ `
 {
@@ -86,7 +94,8 @@ export function litForViewmodel<T extends THREE.Material>(mat: T): T {
     Object.assign(shader.uniforms, U);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + PARS)
-      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n' + TERM);
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n' + TERM)
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (uVmNear > 0.0 && vViewPosition.z < uVmNear) discard;');
   };
   mat.customProgramCacheKey = function (this: THREE.Material) { return prevKey.call(this) + '|vmlight'; };
   mat.needsUpdate = true;

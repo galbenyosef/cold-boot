@@ -74,6 +74,14 @@ export function buildCss(noise: string): string {
 .cb .torch i { width: 6px; height: 6px; border: 1px solid var(--dim); border-radius: 50%; display: inline-block; }
 .cb .torch.on i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
 .cb .torch .hint { color: var(--fg-2); margin-left: 6px; animation: cb-breathe 2.4s ease-in-out infinite; }
+.cb .torch .cell { display: flex; gap: 2px; margin-left: 4px; transition: opacity .35s; }
+.cb .torch .cell.hide { opacity: 0; }
+.cb .torch .cell-seg { width: 4px; height: 6px; background: var(--cyan); opacity: .85; transform: skewX(-24deg); box-shadow: 0 0 5px rgba(116,228,255,.3); transition: opacity .2s, background-color .25s; }
+.cb .torch .cell-seg.off { opacity: 1; background: transparent; box-shadow: none; outline: 1px solid rgba(160,200,225,.22); outline-offset: -1px; }
+.cb .torch .cell.charging .cell-seg:not(.off) { background: var(--dim); box-shadow: none; opacity: .9; }
+.cb .torch .cell.charging .cell-seg.edge { animation: cb-pulse 0.9s ease-in-out infinite; }
+.cb .torch .cell.low .cell-seg:not(.off) { background: var(--amber); box-shadow: 0 0 6px rgba(255,178,74,.45); animation: cb-pulse .5s ease-in-out infinite; }
+.cb .torch.flat span:first-of-type { color: var(--amber); }
 
 .cb .weapon { position: absolute; right: 44px; bottom: 38px; text-align: right; transition: opacity .35s, transform .35s; }
 .cb .weapon.off { opacity: 0; transform: translateY(8px); }

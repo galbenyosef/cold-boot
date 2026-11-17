@@ -7,17 +7,19 @@ import type { GameContext, Interactable, PalmPlate, PalmResult, PickupKind, Play
 import { WEAPON_IDS } from '../core/types';
 import { Controller, MOVE, type MoveInput } from './controller';
 import { CameraRig } from './camera';
-import { Flashlight } from './flashlight';
-import { Weapons, WEAPON_STATS, type WeaponInput, type Aim } from './weapons';
+import { Flashlight, TORCH } from './flashlight';
+import { Weapons, WEAPON_STATS, AIM_BINDINGS, type WeaponInput, type Aim } from './weapons';
 import { Pickups } from './pickups';
 import { Viewmodel, type RigMotion } from './viewmodels/rig';
 import { resolveMats } from './viewmodels/mats';
-import { setVmLight } from './viewmodels/vmlight';
+import { setVmLight, setVmNear } from './viewmodels/vmlight';
 import { clamp, damp, wrapAngle } from './math';
 import { PalmHand } from './palm';
 import { LOWER_CINEMATIC, LOWER_SAFE, clearJump, settle, standNow } from './cinematic';
 
 const SENSITIVITY = 0.0022;
+/** Aimed: viewmodel parts nearer than this (view depth, m) are not drawn — the stock under the cheek (vmlight). */
+const VM_NEAR_ADS = 0.1;
 const PITCH_LIMIT = THREE.MathUtils.degToRad(88);
 const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -52,6 +54,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   const ctrl = new Controller(ctx.physics, spawn.position);
   const camRig = new CameraRig(ctx.camera);
   const flash = new Flashlight(ctx.render.lights, ctx.physics);
+  // `?torch=inf`: the cell never drains (tests / debugging)
+  try { flash.infinite = new URLSearchParams(location.search).get('torch') === 'inf'; } catch { /* ignore */ }
   const vm = new Viewmodel(mats, ctx.render.viewmodelLayer);
   ctx.camera.add(vm.root);
   const weapons = new Weapons(ctx, vm, camRig, worldMats);
@@ -78,7 +82,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   let wallCheck = 0;
   let lastLookX = 0, lastLookY = 0;
   let noSprintT = 0;
-  let dbgFire = false, dbgReload = false, dbgHold = false;
+  let dbgFire = false, dbgReload = false, dbgHold = false, dbgAim = false;
   let dbgSlot: WeaponId | null = null;
   const dbgMove = { fwd: 0, strafe: 0, sprint: false, jump: false, crouch: false };
   // scripted look
@@ -105,6 +109,9 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   const isPressed = (c: string) => !consumed.has(c) && ctx.input.pressed(c);
   const mouseHeld = (b: number) => !consumed.has(`Mouse${b}`) && ctx.input.mouseDown(b);
   const mousePress = (b: number) => !consumed.has(`Mouse${b}`) && ctx.input.mousePressed(b);
+  /** Aim held on any of its bindings (AIM_BINDINGS) or by the debug hook. */
+  const aimHeld = () => dbgAim || AIM_BINDINGS.mouse.some((b) => mouseHeld(b)) || AIM_BINDINGS.keys.some((k) => isDown(k));
+  const ADS = WEAPON_STATS.carbine.ads;
   function releaseConsumed() {
     for (const c of consumed) {
       const m = /^Mouse(\d)$/.exec(c);
@@ -185,9 +192,9 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   };
 
   const moveIn: MoveInput = { fwd: 0, strafe: 0, sprint: false, jump: false, crouchToggle: false, crouchHold: false, noSprint: false };
-  const wIn: WeaponInput = { firePressed: false, fireHeld: false, reload: false, slot: null, wheel: 0 };
+  const wIn: WeaponInput = { firePressed: false, fireHeld: false, reload: false, slot: null, wheel: 0, aim: false };
   const aim: Aim = { origin: eye, forward, right, up, moving: 0, airborne: false, crouched: false };
-  const motion: RigMotion = { time: 0, lookX: 0, lookY: 0, speed: 0, bobPhase: 0, grounded: true, vy: 0, sprint: 0, crouch: 0, wall: 0, lower: 1, strafe: 0 };
+  const motion: RigMotion = { time: 0, lookX: 0, lookY: 0, speed: 0, bobPhase: 0, grounded: true, vy: 0, sprint: 0, crouch: 0, wall: 0, lower: 1, strafe: 0, ads: 0, adsRaw: 0, swayK: 1, fovScale: 1 };
   const _q = new THREE.Quaternion();
   const _e = new THREE.Euler();
 
@@ -263,6 +270,17 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
   function lowHealthAmount() { return clamp((55 - health) / 45, 0, 1); }
 
+  /**
+   * A saved / carried lamp: the cell as stored (absent = full); a lamp stored ON never comes back on a cell that would
+   * die in the next breath — at least half a charge (a checkpoint is a fresh start, not a trap).
+   */
+  function putTorch(charge: unknown, on: boolean | undefined) {
+    if (typeof charge === 'number' && Number.isFinite(charge)) flash.setCharge(charge);
+    else if (on) flash.setCharge(1);
+    if (on && flash.charge < 0.5) flash.setCharge(0.5);
+    if (on !== undefined) flash.set(on);
+  }
+
   const player: Player & PlayerExtras = {
     get position() { return ctrl.body.position; },
     eye,
@@ -289,6 +307,9 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     get controlsEnabled() { return controlsEnabled; },
     set controlsEnabled(v: boolean) { controlsEnabled = v; },
     get flashlightOn() { return flash.on; },
+    get flashlightCharge() { return flash.charge; },
+    get flashlightReady() { return flash.ready; },
+    get aiming() { return weapons.ads; },
     get weapons(): Record<WeaponId, WeaponState> { return weapons.states; },
     get currentWeapon() { return weapons.current; },
     get focus() { return focus; },
@@ -325,6 +346,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       if (health <= 0) {
         alive = false;
         palmHand.hide();
+        weapons.resetAim();
         weapons.holster();
         camRig.die();
         ctx.render.post.setLowHealth(1);
@@ -390,10 +412,11 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
           look.active = false; headUp = null;
           weapons.cancelReload();
           weapons.clearQueued();
+          weapons.resetAim();
           settle(ctrl, ctx.physics);
           noSprintT = 0;
           dbgMove.fwd = 0; dbgMove.strafe = 0; dbgMove.sprint = false; dbgMove.jump = false; dbgMove.crouch = false;
-          dbgFire = false; dbgReload = false; dbgSlot = null;
+          dbgFire = false; dbgReload = false; dbgSlot = null; dbgAim = false;
         }
         if (o?.topUp) weapons.topUp();
         syncStow();
@@ -409,6 +432,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         // whatever is held across the hand-back (fire, the skip key) is ignored until released
         for (const c of ['Space', 'KeyE', 'KeyR', 'KeyF', 'KeyC']) if (ctx.input.down(c)) consumed.add(c);
         if (ctx.input.mouseDown(0)) consumed.add('Mouse0');
+        for (const b of AIM_BINDINGS.mouse) if (ctx.input.mouseDown(b)) consumed.add(`Mouse${b}`);
+        for (const k of AIM_BINDINGS.keys) if (ctx.input.down(k)) consumed.add(k);
         syncStow();
         vm.root.visible = true;
       }
@@ -450,6 +475,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         flashlight: flash.on,
         pickups: [...pickups.collected],
         armor: Math.round(armor * 100) / 100,
+        torch: Math.round(flash.charge * 1000) / 1000,
       };
     },
     restore(save: PlayerSave) {
@@ -474,7 +500,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       if (cur) weapons.switchTo(cur, true);
       keys.clear();
       for (const k of save.keys ?? []) keys.add(k);
-      flash.set(!!save.flashlight);
+      putTorch(save.torch, save.flashlight);
+      weapons.resetAim();
       ctrl.setCarry(null);
       pickups.restoreCollected(Array.isArray(save.pickups) ? save.pickups : []);
     },
@@ -499,7 +526,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       // §8.2: armour comes with the carry (a snap: no player:armor)
       if ('armor' in save) armor = cleanArmor(save.armor);
       if (typeof save.health === 'number' && Number.isFinite(save.health)) player.health = Math.max(1, save.health);
-      if (typeof save.flashlight === 'boolean') flash.set(save.flashlight);
+      if (typeof save.flashlight === 'boolean' || typeof save.torch === 'number') putTorch(save.torch, save.flashlight);
     },
     revive(h = maxHealth) {
       alive = true; health = h; armor = 0; camRig.revive();
@@ -526,7 +553,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       }
       if (unstowIn >= 0 && !palm) { unstowIn -= dt; if (unstowIn < 0) { palmStow = false; syncStow(); } }
       if (active) {
-        const k = palm ? PALM_LOOK : 1;
+        // aimed: the zoomed view turns slower on screen by as much as it is magnified
+        const k = (palm ? PALM_LOOK : 1) * camRig.zoomScale;
         const dx = inp.mouseDX * SENSITIVITY * k, dy = inp.mouseDY * SENSITIVITY * k;
         if (dx || dy) { look.active = false; headUp = null; }
         yaw -= dx;
@@ -590,7 +618,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         moveIn.jump = isPressed('Space') || dbgMove.jump;
         moveIn.crouchToggle = isPressed('KeyC');
         moveIn.crouchHold = dbgMove.crouch; // crouch is C only: Ctrl+W would close the tab mid-fight
-        moveIn.noSprint = noSprintT > 0 || weapons.reloading || weapons.firedRecently > 0 || !!strap;
+        const aimWant = aimHeld() && weapons.current === 'carbine';
+        moveIn.noSprint = noSprintT > 0 || weapons.reloading || weapons.firedRecently > 0 || !!strap || aimWant;
+        const adsK = weapons.ads;
+        moveIn.maxSpeed = adsK > 0 ? MOVE.walk * (1 - (1 - ADS.move) * adsK) : undefined;
         dbgMove.jump = false;
       }
       ctrl.update(dt, active ? moveIn : null, yaw, ev);
@@ -608,6 +639,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         eye, yaw, pitch, bobPhase: ctrl.bobPhase, bobAmp, sprint: ctrl.sprintBlend, crouch: ctrl.crouchBlend,
         eyeHeight: ctrl.eyeHeight, strafe: ctrl.strafeSpeed, time,
         shudder: ctrl.grounded && alive ? clamp(carrySpeed / 1.2, 0, 1) : 0, carrySpeed,
+        zoom: weapons.ads, zoomFov: ADS.fov,
       });
       view.position.copy(cam.position); view.quaternion.copy(cam.quaternion); view.fov = cam.fov;
       if (cine) {
@@ -633,6 +665,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         wIn.reload = isPressed('KeyR') || dbgReload;
         wIn.slot = isPressed('Digit1') ? 'pistol' : isPressed('Digit2') ? 'shotgun' : isPressed('Digit3') ? 'carbine' : dbgSlot;
         wIn.wheel = inp.wheel;
+        wIn.aim = aimHeld();
         if (wIn.firePressed && ctrl.sprinting) noSprintT = 0.4;
         dbgFire = false; dbgReload = false; dbgSlot = null;
       } else if (cine) {
@@ -657,6 +690,11 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       motion.wall = wallT;
       motion.lower = weapons.lower;
       motion.strafe = clamp(ctrl.strafeSpeed / MOVE.walk, -1, 1);
+      motion.ads = weapons.ads;
+      motion.adsRaw = weapons.adsRaw;
+      motion.swayK = 1 - (1 - ADS.sway) * weapons.ads;
+      motion.fovScale = cine ? 1 : camRig.zoomScale;
+      setVmNear(VM_NEAR_ADS * weapons.ads);
       vm.update(dt, motion);
       vm.pistol.lf.setLevel(health / maxHealth);
       vm.shotgun.lf.setLevel(health / maxHealth);
@@ -665,12 +703,20 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
       // ── flashlight
       if (active && isPressed('KeyF')) {
-        flash.set(!flash.on);
-        ctx.events.emit('player:flashlight', { on: flash.on });
+        const r = flash.set(!flash.on);
+        ctx.events.emit('player:flashlight', { on: flash.on, cause: r === 'refused' ? 'refused' : 'toggle' });
       }
       const sway = ctrl.grounded ? Math.min(1, ctrl.speed / MOVE.walk) : 0;
-      flash.update(dt, ctx.camera.position, ctx.camera.quaternion, forward,
-        Math.sin(ctrl.bobPhase) * 0.012 * sway, -Math.abs(Math.cos(ctrl.bobPhase)) * 0.008 * sway);
+      // the cell burns only in play: not in a scene, not in the safe state (both hand the lamp back as it was)
+      const drain = alive && ctx.state === 'playing' && !cine && !safe;
+      const wasDying = flash.dying >= 0;
+      const died = flash.update(dt, ctx.camera.position, ctx.camera.quaternion, forward,
+        Math.sin(ctrl.bobPhase) * 0.012 * sway, -Math.abs(Math.cos(ctrl.bobPhase)) * 0.008 * sway, drain);
+      if (!wasDying && flash.dying >= 0) {
+        // the cell is flat: a small electric fizzle under the flicker (a dedicated `flashlight_die` would replace it)
+        try { ctx.audio.play('spark_zap', { volume: 0.09, pitch: 1.7 }); } catch { /* ignore */ }
+      }
+      if (died) ctx.events.emit('player:flashlight', { on: false, cause: 'empty' });
       setVmLight(flash.level);
 
       // ── interaction
@@ -702,7 +748,19 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     move: (fwd = 0, strafe = 0, sprint = false) => { dbgMove.fwd = fwd; dbgMove.strafe = strafe; dbgMove.sprint = sprint; },
     jump: () => { dbgMove.jump = true; },
     crouch: (on = true) => { dbgMove.crouch = on; },
-    flashlight: (on = true) => { flash.set(on); ctx.events.emit('player:flashlight', { on }); return on; },
+    flashlight: (on = true) => { flash.set(on); ctx.events.emit('player:flashlight', { on: flash.on, cause: 'story' }); return flash.on; },
+    /** The flashlight cell: set it (0 … 1) and/or read it back with its state. */
+    torch: (v?: number) => {
+      if (typeof v === 'number') flash.setCharge(v);
+      return { charge: +flash.charge.toFixed(4), on: flash.on, ready: flash.ready, dying: flash.dying >= 0, bright: +flash.bright.toFixed(3), infinite: flash.infinite, intensity: +flash.handle.factor.toFixed(3) };
+    },
+    /** The cell never drains (as `?torch=inf`); false restores the battery. */
+    torchInf: (on = true) => { flash.infinite = on; return on; },
+    torchConst: () => ({ ...TORCH }),
+    /** Hold / release aim (as the right mouse button). */
+    aim: (on = true) => { dbgAim = on; return on; },
+    /** ADS state: blend, raw progress, wanted+allowed, camera fov, look scale, walk cap. */
+    ads: () => ({ ads: +weapons.ads.toFixed(3), raw: +weapons.adsRaw.toFixed(3), aiming: weapons.aimingNow, fov: +ctx.camera.fov.toFixed(2), hipFov: +camRig.hipFov.toFixed(2), zoomScale: +camRig.zoomScale.toFixed(4), maxSpeed: moveIn.maxSpeed ?? null, speed: +ctrl.speed.toFixed(3), sprinting: ctrl.sprinting }),
     spawnPickup: (kind: PickupKind, x: number, y: number, z: number, amount = 10) => pickups.add(kind, new THREE.Vector3(x, y, z), amount),
     state: () => ({
       pos: ctrl.body.position.toArray().map((v) => +v.toFixed(3)), vel: ctrl.body.velocity.toArray().map((v) => +v.toFixed(2)),
@@ -712,6 +770,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       focus: focus?.id ?? null, lower: +weapons.lower.toFixed(2), clip: vm.active?.player.name ?? '',
       cinematic: cine ? cine.vm : null, safe, stowed: weapons.isStowed, vmVisible: vm.root.visible, consumed: [...consumed],
       armor, strap: strap ? strap.t : -1, charger: vm.carbine.chargerLocked,
+      torch: +flash.charge.toFixed(4), ads: +weapons.ads.toFixed(3),
     }),
     setPose: (id: WeaponId, x: number, y: number, z: number, rx: number, ry: number, rz: number) =>
       vm.rig(id).setBase(x, y, z, rx, ry, rz),

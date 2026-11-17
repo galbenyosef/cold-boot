@@ -336,6 +336,207 @@ if (want('carbine')) {
   check(ts.n === 1 && !ts.alive, `skitter at 8 m dies after 1 hit: ${JSON.stringify(ts)}`);
 }
 
+// ───────────────────────────────────────────────────────────── carbine aim down the sights
+/** Wait (rAF) until `fn()` in the page is truthy or `ms` pass; returns { ok, t (s), v }. */
+const until = (fn, ms = 3000) => ev(async ([src, ms]) => {
+  const f = new Function('g', 'p', `return (${src})`);
+  const g = window.__game, p = g.player, t0 = performance.now();
+  let v;
+  while (performance.now() - t0 < ms) { v = f(g, p); if (v) return { ok: true, t: (performance.now() - t0) / 1000, v }; await new Promise((r) => requestAnimationFrame(r)); }
+  return { ok: false, t: ms / 1000, v: f(g, p) };
+}, [fn, ms]);
+if (want('ads')) {
+  console.log('══════════ carbine aim down the sights ══════════');
+  await open('&level=4&god=1&give=all&spawn=-13.5,4.8,-20,0'); // corr_w: a long straight corridor ahead
+  const S = await ev(() => window.__game.player.debug.stats().carbine.ads);
+  await ev(() => { const p = window.__game.player; p.debug.switchTo('carbine'); });
+  await until(`p.currentWeapon === 'carbine' && p.debug.state().lower === 0`);
+  // FOV, look scale, walk speed, no sprint
+  await ev(() => window.__game.player.debug.aim(true));
+  const up = await until(`p.debug.ads().ads >= 1`);
+  const a1 = await ev(() => window.__game.player.debug.ads());
+  check(up.ok && up.t >= S.in - 0.05 && up.t <= S.in + 0.15, `aim raises in ${up.t.toFixed(2)} s (${S.in})`);
+  check(Math.abs(a1.fov - S.fov) < 0.5 && Math.abs(a1.zoomScale - Math.tan(S.fov * Math.PI / 360) / Math.tan(a1.hipFov * Math.PI / 360)) < 0.01,
+    `aimed fov ${a1.fov}° (${S.fov}; hip ${a1.hipFov}), mouse look scaled ${a1.zoomScale} = tan ratio`);
+  const hud = await ev(() => document.querySelector('.cb .xhair')?.classList.contains('off'));
+  check(hud === true, `crosshair hidden while aimed (the iron sight is the crosshair)`);
+  await ev(() => window.__game.player.debug.move(1, 0, true));
+  await wait(1500);
+  const mv = await ev(() => window.__game.player.debug.ads());
+  check(Math.abs(mv.speed - 3.6 * S.move) < 0.12 && !mv.sprinting && mv.ads === 1, `aimed walk ${mv.speed} m/s (3.6 × ${S.move} = ${(3.6 * S.move).toFixed(2)}), sprint key ignored: ${JSON.stringify(mv)}`);
+  // aim + sprint: sprinting first, then aim → sprint ends, the sights come up
+  await ev(() => window.__game.player.debug.aim(false));
+  await wait(1200);
+  const sp0 = await ev(() => window.__game.player.debug.ads());
+  await ev(() => window.__game.player.debug.aim(true));
+  const sp1 = await until(`p.debug.ads().ads >= 1 && !p.debug.ads().sprinting`, 2000);
+  check(sp0.sprinting && sp0.ads === 0 && sp1.ok && sp1.t < 1.0, `sprinting (${sp0.speed} m/s, ads ${sp0.ads}) → aim: sprint ends, aimed after ${sp1.t.toFixed(2)} s`);
+  await ev(() => window.__game.player.debug.move(0, 0, false));
+  await wait(800);
+
+  // spread + climb over 30 rounds at 20 m: hip vs aimed (standing still, no hand compensation)
+  const burst30 = (aimed) => ev(async (aimed) => {
+    const g = window.__game, p = g.player;
+    p.debug.aim(aimed);
+    p.weapons.carbine.clip = 30; p.weapons.carbine.reserve = 180;
+    p.pitch = 0;
+    await new Promise((r) => setTimeout(r, 900));
+    const p0 = p.pitch;
+    const offs = [];
+    const off = g.events.on('weapon:fired', (e) => {
+      const f = p.forward, d = e.direction;
+      const c = Math.max(-1, Math.min(1, f.x * d.x + f.y * d.y + f.z * d.z));
+      offs.push(Math.acos(c));
+    });
+    p.debug.hold(true);
+    const t0 = performance.now();
+    while (offs.length < 30 && performance.now() - t0 < 5000) await new Promise((r) => requestAnimationFrame(r));
+    p.debug.hold(false);
+    await new Promise((r) => setTimeout(r, 90));
+    const peak = (p.pitch - p0) * 180 / Math.PI;
+    off?.();
+    await new Promise((r) => setTimeout(r, 1500));
+    const at20 = offs.map((a) => Math.tan(a) * 20 * 100); // cm off the point of aim at 20 m
+    const mean = at20.reduce((s, v) => s + v, 0) / (at20.length || 1);
+    return { n: offs.length, meanCm: +mean.toFixed(1), maxCm: +Math.max(...at20).toFixed(1), climbDeg: +peak.toFixed(2), ads: p.debug.ads().ads };
+  }, aimed);
+  const hip = await burst30(false);
+  const aimd = await burst30(true);
+  console.log(`  30 rounds at 20 m — hip: mean ${hip.meanCm} cm, max ${hip.maxCm} cm, climb ${hip.climbDeg}° · aimed: mean ${aimd.meanCm} cm, max ${aimd.maxCm} cm, climb ${aimd.climbDeg}°`);
+  check(hip.n === 30 && aimd.n === 30, `both bursts 30 rounds (${hip.n}, ${aimd.n})`);
+  check(aimd.meanCm <= hip.meanCm * 0.35 && aimd.maxCm <= 16, `aimed spread much tighter: mean ${aimd.meanCm} ≤ 0.35 × ${hip.meanCm} cm, max ${aimd.maxCm} ≤ 16 cm at 20 m`);
+  const ratio = aimd.climbDeg / hip.climbDeg;
+  check(ratio >= S.climb - 0.12 && ratio <= S.climb + 0.12 && aimd.climbDeg > 1, `aimed climb reduced, not removed: ${aimd.climbDeg}° vs hip ${hip.climbDeg}° (× ${ratio.toFixed(2)}, ${S.climb})`);
+
+  // aim + reload: drops out; holding on, the sights come back when the magazine is in
+  await ev(() => { const p = window.__game.player; p.weapons.carbine.clip = 10; p.weapons.carbine.reserve = 120; p.debug.aim(true); });
+  await until(`p.debug.ads().ads >= 1`);
+  await ev(() => window.__game.player.debug.reload());
+  const rd = await until(`p.weapons.carbine.reloading && p.debug.ads().ads === 0`, 1000);
+  const rb = await until(`!p.weapons.carbine.reloading && p.debug.ads().ads >= 1`, 4000);
+  check(rd.ok && rd.t <= S.out + 0.12 && rb.ok, `aim + reload: down in ${rd.t.toFixed(2)} s, reload runs, sights back after it (${rb.t.toFixed(2)} s)`);
+  // aim + switch: the pistol does not aim, fov back to the hip
+  await ev(() => window.__game.player.debug.switchTo('pistol'));
+  const sw = await until(`p.currentWeapon === 'pistol' && p.debug.state().lower === 0`, 2000);
+  const sws = await ev(() => window.__game.player.debug.ads());
+  check(sw.ok && sws.ads === 0 && Math.abs(sws.fov - sws.hipFov) < 0.2 && sws.maxSpeed === null, `aim + switch: pistol up, no aim (ads ${sws.ads}, fov ${sws.fov}, no walk cap) while the button is held`);
+  await ev(() => window.__game.player.debug.switchTo('carbine'));
+  const back = await until(`p.currentWeapon === 'carbine' && p.debug.ads().ads >= 1`, 2500);
+  check(back.ok, `back to the carbine with aim still held: aimed again (${back.t.toFixed(2)} s)`);
+  // safe state: lowered, no aim, hip fov
+  await ev(() => window.__game.player.setSafe(true));
+  const sf = await until(`p.debug.ads().ads === 0`, 1000);
+  await wait(500);
+  const sfs = await ev(() => window.__game.player.debug.ads());
+  check(sf.ok && sfs.ads === 0 && Math.abs(sfs.fov - sfs.hipFov) < 0.2, `aim in a safe room: no aim (ads ${sfs.ads}, fov ${sfs.fov})`);
+  await ev(() => window.__game.player.setSafe(false));
+  await until(`p.debug.ads().ads >= 1`, 2500);
+  // cinematic: out at once, nothing kept
+  const cn = await ev(() => { const p = window.__game.player; p.cinematic(true); const a = p.debug.ads(); return a; });
+  await wait(300);
+  const cn2 = await ev(() => { const p = window.__game.player; const a = p.debug.ads(); p.cinematic(false); return a; });
+  check(cn.ads === 0 && cn2.ads === 0, `cinematic drops the aim at once (${cn.ads}, ${cn2.ads})`);
+  await ev(() => window.__game.player.debug.aim(false));
+  await wait(400);
+  const rel = await ev(() => window.__game.player.debug.ads());
+  check(rel.ads === 0 && Math.abs(rel.fov - rel.hipFov) < 0.3, `released: hip, fov ${rel.fov}`);
+
+  // levels 1–3: no carbine aim with the pistol / shotgun (aim held changes nothing)
+  for (const lv of [1, 2, 3]) {
+    await open(`&level=${lv}&god=1`);
+    const r = await ev(async () => {
+      const p = window.__game.player;
+      p.give('pistol', 24); p.give('shotgun', 6);
+      await new Promise((r) => setTimeout(r, 900));
+      const before = p.debug.ads();
+      p.debug.aim(true); p.debug.move(1, 0, false);
+      await new Promise((r) => setTimeout(r, 1200));
+      const a = p.debug.ads();
+      p.debug.aim(false); p.debug.move(0, 0, false);
+      return { w: p.currentWeapon, before, a };
+    });
+    check(r.a.ads === 0 && Math.abs(r.a.fov - r.before.fov) < 0.3 && r.a.maxSpeed === null,
+      `level ${lv}: aim held with the ${r.w} changes nothing (no aim, fov ${r.a.fov}, no walk cap; walking ${r.a.speed} m/s)`);
+  }
+}
+
+// ───────────────────────────────────────────────────────────── flashlight battery
+if (want('torch')) {
+  console.log('══════════ flashlight battery ══════════');
+  await open('&level=1&god=1');
+  const C = await ev(() => window.__game.player.debug.torchConst());
+  await ev(() => {
+    const g = window.__game; window.__fl = [];
+    g.events.on('player:flashlight', (e) => window.__fl.push({ ...e, t: performance.now() }));
+  });
+  const fl = () => ev(() => window.__fl.splice(0));
+  const tq = () => ev(() => window.__game.player.debug.torch());
+  // drain rate: 2 s on = 2/burn of the cell (game clock ≈ wall clock at these frame rates)
+  await ev(() => { const p = window.__game.player; p.debug.torch(1); p.debug.flashlight(true); });
+  const d0 = await ev(() => ({ c: window.__game.player.debug.torch().charge, t: window.__game.time }));
+  await wait(2000);
+  const d1 = await ev(() => ({ c: window.__game.player.debug.torch().charge, t: window.__game.time }));
+  const rate = (d0.c - d1.c) / (d1.t - d0.t);
+  check(Math.abs(rate - 1 / C.burn) < 0.012, `drains ${(rate * 100).toFixed(1)} %/s while on (1/${C.burn} s = ${(100 / C.burn).toFixed(1)} %/s)`);
+  // the warning: below `warn` the beam sags
+  await ev(() => window.__game.player.debug.torch(0.1));
+  await wait(400);
+  const w = await ev(async () => { let mn = 1, mx = 0; for (let i = 0; i < 30; i++) { const b = window.__game.player.debug.torch().bright; mn = Math.min(mn, b); mx = Math.max(mx, b); await new Promise((r) => requestAnimationFrame(r)); } return { mn, mx }; });
+  check(w.mx < 0.9 && w.mn > 0, `low cell: the beam sags (brightness ${w.mn.toFixed(2)} … ${w.mx.toFixed(2)})`);
+  // empty: dies with a flicker, event cause 'empty', refused below the minimum, recharges while off
+  await fl();
+  await ev(() => window.__game.player.debug.torch(0.012));
+  const die = await until(`!p.flashlightOn`, 2500);
+  const evs = await fl();
+  check(die.ok && die.t >= C.die * 0.8 && die.t <= 0.12 * C.burn + C.die + 0.3 && evs.some((e) => e.cause === 'empty' && !e.on), `runs flat: dies after the ${C.die} s flicker (${die.t.toFixed(2)} s), player:flashlight {on:false, cause:'empty'}`);
+  await page.mouse.click(640, 360).catch(() => {});
+  await page.keyboard.down('KeyF'); await wait(60); await page.keyboard.up('KeyF');
+  await wait(100);
+  const ref = await ev(() => ({ on: window.__game.player.flashlightOn, ready: window.__game.player.flashlightReady }));
+  const evr = await fl();
+  check(!ref.on && !ref.ready && evr.some((e) => e.cause === 'refused'), `F on a flat cell is refused (dead click): ${JSON.stringify({ ref, evr })}`);
+  const hudFlat = await ev(() => document.querySelector('.cb .torch span')?.textContent);
+  check(hudFlat === 'CELL FLAT', `HUD says ${hudFlat}`);
+  const r0 = await ev(() => ({ c: window.__game.player.debug.torch().charge, t: window.__game.time }));
+  await wait(2000);
+  const r1 = await ev(() => ({ c: window.__game.player.debug.torch().charge, t: window.__game.time }));
+  const rr = (r1.c - r0.c) / (r1.t - r0.t);
+  check(Math.abs(rr - 1 / C.recharge) < 0.03, `recharges ${(rr * 100).toFixed(1)} %/s while off (1/${C.recharge} s)`);
+  const rdy = await ev(() => window.__game.player.flashlightReady);
+  check(rdy, `ready again (≥ ${C.minOn * 100} %) after 2 s off`);
+  // HUD meter: shown while recharging, hidden when full and off
+  const mShow = await ev(() => !document.querySelector('.cb .torch .cell')?.classList.contains('hide'));
+  await ev(() => window.__game.player.debug.torch(1));
+  await wait(200);
+  const mHide = await ev(() => document.querySelector('.cb .torch .cell')?.classList.contains('hide'));
+  check(mShow && mHide, `cell meter shown while recharging, hidden when full and off`);
+  // no drain in a scene, in the safe state, while paused
+  const hold = async (label, on, off) => {
+    await ev(() => { const p = window.__game.player; p.debug.torch(0.8); p.debug.flashlight(true); });
+    await ev(on);
+    await wait(1500);
+    const c = (await tq()).charge;
+    await ev(off);
+    check(Math.abs(c - 0.8) < 0.005, `no drain ${label} (0.8 → ${c})`);
+  };
+  await hold('in a cinematic', () => window.__game.player.cinematic(true), () => window.__game.player.cinematic(false));
+  await hold('in the safe state', () => window.__game.player.setSafe(true), () => window.__game.player.setSafe(false));
+  await hold('while paused', () => window.__game.setState('paused'), () => window.__game.setState('playing'));
+  // saved and restored with the checkpoint; a lamp saved on never restores onto an almost flat cell
+  const sv = await ev(() => { const p = window.__game.player; p.debug.torch(0.62); const s = p.snapshot(); p.debug.torch(0.1); p.debug.flashlight(false); p.restore(s); return { saved: s.torch, after: p.debug.torch().charge, on: p.flashlightOn }; });
+  check(Math.abs(sv.saved - 0.62) < 0.01 && Math.abs(sv.after - 0.62) < 0.01 && sv.on, `snapshot / restore keep the cell: ${JSON.stringify(sv)}`);
+  const sv2 = await ev(() => { const p = window.__game.player; const s = { ...p.snapshot(), torch: 0.03, flashlight: true }; p.restore(s); return p.debug.torch(); });
+  check(sv2.on && sv2.charge >= 0.5, `a lamp saved on with 3 % restores on with ≥ 50 %: ${JSON.stringify(sv2)}`);
+  const sv3 = await ev(() => { const p = window.__game.player; const s = { ...p.snapshot() }; delete s.torch; p.debug.torch(0.2); p.restore({ ...s, flashlight: true }); return p.debug.torch(); });
+  check(sv3.charge === 1, `an old save without a cell restores full: ${JSON.stringify(sv3)}`);
+  // ?torch=inf
+  await open('&level=1&god=1&torch=inf');
+  await ev(() => { const p = window.__game.player; p.debug.torch(0.5); p.debug.flashlight(true); });
+  await wait(1500);
+  const inf = await tq();
+  check(inf.infinite && inf.charge === 0.5 && inf.on, `?torch=inf: no drain (${JSON.stringify(inf)})`);
+}
+
 await browser.close();
 console.log(problems.length ? `\ncheck-weapons: ${problems.length} FAILED` : '\ncheck-weapons: all passed');
 process.exit(problems.length ? 1 : 0);

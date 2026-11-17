@@ -31,6 +31,14 @@ export const MAG_LEN = 0.168;
 const UW = 0.032; // upper width
 const LW = 0.030; // lower width
 const RAIL_T = 0.071;
+/**
+ * The iron-sight line (gun space): centre of the rear aperture ring and the tip of the front post. Aiming puts the
+ * eye on this line (the post tip on the point of aim, framed by the ring).
+ */
+export const SIGHT = {
+  rear: new THREE.Vector3(0, RAIL_T + 0.0245, -0.002),
+  front: new THREE.Vector3(0, RAIL_T + 0.015 + 0.0165, -0.3155),
+};
 
 const LOWER_PTS = [[-0.036, 0.029], [0.172, 0.029], [0.175, 0.006, 0.004], [0.152, 0.004, 0.003], [0.148, -0.034, 0.003], [0.08, -0.034, 0.003], [0.078, -0.012], [-0.012, -0.012], [-0.03, -0.002, 0.008]];
 const UPPER_PTS = [[-0.045, 0.028], [0.205, 0.028], [0.205, 0.064, 0.003], [0.2, RAIL_T], [-0.035, RAIL_T], [-0.045, 0.062, 0.004]];
