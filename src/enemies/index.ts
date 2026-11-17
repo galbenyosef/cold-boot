@@ -7,13 +7,13 @@
  * foreman spawn); otherwise they are built lazily on first use.
  */
 import * as THREE from 'three';
-import type { EnemyManager, GameContext } from '../core/types';
+import type { EnemyManager, EnemySkin, GameContext } from '../core/types';
 import { createManager, type EnemyFactory, type ActorFactories } from './manager';
-import { buildHuskTemplate } from './husk/model';
+import { buildHuskTemplate, type HuskTemplate } from './husk/model';
 import { Husk } from './husk/husk';
 import { buildSkitterTemplate } from './skitter/model';
 import { Skitter } from './skitter/skitter';
-import { buildSentryTemplate } from './sentry/model';
+import { buildSentryTemplate, type SentryTemplate } from './sentry/model';
 import { Sentry } from './sentry/sentry';
 import { buildForemanTemplate, type ForemanTemplate } from './foreman/model';
 import { Foreman } from './foreman/foreman';
@@ -38,9 +38,30 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const getHalv = () => (halvTpl ??= buildHalvorsenTemplate(ctx));
   /** §8.8: `ActorOpts.who` of the actor being created (FactoryOpts does not carry it; see the actor() wrapper below). */
   let nextWho: string | undefined;
-  const husk: EnemyFactory = (world, group, position, yaw, o) => new Husk(world, huskTpl, group, position, yaw, o);
+  // Stage 3b §8.4: skinned husk / sentry templates (a look only), built on first use or up front for the level's spawns
+  const huskSkins = new Map<EnemySkin, HuskTemplate>(), sentrySkins = new Map<EnemySkin, SentryTemplate>();
+  const huskOf = (skin?: EnemySkin): HuskTemplate => {
+    if (!skin) return huskTpl;
+    let t = huskSkins.get(skin);
+    if (!t) huskSkins.set(skin, (t = buildHuskTemplate(ctx, skin)));
+    return t;
+  };
+  const sentryOf = (skin?: EnemySkin): SentryTemplate => {
+    if (!skin) return sentryTpl;
+    let t = sentrySkins.get(skin);
+    if (!t) sentrySkins.set(skin, (t = buildSentryTemplate(ctx, skin)));
+    return t;
+  };
+  const husk: EnemyFactory = (world, group, position, yaw, o) => new Husk(world, huskOf(o.skin), group, position, yaw, o);
   const skitter: EnemyFactory = (world, group, position, yaw, o) => new Skitter(world, skitterTpl, group, position, yaw, o);
-  const sentry: EnemyFactory = (world, group, position, yaw, o) => new Sentry(world, sentryTpl, group, position, yaw, o);
+  const sentry: EnemyFactory = (world, group, position, yaw, o) => new Sentry(world, sentryOf(o.skin), group, position, yaw, o);
+  const skinned: { type: 'husk' | 'sentry'; skin: EnemySkin }[] = [];
+  for (const s of ctx.level?.enemySpawns ?? []) {
+    if (!s.skin || (s.type !== 'husk' && s.type !== 'sentry')) continue;
+    if (skinned.some((k) => k.type === s.type && k.skin === s.skin)) continue;
+    skinned.push({ type: s.type, skin: s.skin });
+    if (s.type === 'husk') huskOf(s.skin); else sentryOf(s.skin);
+  }
   const foreman: EnemyFactory = (world, group, position, yaw, o) => new Foreman(world, getForeman(), group, position, yaw, o);
   const human: EnemyFactory = (world, group, position, yaw, o) =>
     nextWho === 'halvorsen' ? new Halvorsen(world, getHalv(), group, position, yaw, o) : new Human(world, getHuman(), group, position, yaw, o);
@@ -101,6 +122,8 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   if (foremanTpl) templates.foreman = foremanTpl;
   if (humanTpl) templates.human = humanTpl;
   if (halvTpl) templates.halvorsen = halvTpl;
+  for (const [k, t] of huskSkins) templates['husk_' + k] = t;
+  for (const [k, t] of sentrySkins) templates['sentry_' + k] = t;
   (manager as any).templates = templates;
   // Pre-warm: one hidden, never-updated puppet per type stays in the scene so render.prepare() compiles every
   // enemy program (hero LOD, distance LOD, shadow proxy, glow) even when no machine of that type exists yet —
@@ -110,6 +133,10 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   if (needForeman) warm.push(foreman);
   if (cast.human && (cast.tomasHead || !wantHalv)) warm.push(human);
   if (wantHalv) warm.push((world, group, position, yaw, o) => new Halvorsen(world, getHalv(), group, position, yaw, o));
+  for (const { type, skin } of skinned) {
+    const f = type === 'husk' ? husk : sentry;
+    warm.push((world, group, position, yaw, o) => f(world, group, position, yaw, { ...o, skin }));
+  }
   for (const f of warm) {
     const e = f(warmWorld, '', new THREE.Vector3(0, -400, 0), 0, { dormant: false, pose: 'idle', actor: true });
     e.puppetEyes(true);

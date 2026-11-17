@@ -29,6 +29,11 @@
  *   &lookcam=1            he is pinned to the camera (lookAt(camera)); &camorbit=<rad/s> swings the camera round him
  *   &nohead=1             his procedural fallback head (as if the GLB failed to load)
  *   &colltest=1           logs where a player-sized capsule walking into him stops, and what a chest ray hits
+ * Stage 3b §8.4:
+ *   &skin=lab|navy|all    EnemySpawn.skin of the spawned husk / sentry; `all` cycles none, lab, navy over &n
+ *   &light=cold           clean-room light: cold white overhead panels (no warm key); &light=dark is the flashlight
+ *   &pstay=1              (state=dormant/idle) the scripted player stays at &ppos instead of 40 m away
+ *   &hood=1               a fume hood in front of the machine (surface 0.9 m, sash opening to 1.3 m) — &pose=bench
  */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -97,10 +102,10 @@ async function main() {
   } as any;
 
   // ── environment
-  if (!real || lightMode === 'studio' || lightMode === 'lamp') {
+  if (!real || lightMode === 'studio' || lightMode === 'lamp' || lightMode === 'cold') {
     const pm = new THREE.PMREMGenerator(renderer);
     scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = lightMode === 'dark' ? 0.04 : lightMode === 'lamp' ? 0.06 : 0.45;
+    scene.environmentIntensity = lightMode === 'dark' ? 0.04 : lightMode === 'lamp' ? 0.06 : lightMode === 'cold' ? 0.3 : 0.45;
   }
   scene.background = new THREE.Color(lightMode === 'dark' || lightMode === 'lamp' ? 0x030405 : 0x0b0d10);
   const floorMat = ctx.materials.get('floor_concrete');
@@ -120,6 +125,18 @@ async function main() {
     addBox(0.4, 8, 60, -4.2, 4, 0, wallMat); addBox(0.4, 8, 60, 4.2, 4, 0, wallMat);
     const vx = Number(P('vx', '0')), vz = Number(P('vz', '0'));
     if (q.get('vent') === '1') addBox(0.9, 0.4, 0.9, vx, 3.0, vz, wallMat);
+  }
+  if (q.get('hood') === '1') {
+    // stage 3b fume hood (pose=bench, yaw=0: the machine faces −z): work surface 0.9 m from 0.55 m ahead, 0.8 deep,
+    // sash glass from 1.3 m up, side walls, a roof; the sash plane 0.55 m ahead of the machine's feet
+    const hx = Number(P('x', '0')), hz = Number(P('z', '0')) - 0.55;
+    addBox(1.5, 0.9, 0.8, hx, 0.45, hz - 0.4, wallMat);
+    addBox(0.06, 1.6, 0.8, hx - 0.75, 1.7, hz - 0.4, wallMat); addBox(0.06, 1.6, 0.8, hx + 0.75, 1.7, hz - 0.4, wallMat);
+    addBox(1.56, 0.06, 0.8, hx, 2.5, hz - 0.4, wallMat); addBox(1.5, 1.6, 0.06, hx, 1.7, hz - 0.8, wallMat);
+    const gm = ctx.materials.get('glass').clone(); gm.transparent = true; gm.depthWrite = false;
+    const sash = new THREE.Mesh(new THREE.PlaneGeometry(1.44, 0.95), gm); sash.position.set(hx, 1.3 + 0.475, hz); scene.add(sash);
+    const rack = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.08), ctx.materials.get('plastic_white')); rack.position.set(hx - 0.15, 0.93, hz - 0.02); scene.add(rack);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.015, 0.09), ctx.materials.get('plastic_white')); plate.position.set(hx + 0.04, 0.908, hz - 0.08); scene.add(plate);
   }
   if (q.get('shelf') === '1') addBox(1.4, 1.0, 0.4, Number(P('x', '0')), 0.5, Number(P('z', '0')) + 0.62, wallMat);
   if (q.get('scene') === '1' || q.get('scene') === 'booth') {
@@ -169,6 +186,11 @@ async function main() {
     lights.add({ type: 'spot', position: new THREE.Vector3(0.5, 2.8, z0 + 0.3), target: new THREE.Vector3(0, 1.2, z0), color: 0xffc890, intensity: 45, distance: 8, angle: 0.8, penumbra: 0.8, castShadow: true });
     lights.add({ type: 'point', position: new THREE.Vector3(0, 0.8, z0 + 0.25), color: 0x6fb0ff, intensity: 0.25, distance: 1.5 }); // console glow
     lights.add({ type: 'point', position: new THREE.Vector3(3, 3, z0 + 6), color: 0x4a5a70, intensity: 3, distance: 14 });  // hall
+  } else if (lightMode === 'cold') {
+    // clean room: two cold white ceiling panels, a soft fill — the light of Bio-Sys
+    lights.add({ type: 'spot', position: new THREE.Vector3(0.8, 3.4, 1.6), target: new THREE.Vector3(0, 0.8, 0), color: 0xeef4ff, intensity: 160, distance: 14, angle: 1.0, penumbra: 0.9, castShadow: true });
+    lights.add({ type: 'point', position: new THREE.Vector3(-2.0, 3.2, 3.5), color: 0xdde8f5, intensity: 30, distance: 12 });
+    lights.add({ type: 'point', position: new THREE.Vector3(2.5, 3.0, -1.5), color: 0xe6eefa, intensity: 14, distance: 10 });
   } else if (lightMode === 'studio') {
     lights.add({ type: 'spot', position: new THREE.Vector3(3.5, 5, 5.5), target: new THREE.Vector3(0, 0.9, 0), color: 0xfff1e0, intensity: 520, distance: 30, angle: 0.5, penumbra: 0.6, castShadow: true });
     lights.add({ type: 'point', position: new THREE.Vector3(-4, 2.5, 1), color: 0x7fb0ff, intensity: 40, distance: 20 });
@@ -186,6 +208,7 @@ async function main() {
   const spawnPos = new THREE.Vector3(Number(P('x', '0')), pose === 'rack' ? 3.2 : pose === 'ceiling' ? 0 : Number(P('y', '0')), pose === 'slumped' ? -2.62 : Number(P('z', '0')));
   const dormant = pose !== 'none' || state === 'dormant';
   const enemySpawns: any[] = [];
+  const skinParam = q.get('skin');
   const yaw0 = Number(P('yaw', '180')) * Math.PI / 180; // default: face +Z (toward the default camera)
   const isActor = q.get('actor') === '1';
   if (state !== 'bind' && !state.startsWith('key:') && !isActor) {
@@ -193,6 +216,7 @@ async function main() {
       enemySpawns.push({
         id: 'h' + i, type, position: spawnPos.clone().add(new THREE.Vector3((i - (count - 1) / 2) * 1.3, 0, 0)), yaw: yaw0, group: P('group', 'g'),
         mode: state === 'emerge' ? 'spawn' : dormant ? 'dormant' : 'spawn', pose: pose === 'none' ? undefined : pose, idle: q.get('idle') ?? undefined,
+        skin: skinParam === 'all' ? [undefined, 'lab', 'navy'][i % 3] : skinParam ?? undefined,
       });
     }
   }
@@ -230,7 +254,8 @@ async function main() {
   } else if (state === 'emerge') {
     enemies.spawnGroup(P('group', 'g'));
   } else if (state === 'idle') {
-    for (const sp of enemySpawns) enemies.spawn(sp.type, sp.position, sp.yaw, 'g');
+    if (skinParam) enemies.spawnGroup('g'); // spawn() has no skin: go through the level spawn list
+    else for (const sp of enemySpawns) enemies.spawn(sp.type, sp.position, sp.yaw, 'g');
   } else if (!dormant) {
     enemies.spawnGroup(P('group', 'g'));
   }
@@ -299,7 +324,7 @@ async function main() {
       const t1 = Number(q.get('pnear'));
       const r = time < t1 ? 12 : time < 2 * t1 ? 4 : 12;
       player.position.set(ep.x, 0, ep.z + r);
-    } else if (state === 'idle' || state === 'dormant') { player.position.set(0, 0, -40); }
+    } else if ((state === 'idle' || state === 'dormant') && q.get('pstay') !== '1') { player.position.set(0, 0, -40); }
     else if (state === 'walk') {
       // keep far ahead so it walks; circle slowly
       const a = time * 0.12;

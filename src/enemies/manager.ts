@@ -3,7 +3,7 @@
  * separation between bodies, update LOD, corpse cap.
  */
 import * as THREE from 'three';
-import type { ActorLook, ActorType, Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySpawn, EnemyType, GameContext } from '../core/types';
+import type { ActorLook, ActorType, Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySkin, EnemySpawn, EnemyType, GameContext } from '../core/types';
 import { EnemyBase, type EnemyWorld } from './ai';
 import { NavGraph } from './nav';
 import { raycastVolumes, volumeNormal, type HitVolume, type VolumeHit } from './shared/hit';
@@ -17,6 +17,8 @@ export interface FactoryOpts {
   actor?: boolean;
   /** REVISION 5: actor look (holograms: husk actors only). */
   look?: ActorLook;
+  /** Stage 3b §8.4 (EnemySpawn.skin): visual variant of a husk / sentry; other types ignore it. A look only. */
+  skin?: EnemySkin;
 }
 
 /**
@@ -176,7 +178,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
 
   if (!ctx.debug.noEnemies) {
     for (const s of ctx.level.enemySpawns ?? []) {
-      if (s.mode === 'dormant') create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle });
+      if (s.mode === 'dormant') create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle, skin: s.skin });
       else pending.push(s);
     }
   }
@@ -292,8 +294,8 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         if (s.group !== group) continue;
         pending.splice(i, 1);
         // A spawn-mode entry with an `idle` hint arrives as an inert machine (story places it; it wakes only if provoked/woken).
-        if (s.idle) create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle });
-        else create(s.type, s.position, s.yaw, s.group, { dormant: false, pose: s.pose, emerge: true, delay: k * 0.45 });
+        if (s.idle) create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle, skin: s.skin });
+        else create(s.type, s.position, s.yaw, s.group, { dormant: false, pose: s.pose, emerge: true, delay: k * 0.45, skin: s.skin });
         k++;
       }
     },

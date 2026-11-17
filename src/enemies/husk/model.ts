@@ -5,7 +5,7 @@
  * Model space: feet on y = 0, facing +Z, the android's LEFT is +X. Bind pose: standing straight, arms down.
  */
 import * as THREE from 'three';
-import type { GameContext } from '../../core/types';
+import type { EnemySkin, GameContext } from '../../core/types';
 import { buildRigLods, glowMaterial, RigBuilder, tintOf, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, hlathe, keyLerp, patch, plate, rod, rng, shell, sphere, spow, torus, tube, wedge, xf, type V3 } from '../shared/prims';
 
@@ -43,6 +43,7 @@ function vnoise(x: number, y: number): number {
 
 /** Mask helper: jagged bite taken out of a plate around (cu, cv). */
 function chip(u: number, v: number, cu: number, cv: number, r: number, seed = 0, aspect = 1): boolean {
+  if (SKIN === 'lab') return false; // stage 3b: the clean-room units are unbroken
   const du = (u - cu) * aspect, dv = v - cv;
   const d = Math.hypot(du, dv);
   const n = vnoise(u * 9 + seed * 7.3, v * 9 + seed * 3.1) * 0.9 + vnoise(u * 23 + seed, v * 23) * 0.35;
@@ -51,6 +52,7 @@ function chip(u: number, v: number, cu: number, cv: number, r: number, seed = 0,
 
 /** Thin jagged crack line from (u0,v0) to (u1,v1). */
 function crack(u: number, v: number, u0: number, v0: number, u1: number, v1: number, w: number, seed = 0): boolean {
+  if (SKIN === 'lab') return false;
   const dx = u1 - u0, dy = v1 - v0;
   const l2 = dx * dx + dy * dy;
   let t = ((u - u0) * dx + (v - v0) * dy) / l2;
@@ -60,23 +62,83 @@ function crack(u: number, v: number, u0: number, v0: number, u1: number, v1: num
   return Math.hypot(u - px, v - py) < w * (1 - t * 0.6);
 }
 
-export function buildHuskTemplate(ctx: GameContext): HuskTemplate {
+/** Skin being authored (authorHusk / chip / crack read it; set only for the duration of one buildHuskTemplate). */
+let SKIN: EnemySkin | null = null;
+
+/**
+ * Stage 3b §8.4: `skin` dresses the same HD-7 for its place — `lab` (Bio-Sys clean room): unbroken white enamel, a
+ * pale-blue band, a clear face shield, BIO-SYS stencils, nitrile-gloved forearms; `navy` (the naval level): haze grey,
+ * hull numbers, a dock harness with a lift lug. Same skeleton, plates, pistons and hit volumes: a look only.
+ */
+export function buildHuskTemplate(ctx: GameContext, skin?: EnemySkin): HuskTemplate {
   const M = ctx.materials;
-  const signs = ['HD7-0417', 'HD7-0388', 'HD7-0452', 'HD7-0291'].map((t) => M.sign(t, 'stencil', 3));
+  const signs = skin === 'lab' ? ['BIO-SYS 03', 'BIO-SYS 11', 'BIO-SYS 17', 'BIO-SYS 26'].map((t) => tintedSign(ctx, t, LAB_INK))
+    : skin === 'navy' ? ['N-07', 'N-12', 'N-19', 'N-23'].map((t) => tintedSign(ctx, t, NAVY_INK))
+    : ['HD7-0417', 'HD7-0388', 'HD7-0452', 'HD7-0291'].map((t) => M.sign(t, 'stencil', 3));
   const mats: Record<string, THREE.Material> = {
     glow: glowMaterial(),
-    shell: huskShell(ctx), frame: M.get('robot_frame'), joint: M.get('robot_joint'), rubber: M.get('rubber'),
+    shell: huskShell(ctx, skin), frame: M.get('robot_frame'), joint: M.get('robot_joint'), rubber: M.get('rubber'),
     chrome: M.get('chrome'), steel: M.get('steel_raw'), painted: M.get('painted_orange'), glass: M.get('screen_off'),
     red: M.get('emissive_red'), cyan: M.get('emissive_cyan'), sign: signs[0],
   };
-  const { template, data } = buildRigLods(authorHusk, mats, {
-    radius: 1.5, center: new THREE.Vector3(0, 0.95, 0),
-    fold: { red: 'glow', cyan: 'glow', chrome: 'steel' }, tint: { red: tintOf(0xff0702, 2.2), cyan: tintOf(0x10c8ff, 2.5) },
-    lod: { k: 0.55, minFeature: 0.012, remap: { chrome: 'joint', steel: 'joint', glass: 'frame', rubber: 'frame', sign: 'shell' } },
-    proxy: { k: 0.25, minFeature: 0.03, exclude: ['glass', 'red', 'cyan', 'sign', 'chrome', 'rubber'] },
-    colorize: { shell: shellGrime },
-  });
-  return { rig: template, pistons: data.pistons, signs, plates: data.plates };
+  const remap: Record<string, string | null> = { chrome: 'joint', steel: 'joint', glass: 'frame', rubber: 'frame', sign: 'shell' };
+  const exclude = ['glass', 'red', 'cyan', 'sign', 'chrome', 'rubber'];
+  if (skin === 'lab') {
+    mats.stripe = skinPaint(ctx, 'lab_stripe');
+    mats.glove = skinPaint(ctx, 'lab_glove');
+    mats.shield = skinPaint(ctx, 'lab_shield');
+    remap.shield = null; exclude.push('shield', 'stripe');
+  } else if (skin === 'navy') {
+    mats.strap = skinPaint(ctx, 'navy_strap');
+    mats.lug = skinPaint(ctx, 'navy_lug');
+    remap.lug = 'strap';
+  }
+  SKIN = skin ?? null;
+  try {
+    const { template, data } = buildRigLods(authorHusk, mats, {
+      radius: 1.5, center: new THREE.Vector3(0, 0.95, 0),
+      fold: { red: 'glow', cyan: 'glow', chrome: 'steel' }, tint: { red: tintOf(0xff0702, 2.2), cyan: tintOf(0x10c8ff, 2.5) },
+      lod: { k: 0.55, minFeature: 0.012, remap },
+      proxy: { k: 0.25, minFeature: 0.03, exclude },
+      colorize: { shell: skin === 'lab' ? shellClean : shellGrime },
+    });
+    return { rig: template, pistons: data.pistons, signs, plates: data.plates };
+  } finally { SKIN = null; }
+}
+
+/** Stencil ink of the skins (multiplies the library stencil's light-grey paint). */
+const LAB_INK = new THREE.Color(0.035, 0.12, 0.42), NAVY_INK = new THREE.Color(1.9, 1.9, 1.85);
+/** A library stencil re-inked (a private clone; the shared sign is untouched). */
+export function tintedSign(ctx: GameContext, text: string, ink: THREE.Color, aspect = 3): THREE.MeshStandardMaterial {
+  const m = ctx.materials.sign(text, 'stencil', aspect).clone();
+  m.color.copy(ink);
+  return m;
+}
+
+/** Shared skin materials (per material library): private clones of library materials. */
+const skinMats = new Map<string, THREE.MeshStandardMaterial>();
+let skinLib: unknown = null;
+export function skinPaint(ctx: GameContext, key: 'lab_stripe' | 'lab_glove' | 'lab_shield' | 'lab_armor' | 'navy_strap' | 'navy_lug' | 'navy_armor' | 'navy_dark'): THREE.MeshStandardMaterial {
+  if (skinLib !== ctx.materials) { skinMats.clear(); skinLib = ctx.materials; }
+  let m = skinMats.get(key);
+  if (m) return m;
+  const M = ctx.materials;
+  switch (key) {
+    // pale-blue band: the white enamel tinted (same panel lines, a printed band)
+    case 'lab_stripe': m = M.clone('robot_shell', { color: new THREE.Color(0.1, 0.32, 0.8), roughness: 0.45 }); break;
+    // blue nitrile
+    case 'lab_glove': m = M.clone('plastic_white', { color: new THREE.Color(0.2, 0.36, 0.95), roughness: 0.55 }); break;
+    case 'lab_shield': m = M.clone('glass', { color: new THREE.Color(0.85, 0.92, 0.95), opacity: 0.22 }); break;
+    // sentry armour: no vertex colours (the sentry has none)
+    case 'lab_armor': m = M.clone('robot_shell', { color: new THREE.Color(1.12, 1.15, 1.18), roughness: 0.42 }); break;
+    case 'navy_armor': m = M.clone('robot_shell', { color: new THREE.Color(0.125, 0.15, 0.17), roughness: 0.62 }); break;
+    case 'navy_dark': m = M.clone('painted_dark'); break;
+    case 'navy_strap': m = M.clone('fabric', { color: new THREE.Color(1.5, 1.4, 0.75) }); // olive webbing break;
+    case 'navy_lug': m = M.clone('painted_yellow'); break;
+  }
+  m.name = 'enemy_' + key;
+  skinMats.set(key, m);
+  return m;
 }
 
 /**
@@ -354,11 +416,49 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
     for (const [a, v] of [[12, 0.93], [84, 0.9], [14, 0.24], [50, 0.93]] as const) b.addL(bolt(0.005, 0.004), chestAt(a, v, 0.008));
   }
   b.use('spine2').bind('p_chest_l').mat('sign');
-  b.addL(quad(0.07, 0.0233), chestAt(30, 0.72, 0.0105, 0, 0, true), true);
+  // stage 3b skins: the stencil (BIO-SYS / hull number) is painted larger, to read across a room
+  if (SKIN) b.addL(quad(0.105, 0.035), chestAt(42, 0.74, 0.0105, 0, 0, true), true);
+  else b.addL(quad(0.07, 0.0233), chestAt(30, 0.72, 0.0105, 0, 0, true), true);
   // back plate with spine channel
   b.use('spine2').bind('p_back').mat('shell');
   L(shell({ y0: 0.02, y1: 0.292, rx: chestRx, rz: chestRz, cz: chestCz, a0: 106 * D, a1: 254 * D, nu: 23, nv: 11, n: 2.9, thickness: 0.009,
     mask: (u, v) => !(Math.abs(u - 0.5) < 0.085 && v < 0.86) && !chip(u, v, 0.18, 0.0, 0.2, 31) && !(v > 0.5 && v < 0.56 && Math.abs(Math.abs(u - 0.5) - 0.27) < 0.1) && !(v > 0.62 && v < 0.68 && Math.abs(Math.abs(u - 0.5) - 0.27) < 0.1) }));
+  if (SKIN === 'lab') {
+    // pale-blue band round the chest (on the pectoral and back plates: it goes with them when they break)
+    const V0 = 0.36, V1 = 0.46, lift = 0.0035;
+    const band = (k: [number, number][]) => [[0, keyLerp(k, V0) + lift], [1, keyLerp(k, V1) + lift]] as [number, number][];
+    const bcz: [number, number][] = [[0, keyLerp(chestCz, V0)], [1, keyLerp(chestCz, V1)]];
+    for (const s of [1, -1]) {
+      b.use('spine2', s).bind('p_chest_' + (s > 0 ? 'l' : 'r')).mat('stripe');
+      L(shell({ y0: V0 * 0.285, y1: V1 * 0.285, rx: band(chestRx), rz: band(chestRz), cz: bcz, a0: 9 * D, a1: 97 * D, nu: 16, nv: 1, n: 2.9, thickness: 0.002 }));
+    }
+    b.use('spine2').bind('p_back').mat('stripe');
+    L(shell({ y0: V0 * 0.285, y1: V1 * 0.285, rx: band(chestRx), rz: band(chestRz), cz: bcz, a0: 106 * D, a1: 254 * D, nu: 28, nv: 1, n: 2.9, thickness: 0.002,
+      mask: (u) => Math.abs(u - 0.5) > 0.09 }));
+  } else if (SKIN === 'navy') {
+    // dock harness: webbing over both shoulders, a chest strap with a buckle, a yellow lift lug between the shoulder
+    // blades (a docked unit hangs from it). On the chest frame, not the plates: it stays when a plate breaks off.
+    b.use('spine2').bind('spine2').mat('strap');
+    const lift = 0.013;
+    const strap = (a0: number, a1: number, v0: number, v1: number) =>
+      L(shell({ y0: v0 * 0.285, y1: v1 * 0.285, rx: inset(chestRx, -lift), rz: inset(chestRz, -lift), cz: chestCz, a0: a0 * D, a1: a1 * D, nu: 3, nv: 10, n: 2.9, thickness: 0.004 }));
+    for (const s of [1, -1]) {
+      strap(s > 0 ? 30 : -42, s > 0 ? 42 : -30, 0.05, 1.0);     // front shoulder straps
+      strap(s > 0 ? 150 : 198, s > 0 ? 162 : 210, 0.05, 1.0);   // back shoulder straps
+      // over the shoulder: front top → back top
+      L(rod([0.072 * s, 0.282, 0.075], [0.07 * s, 0.305, 0.0], 0.008, 6));
+      L(rod([0.07 * s, 0.305, 0.0], [0.072 * s, 0.282, -0.085], 0.008, 6));
+    }
+    // chest strap across both pectorals + buckle
+    L(shell({ y0: 0.5 * 0.285, y1: 0.58 * 0.285, rx: inset(chestRx, -lift - 0.004), rz: inset(chestRz, -lift - 0.004), cz: chestCz, a0: -78 * D, a1: 78 * D, nu: 22, nv: 1, n: 2.9, thickness: 0.004 }));
+    b.mat('steel');
+    L(box(0.04, 0.03, 0.012, 0.003), 0, 0.54 * 0.285, keyLerp(chestRz, 0.54) + keyLerp(chestCz, 0.54) + lift + 0.01);
+    // lift lug plate + ring on the back
+    b.mat('lug');
+    L(box(0.075, 0.06, 0.012, 0.004), 0, 0.235, -(keyLerp(chestRz, 0.82) - keyLerp(chestCz, 0.82)) - lift - 0.008);
+    b.mat('steel');
+    L(torus(0.022, 0.005, 6, 14), 0, 0.285, -(keyLerp(chestRz, 0.95) - keyLerp(chestCz, 0.95)) - lift - 0.012);
+  }
   b.bind('spine2').mat('rubber');
   // hoses from the back into the neck
   for (const s of [-1, 1]) {
@@ -433,6 +533,14 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   b.bind('p_cranium');
   L(headShell(80 * D, 280 * D, 26, 20, 0.12, 1.0, 0, 0.007, (u, v) => !chip(u, v, 0.72, 0.5, 0.2, 17, 1.4) && !crack(u, v, 0.66, 0.6, 0.35, 0.95, 0.02, 19)));
   L(headShell(-80 * D, 80 * D, 16, 4, 0.86, 1.0, 0, 0.007));
+  if (SKIN === 'lab') {
+    // clear face shield on a pale-blue headband (rides on the face plate: a head shot that takes the plate takes it)
+    b.bind('p_face').mat('shield');
+    L(headShell(-74 * D, 74 * D, 20, 10, 0.06, 0.8, -0.022, 0.002));
+    b.mat('stripe');
+    L(headShell(-96 * D, 96 * D, 22, 1, 0.78, 0.86, -0.006, 0.004));
+    L(headShell(-74 * D, 74 * D, 18, 1, 0.78, 0.8, -0.024, 0.006));
+  }
   b.bind('head');
   // ear hubs + chin sensor + rear vent
   for (const s of [-1, 1]) {
@@ -463,6 +571,12 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
     L(shell({ y0: -0.245, y1: -0.07, rx: [[0, 0.037], [0.5, 0.048], [1, 0.05]], rz: [[0, 0.04], [0.5, 0.052], [1, 0.052]], a0: -35 * D, a1: 215 * D, nu: 16, nv: 8, n: 2.6,
       trim0: [[0, 30 * D], [0.5, 0], [1, 0]], trim1: [[0, -30 * D], [0.5, 0], [1, 0]],
       mask: s > 0 ? (u, v) => !(v > 0.42 && v < 0.5 && u > 0.3 && u < 0.7) : (u, v) => !chip(u, v, 0.35, 0.05, 0.3, 41) && !crack(u, v, 0.4, 0.3, 0.6, 0.95, 0.03, 42) }));
+    if (SKIN === 'lab') {
+      // pale-blue band round the upper arm
+      b.mat('stripe');
+      L(shell({ y0: -0.12, y1: -0.095, rx: [[0, 0.0525], [1, 0.0535]], rz: [[0, 0.0545], [1, 0.0545]], a0: -35 * D, a1: 215 * D, nu: 16, nv: 1, n: 2.6, thickness: 0.002 }));
+      b.mat('shell');
+    }
     // pauldron: a domed cap hugging the shoulder ball
     b.bind('p_shoulder_' + sfx);
     L(patch((u, v, out) => {
@@ -485,6 +599,12 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
     b.mat('rubber');
     L(tube([[0.0, -0.03, 0.022], [0.004, -0.1, 0.03], [-0.002, -0.19, 0.026], [0, -K.larm + 0.03, 0.018]], 0.0055, 5, 10));
     L(tube([[-0.01, -0.03, -0.02], [-0.02, -0.12, -0.022], [-0.008, -0.2, -0.02], [-0.006, -K.larm + 0.03, -0.016]], 0.0045, 5, 10));
+    if (SKIN === 'lab') {
+      // long nitrile glove pulled up over the forearm, rolled cuff
+      b.mat('glove');
+      L(hlathe([[0.036, -K.larm + 0.004], [0.04, -K.larm + 0.03], [0.047, -0.16], [0.052, -0.115], [0.054, -0.104]], 14));
+      L(torus(0.054, 0.005, 5, 16), 0, -0.104, 0, 90 * D);
+    }
     if (s > 0) {
       b.bind('p_larm_l').mat('shell');
       L(shell({ y0: -K.larm + 0.035, y1: -0.045, rx: [[0, 0.034], [0.6, 0.044], [1, 0.04]], rz: [[0, 0.036], [0.6, 0.046], [1, 0.042]], a0: -30 * D, a1: 215 * D, nu: 14, nv: 6, n: 2.6,
@@ -503,22 +623,24 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
     }
   }
   // left hand: palm + fingers
-  b.use('hand_l').mat('frame');
+  // (lab skin: the whole hand is gloved)
+  const gl = (m: string) => (SKIN === 'lab' ? 'glove' : m);
+  b.use('hand_l').mat(gl('frame'));
   L(box(0.07, 0.075, 0.028, 0.008), 0, -0.05, 0);
   L(bcyl(0.02, 0.03, 0.004, 10), 0, -0.006, 0);
-  b.mat('shell'); L(box(0.06, 0.055, 0.008, 0.003), 0, -0.05, -0.017);
-  b.mat('joint'); L(rod([-0.034, -0.092, 0], [0.034, -0.092, 0], 0.008, 8));
+  b.mat(gl('shell')); L(box(0.06, 0.055, 0.008, 0.003), 0, -0.05, -0.017);
+  b.mat(gl('joint')); L(rod([-0.034, -0.092, 0], [0.034, -0.092, 0], 0.008, 8));
   for (let i = 0; i < 3; i++) {
     const x = -0.024 + i * 0.024;
-    b.bind('fing_l').mat('frame'); L(box(0.017, 0.042, 0.017, 0.004), x, -0.118, 0);
-    b.mat('joint'); L(rod([x - 0.009, -0.142, 0], [x + 0.009, -0.142, 0], 0.007, 6));
-    b.bind('fing2_l').mat('frame'); L(wedge(0.011, 0.011, 0.015, 0.015, 0.045), x, -0.168, 0);
-    b.mat('rubber'); L(box(0.011, 0.02, 0.005), x, -0.176, 0.008);
+    b.bind('fing_l').mat(gl('frame')); L(box(0.017, 0.042, 0.017, 0.004), x, -0.118, 0);
+    b.mat(gl('joint')); L(rod([x - 0.009, -0.142, 0], [x + 0.009, -0.142, 0], 0.007, 6));
+    b.bind('fing2_l').mat(gl('frame')); L(wedge(0.011, 0.011, 0.015, 0.015, 0.045), x, -0.168, 0);
+    b.mat(gl('rubber')); L(box(0.011, 0.02, 0.005), x, -0.176, 0.008);
   }
-  b.bind('thumb_l').mat('frame');
+  b.bind('thumb_l').mat(gl('frame'));
   L(rod([-0.03, -0.045, 0.02], [-0.045, -0.075, 0.035], 0.009, 6));
   L(rod([-0.045, -0.075, 0.035], [-0.04, -0.105, 0.045], 0.007, 6));
-  b.mat('joint'); L(sphere(0.011, 8, 6), -0.03, -0.045, 0.02);
+  b.mat(gl('joint')); L(sphere(0.011, 8, 6), -0.03, -0.045, 0.02);
 
   // right hand: tool mount + three interchangeable tools
   b.use('hand_r', -1).mat('frame');
@@ -645,27 +767,48 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
  * Worn shell: the library's robot_shell reads as clean white plastic under direct light. Darker, warmer albedo,
  * rougher, weaker reflections; vertex colours (shellGrime) add grime toward the feet, in crevices and undersides.
  */
-let _shell: THREE.MeshStandardMaterial | null = null;
-export function huskShell(ctx: GameContext): THREE.MeshStandardMaterial {
-  if (_shell && (_shell as any).__lib === ctx.materials) return _shell;
+const _shells = new Map<string, THREE.MeshStandardMaterial>();
+export function huskShell(ctx: GameContext, skin?: EnemySkin): THREE.MeshStandardMaterial {
+  const key = skin ?? 'worn';
+  let m = _shells.get(key);
+  if (m && (m as any).__lib === ctx.materials) return m;
   const base = ctx.materials.get('robot_shell');
-  const m = ctx.materials.clone('robot_shell', {
-    color: new THREE.Color(0.45, 0.43, 0.38).multiply(base.color ?? new THREE.Color(1, 1, 1)),
-    roughness: Math.min(1, (base.roughness ?? 0.5) * 1.4 + 0.15),
-    vertexColors: true,
-  });
+  const bc = base.color ?? new THREE.Color(1, 1, 1), br = base.roughness ?? 0.5;
+  m = skin === 'lab'
+    // stage 3b: Bio-Sys clean-room enamel — bright, satin, kept clean (shellClean)
+    ? ctx.materials.clone('robot_shell', { color: new THREE.Color(1.1, 1.13, 1.16).multiply(bc), roughness: Math.min(1, br * 0.8), vertexColors: true })
+    : skin === 'navy'
+      // stage 3b: haze grey (0x7b858c over the shell's light albedo), worn like the rest (shellGrime)
+      ? ctx.materials.clone('robot_shell', { color: new THREE.Color(0.165, 0.2, 0.22).multiply(bc), roughness: Math.min(1, br * 1.3 + 0.1), vertexColors: true })
+      : ctx.materials.clone('robot_shell', {
+        color: new THREE.Color(0.45, 0.43, 0.38).multiply(bc),
+        roughness: Math.min(1, br * 1.4 + 0.15),
+        vertexColors: true,
+      });
   (m as any).__lib = ctx.materials;
-  (m as any).__envMul = 0.6;
-  m.name = 'husk_shell_worn';
-  _shell = m;
+  (m as any).__envMul = skin === 'lab' ? 0.9 : 0.6;
+  m.name = skin ? 'husk_shell_' + skin : 'husk_shell_worn';
+  _shells.set(key, m);
   return m;
 }
 
-/** Keep the worn shell's reflections at a fraction of the library value (setEnvMap resets clones). */
+/** Keep the shells' reflections at a fraction of the library value (setEnvMap resets clones). */
 export function syncShellEnv(ctx: GameContext): void {
-  if (!_shell) return;
-  const want = ctx.materials.get('robot_shell').envMapIntensity * (_shell as any).__envMul;
-  if (_shell.envMapIntensity !== want) _shell.envMapIntensity = want;
+  if (_shells.size === 0) return;
+  const lib = ctx.materials.get('robot_shell').envMapIntensity;
+  for (const m of _shells.values()) {
+    const want = lib * (m as any).__envMul;
+    if (m.envMapIntensity !== want) m.envMapIntensity = want;
+  }
+}
+
+/** Stage 3b lab skin: kept clean — a faint mottle, a little shade underneath and at the feet, no streaks. */
+export function shellClean(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
+  const big = vnoise(p.x * 5 + p.z * 2.1, p.y * 4.5 + p.z * 1.7);
+  const low = THREE.MathUtils.clamp(1 - p.y / 0.5, 0, 1);
+  const under = Math.max(0, -n.y);
+  const k = THREE.MathUtils.clamp(1 - big * 0.06 - low * low * 0.12 - under * 0.12, 0.7, 1);
+  out.setRGB(k, k, k);
 }
 
 export function shellGrime(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {

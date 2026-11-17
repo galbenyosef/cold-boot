@@ -64,6 +64,28 @@ const FOLD_KEYS: number[][] = [
   [0.86, 0.18, 1.0, 0.24, -0.22, 1.0, 0.26, -1],
   [1.0, 0.2, 1.0, 0.26, -0.22, 1.0, 0.26, -1],
 ];
+/**
+ * Stage 3b §8.4 bench loop (6.2 s) keys: [u, Lx, Ly, Lz, Rx, Ry, Rz, plunger] in rig space (+x = its left, y from the
+ * feet). The left hand works a pipette at fume-hood height (surface ≈ 0.9 m, the sash plane ≈ 0.55 m ahead): over the
+ * tube, press, dip, release (draw up), lift, across to the plate, dip, dispense, blow out, lift, back. The right hand
+ * steadies the plate and nudges it on by one well at the end of each cycle.
+ */
+const BENCH_T = 6.2;
+const BENCH_KEYS: number[][] = [
+  [0.0, 0.15, 1.13, 0.52, -0.17, 0.98, 0.5, 0],
+  [0.08, 0.15, 1.13, 0.55, -0.17, 0.98, 0.5, 1],
+  [0.18, 0.15, 1.04, 0.56, -0.17, 0.98, 0.5, 1],
+  [0.3, 0.15, 1.04, 0.56, -0.17, 0.98, 0.5, 0],
+  [0.4, 0.14, 1.15, 0.54, -0.17, 0.98, 0.5, 0],
+  [0.53, -0.03, 1.12, 0.6, -0.17, 0.98, 0.5, 0],
+  [0.61, -0.03, 1.03, 0.61, -0.17, 0.98, 0.5, 0],
+  [0.7, -0.03, 1.03, 0.61, -0.17, 0.98, 0.5, 1],
+  [0.76, -0.03, 1.03, 0.61, -0.17, 0.98, 0.5, 1.3],
+  [0.84, -0.02, 1.14, 0.58, -0.17, 0.98, 0.5, 0],
+  [0.9, 0.06, 1.14, 0.55, -0.15, 0.975, 0.53, 0],
+  [0.95, 0.12, 1.13, 0.53, -0.17, 0.98, 0.5, 0],
+  [1.0, 0.15, 1.13, 0.52, -0.17, 0.98, 0.5, 0],
+];
 const _qi = new THREE.Quaternion();
 /** Raw damage a leg takes before it snaps at the knee; crawler grab damage. */
 const LEG_BREAK = 42, CRAWL_MELEE = 9, CRAWL_SPEED = 0.8;
@@ -140,7 +162,7 @@ export class Husk extends EnemyBase {
   private readonly gentle: boolean;
   private readonly idleKind: 'still' | 'watch' | 'work' | 'twitch' | 'worker';
   // REVISION 4: worker stealth task + puppet gaits + speech
-  private workKind: 'polish' | 'fold' | 'treadmill' = 'polish';
+  private workKind: 'polish' | 'fold' | 'treadmill' | 'bench' = 'polish';
   private props: WorkerProps | null = null;
   private workerT = 0; private litT = 0; private provokeT = 0; private stillDur = 0.9;
   private readonly home = new THREE.Vector3();
@@ -171,10 +193,13 @@ export class Husk extends EnemyBase {
   private pStuck = 0; private pLastD = 0;
   /** REVISION 5: spawn pose 'drop' — falls from ~4 m, lands, rises. */
   private dropIn = false;
+  /** Stage 3b lab skin: its white enamel face would glow pink in the full eye light — a dimmer eye light (look only). */
+  private readonly labSkin: boolean;
 
   constructor(world: EnemyWorld, private tpl: HuskTemplate, group: string, position: THREE.Vector3, yaw: number, o: FactoryOpts) {
     super(world, group, position, yaw, 0.35, 1.8);
     this.isActor = !!o.actor;
+    this.labSkin = o.skin === 'lab';
     const dormant = o.dormant && !this.isActor, pose = o.pose;
     this.gentle = group === GENTLE_GROUP;
     this.idleKind = o.idle === 'watch' || o.idle === 'work' || o.idle === 'twitch' || o.idle === 'worker' ? o.idle : 'still';
@@ -250,7 +275,7 @@ export class Husk extends EnemyBase {
     this.pose = dormant ? (pose === 'rack' || pose === 'slumped' || pose === 'standing' ? pose : 'standing') : '';
     if (this.isWorker) {
       this.pose = 'worker';
-      this.workKind = pose === 'fold' || pose === 'treadmill' ? pose : 'polish';
+      this.workKind = pose === 'fold' || pose === 'treadmill' || pose === 'bench' ? pose : 'polish';
       this.home.copy(this.body.position);
       this.limp = 0; // workers walk / fold like the people they were
       this.gait = 'human';
@@ -400,7 +425,7 @@ export class Husk extends EnemyBase {
   private addEyeLight(): void {
     if (!this.light) {
       try {
-        this.light = this.world.ctx.render.lights.add({ type: 'point', position: new THREE.Vector3().copy(this.body.position).setY(this.body.position.y + 1.6), color: 0xff2412, intensity: 0.5, distance: 2.6, priority: 0.2 });
+        this.light = this.world.ctx.render.lights.add({ type: 'point', position: new THREE.Vector3().copy(this.body.position).setY(this.body.position.y + 1.6), color: 0xff2412, intensity: this.labSkin ? 0.2 : 0.5, distance: 2.6, priority: 0.2 });
         if ((this.gentle && this.pose === 'slumped') || this.isWorker) this.light.intensityScale = 0;
       } catch { this.light = null; }
     }
@@ -831,6 +856,7 @@ export class Husk extends EnemyBase {
     this.B.neck.quaternion.identity(); this.B.head.quaternion.setFromAxisAngle(X, 4 * D2R);
     if (this.workKind === 'polish') this.polishTick(dt, show);
     else if (this.workKind === 'fold') this.foldTick(dt, show);
+    else if (this.workKind === 'bench') this.benchTick(dt, show);
     else this.treadTick(dt, show);
     this.tickWhisper(dt);
   }
@@ -938,6 +964,45 @@ export class Husk extends EnemyBase {
         pr.sheet(_v, _v3, len, u > 0.24 && u < 0.36 ? 1 : 0.25, w.time, _fw.set(Math.sin(ry), 0, Math.cos(ry)));
       }
     }
+  }
+
+  /** Stage 3b `bench`: pipetting at a fume hood, head down over the work (keys: BENCH_KEYS). */
+  private benchTick(dt: number, show: boolean): void {
+    const B = this.B, pr = this.props!;
+    const u = (this.workerT % BENCH_T) / BENCH_T, cyc = Math.floor(this.workerT / BENCH_T);
+    if (!show) return;
+    this.body.velocity.set(0, 0, 0);
+    this.locomote(dt);
+    const KEYS = BENCH_KEYS;
+    let k = 0;
+    while (k < KEYS.length - 2 && u >= KEYS[k + 1][0]) k++;
+    const a = KEYS[k], b = KEYS[k + 1];
+    const f = smooth((u - a[0]) / (b[0] - a[0]));
+    const lerp = (i: number) => a[i] + (b[i] - a[i]) * f;
+    // each cycle lands a little differently (the next well over)
+    const jx = noise1(cyc * 1.3, this.seed) * 0.02, jz = noise1(cyc * 0.9, this.seed + 4) * 0.015;
+    this.toWorld(lerp(1) + jx, lerp(2), lerp(3) + jz, _T);
+    this.toWorld(lerp(4), lerp(5), lerp(6), _v2);
+    const mx = (lerp(1) + lerp(4)) * 0.5;
+    // leans in toward the sash; the torso follows the pipette a little
+    B.spine1.quaternion.multiply(_q.setFromEuler(_e.set(0.14, mx * 0.35, 0)));
+    B.spine2.quaternion.multiply(_q.setFromEuler(_e.set(0.1, mx * 0.3, 0)));
+    this.handsTo(_T, _v2, 0.75, 0.25);
+    // wrist turned so the fist holds the pipette upright; fingers closed round it; the thumb on the plunger
+    B.hand_l.quaternion.setFromEuler(_e.set(0.5, 0, 0));
+    B.fing_l.quaternion.setFromEuler(_e.set(-1.1, 0, 0));
+    B.fing2_l.quaternion.setFromEuler(_e.set(-1.25, 0, 0));
+    const press = lerp(7);
+    B.thumb_l.quaternion.setFromEuler(_e.set(-0.3 - press * 0.25, 0, 0));
+    // head down over the work, following the tip
+    const ly = lerp(2);
+    B.neck.quaternion.multiply(_q.setFromEuler(_e.set(0.2, mx * 0.6, 0)));
+    B.head.quaternion.multiply(_q.setFromEuler(_e.set(0.26 + (1.13 - ly) * 0.6, mx * 0.5, noise1(this.workerT * 0.5, this.seed + 3) * 0.04)));
+    this.finishPose(dt);
+    // pipette in the left fist (grip ≈ 6 cm into the hand), upright, the plunger following the thumb
+    B.hand_l.updateWorldMatrix(true, false);
+    _v.set(0.0, -0.065, 0.012).applyMatrix4(B.hand_l.matrixWorld);
+    pr.pipette(_v, this.yaw + Math.PI, press);
   }
 
   /** Walking a treadmill: the body stays put, the feet run the belt (see treadFoot), a clearly human gait. */

@@ -4,7 +4,8 @@
  * Model space: origin at the pod centre, facing +Z.
  */
 import * as THREE from 'three';
-import type { GameContext } from '../../core/types';
+import type { EnemySkin, GameContext } from '../../core/types';
+import { skinPaint, tintedSign } from '../husk/model';
 import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, hlathe, patch, rod, sphere, torus, tube, wedge, xf } from '../shared/prims';
 
@@ -14,7 +15,11 @@ export const SN = { nacX: 0.275, ductR: 0.14, gimbalY: -0.105, gimbalZ: 0.085, m
 
 const D = Math.PI / 180;
 
-export function buildSentryTemplate(ctx: GameContext): SentryTemplate {
+/**
+ * Stage 3b §8.4 skins (a look only; same geometry): `lab` = white enamel armour with a pale-blue band (side panels,
+ * duct rings) and a BIO-SYS stencil; `navy` = haze-grey armour, dark panels with a white hull number.
+ */
+export function buildSentryTemplate(ctx: GameContext, skin?: EnemySkin): SentryTemplate {
   const M = ctx.materials;
   const mats: Record<string, THREE.Material> = {
     glow: glowMaterial(),
@@ -22,6 +27,13 @@ export function buildSentryTemplate(ctx: GameContext): SentryTemplate {
     steel: M.get('steel_raw'), chrome: M.get('chrome'), glass: M.get('screen_off'), lamp: M.get('emissive_white'), red: M.get('emissive_red'),
     sign: M.sign('SEC SD-2', 'warning', 3),
   };
+  if (skin === 'lab') {
+    mats.armor = skinPaint(ctx, 'lab_armor'); mats.accent = skinPaint(ctx, 'lab_stripe');
+    mats.sign = tintedSign(ctx, 'BIO-SYS', new THREE.Color(0.02, 0.06, 0.22));
+  } else if (skin === 'navy') {
+    mats.armor = skinPaint(ctx, 'navy_armor'); mats.accent = skinPaint(ctx, 'navy_dark');
+    mats.sign = tintedSign(ctx, 'N-04', new THREE.Color(1.9, 1.9, 1.85));
+  }
   const { template } = buildRigLods(authorSentry, mats, {
     radius: 0.8, center: new THREE.Vector3(0, 0, 0),
     fold: { red: 'glow', lamp: 'glow', chrome: 'steel' }, tint: { red: tintOf(0xff0702, 2.2), lamp: tintOf(0xe8f0ff, 4) },

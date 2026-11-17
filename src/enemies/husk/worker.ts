@@ -1,7 +1,7 @@
 /**
  * Props for REVISION 4 'worker' husks: the rotary floor polisher a `polish` unit pushes, and the coverall a `fold`
- * unit folds (a hanging sheet between the hands → a folded block placed on the pile). Plain meshes (not skinned),
- * library materials, a few hundred triangles.
+ * unit folds (a hanging sheet between the hands → a folded block placed on the pile), and (stage 3b) the hand pipette
+ * a `bench` unit works at a fume hood. Plain meshes (not skinned), library materials, a few hundred triangles.
  */
 import * as THREE from 'three';
 import type { GameContext, LoopHandle, MaterialName } from '../../core/types';
@@ -30,10 +30,14 @@ export class WorkerProps {
   private blockMesh: THREE.Mesh | null = null;
   private sheetPos: Float32Array | null = null;
   private loop: LoopHandle | null = null;
+  private pip: THREE.Group | null = null;
+  private plunger: THREE.Object3D | null = null;
+  /** Where the dropped pipette comes to rest (the hood's work surface, or the floor). */
+  private pipRest = -Infinity;
   private dropV = 0;
   dropped = false;
 
-  constructor(private ctx: GameContext, readonly kind: 'polish' | 'fold') {
+  constructor(private ctx: GameContext, readonly kind: 'polish' | 'fold' | 'bench') {
     if (!geo) {
       const skirt = new THREE.CylinderGeometry(0.235, 0.24, 0.05, 28, 1, true);
       geo = {
@@ -75,6 +79,24 @@ export class WorkerProps {
       cord.rotation.set(0.5, 0.4, 0);
       this.polisher = g;
       this.root.add(g);
+    } else if (kind === 'bench') {
+      // single-channel hand pipette, ~0.25 m: grip barrel with a finger hook, plunger + button on top, tip cone below.
+      // Local origin = the grip point; +Y up.
+      const g = new THREE.Group();
+      const white = M.get('plastic_white'), dark = M.get('plastic_dark');
+      const part = (gg: THREE.BufferGeometry, m: THREE.Material, y: number, parent: THREE.Object3D = g, x = 0, z = 0) => {
+        const mesh = new THREE.Mesh(gg, m); mesh.position.set(x, y, z); mesh.castShadow = true; parent.add(mesh); return mesh;
+      };
+      part(new THREE.CylinderGeometry(0.014, 0.012, 0.12, 12), white, 0.0);           // barrel (in the fist)
+      part(new THREE.BoxGeometry(0.012, 0.022, 0.03), white, 0.05, g, 0, -0.02);      // finger hook
+      part(new THREE.CylinderGeometry(0.009, 0.011, 0.05, 10), dark, -0.085);          // shaft
+      part(new THREE.CylinderGeometry(0.004, 0.0075, 0.03, 8), dark, -0.12);           // tip cone
+      part(new THREE.CylinderGeometry(0.0045, 0.001, 0.055, 8), white, -0.16);         // disposable tip
+      const pl = new THREE.Group(); g.add(pl); this.plunger = pl;
+      part(new THREE.CylinderGeometry(0.004, 0.004, 0.04, 8), dark, 0.075, pl);        // plunger rod
+      part(new THREE.CylinderGeometry(0.011, 0.011, 0.012, 12), dark, 0.098, pl);      // button
+      this.pip = g;
+      this.root.add(g);
     } else {
       const mat = coverallMaterial(ctx);
       const sheetMat = mat.clone(); sheetMat.side = THREE.DoubleSide;
@@ -101,6 +123,15 @@ export class WorkerProps {
     g.position.set(bar.x - (POLISHER_BAR.x * c + POLISHER_BAR.z * s), floorY, bar.z - (-POLISHER_BAR.x * s + POLISHER_BAR.z * c));
     if (this.discSpin) this.discSpin.rotation.y += (running ? 24 : 0) * dt;
     g.updateMatrixWorld(true);
+  }
+
+  /** Pipette: grip point at `p` (world), upright, facing rig yaw `ry`; `press` 0 … 1.3 (first stop, blow-out). */
+  pipette(p: THREE.Vector3, ry: number, press: number): void {
+    const g = this.pip;
+    if (!g || this.dropped) return;
+    g.position.copy(p);
+    g.rotation.set(0, ry, 0.08);
+    if (this.plunger) this.plunger.position.y = -Math.max(0, press) * 0.012;
   }
 
   /** World position of a handle grip (side +1 = operator's left). */
@@ -160,6 +191,11 @@ export class WorkerProps {
   drop(): void {
     this.dropped = true;
     this.sound(false, null);
+    if (this.pip) {
+      let hit = null;
+      try { hit = this.ctx.physics.raycast(this.pip.position.clone().setY(this.pip.position.y - 0.17), new THREE.Vector3(0, -1, 0), 3); } catch { hit = null; }
+      this.pipRest = hit ? hit.point.y : -Infinity;
+    }
   }
   tickDrop(dt: number, floorY: number): void {
     if (!this.dropped) return;
@@ -175,6 +211,12 @@ export class WorkerProps {
       this.block(c.setY(Math.max(floorY, c.y)), 0.4);
     }
     fall(this.blockMesh, 0);
+    if (this.pip) {
+      // the pipette drops out of the opened hand and lies on the floor
+      const restY = Math.max(floorY, this.pipRest);
+      if (this.pip.position.y > restY + 0.015) { this.dropV += 9.8 * dt; this.pip.position.y = Math.max(restY + 0.015, this.pip.position.y - this.dropV * dt); }
+      else this.pip.rotation.set(0, this.pip.rotation.y, Math.PI / 2);
+    }
   }
 
   setVisible(v: boolean): void { this.root.visible = v; }
