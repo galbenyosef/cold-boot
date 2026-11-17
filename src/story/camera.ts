@@ -32,8 +32,16 @@ const SHOTS_L3: Shot[] = [
   { from: v(-3.8, 2.4, -1.0), to: v(-3.0, 2.3, -1.8), lookFrom: v(1.5, 1.0, -8.5), lookTo: v(2.2, 1.0, -8.8), dur: 14, fov: 60 },
 ];
 
+/**
+ * Level 4 (stage 3b §8.1): corr_n from the shower exit, looking down the west corridor. Set for the built level (W4's
+ * greybox / the dressing); on K's stub room it frames the void outside the room.
+ */
+const SHOTS_L4: Shot[] = [
+  { from: v(-4, 6.45, -10.5), to: v(-3.4, 6.4, -11.0), lookFrom: v(-6, 6.0, -20), lookTo: v(-5.7, 6.0, -20.3), dur: 14, fov: 60 },
+];
+
 /** Menu shots per level (§8.1: a lookup, one entry per built level). */
-const SHOTS: Partial<Record<LevelId, Shot[]>> = { 1: SHOTS_L1, 2: SHOTS_L2, 3: SHOTS_L3 };
+const SHOTS: Partial<Record<LevelId, Shot[]>> = { 1: SHOTS_L1, 2: SHOTS_L2, 3: SHOTS_L3, 4: SHOTS_L4 };
 
 const BASE_FADE = 0.12;
 

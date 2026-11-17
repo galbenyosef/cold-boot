@@ -241,6 +241,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     get health() { return health; },
     set health(v: number) { health = clamp(v, 0, maxHealth); ctx.render.post.setLowHealth(lowHealthAmount()); },
     maxHealth,
+    // K placeholder (stage 3b §8.2, D18): no armour system until W1
+    armor: 0,
+    maxArmor: 100,
+    addArmor(_points: number) { return 0; },
     get alive() { return alive; },
     get controlsEnabled() { return controlsEnabled; },
     set controlsEnabled(v: boolean) { controlsEnabled = v; },

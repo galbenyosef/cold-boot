@@ -40,11 +40,14 @@ const INTENSITY: Record<ScreenKind, number> = {
   choice_stop: 2.2, choice_command: 2.2, palm: 3.0,
   // stage 3a §8.5 (habitat screens are calmer than the plant's; the feed matches render/dev/feedtest's monitor)
   pressure: 2.8, habitat_status: 2.4, badge: 2.8, feed: 2.0, cctv: 2.0,
+  // K placeholders (stage 3b §8.7; W6 draws the kinds and tunes these)
+  containment: 2.8, video_log: 2.2, roster: 2.6, theatre_cam: 2.2,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
   choice_stop: 6, choice_command: 6, palm: 24,
   pressure: 4, habitat_status: 4, badge: 8, feed: 12, cctv: 12,
+  containment: 8, video_log: 12, roster: 4, theatre_cam: 12, // K placeholders (W6)
 };
 /**
  * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must

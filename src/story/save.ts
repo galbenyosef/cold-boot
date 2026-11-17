@@ -9,9 +9,9 @@
  * Every access is wrapped in try/catch (private mode, disabled storage, quota); a blob that does not parse, has
  * another version / level / story revision or the wrong shape is discarded. Nothing here touches the game world.
  */
-import type { CarryV2, Facts, LevelId, PlayerSave, SaveV2, WeaponId } from '../core/types';
+import type { CarryV2, DebugFlags, Facts, LevelId, PlayerSave, SaveV2, WeaponId } from '../core/types';
 import { WEAPON_IDS } from '../core/types';
-import { FIRST_LEVEL, LEVEL_IDS, levelInfo, setStoredLevel, storedLevel } from '../core/progress';
+import { FIRST_LEVEL, LEVEL_IDS, levelInfo, nextOf, setStoredLevel, storedLevel } from '../core/progress';
 
 export const SAVE_VERSION = 2;
 /** sessionStorage flag: set by LOAD CHECKPOINT so the reloaded page resumes from the save (one click). */
@@ -28,6 +28,9 @@ export const saveKey = (level: LevelId): string => `coldboot.save.l${level}.v2`;
 
 const strings = (a: unknown): a is string[] => Array.isArray(a) && a.every((s) => typeof s === 'string');
 const num = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+/** Stage 3b §8.1: carried armour is 0 … 100 (`Player.maxArmor`); non-finite / missing → 0. */
+export const MAX_ARMOR = 100;
+export const clampArmor = (a: unknown): number => (num(a) ? Math.min(MAX_ARMOR, Math.max(0, Math.round(a))) : 0);
 
 // ───────────────────────────────────────────────────────────── generic checkpoint per level
 
@@ -196,8 +199,22 @@ export function emptyProgressL3(): ProgressL3 {
   return { beats: [], read: [], visited: [], heard: [], flags: {}, triggered: [], cleared: [], checkpoints: [], t: 0 };
 }
 
+// ───────────────────────────────────────────────────────────── level 4 (stage 3b §7, §8.1)
+
+export const CHECKPOINT_IDS_L4 = ['cp4_start', 'cp4_clean', 'cp4_cold', 'cp4_hold', 'cp4_lower', 'cp4_navy', 'cp4_armed'] as const;
+export type CheckpointIdL4 = typeof CHECKPOINT_IDS_L4[number];
+export const STORY_REV_L4 = 1;
+export const SPEC_L4: SaveSpec = { level: 4, rev: STORY_REV_L4, ids: CHECKPOINT_IDS_L4 };
+/**
+ * §7 `ProgressL4` = `ProgressL3`'s shape. `flags`: deconDone, showered, override, lightsOut, theatre, refused, armed,
+ * equalising, equalised, released, tubeFight, gateLock, video, roster (free-form record, owned by `src/story/l4`).
+ */
+export type ProgressL4 = ProgressL3;
+export type SaveDataL4 = SaveV2<ProgressL4, CheckpointIdL4>;
+export const emptyProgressL4 = emptyProgressL3;
+
 /** Every level's checkpoint spec (menu CONTINUE validates through these). */
-const SPECS: Partial<Record<LevelId, SaveSpec>> = { 1: SPEC_L1, 2: SPEC_L2, 3: SPEC_L3 };
+const SPECS: Partial<Record<LevelId, SaveSpec>> = { 1: SPEC_L1, 2: SPEC_L2, 3: SPEC_L3, 4: SPEC_L4 };
 
 /** The room name of a level's valid checkpoint (menu); null = no checkpoint (an invalid one is deleted). */
 function checkpointPlace(level: LevelId): string | null {
@@ -224,7 +241,7 @@ export function fullWeapons(w: unknown): CarryV2['weapons'] {
 
 export function makeCarry(from: LevelId, p: PlayerSave, facts: Facts): CarryV2 {
   const current: WeaponId | null = p.current && (WEAPON_IDS as readonly string[]).includes(p.current) ? p.current : null;
-  return { v: 2, from, health: Math.round(p.health), armor: num(p.armor) ? p.armor : 0, flashlight: !!p.flashlight, current, weapons: fullWeapons(p.weapons), facts: { ...facts } };
+  return { v: 2, from, health: Math.round(p.health), armor: clampArmor(p.armor), flashlight: !!p.flashlight, current, weapons: fullWeapons(p.weapons), facts: { ...facts } };
 }
 
 export function writeCarry(c: CarryV2): void {
@@ -238,17 +255,20 @@ export function readCarry(): CarryV2 | null {
     if (!c || typeof c !== 'object' || c.v !== 2 || !LEVEL_IDS.includes(c.from) || !num(c.health) || !validFacts(c.facts)) return null;
     if (!c.weapons || typeof c.weapons !== 'object') return null;
     return {
-      v: 2, from: c.from, health: c.health, armor: num(c.armor) ? c.armor : 0, flashlight: !!c.flashlight,
+      v: 2, from: c.from, health: c.health, armor: clampArmor(c.armor), flashlight: !!c.flashlight,
       current: (WEAPON_IDS as readonly unknown[]).includes(c.current) ? c.current : null,
       weapons: fullWeapons(c.weapons), facts: { ...c.facts },
     };
   } catch { return null; }
 }
 
-/** The carry that leads INTO `level` (written by the level whose `next` it is), or null. */
-export function loadCarryFor(level: LevelId): CarryV2 | null {
+/**
+ * The carry that leads INTO `level` (written by the level whose `next` it is — `nextOf(from, debug)`, so the test
+ * override `?next=3:4` lets level 4 accept 3's carry), or null.
+ */
+export function loadCarryFor(level: LevelId, debug?: Pick<DebugFlags, 'next'> | null): CarryV2 | null {
   const c = readCarry();
-  return c && levelInfo(c.from).next === level ? c : null;
+  return c && nextOf(c.from, debug) === level ? c : null;
 }
 
 // ───────────────────────────────────────────────────────────── menu / chain helpers

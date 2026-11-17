@@ -263,13 +263,15 @@ async function shots(page, id, tag, pos, wall, outPrefix, noShot = false) {
   const files = [];
   for (const side of noShot ? [1] : [1, -1]) {
     const f = `shots/checks/door-${id}-${tag}${side > 0 ? 'A' : 'B'}.png`;
-    await page.evaluate(({ pos, wall, side }) => {
+    await page.evaluate(({ id, pos, wall, side }) => {
       const g = window.__game, Vec = g.camera.position.constructor;
+      // stage 3b (K): stand on the door's own floor (a Deck-2 door at y 4.8), so room culling draws the rooms it joins
+      const fy = g.level.doors.find((x) => x.id === id)?.floor ?? 0;
       const dx = wall === 'z' ? 0 : 3 * side, dz = wall === 'z' ? 3 * side : 0;
       const ex = pos[0] + dx, ez = pos[1] + dz;
       const lx = pos[0] - ex, lz = pos[1] - ez, ly = 1.3 - 1.6;
-      g.player.teleport(new Vec(ex, 0, ez), Math.atan2(-lx, -lz), Math.atan2(ly, Math.hypot(lx, lz)));
-    }, { pos, wall, side });
+      g.player.teleport(new Vec(ex, fy, ez), Math.atan2(-lx, -lz), Math.atan2(ly, Math.hypot(lx, lz)));
+    }, { id, pos, wall, side });
     await page.waitForTimeout(noShot ? 700 : 900);
     if (noShot) continue;
     await page.screenshot({ path: f });

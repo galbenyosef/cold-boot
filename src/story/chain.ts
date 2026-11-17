@@ -4,7 +4,7 @@
  */
 import type { CarryV2, DebugFlags, Facts, GameContext, LevelId, PickupKind, PlayerSave } from '../core/types';
 import { WEAPON_IDS } from '../core/types';
-import { levelInfo, levelOf, setStoredLevel } from '../core/progress';
+import { levelInfo, levelOf, nextOf, setStoredLevel } from '../core/progress';
 import { clearLevelSave, loadCarryFor, makeCarry, requestContinue, writeCarry } from './save';
 
 /** URL parameters that force a level / its facts: dropped on a hand-over so the stored level wins. */
@@ -16,7 +16,7 @@ const FORCING_PARAMS = ['level', 'choice', 'units', 'continue'];
  */
 export function startFacts(level: LevelId, debug: DebugFlags): Facts {
   const facts: Facts = { ...levelInfo(level).direct.facts };
-  const carry = loadCarryFor(level);
+  const carry = loadCarryFor(level, debug);
   if (carry) Object.assign(facts, carry.facts);
   if (debug.choice) facts.choice = debug.choice;
   if (debug.units !== null && debug.units !== undefined) facts.unitsLeft = debug.units;
@@ -36,12 +36,13 @@ export function chainMode(ctx: GameContext): 'off' | 'store' | 'reload' {
 
 /**
  * Store the end of this level: the carry (loadout + facts), then this level's checkpoint is cleared. When the level
- * has a `next`, that level's old checkpoint is cleared and it becomes the stored level. Returns the next level or null.
+ * has a next (`nextOf`: `LEVELS[id].next`, or the test override `?next=`), that level's old checkpoint is cleared and
+ * it becomes the stored level. Returns the next level or null.
  */
 export function finishLevel(ctx: GameContext, carry: CarryV2): LevelId | null {
   writeCarry(carry);
   clearLevelSave(ctx.levelId);
-  const next = levelOf(ctx).next;
+  const next = nextOf(ctx.levelId, ctx.debug);
   if (next === null) { setStoredLevel(ctx.levelId); return null; }
   clearLevelSave(next);
   setStoredLevel(next);
@@ -66,7 +67,7 @@ export function carryOut(ctx: GameContext, extra: Facts = {}): CarryV2 {
 }
 
 /**
- * §8.1 `handOff`: store the carry and move on. false (and nothing reloads) when `LEVELS[level].next` is null or the
+ * §8.1 `handOff`: store the carry and move on. false (and nothing reloads) when `nextOf(level)` is null or the
  * chain is off / store-only in a test run; true when the page is navigating away.
  */
 export function handOff(ctx: GameContext, carry: CarryV2): boolean {
@@ -80,15 +81,15 @@ export function handOff(ctx: GameContext, carry: CarryV2): boolean {
 
 /**
  * A new run of this level starts with what the previous level ended with (the carry; health raised to the level's
- * floor), or — arriving by a debug URL — the level's direct-start loadout (§7). Skipped when the player module
- * already armed the player.
+ * floor; armour as carried, clamped 0 … 100 by `readCarry`), or — arriving by a debug URL — the level's direct-start
+ * loadout (§7; `armor` through `Player.addArmor`). Skipped when the player module already armed the player.
  */
 export function applyStartLoadout(ctx: GameContext): 'carry' | 'direct' | 'none' {
   const p = ctx.player;
   const info = levelOf(ctx);
   try {
     if (WEAPON_IDS.some((id) => p.weapons[id]?.owned)) return 'none';
-    const carry = loadCarryFor(ctx.levelId);
+    const carry = loadCarryFor(ctx.levelId, ctx.debug);
     if (carry) {
       const save: PlayerSave = { ...p.snapshot(), health: Math.max(info.healthFloor, carry.health), weapons: carry.weapons, current: carry.current, flashlight: carry.flashlight, armor: carry.armor };
       const apply = (p as unknown as { applyLoadout?: (s: PlayerSave) => void }).applyLoadout;
@@ -104,6 +105,7 @@ export function applyStartLoadout(ctx: GameContext): 'carry' | 'direct' | 'none'
       p.give(`ammo_${id}` as PickupKind, w.reserve);
     }
     if (d.health > p.health) p.heal(d.health - p.health);
+    if (d.armor && d.armor > 0) p.addArmor(d.armor);
     if (d.flashlight && !p.flashlightOn) {
       const apply = (p as unknown as { applyLoadout?: (s: Partial<PlayerSave>) => void }).applyLoadout;
       if (typeof apply === 'function') apply.call(p, { flashlight: true });

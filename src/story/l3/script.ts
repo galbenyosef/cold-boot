@@ -21,7 +21,7 @@ import type { CheckpointRule } from '../stage/base';
 import { applyPhase3 } from '../../level/l3/phases';
 import { BIO_DOOR, HATCH_A, HATCH_B, KITCHEN_DOOR, OFFICE, PDOOR, POOL, RADIO_ADMIN, RADIO_CANTEEN, RING_E, V, type Flags3, type HooksL3 } from './base';
 import { Scenes3 } from './scenes';
-import { OBJ3, OFFICE_READS, SCREEN3, TOAST3, countdown, fragmentsL3 } from './text';
+import { OBJ3, OFFICE_READS, SCREEN3, TOAST3, countdown, fragmentsL3, testHour } from './text';
 
 export const VIGNETTES_L3 = ['canteen_hatch_a', 'canteen_hatch_b', 'atr_roof_hatch'] as const;
 const SEALED_DOORS = ['d3_q1', 'd3_q2', 'd3_q3', 'd3_q4', 'd3_q5', 'd3_q6', 'd3_lobby', 'd3_shutter_ne', 'd3_pressure', 'd3_lobby_inner'];
@@ -191,6 +191,8 @@ export class ScriptL3 extends Scenes3 {
   private signParent: THREE.Object3D | null = null;
   /** Review: the takeover's lights / grade / effects / screens now (no beat, no doors) — frames from anywhere. */
   debugTakeover(): void { this.takeoverState(false); }
+  /** Stage 3b D20: the test hour now (3a's CLOCK: 62 + t/3600) — carried to 3b as fact `testHour`. */
+  clockHour(): number { return testHour(this.t); }
   /** Debug / check-chain: write a checkpoint now. */
   debugCheckpoint(id: CheckpointIdL3): boolean {
     try { this.hooks.checkpoint(id); if (!this.prog.checkpoints.includes(id)) this.prog.checkpoints.push(id); return true; } catch { return false; }

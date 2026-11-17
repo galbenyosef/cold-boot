@@ -16,9 +16,10 @@ import { carryOut, handOff } from './chain';
 import { preload } from './voice';
 import { createStoryL2 } from './l2';
 import { createStoryL3 } from './l3';
+import { createStoryL4 } from './l4';
 
 /** One level per page load (REVISION 4): the story of the level this page runs (§8.1: one entry per built level). */
-const STORIES: Partial<Record<LevelId, (ctx: GameContext) => Promise<StorySystem>>> = { 1: createStoryL1, 2: createStoryL2, 3: createStoryL3 };
+const STORIES: Partial<Record<LevelId, (ctx: GameContext) => Promise<StorySystem>>> = { 1: createStoryL1, 2: createStoryL2, 3: createStoryL3, 4: createStoryL4 };
 
 export async function createStory(ctx: GameContext): Promise<StorySystem> {
   const create = STORIES[ctx.levelId];

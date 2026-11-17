@@ -11,13 +11,18 @@ import { SkipRing } from './extra';
 import { levelOf } from '../core/progress';
 
 const SEGMENTS = 20;
-const WEAPON_NAMES: Record<WeaponId, string> = { pistol: 'HD-9 SIDEARM', shotgun: 'HD-12 BREACHER' };
+const WEAPON_NAMES: Record<WeaponId, string> = { pistol: 'HD-9 SIDEARM', shotgun: 'HD-12 BREACHER', carbine: 'CARBINE' /* K placeholder (W2a) */ };
 const PICKUP_TEXT: Record<PickupKind, [string, string]> = {
   pistol: ['HD-9 SIDEARM', 'weapon'],
   shotgun: ['HD-12 BREACHER', 'weapon'],
   ammo_pistol: ['9MM ROUNDS', ''],
   ammo_shotgun: ['12G SHELLS', ''],
   medkit: ['TRAUMA GEL', 'health'],
+  // K placeholders (stage 3b §8.2 / §8.3; W2a finalises)
+  carbine: ['CARBINE', 'weapon'],
+  ammo_carbine: ['CARBINE ROUNDS', ''],
+  vest: ['ARMOUR VEST', 'armour'],
+  plate: ['ARMOUR PLATE', 'armour'],
   keycard: ['LOCK-OUT KEY', 'weapon'],
 };
 

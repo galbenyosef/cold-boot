@@ -18,8 +18,9 @@ src/story/camera.ts :: no menu shots for level ${ctx.levelId}
 src/story/chain.ts :: clearLevelSave(ctx.levelId);
 src/story/chain.ts :: setStoredLevel(ctx.levelId); return null;
 src/story/chain.ts :: makeCarry(ctx.levelId,
-src/story/chain.ts :: loadCarryFor(ctx.levelId)
-src/story/save.ts :: import { FIRST_LEVEL, LEVEL_IDS, levelInfo, setStoredLevel, storedLevel } from '../core/progress';
+src/story/chain.ts :: loadCarryFor(ctx.levelId, ctx.debug)
+src/story/chain.ts :: nextOf(ctx.levelId, ctx.debug)
+src/story/save.ts :: import { FIRST_LEVEL, LEVEL_IDS, levelInfo, nextOf, setStoredLevel, storedLevel } from '../core/progress';
 src/story/save.ts :: const level = storedLevel();
 # dev pages build a fake ctx
 src/ui/dev/harness.ts :: levelId: parseLevel(q.get('level'))

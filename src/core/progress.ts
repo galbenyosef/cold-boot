@@ -3,7 +3,7 @@
  * reloads. `LEVELS` is the only place that knows per-level facts — modules look them up with `levelOf(ctx)`
  * instead of comparing level numbers (`npm run check:chain` greps for such branches).
  * Adding a level: set the previous level's `next`, set `built: true`, add one entry to the dispatch maps in
- * `level/index.ts` and `story/index.ts`.
+ * `level/index.ts`, `story/index.ts` and `story/camera.ts` (menu shots). The chain reads `next` only through `nextOf()`.
  * Owned by the coordinator. Every storage access is guarded (private mode / disabled storage).
  */
 import type { DebugFlags, DirectLoadout, LevelId, LevelInfo } from './types';
@@ -14,7 +14,7 @@ export const LEVEL_KEY = 'coldboot.level';
 export const FIRST_LEVEL: LevelId = 1;
 export const LEVEL_IDS: readonly LevelId[] = [1, 2, 3, 4, 5, 6];
 
-/** §7: a direct start without a carry (levels 2 and 3). */
+/** §7: a direct start without a carry (levels 2, 3 and 4). */
 const DIRECT: DirectLoadout = { weapons: { pistol: { clip: 12, reserve: 24 }, shotgun: { clip: 6, reserve: 8 } }, health: 100, flashlight: false };
 const NO_CAST = { foreman: false, human: false, tomasHead: false };
 
@@ -45,10 +45,18 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     keycardName: 'FACILITIES BADGE', endEyebrow: 'End of the Quiet Side', menuLine: 'Chapter 3  —  The Quiet Side', subtitles: 'stacked',
     cast: { foreman: false, human: true, tomasHead: false },
     direct: { facts: { choice: 'stop', unitsLeft: 28 }, loadout: { ...DIRECT, flashlight: true } }, healthFloor: 50,
-    // D19 / B5: stage 3b does not exist yet — the end card and the menu. 3b: `next: 4` and `LEVELS[4].built`.
+    // stage 3b D4: stays null on main until integration (I1) sets 4 — finishing 3a keeps today's end card + menu.
+    // Tests walk 3 → 4 through `?next=3:4` (`nextOf`).
     next: null,
   },
-  4: unbuilt(4),
+  4: {
+    id: 4, tag: 'l4', built: true, title: 'BIOLOGICAL SYSTEMS', place: 'Biological Systems', bootStatus: 'biological systems',
+    screenHeader: 'HALCYON BIO-SYSTEMS DIV. // ERIDU DEEP — BIOLOGICAL', camLabel: 'BIO', idleText: true, powerOnAtLoad: true,
+    keycardName: 'FACILITIES BADGE', endEyebrow: 'End of Biological Systems', menuLine: 'Chapter 3  —  Biological Systems', subtitles: 'stacked',
+    cast: { foreman: false, human: false, tomasHead: false },
+    direct: { facts: { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true }, loadout: { ...DIRECT, flashlight: true, armor: 0 } },
+    healthFloor: 50, next: null,
+  },
   5: unbuilt(5),
   6: unbuilt(6),
 };
@@ -72,7 +80,16 @@ export function levelOf(ctx: { levelId?: LevelId }): LevelInfo {
   return levelInfo(ctx.levelId);
 }
 
-/** The highest built level ≤ `id` (`?level=4` boots level 3 while 3b is unbuilt, §7). */
+/**
+ * Stage 3b §8.1: the level the chain hands over to after `id` — the test override `debug.next[id]` (`?next=3:4`) when
+ * given, else `LEVELS[id].next`. Every reader of the chain (finishLevel, the carry check, level ends) goes through it.
+ */
+export function nextOf(id: LevelId, debug?: Pick<DebugFlags, 'next'> | null): LevelId | null {
+  const o = debug?.next?.[id];
+  return o !== undefined && isLevelId(o) ? o : LEVELS[id].next;
+}
+
+/** The highest built level ≤ `id` (`?level=5` boots level 4 while 3c is unbuilt, §7). */
 export function clampBuilt(id: number): LevelId {
   let best: LevelId = FIRST_LEVEL;
   for (const l of LEVEL_IDS) if (LEVELS[l].built && l <= id) best = l;

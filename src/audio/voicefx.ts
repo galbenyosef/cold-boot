@@ -28,9 +28,10 @@ import { hashStr, mulberry } from './synth/core';
 export const FX_SR = 24000;
 const OUT_RMS = 0.13;
 
-export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door';
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen';
 
-export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door'];
+// `screen` (stage 3b D17): K placeholder entry — rendered as `recorder` until W2b gives it its own profile
+export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door', 'screen'];
 
 export function parseFx(fx: string | undefined | null): { name: VoiceFxName; arg: number | null } {
   const [raw, a] = String(fx ?? 'clean').toLowerCase().split(':');
@@ -220,7 +221,8 @@ export function fxLead(name: VoiceFxName): number {
 
 /** Render `fx` over the clean take(s). `layers[0]` is the line; more layers only for multi-voice lines. */
 export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedKey: string, leadIn = 0): Promise<AudioBuffer> {
-  const { name, arg } = parseFx(fxName);
+  const { name: parsed, arg } = parseFx(fxName);
+  const name: VoiceFxName = parsed === 'screen' ? 'recorder' : parsed; // K placeholder (W2b: `screen` = recorder alias)
   const rnd = mulberry(hashStr(seedKey) ^ 0x5eed);
   const src = layers.map((b) => skipLead(monoAt24k(b), leadIn));
   const base = src[0];

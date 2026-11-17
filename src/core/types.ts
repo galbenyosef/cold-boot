@@ -72,6 +72,11 @@ export interface DirectLoadout {
   weapons: Partial<Record<WeaponId, { clip: number; reserve: number }>>;
   health: number;
   flashlight: boolean;
+  /**
+   * Stage 3b §8.1: armour points on arrival (a data field, not a behaviour member; absent = 0). Applied through
+   * `Player.addArmor` by the chain's start loadout (story/chain.ts `applyStartLoadout`).
+   */
+  armor?: number;
 }
 
 /**
@@ -81,6 +86,11 @@ export interface DirectLoadout {
 export interface Facts {
   choice?: 'stop' | 'command';
   unitsLeft?: number;
+  /**
+   * Stage 3b D20: the test hour the previous level ended at (3a's `CLOCK`: 62 + t/3600). Written by 3a's end; 3b's
+   * `CLOCK4.arrivalHour = facts.testHour ?? 62 + 10/60`.
+   */
+  testHour?: number;
   [k: string]: string | number | boolean | undefined;
 }
 
@@ -90,7 +100,7 @@ export interface CarryV2 {
   /** The level that wrote it; only valid for `LEVELS[from].next`. */
   from: LevelId;
   health: number;
-  /** Armour points (no armour system yet: always 0). */
+  /** Armour points, 0 … 100 (stage 3b §8.1: `makeCarry` / `readCarry` clamp; non-finite → 0). */
   armor: number;
   flashlight: boolean;
   current: WeaponId | null;
@@ -141,6 +151,12 @@ export interface DebugFlags {
   choice: 'stop' | 'command' | null;
   /** ?units=N — `facts.unitsLeft` for a direct start (§7); null = carry / default. */
   units: number | null;
+  /**
+   * Stage 3b §8.1 / D4 (tests only): `?next=3:4[,4:5]` overrides `LEVELS[from].next` for this page load — read ONLY
+   * through `nextOf(id, debug)` (core/progress.ts). It survives a hand-over reload (not a forcing parameter), so a
+   * test can walk 3 → 4 while `LEVELS[3].next` is still null on main. null = no override.
+   */
+  next: Partial<Record<LevelId, LevelId>> | null;
   /** Smoothed frames per second, written by main loop. */
   fps: number;
 }
@@ -192,13 +208,19 @@ export interface Updatable {
 // ───────────────────────────────────────────────────────────── events
 
 export type Surface = 'metal' | 'concrete' | 'glass' | 'rubber' | 'robot' | 'flesh';
-export type WeaponId = 'pistol' | 'shotgun';
+/** Stage 3b §8.3: `carbine` = slot 3 (`Digit3`); wheel pistol → shotgun → carbine (owned only). */
+export type WeaponId = 'pistol' | 'shotgun' | 'carbine';
 /** §8.1: every WeaponId, in slot order. snapshot / restore / carry iterate this list (never hard-coded ids). */
-export const WEAPON_IDS: readonly WeaponId[] = ['pistol', 'shotgun'];
+export const WEAPON_IDS: readonly WeaponId[] = ['pistol', 'shotgun', 'carbine'];
 export type EnemyType = 'skitter' | 'husk' | 'sentry' | 'foreman';
 /** Scripted puppets (enemies.actor) may also be a human (REVISION 4: Tomas). */
 export type ActorType = EnemyType | 'human';
-export type PickupKind = 'pistol' | 'shotgun' | 'ammo_pistol' | 'ammo_shotgun' | 'medkit' | 'keycard';
+/**
+ * Stage 3b §8.2 / §8.3: `carbine` (weapon; amount = rounds, as the others), `ammo_carbine` (+amount to the reserve,
+ * cap 180), `vest` (+amount armour, 50 — taken by an interaction "Put on vest" with a 0.8 s strap, not on touch),
+ * `plate` (+amount armour, 15 — on touch while armour < 100). Until W1, `give` ignores the four (K placeholder).
+ */
+export type PickupKind = 'pistol' | 'shotgun' | 'carbine' | 'ammo_pistol' | 'ammo_shotgun' | 'ammo_carbine' | 'medkit' | 'keycard' | 'vest' | 'plate';
 export type MusicState = 'silence' | 'ambient' | 'tension' | 'combat' | 'aftermath';
 
 export interface GameEvents {
@@ -216,7 +238,13 @@ export interface GameEvents {
   'interact': { id: string; kind: string; position: THREE.Vector3 };
   'pickup': { kind: PickupKind; amount: number; position: THREE.Vector3 };
 
-  'player:damaged': { amount: number; health: number; from: THREE.Vector3 | null };
+  /**
+   * `amount` = health actually lost (unchanged meaning). Stage 3b §8.2: `absorbed` = points the armour took of this
+   * hit (absent = 0), `armor` = armour left after it (absent = 0).
+   */
+  'player:damaged': { amount: number; health: number; from: THREE.Vector3 | null; absorbed?: number; armor?: number };
+  /** Stage 3b §8.2: armour changed (vest, plate, a hit). `delta` = new − old. Not emitted by restore / carry snaps. */
+  'player:armor': { armor: number; delta: number };
   'player:healed': { amount: number; health: number };
   'player:died': {};
   'player:footstep': { position: THREE.Vector3; surface: Surface; running: boolean };
@@ -590,7 +618,8 @@ export type MaterialName =
   | 'emissive_amber'
   | 'emissive_cyan'
   | 'emissive_green'
-  | HabitatMaterialName;
+  | HabitatMaterialName
+  | ClinicalMaterialName;
 
 /**
  * Stage 3a habitat materials (docs/plans/stage-3a.md §8.6), implemented by task P1. Until then `get` warns and falls
@@ -611,6 +640,20 @@ export type HabitatMaterialName =
   | 'bark'                // smooth fig bark
   | 'water'               // dark high-gloss water, two scrolling ripple normals
   | 'glass_clear';        // clean architectural glass, faint fingerprints
+
+/**
+ * Stage 3b clean-side / navy materials (docs/plans/stage-3b.md §8.7), implemented by task W6. Until then `get` warns
+ * and falls back, and materials/defs keeps them out of its exhaustive SPECS record (W6 removes that exclusion).
+ */
+export type ClinicalMaterialName =
+  | 'wall_clean'          // white HPL panels 1.2 × 2.4 with silicone seams
+  | 'floor_epoxy'         // 0xd9dcdc gloss epoxy
+  | 'ceiling_clean'       // clean-room grid + HEPA diffusers
+  | 'stainless'           // #4 brushed stainless
+  | 'frost'               // frost crust 0xe6f2ff
+  | 'tyvek'               // crinkled spunbond (suits, bodies)
+  | 'navy_grey'           // haze grey 0x7b858c, chipped
+  | 'deck_nonslip';       // non-slip grit deck paint
 
 export type DecalName =
   | 'blood_splat' | 'blood_smear' | 'blood_pool' | 'oil_stain' | 'oil_drip' | 'scorch'
@@ -635,10 +678,18 @@ export type ScreenKind =
   | 'habitat_status'   // lobby status board (clock, EVENING, nodes online)
   | 'badge'            // badge reader
   | 'feed'             // live surveillance feed: `opts.texture` (RenderSystem.feed)
-  | 'cctv';            // canvas CCTV animation (only if the feed spike falls back, §8.4)
+  | 'cctv'             // canvas CCTV animation (only if the feed spike falls back, §8.4)
+  // stage 3b (§8.7, §6.4): drawn by materials once W6 lands; until then a blank panel (K placeholder)
+  | 'containment'      // amber hold panel: hazard bar, ticking counter, `[ ACKNOWLEDGE ]` box (`text` per §6.4)
+  | 'video_log'        // Sunde's video log (§6.4; the story animates it per line)
+  | 'roster'           // controller roster: 19 red + 4 grey dots, `NODE 2` (§6.4)
+  | 'theatre_cam';     // canvas close-up of the nape: LED dot + LINK state; `text` = '<cue>|<t>|<attempt>' (§6.4)
 
-/** `wayfinding` (stage 3a §8.6): habitat signage; until materials implement it, drawn like `stencil`. */
-export type SignStyle = 'label' | 'warning' | 'danger' | 'directional' | 'stencil' | 'wayfinding';
+/**
+ * `wayfinding` (stage 3a §8.6): habitat signage; until materials implement it, drawn like `stencil`.
+ * `clinical` (stage 3b §8.7): blue-grey Bio-Sys signage (W6); until then drawn like `stencil` (signs.ts fallback).
+ */
+export type SignStyle = 'label' | 'warning' | 'danger' | 'directional' | 'stencil' | 'wayfinding' | 'clinical';
 
 export interface MaterialLibrary extends Updatable {
   /** Shared instance — do NOT mutate. Unknown names log a warning and return a fallback. */
@@ -688,8 +739,10 @@ export interface FxSystem extends Updatable {
 /**
  * Voice processing names (`fx` of a line in voice/lines.*.json, audio/voicefx.ts `FX_NAMES`). `room` (dry close +
  * small-room reflections) and `door` (through a door) are stage 3a additions (§6.1, §8.11), implemented by P7.
+ * `screen` (stage 3b D17): a monitor's speaker = the `recorder` DSP chain with its own position profile (ref 4 m,
+ * rolloff 0.7; W2b). Until W2b it renders exactly as `recorder` (K placeholder in audio/voicefx.ts).
  */
-export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door';
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen';
 
 /** Sound ids are free-form strings; the list implemented by audio is in docs/DESIGN.md → Audio. */
 export interface PlayOpts {
@@ -803,7 +856,16 @@ export interface EnemySpawn {
    *            a weapon within 14 m, damages any of them, or keeps the flashlight on its head for 1.5 s.
    */
   idle?: 'still' | 'watch' | 'work' | 'twitch' | 'worker';
+  /**
+   * Stage 3b §8.4: visual variant of a husk / sentry (data only; absent = today's look). `lab` = Bio-Sys white,
+   * `navy` = haze grey with a hull number. Other types ignore it. Set by `LevelBuild.enemy(…, opts?: { skin })` (W4),
+   * drawn by W5.
+   */
+  skin?: EnemySkin;
 }
+
+/** Stage 3b §8.4: enemy skins (see EnemySpawn.skin). */
+export type EnemySkin = 'lab' | 'navy';
 
 export interface PickupSpawn {
   id: string;
@@ -887,9 +949,9 @@ export interface Level extends Updatable {
   readonly regions: Readonly<Record<string, readonly THREE.Box3[]>>;
   /**
    * §8.4 (stage 3a): while set, only these rooms count as visible (roomVisible, the tagged-room pass, render's
-   * occludeForeign, enemies' cull) — used around a feed pass. null clears it. Optional until level implements it.
+   * occludeForeign, enemies' cull) — used around a feed pass. null clears it. Required since stage 3b (D18).
    */
-  setVisibilityOverride?(rooms: ReadonlySet<string> | null): void;
+  setVisibilityOverride(rooms: ReadonlySet<string> | null): void;
 }
 
 // ───────────────────────────────────────────────────────────── player (src/player)
@@ -962,18 +1024,32 @@ export interface Player extends Updatable {
   readonly palmProgress: number;
   /**
    * §8.2 (stage 3a): cutscene mode. on: zero velocity, cancel reload / palm, ignore input, no footsteps, viewmodel
-   * hidden or held lowered (`topUp`: refill the clip quietly); off: restore. Optional until player implements it (P4).
+   * hidden or held lowered (`topUp`: refill the clip quietly); off: restore. Required since stage 3b (D18).
    */
-  cinematic?(on: boolean, o?: { viewmodel?: 'hidden' | 'lowered'; topUp?: boolean }): void;
+  cinematic(on: boolean, o?: { viewmodel?: 'hidden' | 'lowered'; topUp?: boolean }): void;
   /**
    * §8.3 (stage 3a): safe state. While on the weapon is stowed (as the palm scan), fire / reload / switch are
-   * ignored, the crosshair is hidden; off → raise over 0.34 s. Story-driven. Optional until P4.
+   * ignored, the crosshair is hidden; off → raise over 0.34 s. Story-driven. Required since stage 3b (D18).
    */
-  setSafe?(on: boolean): void;
+  setSafe(on: boolean): void;
   /** §8.3: true while `setSafe(true)` holds. */
-  readonly safe?: boolean;
-  /** §8.2 (stage 3a): forget a held / buffered key (the skip key must not also jump). Optional until P4. */
-  consumeKey?(code: string): void;
+  readonly safe: boolean;
+  /** §8.2 (stage 3a): forget a held / buffered key (the skip key must not also jump). Required since stage 3b (D18). */
+  consumeKey(code: string): void;
+  /**
+   * Stage 3b §8.2: armour points, 0 … `maxArmor`. An incoming hit `d` is split: `absorbed = min(armor, d × 2/3)`,
+   * `armor −= absorbed`, `health −= d − absorbed` (W1). Snapshot / restore / carry include it; `revive` keeps 0.
+   * K stub: always 0.
+   */
+  readonly armor: number;
+  /** Stage 3b §8.2: 100. */
+  readonly maxArmor: number;
+  /**
+   * Stage 3b §8.2: add armour, clamped to 0 … `maxArmor`; returns the points actually added (0 when full or when
+   * `points` ≤ 0). Emits `player:armor` when it changed. The vest strap, the plate touch and the start loadout call
+   * it. K stub: returns 0.
+   */
+  addArmor(points: number): number;
   /** Checkpoints: plain-JSON snapshot of everything the player module owns (incl. collected pickups). */
   snapshot(): PlayerSave;
   /** Restore a snapshot: teleport, health, weapons/ammo, keys, flashlight; remove already-collected pickups. Emits no pickup events. */
@@ -1002,7 +1078,7 @@ export interface PlayerSave {
   flashlight: boolean;
   /** Ids of PickupSpawns already collected. */
   pickups: string[];
-  /** §8.1 (stage 3a): armour points; absent = 0 (no armour system yet). */
+  /** §8.1 (stage 3a): armour points; absent = 0 (saves written before stage 3b). `restore` clamps to 0 … maxArmor. */
   armor?: number;
 }
 
@@ -1117,8 +1193,8 @@ export interface UISystem extends Updatable {
   showDeath(): Promise<void>;
   showEnding(): Promise<void>;
   setHudVisible(visible: boolean): void;
-  /** §8.2 (stage 3a): cutscene skip ring, 0..1 while SPACE is held; null hides it. Optional until UI implements it (P5). */
-  showSkip?(progress: number | null): void;
+  /** §8.2 (stage 3a): cutscene skip ring, 0..1 while SPACE is held; null hides it. Required since stage 3b (D18). */
+  showSkip(progress: number | null): void;
 }
 
 // ───────────────────────────────────────────────────────────── story (src/story)

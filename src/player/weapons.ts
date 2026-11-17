@@ -18,6 +18,8 @@ import { setVmRoom } from './viewmodels/vmlight';
 export const WEAPON_STATS = {
   pistol: { clipSize: 12, damage: 20, interval: 0.14, range: 90, baseSpread: 0.0025, bloom: 0.011, noise: 30, maxReserve: 96, light: 70 },
   shotgun: { clipSize: 6, damage: 9, pellets: 9, interval: 0.25, range: 45, cone: 0.062, noise: 42, maxReserve: 36, light: 140 },
+  // K placeholder (stage 3b §8.3): numbers from the plan; W1 replaces it with the real carbine (no rig / fire path yet)
+  carbine: { clipSize: 30, damage: 18, interval: 0.1, range: 80, baseSpread: 0.003, bloom: 0.0035, noise: 36, maxReserve: 180, light: 90 },
 } as const;
 
 export interface WeaponInput {
@@ -51,6 +53,7 @@ export class Weapons {
   readonly states: Record<WeaponId, WeaponState> = {
     pistol: { id: 'pistol', owned: false, clip: 0, clipSize: WEAPON_STATS.pistol.clipSize, reserve: 0, reloading: false },
     shotgun: { id: 'shotgun', owned: false, clip: 0, clipSize: WEAPON_STATS.shotgun.clipSize, reserve: 0, reloading: false },
+    carbine: { id: 'carbine', owned: false, clip: 0, clipSize: WEAPON_STATS.carbine.clipSize, reserve: 0, reloading: false }, // K placeholder
   };
   current: WeaponId | null = null;
   private pending: WeaponId | null = null;
@@ -126,6 +129,7 @@ export class Weapons {
   ammoFull(id: WeaponId) { return this.states[id].reserve >= WEAPON_STATS[id].maxReserve; }
 
   switchTo(id: WeaponId | null, force = false) {
+    if (id === 'carbine') return; // K placeholder: no carbine rig until W1 (a carried carbine stays in its state, unequipped)
     if (id && !this.states[id].owned) return;
     if (id === this.current && !force) return;
     if (id === this.current && this.phase === 'idle') return;
@@ -138,7 +142,7 @@ export class Weapons {
   private equipPending() {
     this.current = this.pending;
     this.pending = null;
-    this.vm.setActive(this.current);
+    this.vm.setActive(this.current as 'pistol' | 'shotgun' | null); // K placeholder cast (W1: carbine rig)
     this.phase = this.current ? 'raising' : 'idle';
     if (this.current) {
       this.ctx.events.emit('weapon:switched', { weapon: this.current });

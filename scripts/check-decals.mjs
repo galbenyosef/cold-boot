@@ -343,8 +343,10 @@ for (const level of levelsOf(args)) {
     out.movers.push({ ...mv, ...r, ok, verdict, problems });
   }
 
-  // ── unowned dynamic box (wreck / hanging load / tunnel arm default) and static world
-  {
+  // ── unowned dynamic box (wreck / hanging load / tunnel arm default) and static world (aimed from the first door;
+  //    a level without doors — stage 3b K's level-4 stub — skips them)
+  if (!ids.length) console.log('transient box / static world: skipped (the level has no doors)');
+  else {
     // a 30 cm unowned box 1.2 m in front of the first door, shot from 2.6 m out at eye height
     const res = await page.evaluate(() => {
       const g = window.__game;

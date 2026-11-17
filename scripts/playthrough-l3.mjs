@@ -28,6 +28,8 @@ const MODE = argv.includes('--checkpoints') ? 'checkpoints' : argv.includes('--i
 const ONLY_CP = argv.find((a) => a.startsWith('--cp='))?.slice(5) ?? null;
 const CHOICES = argv.find((a) => a.startsWith('--choice='))?.slice(9).split(',') ?? ['stop', 'command'];
 const FRAMES = argv.includes('--frames');
+// stage 3b (K): `--next=3:4` (or `--next 3:4`) runs with the test override `?next=3:4` — the end hands over to level 4
+const NEXT = argv.find((a) => a.startsWith('--next='))?.slice(7) ?? (argv.includes('--next') ? argv[argv.indexOf('--next') + 1] : null);
 const SAVE_KEY = 'coldboot.save.l3.v2', SEEN_KEY = 'coldboot.seen.v1', CARRY_KEY = 'coldboot.carry.v2', LEVEL_KEY = 'coldboot.level';
 const CPS = ['cp3_start', 'cp3_office', 'cp3_canteen', 'cp3_balcony'];
 mkdirSync('shots/l3', { recursive: true });
@@ -186,7 +188,7 @@ const wait = (ms) => page.waitForTimeout(ms);
 const boot = async (query = '') => {
   await page.evaluate(() => { window.__stale = true; }).catch(() => {});
   for (let i = 0; ; i++) {
-    try { await page.goto(`${base}/?level=3&autostart=1&god=1${query}`); } catch (e) { if (i >= 2) throw e; await wait(700); continue; }
+    try { await page.goto(`${base}/?level=3&autostart=1&god=1${query}${NEXT ? `&next=${NEXT}` : ''}`); } catch (e) { if (i >= 2) throw e; await wait(700); continue; }
     if (await ev(() => !window.__stale).catch(() => false)) break;
     if (i >= 2) throw new Error('boot: stale page');
   }
@@ -437,13 +439,15 @@ async function segPurge() {
   await phaseIs('J', 3000);
   ok(await until(() => window.__game.state === 'ended', null, 40000), 'the end (state ended)');
   const card = await ev(() => document.querySelector('.cb')?.innerText?.replace(/\s+/g, ' ') ?? '');
-  ok(/THE QUIET SIDE/.test(card) && /TO BE CONTINUED/.test(card), `end card "${card.slice(0, 60)}"`);
+  // stage 3b: the card per nextOf(3) (story.next()): null → TO BE CONTINUED + stored 3; 4 → no TBC + stored 4
+  const next3 = await ev(() => window.__game.story.next?.() ?? null);
+  ok(/THE QUIET SIDE/.test(card) && /TO BE CONTINUED/.test(card) === (next3 === null), `end card "${card.slice(0, 60)}" (next ${next3})`);
   const endLine = await saidOneOf(['l3_choir_end_stop', 'l3_choir_end_command']);
   const choice = await ev(() => window.__game.facts.choice);
   ok(endLine.length === 1 && endLine[0] === `l3_choir_end_${choice}`, `end line ${endLine}`);
   const s = await ev((K) => ({ carry: JSON.parse(localStorage.getItem(K[0]) ?? 'null'), level: localStorage.getItem(K[1]), save: localStorage.getItem(K[2]) }), [CARRY_KEY, LEVEL_KEY, SAVE_KEY]);
   ok(s.carry?.from === 3 && s.carry.facts?.badge === true && s.carry.facts?.halvorsenAlive === true && s.carry.facts?.choice === choice && typeof s.carry.facts?.kills3 === 'number', `carry for 3b ${JSON.stringify(s.carry?.facts)}`);
-  ok(s.level === '3' && s.save === null, `stored level stays 3 (${s.level}), checkpoint cleared`);
+  ok(s.level === String(next3 ?? 3) && s.save === null, `stored level ${next3 ?? 3} (${s.level}), checkpoint cleared`);
   const l = await L3();
   ok(!l.early.length, `R4: no enemy before its beat (${l.early})`);
 }

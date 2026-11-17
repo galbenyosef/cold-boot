@@ -5,8 +5,10 @@
 import type { Fragment } from '../text';
 
 export const TITLE_CARD_L3 = ['THE QUIET SIDE', 'HABITAT RING A'];
-/** §7 / D19: the stage-end card (`style: 'ending'`, 12 s, skippable). */
+/** §7 / D19: the stage-end card (`style: 'ending'`, 12 s, skippable) — while the chain has no next level. */
 export const END_CARD_L3 = ['THE QUIET SIDE', '', 'TO BE CONTINUED'];
+/** Stage 3b D5: the end card when the chain hands over to level 4 (no "TO BE CONTINUED"; 6 s, skippable). */
+export const END_CARD_L3_NEXT = ['THE QUIET SIDE'];
 
 // ───────────────────────────────────────────────────────────── the clock (§6.4, D4)
 

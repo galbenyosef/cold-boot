@@ -1,6 +1,25 @@
 import * as THREE from 'three';
-import type { DebugFlags, Quality } from './types';
+import type { DebugFlags, LevelId, Quality } from './types';
 import { parseLevel } from './progress';
+
+/**
+ * Stage 3b §8.1 (tests only): `?next=3:4[,4:5]` → `{ 3: 4, 4: 5 }` (each side a level id, `parseLevel` rules);
+ * malformed pairs are ignored; nothing valid → null. Read only through `nextOf()` (core/progress.ts).
+ */
+export function parseNext(raw: string | null): DebugFlags['next'] {
+  if (!raw) return null;
+  const out: Partial<Record<LevelId, LevelId>> = {};
+  let any = false;
+  for (const pair of raw.split(',')) {
+    const [a, b, extra] = pair.split(':');
+    if (extra !== undefined) continue;
+    const from = parseLevel(a), to = parseLevel(b);
+    if (from === null || to === null) continue;
+    out[from] = to;
+    any = true;
+  }
+  return any ? out : null;
+}
 
 export function parseDebug(): DebugFlags {
   const q = new URLSearchParams(location.search);
@@ -30,6 +49,7 @@ export function parseDebug(): DebugFlags {
     level: parseLevel(q.get('level')),
     choice: q.get('choice') === 'stop' || q.get('choice') === 'command' ? (q.get('choice') as 'stop' | 'command') : null,
     units: /^\d+$/.test(q.get('units') ?? '') ? Math.min(32, Number(q.get('units'))) : null,
+    next: parseNext(q.get('next')),
     fps: 0,
   };
 }
