@@ -39,7 +39,7 @@ if (want('grep')) {
   walk('src');
   let hits = 0;
   for (const f of files) {
-    if (/^src\/[^/]+\/l\d+\//.test(f) || f === 'src/core/progress.ts') continue;
+    if (/^src\/[^/]+\/l\d+\//.test(f) || f === 'src/core/progress.ts' || f.includes('/dev/')) continue; // level folders, the chain table, dev harness pages
     readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
       if (!PATTERN.test(line)) return;
       hits++;
