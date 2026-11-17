@@ -86,7 +86,7 @@ const POS: Record<string, { ref: number; rolloff: number; send: number; gain?: n
   recorder: { ref: 1.5, rolloff: 1.2, send: 0.4 },
   // stage 3b D17: a monitor's speaker playing a recording (Sunde's video log) — the recorder chain, but a room-filling
   // speaker: ref 4 m, rolloff 0.7 (plan), and the in-room gain of `clean` so it reaches conversation level (D30)
-  screen: { ref: 4, rolloff: 0.7, send: 0.6, gain: 1.4 },   // (integration: 1.3 → 1.4 = +0.6 dB, measured — check-voice-level --level 4)
+  screen: { ref: 4, rolloff: 0.7, send: 0.6, gain: 1.55 },   // (integration: 1.3 → 1.4 = +0.6 dB, measured — check-voice-level --level 4)
   pa: { ref: 7, rolloff: 0.6, send: 1.1 },
   clean: { ref: 4, rolloff: 0.6, send: 0.7, gain: 1.3 }, // a person speaking in the room: must carry down a corridor (−6 dB at ~11 m)
   choir: { ref: 8, rolloff: 0.5, send: 1 },
