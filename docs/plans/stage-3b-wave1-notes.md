@@ -33,3 +33,26 @@
 
 ## Voices (W8)
 - 47 lines in `voice/lines.l4.json`; `l4_sunde_9` has `"cut": 3.27` (stop playback there). Sunde's lines have `lead` 0.
+
+## Set pieces (W9a, `src/level/l4/setpieces.ts`)
+- `theatreArm(L, at, opts)` → object `theatre_arm`; `userData`: `cycle {t, n, cue, attempt, period, led}`, `setFailHold(s)`,
+  `onCue(cb)`, `cueTimes()`, `timeTo(cue)`, `onWisp(cb(worldPos))`, `setTime(t)`, `claspWorld()`, `attempt0`.
+  Timeline: approach 0, fit 6, handshake 12, fail 14.5, remove 14.5+failHold, regel +5, return +6, idle +5 (7 s) = 40.0 s at
+  failHold 2.5. LED: off until 9.45, amber 9.45–12 (seated, powered, not linked), red steady 12–13, three blinks 13–14.5,
+  off from fail. `setMachine('theatre_arm','off')` parks it over 3 s. Default rail x −1.7, z −50.4…−58.4, y 9.2 (fixed 3 m
+  mast + telescope). ≤ 6 draw calls. **ST/D2:** drive the `theatre_cam` screen from `cycle.cue` and `cycle.led`.
+- `clasp(b, L, state, phase?, led?, mono?)`, `defineClaspInstances(L)`, `claspInst(b, …)`; states `amber`, `red`, `red_solid`,
+  `off`. `orTable`, `gelBath` (gel surface y 0.92), `claspBin(n = 30)`.
+- `body(L, b, pose, name, opts)`: six poses; options `suitHalfOff`, `armOut`, `nape`, `collider`, `deskY`, `chair`; lying poses
+  have the head at local −z, origin at the pelvis (ry = +π/2 → head toward −x). **D1b:** Ness (sitting_desk) needs the desk
+  front edge ≈ 0.4 m ahead of her origin — place her at z ≈ −28.0, not −28.2.
+
+## Kits (W9b, `src/level/l4/kit4.ts`)
+- Conventions in the file header: floor props origin on the floor, front = local +z; wall props origin on the wall face;
+  `b.at(x, y, z, ry, () => prop(b, L, opts))`; every collider can be switched off with `collide: false`.
+- Returns worth using: `cradleRack` → 24 slot matrices (for Clasps); `nozzleGrid`/`jetPanel` → tip points + spray direction
+  (fx emitters); `boothConsole` → terminal / status panel / release button points; `gaugePanel` → screen point.
+- Moving parts: `valveLever().set(k)`, `sumpGrille().lift(k)`, `rotBeacon().set(on)`, `gaugePanel().set(bar)`.
+- Emergency strips: `stripMat(L)` shared; `setStrips(L, 1)` for `lights_out4`. Emissives ≤ 0.35 by default.
+- Booth: origin (28.0, 0, −55.2), ry π puts the console recesses on the plan's coordinates.
+- Weak, fix while dressing if cheap: cage mesh reads as bar grating; `vestHooks` faint; pumps show no sign of running.
