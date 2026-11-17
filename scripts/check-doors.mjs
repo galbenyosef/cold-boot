@@ -269,7 +269,7 @@ async function shots(page, id, tag, pos, wall, outPrefix, noShot = false) {
       const fy = g.level.doors.find((x) => x.id === id)?.floor ?? 0;
       // stand 3 m out, or closer when that point is outside every room (a door onto a 3 m wide corridor)
       let out = 3;
-      for (const d of [3, 2.2, 1.4]) { out = d; const q = new Vec(pos[0] + (wall === 'z' ? 0 : d * side), fy + 1, pos[1] + (wall === 'z' ? d * side : 0)); let r = null; try { r = g.level.roomAt(q); } catch { r = null; } if (r) break; }
+      for (const d of [3, 2.2, 1.4]) { out = d; const q = new Vec(pos[0] + (wall === 'z' ? 0 : d * side), fy + 1, pos[1] + (wall === 'z' ? d * side : 0)); let r = null; try { r = g.level.roomAt(q); } catch { r = null; } const own = g.level.doors.find((x) => x.id === id)?.spec?.rooms; if (r && (!own || own.includes(r.name) || own.includes(r.id))) break; }
       const dx = wall === 'z' ? 0 : out * side, dz = wall === 'z' ? out * side : 0;
       const ex = pos[0] + dx, ez = pos[1] + dz;
       const lx = pos[0] - ex, lz = pos[1] - ez, ly = 1.3 - 1.6;

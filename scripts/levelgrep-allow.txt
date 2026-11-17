@@ -58,3 +58,7 @@ src/fx/dev/habitat.ts :: levelId: 3 } as unknown as GameContext
 src/enemies/human/halvorsen.ts :: i === 2
 src/enemies/human/human.ts :: this.S !== 1
 src/audio/voice.ts :: P.gain !== 1
+
+# ── stage 3b: material sets by level threshold; a loop index in a screen drawing
+src/materials/index.ts :: >= CLINICAL_FROM
+src/materials/screens4.ts :: k === 2

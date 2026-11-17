@@ -193,7 +193,8 @@ function install() {
         const h = phys.raycast(o3, DOWN, 1.0);
         // nav v2 levels: the node is ON its floor (0 … 0.3 m above it); levels 1–2 (every node at y 0) also accept a
         // floor up to 0.3 m above the node (raised plates, the line's apron: a husk steps onto them)
-        const lo = decks ? -0.1 : -0.3;
+        // (deck levels: up to 0.2 m above, a 0.15 m walkable body box lying on the node — units step over it)
+        const lo = decks ? -0.2 : -0.3;
         if (h && !decks && q.y - h.point.y < -0.1 && q.y - h.point.y >= lo) out.raised.push(`#${n.id} ${n.room} ${fmt(q)}: floor at ${h.point.y.toFixed(2)}`);
         if (!h || h.normal.y < 0.5 || q.y - h.point.y > 0.3 || q.y - h.point.y < lo) out.offFloor.push(`#${n.id} ${n.room}${n.stair ? ' stair' : ''} ${fmt(q)}: ${h ? `floor at ${h.point.y.toFixed(2)}` : 'no floor within 0.5 m'}`);
         const r = level.rooms.find((x) => x.id === n.room);
