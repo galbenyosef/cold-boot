@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import type { LevelInfo, ScreenKind } from '../core/types';
+import { containment, videoLog, videoLogBeforeSet, roster, theatreCam } from './screens4';
 
 const MONO = 'ui-monospace, Menlo, "SF Mono", Consolas, monospace';
 const SANS = '"Arial Narrow", "Helvetica Neue", Arial, sans-serif';
@@ -33,6 +34,8 @@ interface Screen {
   noiseCv: HTMLCanvasElement | null;
   /** `feed`: the supplied live texture (shown as the emissive map instead of the canvas); null = NO SIGNAL card. */
   ext: THREE.Texture | null;
+  /** Per-kind scratch state (stage 3b kinds: cached base picture, the video log's pose). */
+  aux: Record<string, unknown>;
 }
 
 const INTENSITY: Record<ScreenKind, number> = {
@@ -40,21 +43,23 @@ const INTENSITY: Record<ScreenKind, number> = {
   choice_stop: 2.2, choice_command: 2.2, palm: 3.0,
   // stage 3a §8.5 (habitat screens are calmer than the plant's; the feed matches render/dev/feedtest's monitor)
   pressure: 2.8, habitat_status: 2.4, badge: 2.8, feed: 2.0, cctv: 2.0,
-  // K placeholders (stage 3b §8.7; W6 draws the kinds and tunes these)
-  containment: 2.8, video_log: 2.2, roster: 2.6, theatre_cam: 2.2,
+  // stage 3b §8.7 (screens4.ts)
+  containment: 2.6, video_log: 2.2, roster: 2.4, theatre_cam: 2.2,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
   choice_stop: 6, choice_command: 6, palm: 24,
   pressure: 4, habitat_status: 4, badge: 8, feed: 12, cctv: 12,
-  containment: 8, video_log: 12, roster: 4, theatre_cam: 12, // K placeholders (W6)
+  // the roster's 1 Hz dots are on for 0.25 s: 12 Hz catches every one
+  containment: 8, video_log: 12, roster: 12, theatre_cam: 12,
 };
 /**
  * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must
  * be read from across the room: on a wide quad they get a 2048 px canvas (everything else 512 / 256).
  */
 function sizeFor(kind: ScreenKind, aspect: number): [number, number] {
-  const base = kind.startsWith('door') || kind === 'badge' ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : 512;
+  // (the roster is a 2.4 m wall board with 23 names: 1024 wide)
+  const base = kind.startsWith('door') || kind === 'badge' ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : kind === 'roster' ? 1024 : 512;
   return aspect >= 1 ? [base, Math.max(16, Math.round(base / aspect))] : [Math.round(base * aspect), base];
 }
 const MAX_DRAWS_PER_UPDATE = 4;
@@ -149,8 +154,10 @@ export class ScreenManager {
     });
     const seed = this.seedCounter++ * 7919;
     const s: Screen = {
-      mat, kind, text: opts?.text, cv, g, tex, W, H, aspect, t: Math.random() * 10, since: 1, lastSeen: -100, drawn: false,
-      seed, rand: rng(seed), lines: [], lineTimer: 0, scroll: 0, noise: null, noiseCv: null, ext: null,
+      mat, kind, text: opts?.text, cv, g, tex, W, H, aspect,
+      // (the stage 3b kinds count from their text: their clock starts at 0)
+      t: kind === 'containment' || kind === 'video_log' || kind === 'theatre_cam' ? 0 : Math.random() * 10, since: 1, lastSeen: -100, drawn: false,
+      seed, rand: rng(seed), lines: [], lineTimer: 0, scroll: 0, noise: null, noiseCv: null, ext: null, aux: {},
     };
     mat.onBeforeRender = () => { s.lastSeen = this.frame; };
     mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? ''; // what it shows (tests, debugging)
@@ -167,6 +174,10 @@ export class ScreenManager {
     if (!s) { console.warn('[materials] setScreen: not a screen material'); return; }
     // the same card with another number (the unit count changed): redraw, keep its animation clock
     const same = s.kind === kind && kind.startsWith('choice');
+    // the video log eases each line's pose from where the figure is now
+    if (s.kind === 'video_log' && kind === 'video_log') videoLogBeforeSet(this.s4(s));
+    // theatre_cam may be re-written every cue (or every frame): no immediate redraw, the update loop picks it up
+    const lazy = s.kind === 'theatre_cam' && kind === 'theatre_cam';
     s.kind = kind; s.text = opts?.text;
     mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? '';
     if (!same) { s.t = 0; mat.emissiveIntensity = INTENSITY[kind]; }
@@ -182,7 +193,12 @@ export class ScreenManager {
     }
     this.bindFeed(s, opts?.texture);
     this.prime(s);
-    this.draw(s);
+    if (!lazy) this.draw(s);
+  }
+
+  /** The view of a screen the stage 3b kinds draw with. */
+  private s4(s: Screen) {
+    return { g: s.g, W: s.W, H: s.H, t: s.t, text: s.text, seed: s.seed, rand: s.rand, aux: s.aux };
   }
 
   /**
@@ -248,6 +264,10 @@ export class ScreenManager {
       case 'badge': this.badge(s); break;
       case 'feed': this.noSignal(s); break;
       case 'cctv': this.camera(s); break;    // §8.4 fallback not taken (the live feed was accepted): plain CCTV loop
+      case 'containment': containment(this.s4(s)); break;
+      case 'video_log': videoLog(this.s4(s)); break;
+      case 'roster': roster(this.s4(s)); break;
+      case 'theatre_cam': theatreCam(this.s4(s)); break;
     }
     g.globalAlpha = 1;
     // (the wall-sized cards are seen from far and at a slant: a sub-pixel grid would only alias into moiré)

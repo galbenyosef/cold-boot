@@ -371,6 +371,180 @@ function drawWayfinding(g: Ctx, rg: Ctx, W: number, H: number, raw: string, rand
   return 115;
 }
 
+// ───────────────────────────── stage 3b: clinical signage (§8.7, §2.6)
+
+const CLIN = '"Helvetica Neue", "Arial", "Segoe UI", sans-serif';
+type ClinPicto = 'bio' | 'cold' | 'doc' | 'rack' | 'flask' | 'stairs' | 'warn' | 'door' | 'person' | 'cross' | 'none';
+const CLIN_KEYS: [RegExp, ClinPicto][] = [
+  [/DO NOT|NO ENTRY|DANGER|WARNING|HOLD|SEALED|RESTRICTED|AUTHORISED/i, 'warn'],
+  [/COLD STORE|FREEZER|−80|-80/i, 'cold'],
+  [/BIO|CONTAINMENT|VIVARIUM|DECON|AIR SHOWER/i, 'bio'],
+  [/RECORDS|ARCHIVE|FILING/i, 'doc'],
+  [/NODE|SERVER|UNIT BAY/i, 'rack'],
+  [/WET LAB|\bLAB\b|LABORATORY/i, 'flask'],
+  [/SURGICAL|THEATRE|SCRUB|GALLERY/i, 'cross'],
+  [/STAIR/i, 'stairs'],
+  [/OFFICE|\bPI\b|GOWNING|STAFF/i, 'person'],
+];
+
+function clinicalPicto(text: string): { picto: ClinPicto; text: string } {
+  const m = /^\s*\[(\w+)\]\s*/.exec(text);
+  const all: ClinPicto[] = ['bio', 'cold', 'doc', 'rack', 'flask', 'stairs', 'warn', 'door', 'person', 'cross', 'none'];
+  if (m && all.includes(m[1] as ClinPicto)) return { picto: m[1] as ClinPicto, text: text.slice(m[0].length) };
+  for (const [re, p] of CLIN_KEYS) if (re.test(text)) return { picto: p, text };
+  return { picto: 'none', text };
+}
+
+function drawClinPicto(g: Ctx, p: ClinPicto, cx: number, cy: number, s: number, ink: string, bg: string) {
+  const r = s / 2;
+  if (p === 'flask' || p === 'stairs' || p === 'warn' || p === 'door' || p === 'person' || p === 'cross' || p === 'none') {
+    pictogram(g, p, cx, cy, s, ink, bg);
+    return;
+  }
+  g.save();
+  g.translate(cx, cy);
+  g.fillStyle = ink; g.strokeStyle = ink; g.lineCap = 'round'; g.lineJoin = 'round';
+  if (p === 'bio') {
+    // biohazard trefoil: three crescents round a ring
+    for (let k = 0; k < 3; k++) {
+      const a = -Math.PI / 2 + k * Math.PI * 2 / 3;
+      const ox = Math.cos(a) * r * 0.36, oy = Math.sin(a) * r * 0.36;
+      g.beginPath(); g.arc(ox, oy, r * 0.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = bg;
+      g.beginPath(); g.arc(Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.5, r * 0.36, 0, Math.PI * 2); g.fill();
+      g.fillStyle = ink;
+    }
+    g.fillStyle = bg; g.beginPath(); g.arc(0, 0, r * 0.13, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = ink; g.lineWidth = s * 0.06; g.beginPath(); g.arc(0, 0, r * 0.42, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = bg; g.lineWidth = s * 0.05;
+    for (let k = 0; k < 3; k++) {
+      const a = Math.PI / 2 + k * Math.PI * 2 / 3;
+      g.beginPath(); g.moveTo(Math.cos(a) * r * 0.12, Math.sin(a) * r * 0.12); g.lineTo(Math.cos(a) * r * 0.3, Math.sin(a) * r * 0.3); g.stroke();
+    }
+  } else if (p === 'cold') {
+    // snowflake: six arms with side barbs
+    g.lineWidth = s * 0.07;
+    for (let k = 0; k < 6; k++) {
+      const a = k * Math.PI / 3;
+      const c = Math.cos(a), sn = Math.sin(a);
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(c * r * 0.9, sn * r * 0.9); g.stroke();
+      for (const t of [0.45, 0.68]) {
+        const bx = c * r * t, by = sn * r * t, l = r * (t === 0.45 ? 0.26 : 0.18);
+        for (const d of [-1, 1]) {
+          const b = a + d * Math.PI / 4;
+          g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + Math.cos(b) * l, by + Math.sin(b) * l); g.stroke();
+        }
+      }
+    }
+  } else if (p === 'doc') {
+    g.lineWidth = s * 0.07;
+    g.beginPath(); g.moveTo(-r * 0.55, -r * 0.85); g.lineTo(r * 0.25, -r * 0.85); g.lineTo(r * 0.6, -r * 0.5); g.lineTo(r * 0.6, r * 0.85);
+    g.lineTo(-r * 0.55, r * 0.85); g.closePath(); g.stroke();
+    for (let i = 0; i < 4; i++) g.fillRect(-r * 0.35, -r * 0.35 + i * r * 0.3, r * 0.75, r * 0.08);
+  } else if (p === 'rack') {
+    g.lineWidth = s * 0.07;
+    for (let i = 0; i < 3; i++) {
+      const y = -r * 0.8 + i * r * 0.56;
+      g.strokeRect(-r * 0.75, y, r * 1.5, r * 0.42);
+      g.beginPath(); g.arc(r * 0.45, y + r * 0.21, r * 0.07, 0, Math.PI * 2); g.fill();
+      g.fillRect(-r * 0.55, y + r * 0.17, r * 0.6, r * 0.08);
+    }
+  }
+  g.restore();
+}
+
+/**
+ * Bio-Sys clinical signage: cool white acrylic plate, slate blue-grey band with a white pictogram, uppercase dark
+ * blue-grey lettering, arrows in a filled circle (same parsing as `directional`); a warning band in signal red for
+ * holds / restricted doors. A text starting `FUMIGATED` is an inspection sticker (yellow, rounded, the rest transparent).
+ * Returns the base roughness, and whether the sign is transparent (sticker).
+ */
+function drawClinical(g: Ctx, rg: Ctx, W: number, H: number, raw: string, rand: () => number): [number, boolean] {
+  if (/^\s*FUMIGATED/i.test(raw)) {
+    const lines = raw.split('\n');
+    g.clearRect(0, 0, W, H);
+    const m = H * 0.06, rr = H * 0.12;
+    g.beginPath(); g.roundRect(m, m, W - 2 * m, H - 2 * m, rr);
+    g.fillStyle = '#e6c23a'; g.fill();
+    g.lineWidth = H * 0.035; g.strokeStyle = '#1d1c18'; g.beginPath(); g.roundRect(m * 2.2, m * 2.2, W - 4.4 * m, H - 4.4 * m, rr * 0.7); g.stroke();
+    g.fillStyle = '#1d1c18'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const main = lines[0].toUpperCase(), sub = lines.slice(1).join(' ').toUpperCase() || 'DO NOT REMOVE';
+    fitText(g, main, W - m * 8, H * 0.32, '800', CLIN); g.fillText(main, W / 2, H * 0.42);
+    fitText(g, sub, W - m * 8, H * 0.14, '600', CLIN); g.fillText(sub, W / 2, H * 0.7);
+    // slightly lifted, scuffed corner
+    g.globalCompositeOperation = 'source-atop';
+    for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(255,255,255,${rand() * 0.25})`; g.fillRect(rand() * W, rand() * H, 1 + rand() * 3, 1); }
+    g.globalCompositeOperation = 'source-over';
+    return [95, true];
+  }
+  const { picto, text: t0 } = clinicalPicto(raw);
+  const { text, dir, side } = parseArrow(t0.replace(/\n\s*([→←↑↓<>^])\s*$/, ' $1'));
+  const warnSign = picto === 'warn';
+  const band = warnSign ? '#b0402c' : '#4d6779';
+  const ink = '#1f2d37', plate = '#f4f7f8';
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#e9eef0'); bg.addColorStop(1, '#dce3e6');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const lines = text.toUpperCase().split('\n');
+  const wide = W / H >= 1.6;
+  if (wide) {
+    const bw = picto === 'none' ? H * 0.12 : H;
+    g.fillStyle = band; g.fillRect(0, 0, bw, H);
+    rg.fillStyle = 'rgb(80,80,80)'; rg.fillRect(0, 0, bw, H);
+    if (picto !== 'none') drawClinPicto(g, picto, bw / 2, H / 2, H * 0.6, plate, band);
+    let x0 = bw + H * 0.2, x1 = W - H * 0.2;
+    if (dir) {
+      const asz = H * 0.5;
+      const ax = side === 'left' ? x0 + asz / 2 : x1 - asz / 2;
+      g.fillStyle = band; g.beginPath(); g.arc(ax, H / 2, asz * 0.6, 0, Math.PI * 2); g.fill();
+      arrow(g, ax, H / 2, asz * 0.7, dir, plate);
+      if (side === 'left') x0 = ax + asz * 0.8; else x1 = ax - asz * 0.8;
+    }
+    g.textBaseline = 'middle'; g.textAlign = side === 'right' && dir ? 'right' : 'left';
+    const tx = g.textAlign === 'right' ? x1 : x0;
+    const main = lines[0], subs = lines.slice(1);
+    const ms = fitText(g, main, x1 - x0, subs.length ? H * 0.3 : H * 0.36, '700', CLIN);
+    const total = ms + subs.length * ms * 0.8;
+    let y = H / 2 - total / 2 + ms * 0.5;
+    g.fillStyle = ink; g.fillText(main, tx, y + ms * 0.04);
+    y += ms * 0.6;
+    for (const sub of subs) {
+      g.fillStyle = '#4b5f6b';
+      const ss = fitText(g, sub, x1 - x0, ms * 0.6, '500', CLIN);
+      y += ss * 0.65; g.fillText(sub, tx, y); y += ss * 0.55;
+    }
+    g.fillStyle = band; g.fillRect(bw, H - H * 0.035, W - bw, H * 0.035);
+  } else {
+    const bh = picto === 'none' ? H * 0.08 : Math.min(H * 0.45, W * 0.8);
+    g.fillStyle = band; g.fillRect(0, 0, W, bh);
+    rg.fillStyle = 'rgb(80,80,80)'; rg.fillRect(0, 0, W, bh);
+    if (picto !== 'none') drawClinPicto(g, picto, W / 2, bh / 2, bh * 0.62, plate, band);
+    const y0 = bh + H * 0.05;
+    if (dir) {
+      const asz = Math.min(W * 0.32, (H - bh) * 0.3);
+      g.fillStyle = band; g.beginPath(); g.arc(W / 2, H - asz * 0.85, asz * 0.6, 0, Math.PI * 2); g.fill();
+      arrow(g, W / 2, H - asz * 0.85, asz * 0.7, dir, plate);
+    }
+    const room = (dir ? H * 0.72 : H * 0.95) - y0;
+    const lh = room / Math.max(1, lines.length);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    lines.forEach((ln, i) => {
+      g.fillStyle = i === 0 ? ink : '#4b5f6b';
+      fitText(g, ln, W * 0.86, Math.min(lh * (i === 0 ? 0.6 : 0.48), W * 0.2), i === 0 ? '700' : '500', CLIN);
+      g.fillText(ln, W / 2, y0 + lh * (i + 0.5));
+    });
+  }
+  // wiped acrylic: almost no wear; a faint cloth haze in the roughness only
+  for (let i = 0; i < 5; i++) {
+    const x = rand() * W, y = rand() * H, r = (0.2 + rand() * 0.3) * Math.max(W, H);
+    const gr = rg.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, 'rgba(120,120,120,0.25)'); gr.addColorStop(1, 'rgba(120,120,120,0)');
+    rg.fillStyle = gr; rg.fillRect(0, 0, W, H);
+  }
+  g.strokeStyle = 'rgba(30,45,55,0.25)'; g.lineWidth = Math.max(2, H * 0.012); g.strokeRect(0, 0, W, H);
+  return [115, false];
+}
+
 export function createSign(text: string, style: SignStyle, aspect: number, maxAniso: number): THREE.MeshStandardMaterial {
   const H = aspect >= 4 ? 192 : 256;
   const W = Math.min(2048, Math.max(64, Math.round(H * aspect)));
@@ -451,6 +625,8 @@ export function createSign(text: string, style: SignStyle, aspect: number, maxAn
     weather(g, rg, W, H, rand, 0.7);
   } else if (style === 'wayfinding') {
     roughBase = drawWayfinding(g, rg, W, H, text, rand);
+  } else if (style === 'clinical') {
+    [roughBase, transparent] = drawClinical(g, rg, W, H, text, rand);
   } else { // stencil — transparent spray paint
     transparent = true;
     g.clearRect(0, 0, W, H);

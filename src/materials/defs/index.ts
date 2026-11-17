@@ -3,13 +3,14 @@
  * Tile sizes are in metres (geometry UVs are metres), see TILE in the final report / README of the module.
  */
 import * as THREE from 'three';
-import type { ClinicalMaterialName, MaterialName } from '../../core/types';
+import type { MaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
 import { PAINTED, METAL, POLY, RUST, FABRIC, GLASS, BELT, GLASS_THICK, SKIN } from './props';
 import { ROBOT_SHELL } from './robot';
 import { WOOD, TWILL, CARPET, PLASTER, TERRAZZO, LIMESTONE, TILE, LINO, SOIL, LEAF, BARK, WATER, GLASS_CLEAN } from './habitat';
+import { WALL_CLEAN, FLOOR_EPOXY, CEILING_CLEAN, FROST, TYVEK, NAVY_GREY, DECK_NONSLIP } from './clinical';
 
 export interface MatSpec {
   tex?: Omit<TexDef, 'key'>;
@@ -28,10 +29,14 @@ export interface MatSpec {
    * (so levels 1–2 pay neither the bake time nor the texture memory).
    */
   habitat?: boolean;
+  /** Stage 3b clinical / navy set: baked at load only on level `CLINICAL_FROM` and later, elsewhere on first `get`. */
+  clinical?: boolean;
 }
 
 /** First level id that bakes the habitat set at load. */
 export const HABITAT_FROM = 3;
+/** First level id that bakes the clinical set at load. */
+export const CLINICAL_FROM = 4;
 
 /** Uniform colours are authored as raw sRGB triplets (the bake shader linearises at the end). */
 const srgb = (hex: number) => { const c = new THREE.Color(); c.setHex(hex, THREE.LinearSRGBColorSpace); return new THREE.Vector3(c.r, c.g, c.b); };
@@ -89,8 +94,7 @@ const U_WOOD_ = (o: { a: number; b: number; leaf: number; ring: number; warp: nu
 });
 const col = (c: number) => ({ uCol: { value: srgb(c) } });
 
-// K (stage 3b §8.7): the clinical set is kept out of the exhaustive record until W6 implements it (3a pattern)
-export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | ClinicalMaterialName>, MatSpec> = {
+export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`>, MatSpec> = {
   wall_panel: {
     tex: { size: HERO, tile: 2, depth: 0.02, glsl: G_WALL, uniforms: wall(0x4f5b55, 0.9), aoRadius: 0.03, seed: 1 },
     params: {}, env: 1, macro: [0.25, 0.25],
@@ -300,6 +304,43 @@ export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | Clinical
   glass_clear: {   // clean architectural glass, faint fingerprints
     tex: { size: MINOR, tile: 1.5, depth: 0.0004, glsl: GLASS_CLEAN, seed: 54, aoRadius: 0.002 },
     params: { transparent: true, depthWrite: false, side: THREE.DoubleSide }, env: 1.6, glass: true, habitat: true,
+  },
+
+  // ── stage 3b clean side + navy level (§8.7). Six 1024² sets + two 512² (≈ 104 MiB; 512² on low ≈ 32 MiB).
+  wall_clean: {    // white HPL 1.2 × 2.4 m panels, silicone seams (tile = two panels)
+    tex: { size: HERO, tile: 2.4, depth: 0.008, glsl: U_WALL + WALL_CLEAN, uniforms: wall(0xd0d5d8, 0.5), aoRadius: 0.006, seed: 61 },
+    params: {}, env: 0.8, macro: [0.04, 0.12], clinical: true,
+  },
+  floor_epoxy: {   // 0xd9dcdc gloss poured epoxy
+    tex: { size: HERO, tile: 3, depth: 0.003, glsl: U_WALL + FLOOR_EPOXY, uniforms: wall(0xd9dcdc, 0), aoRadius: 0.004, seed: 62 },
+    params: {}, env: 1.0, macro: [0.05, 0.3], clinical: true,
+  },
+  ceiling_clean: { // 0.6 m gel-seal grid, HEPA faces
+    tex: { size: HERO, tile: 2.4, depth: 0.012, glsl: U_WALL + CEILING_CLEAN, uniforms: wall(0xd0d5d8, 0), aoRadius: 0.008, seed: 63 },
+    params: {}, env: 0.6, macro: [0.04, 0.1], clinical: true,
+  },
+  stainless: {     // #4 brushed stainless (the shared METAL program)
+    tex: { size: MINOR, tile: 1, depth: 0.0008, glsl: G_METAL, seed: 64, aoRadius: 0.004,
+      uniforms: metal({ col: 0xbcc1c5, col2: 0x9aa0a5, scratchCol: 0xdde1e4, rough: [0.32, 0.37], brush: [0.45, 0], scratch: 0.2, grime: 0.03, smudge: 0.2 }) },
+    params: {}, env: 1.2, macro: [0.03, 0.12], clinical: true,
+  },
+  frost: {         // frost crust 0xe6f2ff over cold steel
+    tex: { size: HERO, tile: 2, depth: 0.008, glsl: FROST, seed: 65, aoRadius: 0.004,
+      uniforms: { uCol: { value: srgb(0xe6f2ff) }, uCol2: { value: srgb(0x8796a6) } } },
+    params: {}, env: 0.7, macro: [0.1, 0.2], clinical: true,
+  },
+  tyvek: {         // crinkled spunbond suit fabric
+    tex: { size: MINOR, tile: 0.5, depth: 0.004, glsl: TYVEK, seed: 66, aoRadius: 0.006, uniforms: col(0xdde2e4) },
+    params: {}, env: 0.45, macro: [0.08, 0.0], clinical: true,
+  },
+  navy_grey: {     // haze grey 0x7b858c, many coats, chipped
+    tex: { size: HERO, tile: 2, depth: 0.003, glsl: NAVY_GREY, seed: 67, aoRadius: 0.006,
+      uniforms: { uCol: { value: srgb(0x7b858c) }, uCol2: { value: srgb(0x596269) }, uWear: { value: 0.5 } } },
+    params: {}, env: 0.9, macro: [0.12, 0.2], clinical: true,
+  },
+  deck_nonslip: {  // non-slip grit deck paint
+    tex: { size: HERO, tile: 1, depth: 0.003, glsl: DECK_NONSLIP, seed: 68, aoRadius: 0.003, uniforms: col(0x667074) },
+    params: {}, env: 0.6, macro: [0.15, 0.2], clinical: true,
   },
 };
 

@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { DecalName, GameContext, MaterialLibrary, MaterialName, ScreenKind, SignStyle } from '../core/types';
 import { Baker, type BakedTextures } from './baker';
-import { SPECS, EMISSIVE, HABITAT_FROM, type MatSpec } from './defs';
+import { SPECS, EMISSIVE, HABITAT_FROM, CLINICAL_FROM, type MatSpec } from './defs';
 import { advanceWater, applyMacro, macroConfigOf } from './macro';
 import { DecalFactory, DECAL_COUNT } from './decals';
 import { createSign } from './signs';
@@ -56,8 +56,13 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   const baked = new Map<string, BakedTextures>();
   const allNames = Object.keys(SPECS) as (keyof typeof SPECS)[];
   // the habitat set (stage 3a) is baked at load only where it is used; elsewhere on first `get` (dev pages)
+  // the clinical set (stage 3b) likewise from level 4 on
   const habitatNow = (ctx.levelId ?? 1) >= HABITAT_FROM;
-  const names = allNames.filter((n) => habitatNow || !(SPECS[n] as MatSpec).habitat);
+  const clinicalNow = (ctx.levelId ?? 1) >= CLINICAL_FROM;
+  const names = allNames.filter((n) => {
+    const sp = SPECS[n] as MatSpec;
+    return sp.habitat ? habitatNow : sp.clinical ? clinicalNow : true;
+  });
   await baker.precompile(names.map((n) => ({ key: n, ...SPECS[n].tex! })).filter((d) => d.glsl));
   const tCompile = performance.now();
   // on `low` the habitat set bakes its 1024² sets at 512² (140 → 56 MiB); the plant's set is unchanged
@@ -65,7 +70,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   const bakeOne = (n: keyof typeof SPECS) => {
     const spec = SPECS[n] as MatSpec;
     if (!spec.tex) return;
-    const size = spec.habitat && lowQ ? Math.min(spec.tex.size, 512) : spec.tex.size;
+    const size = (spec.habitat || spec.clinical) && lowQ ? Math.min(spec.tex.size, 512) : spec.tex.size;
     const tex = baker.bake({ key: n, ...spec.tex, size });
     const rep = 1 / spec.tex.tile;
     for (const t of [tex.map, tex.normalMap, tex.orm, tex.emissiveMap]) if (t) t.repeat.set(rep, rep);

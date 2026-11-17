@@ -5,11 +5,13 @@
  *   ?view=decals|signs|screens
  *   &env=0                  no environment reflections; &time=s advances screens
  *   ?view=habitat|booth|wayfinding|screens3   stage 3a habitat gallery (see ./habitat.ts)
+ *   ?view=clinical|cbooth|screens4|screen4|signs4   stage 3b clinical gallery (see ./clinical.ts)
  */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createMaterials } from '../index';
 import { habitatGallery, HABITAT_VIEWS } from './habitat';
+import { clinicalGallery, CLINICAL_VIEWS } from './clinical';
 import { SPECS, EMISSIVE } from '../defs';
 import type { DecalName, GameContext, MaterialName, ScreenKind, SignStyle } from '../../core/types';
 
@@ -59,7 +61,8 @@ async function main() {
   const t0 = performance.now();
   // the stage 3a gallery bakes the habitat set at load, as level 3 does
   const habView = HABITAT_VIEWS.includes(q.get('view') ?? '');
-  const lib = await createMaterials({ renderer, levelId: habView ? 3 : undefined } as unknown as GameContext);
+  const clinView = CLINICAL_VIEWS.includes(q.get('view') ?? '');
+  const lib = await createMaterials({ renderer, levelId: clinView ? 4 : habView ? 3 : undefined } as unknown as GameContext);
   const genMs = performance.now() - t0;
 
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -79,6 +82,10 @@ async function main() {
   if (habView) {
     scene.clear();
     const g = habitatGallery({ renderer, scene, camera, lib, q }, view!);
+    animate = g.step; splitRender = g.render;
+  } else if (clinView) {
+    scene.clear();
+    const g = clinicalGallery({ renderer, scene, camera, lib, q }, view!);
     animate = g.step; splitRender = g.render;
   } else if (mat) {
     const m = lib.get(mat);
