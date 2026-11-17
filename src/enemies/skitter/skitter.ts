@@ -51,6 +51,8 @@ const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0);
 const PROBE_DIRS = [UP, DOWN, new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
   new THREE.Vector3(1, 0, 1).normalize(), new THREE.Vector3(-1, 0, 1).normalize(), new THREE.Vector3(1, 0, -1).normalize(), new THREE.Vector3(-1, 0, -1).normalize()];
 const EYE_KEYS = ['glow'];
+/** Brightness of a dormant skitter's standby pair (0 = dormant skitters stay dark). */
+const STANDBY_MARK = 0.3;
 
 export class Skitter extends EnemyBase {
   readonly type = 'skitter' as const;
@@ -190,7 +192,28 @@ export class Skitter extends EnemyBase {
   private setEye(on: boolean): void {
     this.eyeOn = on;
     this.B.eye.scale.setScalar(on ? 1 : 1e-4);
-    this.rig.setKeysVisible(EYE_KEYS, on);
+    this.tickMarks();
+  }
+
+  /**
+   * Dark-room marks: the antenna-tip pair (+ the eye's own mark, which follows the eye). Awake and lit: red pair;
+   * dormant (curled, inert): a dim cyan standby pair; a puppet: red while its eye is on; dying: the pair stutters until
+   * the charge goes (0.42 s), then dark. The glow mesh is drawn only while something on it is lit.
+   */
+  private tickMarks(): void {
+    const B = this.B;
+    let red = 0, stby = 0;
+    if (this.mode === 'dying') {
+      const t = this.modeTime;
+      red = t < 0.42 && Math.sin(t * 60) > -0.3 ? 1 - t : 0;
+    } else if (this.mode === 'dead') { /* dark */ } else if (this.mode === 'dormant') {
+      stby = STANDBY_MARK;
+    } else if (this.mode === 'emerge' && this.holdHidden) { /* not out yet */ } else if (this.eyeOn) red = 1;
+    for (const sfx of ['l', 'r']) {
+      B['mk_ant_' + sfx].scale.setScalar(Math.max(1e-4, red));
+      B['mk_ants_' + sfx].scale.setScalar(Math.max(1e-4, stby));
+    }
+    this.rig.setKeysVisible(EYE_KEYS, this.eyeOn || red > 0 || stby > 0);
   }
 
   private onAwake(): void {
@@ -438,6 +461,11 @@ export class Skitter extends EnemyBase {
   // ───────────────────────────────────────────────────────── update
 
   update(dt: number): void {
+    this.tickBody(dt);
+    this.tickMarks();
+  }
+
+  private tickBody(dt: number): void {
     this.stateTime += dt; this.modeTime += dt;
     const w = this.world, p = this.body.position, phys = w.ctx.physics;
     if (this.mode === 'dead') return;

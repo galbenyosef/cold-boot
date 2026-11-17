@@ -107,6 +107,9 @@ export function buildHuskTemplate(ctx: GameContext, skin?: EnemySkin): HuskTempl
   } finally { SKIN = null; }
 }
 
+/** Dark-room mark tints (linear HDR): hostile red (the sensor's colour), status cyan (the chest LEDs' colour). */
+export const MARK_RED = tintOf(0xff1a08, 3.2), MARK_CYAN = tintOf(0x18c8ff, 2.4);
+
 /** Stencil ink of the skins (multiplies the library stencil's light-grey paint). */
 const LAB_INK = new THREE.Color(0.035, 0.12, 0.42), NAVY_INK = new THREE.Color(1.9, 1.9, 1.85);
 /** A library stencil re-inked (a private clone; the shared sign is untouched). */
@@ -252,6 +255,12 @@ function huskSkeleton(b: RigBuilder): PistonDef[] {
   b.bone('blade', 'tool_saw', -K.shoulderX, 0.745, K.shoulderZ + 0.01);
   b.bone('tool_inj', 'hand_r', -K.shoulderX, 0.86, K.shoulderZ);
   b.bone('needle', 'tool_inj', -K.shoulderX, 0.76, K.shoulderZ);
+  // dark-room marks (RigBuilder.mark; their scale = brightness): the sensor's own (rides on 'eye'), the sternum status
+  // diode (cyan), the spine diode between the shoulder blades — red while hunting, cyan on standby
+  b.bone('mk_eye', 'eye', 0.035, 1.712, 0.07);
+  b.bone('mk_chest', 'spine2', 0, 1.435, 0.11);
+  b.bone('mk_back', 'spine2', 0, 1.38, -0.156);
+  b.bone('mk_back_s', 'spine2', 0, 1.38, -0.156);
 
   return pistons;
 }
@@ -393,6 +402,11 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   for (let i = 0; i < 3; i++) L(box(0.006, 0.006, 0.004), -0.009 + i * 0.009, 0.215, 0.1165, -4 * D);
   b.mat('red'); L(box(0.006, 0.006, 0.004), 0, 0.2, 0.1175, -4 * D);
   b.bind('spine2');
+  // dark-room marks: sternum status diode (over the cyan LED row) and the spine diode in the back channel, on a housing
+  b.mark('mk_chest', new THREE.Vector3(0, 1.435, 0.1105), new THREE.Vector3(0, -0.07, 1), 0.004, MARK_CYAN, -0.35);
+  b.mat('frame'); L(box(0.02, 0.016, 0.008, 0.003), 0, 0.16, -0.134);
+  b.mat('joint'); L(bcyl(0.0075, 0.004, 0.001, 10), 0, 0.16, -0.139, 90 * D);
+  for (const [k, c] of [['mk_back', MARK_RED], ['mk_back_s', MARK_CYAN]] as const) b.mark(k, new THREE.Vector3(0, 1.38, -0.1565), new THREE.Vector3(0, 0.12, -1), 0.0048, c, -0.6);
   // shoulder yokes
   for (const s of [-1, 1]) {
     b.mat('frame');
@@ -517,6 +531,10 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   lens(50, SV - 0.045, 0.012, 0.0038, 0, 'cyan', 'eye', 0.5);
   // faint second sensor glowing through the intact end of the glass
   lens(-27, SV, 0.0052, 0.0045, 0, 'red', 'eye2', 0.3);
+  { // dark-room mark of the sensor: in front of the main lens, shining along it (front hemisphere)
+    const p = headPt(30, SV, 0.0);
+    b.mark('mk_eye', new THREE.Vector3(p[0], p[1] + K.headY, p[2] - 0.008), new THREE.Vector3(Math.sin(27 * D), 0.05, Math.cos(27 * D)), 0.0055, MARK_RED, -0.1);
+  }
   b.bind('head');
   // face plate: breakable. Visor slot; the glass is smashed at its left end, cracks run over brow and cheek.
   b.bind('p_face').mat('shell');

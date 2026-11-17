@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { GameContext } from '../../core/types';
 import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
+import { MARK_CYAN, MARK_RED } from '../husk/model';
 import { bcyl, bolt, box, cyl, patch, plate, rod, sphere, torus, tube, wedge, xf, type V3 } from '../shared/prims';
 
 export const SK = {
@@ -72,6 +73,13 @@ function authorSkitter(b: RigBuilder): string[] {
       legs.push(n);
       b.debrisBones.add('tibia_' + n); b.debrisBones.add('femur_' + n);
     });
+  }
+  // dark-room marks (RigBuilder.mark; scale = brightness): the eye's own, and a pair on the antenna tips — red while
+  // hunting, cyan (standby) while dormant. The pair is what reads at range: two points that bob and turn with the head.
+  b.bone('mk_eye', 'eye', 0, Y0 + 0.04, 0.345);
+  for (const [sfx, s] of [['l', 1], ['r', -1]] as const) {
+    b.bone('mk_ant_' + sfx, 'ant2_' + sfx, 0.105 * s, Y0 + 0.3, 0.38);
+    b.bone('mk_ants_' + sfx, 'ant2_' + sfx, 0.105 * s, Y0 + 0.3, 0.38);
   }
   b.debrisBones.add('head'); b.debrisBones.add('spool');
 
@@ -168,6 +176,7 @@ function authorSkitter(b: RigBuilder): string[] {
   L(torus(0.026, 0.005, 6, 14), 0, 0.012, 0.103);
   b.mat('glass'); L(sphere(0.021, 12, 8), 0, 0.012, 0.094, 0, 0, 0, 1, 1, 0.5);
   b.bind('eye').mat('red'); L(sphere(0.0135, 10, 6), 0, 0.012, 0.1035, 0, 0, 0, 1, 1, 0.4);
+  b.mark('mk_eye', new THREE.Vector3(0, Y0 + 0.042, 0.361), new THREE.Vector3(0, 0.1, 1), 0.008, MARK_RED, -0.15);
   b.bind('head');
   // mandible cutters
   const mand: [number, number][] = [[0, -0.012], [0.02, -0.016], [0.07, -0.006], [0.105, 0.016], [0.118, 0.04], [0.1, 0.03], [0.078, 0.018], [0.055, 0.012], [0.03, 0.012], [0, 0.012]];
@@ -191,6 +200,8 @@ function authorSkitter(b: RigBuilder): string[] {
     b.use('ant2_' + sfx);
     L(rod([0, 0, 0], [0.03 * s, 0.1, 0.07], 0.0022, 5, 0.001));
     b.mat('amber'); L(sphere(0.0035, 6, 4), 0.03 * s, 0.1, 0.07);
+    b.mark('mk_ant_' + sfx, new THREE.Vector3(0.105 * s, Y0 + 0.3, 0.38), new THREE.Vector3(0, 1, 0), 0.0045, MARK_RED, -2);
+    b.mark('mk_ants_' + sfx, new THREE.Vector3(0.105 * s, Y0 + 0.3, 0.38), new THREE.Vector3(0, 1, 0), 0.0045, MARK_CYAN, -2);
   }
 
   // ── LEGS (authored along local +Z: coxa → femur → tibia) ───────────────

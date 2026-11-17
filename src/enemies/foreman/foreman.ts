@@ -894,6 +894,8 @@ export class Foreman extends EnemyBase {
         }
       }
     }
+    // dark-room mark on the hull (front + rear): with the machine's life, never on before the eyes are
+    B.mk_hull.scale.setScalar(Math.max(1e-4, this.eyeGlow * (0.8 + this.flare * 0.5)));
     this.flare = damp(this.flare, 0, 2.5, dt);
     // manipulators (folded tight when parked)
     for (let s = 0; s < 2; s++) {

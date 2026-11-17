@@ -98,6 +98,8 @@ const _S = new THREE.Vector3(), _T = new THREE.Vector3(), _dn = new THREE.Vector
 const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _fw = new THREE.Vector3(), _lf = new THREE.Vector3();
 const _mb = new THREE.Matrix4();
 const EYE_KEYS = ['glow'];
+/** Brightness of a dormant (powered, inert) unit's standby diodes; 0 = dormant units stay dark. */
+const STANDBY_MARK = 0.3;
 /** Dormant pose / puppet pose name → key pose. */
 const POSE_KEY: Record<string, string> = { slumped: 'slumped', rack: 'hang', standing: 'bent', ceiling: 'bent', tucked: 'slumped', under: 'slumped' };
 const keyCache = new WeakMap<HuskTemplate, Map<string, Float32Array>>();
@@ -360,7 +362,55 @@ export class Husk extends EnemyBase {
     this.B.eye.scale.setScalar(on ? 1 : 1e-4);
     this.B.eye2.scale.setScalar(on ? 1 : 1e-4);
     this.B.led.scale.setScalar(on ? 1 : 1e-4);
-    this.rig.setKeysVisible(EYE_KEYS, on);
+    this.tickMarks(0);
+  }
+
+  // ───────────────────────────────────────────────────────── dark-room marks
+  /** Powered (story `setEyes(false)` on a real unit switches it off: no standby diodes either). */
+  private powered = true;
+  /** Latched once an awake unit's sensor has lit: the spine diode turns from standby cyan to hunting red. */
+  private hostileMark = false;
+  private mkChest = 0; private mkBack = 0; private mkStby = 0;
+  /**
+   * The marks a black room still shows (RigBuilder.mark): sensor (follows the eye), sternum diode (cyan), spine diode
+   * (red while hunting / cyan on standby). Dormant: dim cyan standby front + back. Worker / puppet with eyes on: cyan.
+   * Awake: cyan chest, red back once the sensor has lit (ignition beat first). Dying: they stutter out with the sensor.
+   * The glow mesh is drawn only while something on it is lit.
+   */
+  private tickMarks(dt: number): void {
+    const B = this.B;
+    if (!B.mk_chest) return; // the reference-pattern hologram figure has no marks
+    let chest = 0, back = 0, stby = 0;
+    const m = this.mode;
+    if (m === 'dead' || this.holo) { /* dark */ } else if (m === 'dying') {
+      const t = this.modeTime;
+      const k = t < 0.25 ? 1 : t < 0.9 && Math.sin(t * 70 + 1.3) > 0.2 ? 1 - (t - 0.25) * 0.8 : 0;
+      chest = this.mkChest * k; back = this.mkBack * k; stby = this.mkStby * k;
+    } else if (m === 'puppet') {
+      if (this.eyeOn) { chest = 0.6; stby = 0.6; }
+    } else if (!this.powered) { /* switched off */ } else if (m === 'dormant') {
+      if (!this.holdHidden) { const k = this.isWorker ? 0.5 : STANDBY_MARK; chest = k; stby = k; }
+    } else {
+      if (!this.hostileMark && (B.eye.scale.x > 0.7 || this.headGone)) this.hostileMark = true;
+      chest = 1;
+      if (this.hostileMark) back = this.mode === 'idle' ? 0.75 : 1; else stby = 0.5;
+      // a sensor flicker (ignition / flare) runs through the spine diode too
+      if (this.eyeFlicker > 0 && this.hostileMark) back *= B.eye.scale.x > 0.5 ? 1 : 0.15;
+    }
+    if (m !== 'dying') { this.mkChest = chest; this.mkBack = back; this.mkStby = stby; } // what dies out
+    B.mk_chest.scale.setScalar(Math.max(1e-4, chest));
+    B.mk_back.scale.setScalar(Math.max(1e-4, back));
+    B.mk_back_s.scale.setScalar(Math.max(1e-4, stby));
+    this.rig.setKeysVisible(EYE_KEYS, this.eyeOn || chest > 0 || back > 0 || stby > 0);
+    void dt;
+  }
+
+  /** Story hook (L2 Unit 14 / dropUnits): the unit's sensor comes on, or the unit is switched off where it stands. */
+  setEyes(on: boolean): void {
+    if (!this.alive) return;
+    this.powered = on;
+    this.setEye(on);
+    if (on) this.eyeFlicker = 0.3;
   }
 
   private setMode(m: Mode): void {
@@ -450,6 +500,11 @@ export class Husk extends EnemyBase {
   // ───────────────────────────────────────────────────────── update
 
   update(dt: number): void {
+    this.tickBody(dt);
+    this.tickMarks(dt);
+  }
+
+  private tickBody(dt: number): void {
     this.stateTime += dt; this.modeTime += dt;
     if (this.mode === 'puppet') { this.tickPuppet(dt); return; }
     if (this.mode === 'dormant') {

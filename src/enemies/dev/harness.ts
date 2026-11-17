@@ -32,6 +32,7 @@
  * Stage 3b §8.4:
  *   &skin=lab|navy|all    EnemySpawn.skin of the spawned husk / sentry; `all` cycles none, lab, navy over &n
  *   &light=cold           clean-room light: cold white overhead panels (no warm key); &light=dark is the flashlight
+ *   &light=black          all lights off, no environment (dark-room marks); &flash=1 adds the flashlight   &quality=low|medium|high
  *   &pstay=1              (state=dormant/idle) the scripted player stays at &ppos instead of 40 m away
  *   &hood=1               a fume hood in front of the machine (surface 0.9 m, sash opening to 1.3 m) — &pose=bench
  */
@@ -59,7 +60,7 @@ async function main() {
   const events = createEvents();
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(Number(P('fov', '40')), innerWidth / innerHeight, 0.02, 200);
-  const debug = { autostart: true, spawn: null, noEnemies: false, noStory: true, god: false, giveAll: false, quality: null, verbose: true, fps: 0 };
+  const debug = { autostart: true, spawn: null, noEnemies: false, noStory: true, god: false, giveAll: false, quality: (q.get('quality') as any) ?? null, verbose: true, fps: 0 };
   const ctx = {
     canvas, uiRoot: document.getElementById('ui')!, scene, camera, events, physics: createPhysics(), debug, time: 0, state: 'playing', ready: false, levelId: clampBuilt(parseLevel(P('level', '2')) ?? 2), facts: {},
     setState() {},
@@ -107,7 +108,7 @@ async function main() {
     scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environmentIntensity = lightMode === 'dark' ? 0.04 : lightMode === 'lamp' ? 0.06 : lightMode === 'cold' ? 0.3 : 0.45;
   }
-  scene.background = new THREE.Color(lightMode === 'dark' || lightMode === 'lamp' ? 0x030405 : 0x0b0d10);
+  scene.background = new THREE.Color(lightMode === 'black' ? 0x000000 : lightMode === 'dark' || lightMode === 'lamp' ? 0x030405 : 0x0b0d10);
   const floorMat = ctx.materials.get('floor_concrete');
   const wallMat = ctx.materials.get('wall_panel');
   const colliders: THREE.Mesh[] = [];
@@ -191,6 +192,8 @@ async function main() {
     lights.add({ type: 'spot', position: new THREE.Vector3(0.8, 3.4, 1.6), target: new THREE.Vector3(0, 0.8, 0), color: 0xeef4ff, intensity: 160, distance: 14, angle: 1.0, penumbra: 0.9, castShadow: true });
     lights.add({ type: 'point', position: new THREE.Vector3(-2.0, 3.2, 3.5), color: 0xdde8f5, intensity: 30, distance: 12 });
     lights.add({ type: 'point', position: new THREE.Vector3(2.5, 3.0, -1.5), color: 0xe6eefa, intensity: 14, distance: 10 });
+  } else if (lightMode === 'black') {
+    // all lights off (dark-room marks): nothing but the machines' own glow, and the flashlight with &flash=1
   } else if (lightMode === 'studio') {
     lights.add({ type: 'spot', position: new THREE.Vector3(3.5, 5, 5.5), target: new THREE.Vector3(0, 0.9, 0), color: 0xfff1e0, intensity: 520, distance: 30, angle: 0.5, penumbra: 0.6, castShadow: true });
     lights.add({ type: 'point', position: new THREE.Vector3(-4, 2.5, 1), color: 0x7fb0ff, intensity: 40, distance: 20 });
@@ -422,13 +425,13 @@ async function main() {
     if (q.get('campos')) { const a = q.get('campos')!.split(',').map(Number); camera.position.set(a[0], a[1], a[2]); }
     if (q.get('look')) { const a = q.get('look')!.split(',').map(Number); camTarget.set(a[0], a[1], a[2]); }
     camera.lookAt(camTarget);
-    if (lightMode === 'dark' && flash) {
+    if ((lightMode === 'dark' || lightMode === 'black') && flash) {
       flash.position.copy(camera.position); flash.target.copy(camTarget);
     }
     void up;
   };
   let flash: LightHandle | null = null;
-  if (lightMode === 'dark' && q.get('flash') !== '0') {
+  if ((lightMode === 'dark' && q.get('flash') !== '0') || (lightMode === 'black' && q.get('flash') === '1')) {
     flash = lights.add({ type: 'spot', position: new THREE.Vector3(), target: new THREE.Vector3(), color: 0xdfe8ff, intensity: 60, distance: 20, angle: 0.3, penumbra: 0.5, castShadow: true });
   }
 

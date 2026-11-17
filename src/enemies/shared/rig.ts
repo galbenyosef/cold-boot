@@ -18,7 +18,7 @@ export interface BoneDef {
   localQuat: THREE.Quaternion;
 }
 
-interface Chunk { geo: THREE.BufferGeometry; mat: string; bone: number; }
+interface Chunk { geo: THREE.BufferGeometry; mat: string; bone: number; mark?: boolean; }
 
 const _m = new THREE.Matrix4();
 const _m2 = new THREE.Matrix4();
@@ -179,6 +179,49 @@ export class RigBuilder {
     return this;
   }
 
+  /**
+   * Dark-room mark (see `markShader` below): a camera-facing glow disc of `radius` metres at `p` (MODEL space), rigidly
+   * bound to `bone`, drawn in the 'glow' mesh (no extra draw call). It never shrinks below ~2.5 px on screen, so it reads
+   * at 25 m in a black room; `n` (model space) is the direction it shines — it fades out over `faceMin … faceMin + 0.45`
+   * of cos(angle to the viewer) (faceMin ≤ −1.5: omnidirectional). Brightness / size follow the bone's world scale
+   * (1 = full, 0.3 = dim standby, 1e-4 = off). `tint`: linear HDR colour. Exempt from LOD feature culling.
+   */
+  mark(bone: string, p: THREE.Vector3, n: THREE.Vector3, radius: number, tint: [number, number, number], faceMin = -0.15): this {
+    const bi = this.idx(bone);
+    const C = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
+    const pos = new Float32Array(18), nor = new Float32Array(18), col = new Float32Array(18), uv = new Float32Array(12), mk = new Float32Array(24);
+    const si = new Uint16Array(24), sw = new Float32Array(24);
+    _n.copy(n).normalize();
+    for (let i = 0; i < 6; i++) {
+      pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
+      nor[i * 3] = _n.x; nor[i * 3 + 1] = _n.y; nor[i * 3 + 2] = _n.z;
+      col[i * 3] = tint[0]; col[i * 3 + 1] = tint[1]; col[i * 3 + 2] = tint[2];
+      mk[i * 4] = C[i][0]; mk[i * 4 + 1] = C[i][1]; mk[i * 4 + 2] = radius; mk[i * 4 + 3] = faceMin;
+      si[i * 4] = bi; sw[i * 4] = 1;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('mark', new THREE.BufferAttribute(mk, 4));
+    geo.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
+    geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
+    this.chunks.push({ geo, mat: 'glow', bone: bi, mark: true });
+    return this;
+  }
+
+  /** Every geometry merged into one mesh needs the same attribute set: zero `mark` (and white `color`) where missing. */
+  private static uniform(list: THREE.BufferGeometry[], material: THREE.Material | undefined): void {
+    const needMark = material === _glow || list.some((g) => g.getAttribute('mark'));
+    const needColor = needMark && list.some((g) => g.getAttribute('color'));
+    for (const g of list) {
+      const n = g.getAttribute('position').count;
+      if (needMark && !g.getAttribute('mark')) g.setAttribute('mark', new THREE.BufferAttribute(new Float32Array(n * 4), 4));
+      if (needColor && !g.getAttribute('color')) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    }
+  }
+
   build(materials: Record<string, THREE.Material>, opts: { shadow: string[]; radius: number; center: THREE.Vector3 }): RigTemplate {
     const byMat = new Map<string, THREE.BufferGeometry[]>();
     for (const c of this.chunks) {
@@ -191,6 +234,7 @@ export class RigBuilder {
     const meshes: TemplateMesh[] = [];
     let triangles = 0;
     for (const [mat, list] of byMat) {
+      RigBuilder.uniform(list, materials[mat]);
       let g = mergeGeometries(list, false)!;
       this.applyColor(mat, g);
       g = mergeVertices(g, 1e-5);
@@ -205,10 +249,10 @@ export class RigBuilder {
       const inv = new THREE.Matrix4().copy(this.bones[bi].bind).invert();
       const groups = new Map<string, THREE.BufferGeometry[]>();
       for (const c of this.chunks) {
-        if (c.bone !== bi) continue;
+        if (c.bone !== bi || c.mark) continue;
         const g = c.geo.clone();
         g.deleteAttribute('skinIndex'); g.deleteAttribute('skinWeight');
-        g.deleteAttribute('color');
+        g.deleteAttribute('color'); g.deleteAttribute('mark');
         g.applyMatrix4(inv);
         let l = groups.get(c.mat);
         if (!l) groups.set(c.mat, (l = []));
@@ -259,6 +303,7 @@ export class RigBuilder {
     const meshes: TemplateMesh[] = [];
     let triangles = 0;
     for (const [mat, list] of byMat) {
+      RigBuilder.uniform(list, materials[mat]);
       let g = mergeGeometries(list, false)!;
       this.applyColor(mat, g);
       g = mergeVertices(g, 1e-5);
@@ -275,7 +320,7 @@ export class RigBuilder {
   buildShadow(exclude: string[], opts: { radius: number; center: THREE.Vector3 }): { geometry: THREE.BufferGeometry; triangles: number } {
     const list: THREE.BufferGeometry[] = [];
     for (const c of this.chunks) {
-      if (exclude.includes(c.mat)) continue;
+      if (exclude.includes(c.mat) || c.mark) continue;
       c.geo.deleteAttribute('normal'); c.geo.deleteAttribute('uv');
       list.push(c.geo);
     }
@@ -291,8 +336,64 @@ export class RigBuilder {
 let _glow: THREE.MeshBasicMaterial | null = null;
 /** Unlit HDR material for every small emissive bit of the machines; colour comes from vertex colours (tint). */
 export function glowMaterial(): THREE.MeshBasicMaterial {
-  if (!_glow) { _glow = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }); _glow.name = 'enemy_glow'; }
+  if (!_glow) {
+    _glow = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+    _glow.name = 'enemy_glow';
+    markShader(_glow);
+  }
   return _glow;
+}
+
+/**
+ * Dark-room marks (RigBuilder.mark): the glow material grows each mark's disc to at least MARK_PX (fraction of the
+ * viewport height, ≥ 2 px) so the point survives distance, sub-pixel geometry and the LOD; a mark seen from behind
+ * its `faceMin` cone shrinks back to its real size (no dark disc on a lit shell). Ordinary glow geometry (mark = 0)
+ * renders exactly as before. The disc is pulled toward the viewer by its radius (+ ≤ 6 cm once grown) so its own housing does not clip it.
+ */
+const MARK_FRAC = 0.0026, MARK_MIN_PX = 2.2;
+function markShader(m: THREE.MeshBasicMaterial): void {
+  const uH = { value: 720 }, uPx = { value: 2.2 };
+  const vp = new THREE.Vector4();
+  m.onBeforeRender = (renderer) => {
+    renderer.getCurrentViewport(vp);
+    const h = vp.w > 0 ? vp.w : 720;
+    uH.value = h; uPx.value = Math.max(MARK_MIN_PX, h * MARK_FRAC);
+  };
+  m.customProgramCacheKey = () => 'enemy_glow_marks_1';
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uMarkH = uH; sh.uniforms.uMarkPx = uPx;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute vec4 mark;
+uniform float uMarkH;
+uniform float uMarkPx;
+varying vec3 vMark;`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+vMark = vec3(0.0, 0.0, -1.0);
+#ifdef USE_SKINNING
+if (mark.z > 0.0) {
+  float s = length(skinMatrix[0].xyz);
+  vec3 toCam = normalize(-mvPosition.xyz);
+  float face = mark.w < -1.5 ? 1.0 : smoothstep(mark.w, mark.w + 0.45, dot(normalize(transformedNormal), toCam));
+  float px = -mvPosition.z * 2.0 / (projectionMatrix[1][1] * uMarkH);
+  float rNat = mark.z * s;
+  float r = max(rNat, 0.5 * uMarkPx * px * step(0.05, s) * face);
+  vec3 c = mvPosition.xyz + toCam * (rNat + min((r - rNat) * 1.5, 0.06));
+  mvPosition = vec4(c + vec3(mark.xy * r, 0.0), 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  vMark = vec3(mark.xy, min(s, 1.6) * mix(0.3, 1.0, face));
+}
+#endif`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vMark;`)
+      .replace('#include <opaque_fragment>', `if (vMark.z >= 0.0) {
+  float d2 = dot(vMark.xy, vMark.xy);
+  if (d2 > 1.0) discard;
+  outgoingLight *= vMark.z * (1.0 - 0.6 * d2);
+}
+#include <opaque_fragment>`);
+  };
 }
 
 /** Linear RGB × intensity of a library emissive colour, for glow vertex tints. */

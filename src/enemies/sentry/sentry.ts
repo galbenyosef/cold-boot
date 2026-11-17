@@ -19,6 +19,8 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vecto
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const GLOW_KEYS = ['glow'];
+/** Brightness of a docked dormant sentry's standby diode (0 = dormant sentries stay dark). */
+const STANDBY_MARK = 0.3;
 const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0);
 let beamGeo: THREE.CylinderGeometry | null = null, beamMat: THREE.MeshBasicMaterial | null = null, boltMat: THREE.MeshBasicMaterial | null = null;
 
@@ -191,6 +193,14 @@ export class Sentry extends EnemyBase {
   // ───────────────────────────────────────────────────────── update
 
   update(dt: number): void {
+    this.tickBody(dt);
+    // dark-room marks: nose pair + tail light follow the LEDs ('led'); docked dormant → a dim cyan standby diode
+    const stby = this.mode === 'dormant' ? STANDBY_MARK : 0;
+    this.B.mk_stby.scale.setScalar(Math.max(1e-4, stby));
+    if (this.mode === 'dormant') this.rig.setKeysVisible(GLOW_KEYS, stby > 0);
+  }
+
+  private tickBody(dt: number): void {
     this.stateTime += dt; this.modeTime += dt;
     const w = this.world, p = this.body.position, v = this.body.velocity, phys = w.ctx.physics;
     if (this.mode === 'dead') return;

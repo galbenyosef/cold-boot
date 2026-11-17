@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { EnemySkin, GameContext } from '../../core/types';
-import { skinPaint, tintedSign } from '../husk/model';
+import { MARK_CYAN, MARK_RED, skinPaint, tintedSign } from '../husk/model';
 import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, hlathe, patch, rod, sphere, torus, tube, wedge, xf } from '../shared/prims';
 
@@ -57,6 +57,11 @@ function authorSentry(b: RigBuilder): void {
   b.bone('led', 'body', 0, 0.02, 0.2);
   b.bone('clamp_l', 'body', 0.07, 0.105, -0.02);
   b.bone('clamp_r', 'body', -0.07, 0.105, -0.02);
+  // dark-room marks (RigBuilder.mark; scale = brightness): nose bar and tail light ride on 'led' (lit / boot flicker /
+  // falling wreck exactly like the LEDs); a cyan standby diode on the tail fin while docked dormant
+  b.bone('mk_nose', 'led', 0, 0.02, 0.2);
+  b.bone('mk_tail', 'led', 0, 0.02, 0.2);
+  b.bone('mk_stby', 'body', 0, 0.03, -0.3);
   b.debrisBones.add('nac_l'); b.debrisBones.add('nac_r'); b.debrisBones.add('turret');
 
   const L = (geo: THREE.BufferGeometry, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => b.addL(geo, xf(x, y, z, rx, ry, rz, sx, sy, sz));
@@ -93,6 +98,7 @@ function authorSentry(b: RigBuilder): void {
   b.bind('led').mat('red');
   for (const x of [-0.045, -0.03, 0.03, 0.045]) L(box(0.008, 0.008, 0.004), x, 0.013, 0.2475, -14 * D);
   L(box(0.03, 0.006, 0.004), 0, 0.013, 0.2475, -14 * D);
+  for (const x of [-0.04, 0.04]) b.mark('mk_nose', new THREE.Vector3(x, 0.0135, 0.2535), new THREE.Vector3(0, 0.24, 0.97), 0.005, MARK_RED, -0.15);
   b.bind('body').mat('accent');
   for (const s of [-1, 1]) L(box(0.006, 0.05, 0.14, 0.002), 0.103 * s, -0.01, -0.09);                    // hazard side panels
   b.mat('sign');
@@ -141,6 +147,8 @@ function authorSentry(b: RigBuilder): void {
   L(box(0.16, 0.008, 0.07, 0.003), 0, 0.0, -0.03);
   L(box(0.008, 0.09, 0.07, 0.003), 0.08, 0.02, -0.03); L(box(0.008, 0.09, 0.07, 0.003), -0.08, 0.02, -0.03);
   b.mat('red'); b.bind('led'); L(box(0.012, 0.006, 0.004), 0, 0.0, -0.067);
+  b.mark('mk_tail', new THREE.Vector3(0, 0.03, -0.342), new THREE.Vector3(0, 0, -1), 0.005, MARK_RED, -0.35);
+  b.mark('mk_stby', new THREE.Vector3(0, 0.03, -0.342), new THREE.Vector3(0, 0, -1), 0.005, MARK_CYAN, -2);
 
   // ── CHIN GIMBAL: yaw ring → turret (pitch) with searchlight + laser ────
   b.use('gimbal').mat('joint');

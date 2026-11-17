@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import type { GameContext } from '../../core/types';
 import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, keyLerp, patch, plate, rod, shell, sphere, spow, torus, tube, wedge, xf } from '../shared/prims';
-import { huskShell, shellGrime } from '../husk/model';
+import { huskShell, MARK_RED, shellGrime } from '../husk/model';
 
 export const FOREMAN_DIM = {
   turretY: 0.62, columnY: 0.66, hubY: 1.5,
@@ -93,9 +93,18 @@ function authorForeman(b: RigBuilder): void {
     b.bone('mja_' + sfx, 'mcl_' + sfx, x + 0.09 * s, F.mShoulderY - F.mUpper - F.mFore - 0.08, 0.07);
     b.bone('mjb_' + sfx, 'mcl_' + sfx, x + 0.09 * s, F.mShoulderY - F.mUpper - F.mFore - 0.08, -0.03);
   }
+  // dark-room marks (RigBuilder.mark; scale = brightness): each head's sensor (rides on its eye bone) and a hull diode
+  // front and rear (scaled with the eye glow in pose()) — the base still reads when heads are gone or face away
+  for (const k of TORSOS) {
+    const th = TORSO_YAW[k];
+    const [ex, ez] = rotY(0.03, F.torsoOff + 0.03 + 0.08, th);
+    b.bone('mk_eye_' + k, 'eye_' + k, ex, F.headY + 0.11, ez, th);
+  }
+  b.bone('mk_hull', 'base', 0, 0.3, 0);
   for (const n of ['head_a', 'head_b', 'head_c', 'mfo_l', 'mfo_r', 'mcl_l', 'mcl_r', 'larm_b_l', 'larm_b_r', 'larm_c_l', 'larm_c_r']) b.debrisBones.add(n);
 
   // ── tracked base ───────────────────────────────────────────────────────
+  for (const z of [1, -1]) b.mark('mk_hull', new THREE.Vector3(0, 0.3, 0.744 * z), new THREE.Vector3(0, 0, z), 0.007, MARK_RED, -0.3);
   b.use('base').mat('yellow');
   L(box(0.9, 0.36, 1.46, 0.05), 0, 0.42, 0);                      // hull
   L(wedge(0.9, 0.5, 0.76, 0.34, 0.12), 0, 0.66, 0.0);              // top bevel
@@ -205,6 +214,11 @@ function authorForeman(b: RigBuilder): void {
     L(rod([-0.09, 0.13, 0], [-0.1, 0.22, -0.04], 0.003, 5));
     b.use('eye_' + k).mat('red');
     L(sphere(0.014, 10, 6), 0, 0, 0, 0, 0, 0, 1, 1, 0.5);
+    {
+      const th = TORSO_YAW[k];
+      const [ex, ez] = rotY(0.03, F.torsoOff + 0.03 + 0.08 + 0.01, th);
+      b.mark('mk_eye_' + k, new THREE.Vector3(ex, F.headY + 0.11, ez), new THREE.Vector3(Math.sin(th), 0, Math.cos(th)), 0.008, MARK_RED, -0.15);
+    }
     b.mat('joint'); L(bcyl(0.02, 0.025, 0.004, 12), 0, 0, -0.014, 90 * D);
 
     // B / C: the two thin husk arms with three-finger hands
