@@ -4,10 +4,13 @@
  * per-shot effects (muzzle light, smoke, brass, recoil, noise). Drives the viewmodel rigs.
  */
 import * as THREE from 'three';
-import type { GameContext, WeaponId, WeaponState } from '../core/types';
+import type { GameContext, LightHandle, WeaponId, WeaponState } from '../core/types';
+import { WEAPON_IDS } from '../core/types';
 import type { Viewmodel } from './viewmodels/rig';
 import type { CameraRig } from './camera';
-import { PISTOL_CLIPS, SHOTGUN_CLIPS } from './viewmodels/clips';
+import { PISTOL_CLIPS, SHOTGUN_CLIPS, CARBINE_CLIPS } from './viewmodels/clips';
+import { buildCarbineMag, buildRifleCasingGeo, type CarbineMag } from './viewmodels/carbine';
+import { MOVE } from './controller';
 import { buildCasingGeo, buildSpentShellParts } from './viewmodels/props';
 import { buildMagazine } from './viewmodels/pistol';
 import type { VmMats } from './viewmodels/mats';
@@ -18,9 +21,22 @@ import { setVmRoom } from './viewmodels/vmlight';
 export const WEAPON_STATS = {
   pistol: { clipSize: 12, damage: 20, interval: 0.14, range: 90, baseSpread: 0.0025, bloom: 0.011, noise: 30, maxReserve: 96, light: 70 },
   shotgun: { clipSize: 6, damage: 9, pellets: 9, interval: 0.25, range: 45, cone: 0.062, noise: 42, maxReserve: 36, light: 140 },
-  // K placeholder (stage 3b §8.3): numbers from the plan; W1 replaces it with the real carbine (no rig / fire path yet)
-  carbine: { clipSize: 30, damage: 18, interval: 0.1, range: 80, baseSpread: 0.003, bloom: 0.0035, noise: 36, maxReserve: 180, light: 90 },
+  // stage 3b §8.3: full auto 600 rpm; damage ×0.8 beyond 40 m; bloom per shot capped, decays linearly
+  carbine: {
+    clipSize: 30, damage: 18, interval: 0.1, range: 80, falloffFrom: 40, falloff: 0.8, baseSpread: 0.003, bloom: 0.0035,
+    bloomCap: 0.028, bloomDecay: 0.05, moving: 0.008, airborne: 0.03, crouch: 0.7, noise: 36, maxReserve: 180, light: 90,
+    reload: 2.2, reloadEmpty: 2.6, raise: 0.38,
+  },
 } as const;
+
+/**
+ * Stage 3b §8.3 carbine recoil: per shot the view climbs `pitch + 0…pitchRand` rad and kicks ±`yaw` + `drift` to the
+ * right; `recoverAfter` s without a shot, `recover` of the climb comes back down at `recoverRate` rad/s (whatever
+ * the player pulled down by hand counts as already recovered).
+ */
+export const CARBINE_RECOIL = { pitch: 0.0055, pitchRand: 0.0012, yaw: 0.0015, drift: 0.0004, recoverAfter: 0.12, recover: 0.7, recoverRate: 0.09 } as const;
+/** Raise (equip) time per weapon (s). */
+const RAISE: Record<WeaponId, number> = { pistol: 0.34, shotgun: 0.34, carbine: WEAPON_STATS.carbine.raise };
 
 export interface WeaponInput {
   firePressed: boolean;
@@ -53,7 +69,7 @@ export class Weapons {
   readonly states: Record<WeaponId, WeaponState> = {
     pistol: { id: 'pistol', owned: false, clip: 0, clipSize: WEAPON_STATS.pistol.clipSize, reserve: 0, reloading: false },
     shotgun: { id: 'shotgun', owned: false, clip: 0, clipSize: WEAPON_STATS.shotgun.clipSize, reserve: 0, reloading: false },
-    carbine: { id: 'carbine', owned: false, clip: 0, clipSize: WEAPON_STATS.carbine.clipSize, reserve: 0, reloading: false }, // K placeholder
+    carbine: { id: 'carbine', owned: false, clip: 0, clipSize: WEAPON_STATS.carbine.clipSize, reserve: 0, reloading: false },
   };
   current: WeaponId | null = null;
   private pending: WeaponId | null = null;
@@ -76,7 +92,24 @@ export class Weapons {
   private hullI = 0;
   private mags: THREE.Object3D[] = [];
   private magI = 0;
+  private rifleCasings: THREE.Mesh[] = [];
+  private rifleI = 0;
+  private cmags: CarbineMag[] = [];
+  private cmagI = 0;
   readonly tracers: Tracers;
+  /** Carbine: rounds fired this trigger pull (tracer every 3rd), time since the last shot, the climb still to recover. */
+  private burstN = 0;
+  private sinceShot = 99;
+  private recoverable = 0;
+  private pendPitch = 0;
+  private pendYaw = 0;
+  /** View change the weapon asks of the player this frame (recoil climb / recovery), radians; consumed by the player. */
+  readonly aimDelta = { pitch: 0, yaw: 0 };
+  /** Debug (check-weapons): every shot goes exactly at this point, no spread. */
+  aimLock: THREE.Vector3 | null = null;
+  /** One pooled muzzle light for the carbine, held through a burst (created on the first shot). */
+  private muzzleLight: LightHandle | null = null;
+  private muzzleT = 0;
 
   constructor(private ctx: GameContext, private vm: Viewmodel, private cam: CameraRig, m: VmMats) {
     const cg = buildCasingGeo();
@@ -97,9 +130,22 @@ export class Weapons {
       g.traverse((o) => { o.castShadow = true; });
       this.mags.push(g);
     }
+    const rg = buildRifleCasingGeo();
+    rg.computeBoundingSphere();
+    for (let i = 0; i < 64; i++) {
+      const c = new THREE.Mesh(rg, m.brass);
+      c.castShadow = true; c.receiveShadow = true;
+      this.rifleCasings.push(c);
+    }
+    for (let i = 0; i < 4; i++) {
+      const g = buildCarbineMag(m);
+      g.root.traverse((o) => { o.castShadow = true; });
+      this.cmags.push(g);
+    }
     this.tracers = new Tracers(ctx.scene);
     vm.pistol.onEvent = (id) => this.pistolEvent(id);
     vm.shotgun.onEvent = (id) => this.shotgunEvent(id);
+    vm.carbine.onEvent = (id) => this.carbineEvent(id);
   }
 
   get reloading() { return this.current ? this.states[this.current].reloading : false; }
@@ -114,6 +160,7 @@ export class Weapons {
     s.reserve = Math.min(WEAPON_STATS[id].maxReserve, s.reserve + Math.max(0, reserve));
     if (fresh) this.switchTo(id, true);
     this.syncSaddle();
+    this.syncRounds();
   }
 
   /** Returns how many rounds were accepted. */
@@ -129,12 +176,12 @@ export class Weapons {
   ammoFull(id: WeaponId) { return this.states[id].reserve >= WEAPON_STATS[id].maxReserve; }
 
   switchTo(id: WeaponId | null, force = false) {
-    if (id === 'carbine') return; // K placeholder: no carbine rig until W1 (a carried carbine stays in its state, unequipped)
     if (id && !this.states[id].owned) return;
     if (id === this.current && !force) return;
     if (id === this.current && this.phase === 'idle') return;
     this.cancelReload();
     this.pending = id;
+    if (this.current === 'carbine' && this.phase !== 'lowering' && !this.stowed) this.vm.carbine.play(CARBINE_CLIPS.lower);
     this.phase = this.current ? 'lowering' : 'raising';
     if (!this.current) this.equipPending();
   }
@@ -142,19 +189,26 @@ export class Weapons {
   private equipPending() {
     this.current = this.pending;
     this.pending = null;
-    this.vm.setActive(this.current as 'pistol' | 'shotgun' | null); // K placeholder cast (W1: carbine rig)
+    this.vm.setActive(this.current);
     this.phase = this.current ? 'raising' : 'idle';
+    this.burstN = 0;
     if (this.current) {
       this.ctx.events.emit('weapon:switched', { weapon: this.current });
       if (this.current === 'pistol') this.vm.pistol.slideLocked = this.states.pistol.clip === 0;
+      if (this.current === 'carbine') {
+        const c = this.vm.carbine;
+        c.chargerLocked = this.states.carbine.clip === 0;
+        this.syncRounds();
+        if (this.lower > 0.5) c.play(CARBINE_CLIPS.raise); else c.cancel();
+      }
     }
   }
 
   cancelReload() {
-    for (const id of ['pistol', 'shotgun'] as const) {
+    for (const id of WEAPON_IDS) {
       if (!this.states[id].reloading) continue;
       this.states[id].reloading = false;
-      (id === 'pistol' ? this.vm.pistol : this.vm.shotgun).cancel();
+      (id === 'pistol' ? this.vm.pistol : id === 'shotgun' ? this.vm.shotgun : this.vm.carbine).cancel();
     }
   }
 
@@ -185,14 +239,16 @@ export class Weapons {
 
   /** §8.2 `topUp`: refill every owned weapon's clip from its reserve, quietly (no events, no animation). */
   topUp() {
-    for (const id of ['pistol', 'shotgun'] as const) {
+    for (const id of WEAPON_IDS) {
       const s = this.states[id];
       if (!s.owned) continue;
       const k = Math.min(s.clipSize - s.clip, s.reserve);
       if (k > 0) { s.clip += k; s.reserve -= k; }
     }
     if (this.states.pistol.clip > 0) this.vm.pistol.slideLocked = false;
+    if (this.states.carbine.clip > 0) this.vm.carbine.chargerLocked = false;
     this.syncSaddle();
+    this.syncRounds();
   }
 
   /** Holster everything (death). */
@@ -209,6 +265,12 @@ export class Weapons {
       const clip = empty ? PISTOL_CLIPS.reloadEmpty : PISTOL_CLIPS.reload;
       this.ctx.events.emit('weapon:reload', { weapon: 'pistol', duration: clip.dur });
       this.vm.pistol.reload(empty, () => { s.reloading = false; });
+    } else if (id === 'carbine') {
+      const empty = s.clip === 0;
+      s.reloading = true;
+      const clip = empty ? CARBINE_CLIPS.reloadEmpty : CARBINE_CLIPS.reload;
+      this.ctx.events.emit('weapon:reload', { weapon: 'carbine', duration: clip.dur });
+      this.vm.carbine.reload(empty, () => { s.reloading = false; this.syncRounds(); });
     } else {
       const rig = this.vm.shotgun;
       if (rig.busy) return;
@@ -294,19 +356,41 @@ export class Weapons {
   }
 
   private syncSaddle() { this.vm.shotgun.saddleCount = Math.min(4, this.states.shotgun.reserve); }
+  /** The carbine magazine's witness strip shows the rounds in it. */
+  syncRounds() { this.vm.carbine.setRounds(this.states.carbine.clip); }
+
+  private carbineEvent(id: string) {
+    const s = this.states.carbine;
+    if (id === 'magIn') {
+      const k = Math.min(s.clipSize - s.clip, s.reserve);
+      s.clip += k; s.reserve -= k;
+      this.syncRounds();
+    } else if (id === 'magDrop') {
+      const g = this.cmags[this.cmagI++ % this.cmags.length];
+      const src = this.vm.carbine.spareMag.root;
+      src.updateWorldMatrix(true, false);
+      src.matrixWorld.decompose(g.root.position, g.root.quaternion, g.root.scale);
+      g.root.scale.set(1, 1, 1);
+      g.setRounds(0);
+      g.root.traverse((o) => o.layers.set(0));
+      _imp.set(0, -1.0, 0).addScaledVector(this.aimCache.right, -0.5).addScaledVector(this.aimCache.forward, 0.3);
+      this.ctx.fx.debris(g.root.position, _imp, [g.root], 8);
+    }
+  }
 
   private readonly aimCache = { forward: new THREE.Vector3(0, 0, -1), right: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 1, 0) };
 
-  private ejectBrass(shell: boolean) {
-    const rig = shell ? this.vm.shotgun : this.vm.pistol;
+  private ejectBrass(shell: boolean, rifle = false) {
+    const rig = shell ? this.vm.shotgun : rifle ? this.vm.carbine : this.vm.pistol;
     rig.ejectWorld(_p);
     const a = this.aimCache;
     _imp.set(0, 0, 0)
-      .addScaledVector(a.right, shell ? 1.9 : 2.3 + Math.random() * 0.6)
-      .addScaledVector(a.up, shell ? 1.3 : 1.9 + Math.random() * 0.5)
-      .addScaledVector(a.forward, -0.4);
+      .addScaledVector(a.right, shell ? 1.9 : rifle ? 2.8 + Math.random() * 0.9 : 2.3 + Math.random() * 0.6)
+      .addScaledVector(a.up, shell ? 1.3 : rifle ? 1.2 + Math.random() * 0.6 : 1.9 + Math.random() * 0.5)
+      .addScaledVector(a.forward, rifle ? 0.3 : -0.4);
     let obj: THREE.Object3D;
     if (shell) obj = this.hulls[this.hullI++ % this.hulls.length];
+    else if (rifle) obj = this.rifleCasings[this.rifleI++ % this.rifleCasings.length];
     else obj = this.casings[this.casingI++ % this.casings.length];
     obj.position.copy(_p);
     obj.quaternion.setFromAxisAngle(a.forward, Math.PI / 2);
@@ -321,7 +405,10 @@ export class Weapons {
     this.cooldown -= dt;
     this.fireQueued = Math.max(0, this.fireQueued - dt);
     this.firedRecently = Math.max(0, this.firedRecently - dt);
-    this.bloom *= Math.exp(-dt * 5);
+    if (this.current === 'carbine') this.bloom = Math.max(0, this.bloom - WEAPON_STATS.carbine.bloomDecay * dt);
+    else this.bloom *= Math.exp(-dt * 5);
+    this.updateRecoil(dt);
+    this.updateMuzzleLight(dt);
     this.tracers.update(dt, this.ctx.camera.position);
     this.sampleRoomLight(dt);
     // eyes follow the hands: the playing clip's glance rides on the camera's kick springs (aim moves with it)
@@ -350,7 +437,7 @@ export class Weapons {
         else { this.current = null; this.vm.setActive(null); this.phase = 'idle'; }
       }
     } else if (this.phase === 'raising') {
-      this.lower = Math.max(0, this.lower - dt / 0.34);
+      this.lower = Math.max(0, this.lower - dt / (this.current ? RAISE[this.current] : 0.34));
       if (this.lower <= 0) this.phase = 'idle';
     }
 
@@ -358,7 +445,7 @@ export class Weapons {
     // selection
     if (inp.slot && inp.slot !== this.current) this.switchTo(inp.slot);
     if (inp.wheel !== 0) {
-      const order: WeaponId[] = ['pistol', 'shotgun'];
+      const order: WeaponId[] = [...WEAPON_IDS];
       const owned = order.filter((w) => this.states[w].owned);
       if (owned.length > 1) {
         const i = Math.max(0, owned.indexOf(this.pending ?? this.current ?? owned[0]));
@@ -371,8 +458,11 @@ export class Weapons {
     if (inp.reload) this.reload();
 
     if (inp.firePressed) this.fireQueued = 0.18;
-    const wantFire = this.fireQueued > 0;
-    if (!wantFire) return;
+    // the carbine fires as long as the trigger is held (full auto); the others once per press
+    if (!inp.fireHeld) this.burstN = 0;
+    const auto = id === 'carbine' && inp.fireHeld && !(s.clip <= 0 && !inp.firePressed);
+    const wantFire = this.fireQueued > 0 || auto;
+    if (!wantFire) { if (this.cooldown < 0) this.cooldown = 0; return; }
     this.firedRecently = 0.35;
     if (sprintBlend > 0.35) return; // lowering out of sprint first
     if (this.phase === 'raising' && this.lower > 0.3) return;
@@ -395,7 +485,97 @@ export class Weapons {
       return;
     }
     this.emptyClicked = false;
+    if (id === 'carbine') {
+      // 600 rpm held: the remainder carries over so the cadence does not depend on the frame rate
+      let n = 0;
+      while (this.cooldown <= 0 && s.clip > 0 && n < 3) { this.fireCarbine(aim); this.cooldown += WEAPON_STATS.carbine.interval; n++; }
+      if (this.cooldown < 0) this.cooldown = 0;
+      return;
+    }
     this.fire(id, aim);
+  }
+
+  private fireCarbine(aim: Aim) {
+    const s = this.states.carbine, st = WEAPON_STATS.carbine, ctx = this.ctx, origin = aim.origin;
+    s.clip--;
+    this.burstN++;
+    this.sinceShot = 0;
+    const walk = clamp(aim.moving * MOVE.sprint / MOVE.walk, 0, 1);
+    const spread = this.aimLock ? 0 : (st.baseSpread + walk * st.moving + (aim.airborne ? st.airborne : 0) + this.bloom) * (aim.crouched ? st.crouch : 1);
+    this.bloom = Math.min(st.bloomCap, this.bloom + st.bloom);
+    if (this.aimLock) _d.copy(this.aimLock).sub(origin).normalize();
+    else {
+      // uniform in the disc
+      const r = Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+      this.spreadDir(aim, spread, r * Math.cos(a), r * Math.sin(a), _d);
+    }
+    this.vm.carbine.muzzleWorld(_muz);
+    const dist = this.ray(origin, _d, st.range, st.damage, st.falloffFrom, st.falloff);
+    if (this.burstN % 3 === 1) {
+      _end.copy(origin).addScaledVector(_d, dist);
+      this.tracers.spawn(_muz, _end, 0.012, 6, 3.6, 1.6);
+    }
+    this.vm.carbine.fire(s.clip === 0);
+    this.syncRounds();
+    // view: a small punch that springs back (camera) + the climb that stays until recovered (aim)
+    this.cam.kick(0.35 + Math.random() * 0.15, (Math.random() - 0.5) * 0.25);
+    this.cam.shake(0.035);
+    const R = CARBINE_RECOIL;
+    const dp = R.pitch + Math.random() * R.pitchRand;
+    this.pendPitch += dp;
+    this.pendYaw -= (Math.random() * 2 - 1) * R.yaw + R.drift; // yaw > 0 turns left: the drift goes right
+    this.recoverable += dp * R.recover;
+    ctx.events.emit('weapon:fired', { weapon: 'carbine', origin: origin.clone(), direction: _d.clone() });
+    ctx.enemies?.alertNoise(origin, st.noise);
+    this.ejectBrass(false, true);
+    this.flashMuzzle(_muz);
+    if (this.burstN % 2 === 1) {
+      _p.copy(_muz).addScaledVector(aim.forward, 0.05);
+      ctx.fx.smoke(_p, { count: 1, size: 0.07, color: 0x8a8580, rise: 0.25, life: 0.9 });
+    }
+  }
+
+  /** Recoil climb: applied over ~60 ms; after a pause most of it comes back down. */
+  private updateRecoil(dt: number) {
+    this.aimDelta.pitch = 0; this.aimDelta.yaw = 0;
+    this.sinceShot += dt;
+    if (this.pendPitch !== 0 || this.pendYaw !== 0) {
+      const k = 1 - Math.exp(-45 * dt);
+      const p = Math.abs(this.pendPitch) < 1e-6 ? this.pendPitch : this.pendPitch * k;
+      const y = Math.abs(this.pendYaw) < 1e-6 ? this.pendYaw : this.pendYaw * k;
+      this.pendPitch -= p; this.pendYaw -= y;
+      this.aimDelta.pitch += p; this.aimDelta.yaw += y;
+    }
+    if (this.sinceShot > CARBINE_RECOIL.recoverAfter && this.recoverable > 0) {
+      const r = Math.min(this.recoverable, CARBINE_RECOIL.recoverRate * dt);
+      this.recoverable -= r;
+      this.aimDelta.pitch -= r;
+    }
+  }
+  /** The player pulled the view down by `d` rad (d > 0): that much of the climb needs no recovery. */
+  compensate(d: number) { if (d > 0) this.recoverable = Math.max(0, this.recoverable - d); }
+
+  private flashMuzzle(p: THREE.Vector3) {
+    if (!this.muzzleLight) {
+      this.muzzleLight = this.ctx.render.lights.add({
+        type: 'point', position: p.clone(), color: 0xffb070, intensity: WEAPON_STATS.carbine.light, distance: 8,
+        priority: 50, enabled: false, castShadow: false, flicker: 'none', group: 'player_muzzle',
+      });
+    }
+    const h = this.muzzleLight;
+    // a little ahead of the muzzle: it lights the room more than the hands that hold the gun
+    h.position.copy(p).addScaledVector(this.aimCache.forward, 0.4);
+    h.enabled = true;
+    h.intensityScale = 0.6 + Math.random() * 0.35;
+    this.muzzleT = 0.07;
+  }
+  private updateMuzzleLight(dt: number) {
+    const h = this.muzzleLight;
+    if (!h || !h.enabled) return;
+    this.muzzleT -= dt;
+    // decays between shots, stays the same light through a burst (never a second one)
+    h.intensityScale *= Math.exp(-dt * 45);
+    if (this.muzzleT <= 0) { h.enabled = false; h.intensityScale = 0; }
   }
 
   private fire(id: WeaponId, aim: Aim) {
@@ -453,11 +633,12 @@ export class Weapons {
   }
 
   /** Hitscan one projectile; returns the distance it travelled (to the hit, or the full range). */
-  private ray(origin: THREE.Vector3, dir: THREE.Vector3, range: number, dmg: number): number {
+  private ray(origin: THREE.Vector3, dir: THREE.Vector3, range: number, dmg: number, falloffFrom = Infinity, falloff = 1): number {
     const ctx = this.ctx;
     const eh = ctx.enemies ? ctx.enemies.hitscan(origin, dir, range) : null;
     const wh = ctx.physics.raycast(origin, dir, range);
     if (eh && (!wh || eh.distance <= wh.distance)) {
+      if (eh.distance > falloffFrom) dmg *= falloff;
       ctx.enemies.damage(eh, dmg, dir.clone());
       this.onHit(dmg);
       return eh.distance;

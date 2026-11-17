@@ -9,14 +9,20 @@ import { levelOf } from '../core/progress';
 import type { VmMats } from './viewmodels/mats';
 import { buildPistol } from './viewmodels/pistol';
 import { buildShotgun } from './viewmodels/shotgun';
+import { buildCarbine, buildCarbineMag } from './viewmodels/carbine';
 import { buildShell, buildCasingGeo } from './viewmodels/props';
-import { M, Parts, rbox, cylY } from './geom';
+import { M, Parts, rbox, cylY, cylX, sweep } from './geom';
 
 export interface PickupHost {
   /** Would the player take this right now (auto-collect kinds)? */
   wants(kind: PickupKind): boolean;
   give(kind: PickupKind, amount: number): void;
   addKey(key: string): void;
+  /**
+   * Stage 3b §8.2: "Put on vest" — start the 0.8 s strap; `take` is called when it completes (the vest is collected
+   * then). Returns false when refused (armour full: the host shows `Armour full`); a cancelled strap leaves the vest.
+   */
+  vest(take: () => void): boolean;
 }
 
 interface Item {
@@ -29,7 +35,9 @@ interface Item {
   taken: boolean;
 }
 
-const PROMPTS: Partial<Record<PickupKind, string>> = { pistol: 'Take pistol', shotgun: 'Take shotgun', keycard: 'Take keycard' };
+const PROMPTS: Partial<Record<PickupKind, string>> = { pistol: 'Take pistol', shotgun: 'Take shotgun', carbine: 'Take carbine', keycard: 'Take keycard', vest: 'Put on vest' };
+/** Kinds whose prop hangs from its spawn point (top at the point) instead of resting on it. */
+const HANGS: Partial<Record<PickupKind, true>> = { vest: true };
 
 /** Key name carried by a keycard pickup id: the id without its `p_` / `p2_` prefix. */
 export function keyOf(id: string): string { return id.replace(/^p\d*_/, ''); }
@@ -85,6 +93,39 @@ export class Pickups {
         const gun = buildShotgun(m).root;
         gun.rotation.set(0, 0, Math.PI / 2);
         g.add(gun);
+        break;
+      }
+      case 'carbine': {
+        const gun = buildCarbine(m).root;
+        gun.rotation.set(0, 0, Math.PI / 2);
+        g.add(gun);
+        break;
+      }
+      case 'ammo_carbine': {
+        // two loaded magazines, rubber-banded, lying on their sides
+        for (let i = 0; i < 2; i++) {
+          const mag = buildCarbineMag(m);
+          mag.root.rotation.set(0, i ? 0.08 : 0, Math.PI / 2);
+          mag.root.position.set(0, 0.012 + i * 0.024, i * 0.004);
+          g.add(mag.root);
+        }
+        const pp = new Parts();
+        for (const z of [-0.03, 0.03]) pp.add(rbox(0.19, 0.052, 0.006, 0.003), m.rubber, M(-0.07, 0.024, z - 0.11));
+        pp.build(g);
+        break;
+      }
+      case 'vest': {
+        buildVest(m, g);
+        break;
+      }
+      case 'plate': {
+        // a ceramic plate insert: curved, edged in tape, with its label strip
+        const pp = new Parts();
+        const st = [] as { z: number; w: number; h: number; n: number; y: number }[];
+        for (let i = 0; i <= 8; i++) { const z = -0.15 + i * 0.0375; st.push({ z, w: 0.125 - (Math.abs(z) > 0.12 ? (Math.abs(z) - 0.12) * 1.2 : 0), h: 0.011, n: 6, y: -(z * z) * 0.35 }); }
+        pp.add(sweep(st, 24), m.plasticDark, M(0, 0.011, 0));
+        pp.add(rbox(0.07, 0.002, 0.03, 0.001), m.plasticWhite, M(0, 0.0215, 0.02));
+        pp.build(g);
         break;
       }
       case 'ammo_pistol':
@@ -157,10 +198,10 @@ export class Pickups {
         break;
       }
     }
-    // rest on y = 0
+    // rest on y = 0 (a hanging prop: its top at y = 0)
     const bb = new THREE.Box3().setFromObject(g);
     const holder = new THREE.Group();
-    g.position.y = -bb.min.y;
+    g.position.y = HANGS[kind] ? -bb.max.y : -bb.min.y;
     holder.add(g);
     holder.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     this.protos.set(kind, holder);
@@ -190,7 +231,8 @@ export class Pickups {
     if (!auto) {
       this.ctx.interactables.add({
         id: sp.id, kind: 'pickup', position: center, radius: 2.2, prompt, enabled: true,
-        onUse: () => this.collect(item),
+        // §8.2: the vest is strapped on first (0.8 s); it is only taken when that completes
+        onUse: () => { if (sp.kind === 'vest') this.host.vest(() => this.collect(item)); else this.collect(item); },
       });
     }
   }
@@ -263,5 +305,33 @@ export class Pickups {
     void dt;
   }
 
+  /** Is `id` still lying in the world (not collected)? */
+  has(id: string) { return this.items.some((i) => i.spawn.id === id && !i.taken); }
+
   get remaining() { return this.items.filter((i) => !i.taken).map((i) => i.spawn); }
+}
+
+/** Plate carrier on a hanger loop: front panel with MOLLE rows, shoulder straps, cummerbund flaps, drag handle. */
+function buildVest(m: VmMats, g: THREE.Group) {
+  const pp = new Parts();
+  const W = 0.36, H = 0.42, T = 0.05;
+  // front + back panels (slightly apart, as it hangs), plate pockets bulging
+  pp.add(rbox(W, H, T, 0.02, 3), m.vest, M(0, -H / 2 - 0.08, 0.035));
+  pp.add(rbox(W * 0.94, H * 0.96, T * 0.8, 0.02, 3), m.vest, M(0, -H / 2 - 0.085, -0.035));
+  // MOLLE webbing rows on the front
+  for (let i = 0; i < 6; i++) pp.add(rbox(W * 0.86, 0.018, 0.006, 0.002), m.gloveStrap, M(0, -0.16 - i * 0.05, 0.063));
+  for (let i = 0; i < 7; i++) pp.add(rbox(0.006, 0.27, 0.007, 0.002), m.gloveStrap, M(-0.15 + i * 0.05, -0.285, 0.064));
+  // shoulder straps over the hanger
+  for (const sx of [-1, 1]) {
+    pp.add(rbox(0.06, 0.1, 0.075, 0.012), m.vest, M(sx * 0.11, -0.045, 0, 0, 0, sx * 0.12));
+    pp.add(rbox(0.065, 0.02, 0.09, 0.008), m.gloveStrap, M(sx * 0.11, -0.005, 0));
+  }
+  // cummerbund flaps, a radio pouch and two magazine pouches
+  for (const sx of [-1, 1]) pp.add(rbox(0.05, 0.16, 0.09, 0.012), m.vest, M(sx * (W / 2 + 0.01), -0.4, 0, 0, sx * 0.3, 0));
+  for (const x of [-0.07, 0.0, 0.07]) pp.add(rbox(0.06, 0.13, 0.035, 0.008), m.vest, M(x, -0.42, 0.075));
+  pp.add(rbox(0.07, 0.06, 0.03, 0.006), m.vest, M(0.11, -0.2, 0.078));
+  // drag handle + the hanger loop it hangs by
+  pp.add(new THREE.TorusGeometry(0.025, 0.006, 6, 14, Math.PI), m.gloveStrap, M(0, 0.0, -0.035));
+  pp.add(cylX(0.004, 0.08, 8), m.steel, M(0, 0.02, 0));
+  pp.build(g);
 }

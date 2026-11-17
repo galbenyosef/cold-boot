@@ -57,3 +57,4 @@ src/fx/dev/habitat.ts :: levelId: 3 } as unknown as GameContext
 # ── false positives of the pattern (not about levels): Halvorsen's rig scale and a loop index
 src/enemies/human/halvorsen.ts :: i === 2
 src/enemies/human/human.ts :: this.S !== 1
+src/audio/voice.ts :: P.gain !== 1

@@ -21,7 +21,8 @@ import { ClipPlayer, samplePoseKeys, type Clip } from './anim';
 import { MuzzleFlash } from './muzzle';
 import { Spring, Spring3, clamp, damp, noise1 } from '../math';
 import { setViewmodel } from '../geom';
-import { PISTOL_CLIPS, SHOTGUN_CLIPS } from './clips';
+import { PISTOL_CLIPS, SHOTGUN_CLIPS, CARBINE_CLIPS } from './clips';
+import { buildCarbine, buildCarbineMag, carbineProxy, carbineMagProxy, C_BORE, CH_POS, CH_TRAVEL, MAG_SEAT, type CarbineModel, type CarbineMag } from './carbine';
 import { placeHand, wrapFinger, reachFinger, reachThumb, handProxy, gripReport, union, placed, capsuleSdf, type Sdf } from './grip';
 
 const _v = new THREE.Vector3();
@@ -834,6 +835,218 @@ export class ShotgunRig extends GunRig {
   }
 }
 
+// ───────────────────────────────────────────── carbine
+
+/**
+ * Magazine in the support hand (hand rotation frame): held like a handle — the body across the palm, baseplate on
+ * the little-finger side, the top standing out past the index knuckle, fingers wrapped over the front spine.
+ * Mag axes → hand: +Y (toward the top) → +X, +Z (rear) → −Y, +X → −Z.
+ */
+const CMAG_Q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(V(0, 0, -1), V(1, 0, 0), V(0, -1, 0)));
+const CMAG_Q_INV = CMAG_Q.clone().invert();
+/** Where the knob of the charging handle sits in the support hand (hand rotation frame): hooked by the curled fingers. */
+const CH_GRIP = V(0.004, 0.128, -0.04);
+
+export class CarbineRig extends GunRig {
+  readonly model: CarbineModel;
+  readonly spareMag: CarbineMag;
+  /** Charging handle held back (last round fired, until the empty reload releases it). */
+  chargerLocked = false;
+  private chargerPos = 0;
+  private chargerVel = 0;
+  /** Sustained-fire heat 0..1: the shoulder creeps, the gun buzzes. */
+  private heat = 0;
+  private magWiggle = 0;
+  private MAG = [0];
+  private HOLD = [0];
+  private CHW = [0];
+  private CHP = [0];
+  /**
+   * Support hand on the handguard (gun space), the shotgun's cupped hold rotated for a rounder, higher fore-end:
+   * hand axis `yaw`° right of the bore rising `rise`°, palm rolled `roll`°; palm centre at (cx, C_BORE + dy, z);
+   * thumb along the left flank. Dev-overridable (`&cgrip=`).
+   */
+  static SUPPORT = { yaw: 28, rise: 6, roll: 16, armYaw: 18, armRise: 20, cx: -0.003, dy: -0.004, z: -0.262, thumbY: 0.006, thumbZ: 0.085, arm: 0.3, elbowOut: 0.03 };
+
+  constructor(m: VmMats) {
+    const model = buildCarbine(m);
+    super(m, model.root, model.muzzle, model.ejectPort, new MuzzleFlash(0.15, 0.2, new THREE.Color(1.0, 0.7, 0.38), 6));
+    this.model = model;
+    // shouldered and turned in: the left flank (magazine, witness strip, charging handle) faces the eye
+    this.setBase(0.12, -0.135, -0.265, 0.01, 0.25, 0.04);
+    // running: low ready, muzzle down across the body
+    this.sprintPos.set(-0.04, -0.03, 0.05);
+    this.sprintRot.set(-0.42, 0.5, 0.42);
+    this.rElbow.set(0.33, -0.36, 0.12);
+    this.drawP.set(-0.09, -0.16, -0.14);
+    this.drawF.set(0.45, 0.35, -0.82);
+    this.drawD.set(-0.6, -0.75, -0.2);
+    // between the two: quicker to settle than the breacher, heavier than the sidearm
+    this.followPos.freq = 5.8; this.followRot.freq = 5.0;
+    this.recoilPos.freq = 7.2; this.recoilPos.zeta = 0.55; this.recoilRot.freq = 6.4; this.recoilRot.zeta = 0.5;
+    this.armPos.freq = 2.8; this.armRot.freq = 2.6;
+
+    const proxy = carbineProxy();
+    // the breacher's grip, guard and trigger: the same firing-hand solve
+    this.solveFiringHand(proxy, {
+      idx: V(0.0268, -0.0375, 0.041), pinky: V(0.0268, -0.0912, 0.0585), dorsal: V(0.95, 0, 0.3),
+      splay: [5, -5, -4, -3],
+      thumbTip: V(-0.0265, -0.02, -0.002), thumbMid: V(-0.027, -0.019, 0.026),
+      indexTip: V(0.0222, -0.005, -0.05), indexMid: V(0.0232, -0.009, -0.028),
+      trigTip: V(-0.003, -0.024, -0.0615), trigMid: V(0.0165, -0.024, -0.056),
+    });
+
+    const G = CarbineRig.SUPPORT;
+    const fy = G.yaw * DEG, fr = G.rise * DEG, nr = G.roll * DEG;
+    const F = V(Math.sin(fy) * Math.cos(fr), Math.sin(fr), -Math.cos(fy) * Math.cos(fr));
+    const N = V(-Math.sin(nr), -Math.cos(nr), 0);
+    const D = N.clone().addScaledVector(F, -N.dot(F)).normalize();
+    const s = this.placeSupportFD(proxy, F, D, V(G.cx, C_BORE + G.dy, G.z), [4, 1, -2, -5], N);
+    for (let f = 0; f < 4; f++) wrapFinger(this.lh, s, f, proxy);
+    this.lh.apply(s, null, false);
+    const tz = this.lh.thumbPoint(0, 0, _v).z - G.thumbZ;
+    reachThumb(this.lh, s, V(-0.035, C_BORE + G.thumbY, tz), V(-0.036, C_BORE + G.thumbY - 0.004, tz + 0.026), proxy);
+    this.lhPoses.rest = s;
+    this.report.lh = gripReport(this.lh, s, proxy);
+    this.lh.setPose(s, true);
+    const ay = G.armYaw * DEG, ar = G.armRise * DEG;
+    _v.set(Math.sin(ay) * Math.cos(ar), Math.sin(ar), -Math.cos(ay) * Math.cos(ar)).applyQuaternion(this.baseQuat);
+    this.lElbow.copy(this.lhRestPos).applyQuaternion(this.baseQuat).add(this.basePos).addScaledVector(_v, -G.arm);
+    this.lElbow.x -= G.elbowOut;
+
+    // magazine held like a handle (see CMAG_Q)
+    this.solveHeld('mag', placed(carbineMagProxy(), CARBINE_MAG_P, CMAG_Q), [2, 0, -3, -6], V(0.036, 0.04, -0.034), V(0.026, 0.03, -0.03));
+    // charging handle: knob pinched between thumb and the side of the index finger
+    const pinch = POSES.relaxed.slice();
+    for (let i = 0; i < POSE_LEN; i++) pinch[i] = POSES.relaxed[i] * 0.35 + POSES.fist[i] * 0.65;
+    pinch[1] = 62 * DEG; pinch[2] = 70 * DEG; pinch[3] = 30 * DEG;
+    pinch[THUMB] = 10 * DEG; pinch[THUMB + 1] = 20 * DEG; pinch[THUMB + 2] = 4 * DEG; pinch[THUMB + 3] = 18 * DEG; pinch[THUMB + 4] = 26 * DEG;
+    this.lhPoses.pinch = pinch;
+    // flat hand (seating slap) and a loose open hand
+    const flat = POSES.open.slice();
+    for (let i = 0; i < POSE_LEN; i++) flat[i] = POSES.open[i] * 0.7 + POSES.relaxed[i] * 0.3;
+    this.lhPoses.flat = flat;
+    // the firing thumb rides up for the selector / mag release
+    const rel = this.rhPoses.grip.slice();
+    rel[THUMB + 1] += 0.2; rel[THUMB + 3] += 0.22;
+    this.rhPoses.release = rel;
+
+    this.spareMag = buildCarbineMag(m);
+    this.spareMag.root.visible = false;
+    this.container.add(this.spareMag.root);
+  }
+
+  get busy() { return this.player.playing; }
+
+  fire(lastRound: boolean) {
+    this.flash.fire();
+    this.pullTrigger();
+    // a straight push into the shoulder with a little flip, then a buzz as the bursts stack up in the springs
+    const h = this.heat;
+    this.kick(0.42 + h * 0.18, 2.3 + h * 1.1, 1.3 + h * 0.6);
+    this.knock((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02, 0.02, (Math.random() - 0.5) * 0.35, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.6);
+    this.heat = Math.min(1, this.heat + 0.11);
+    if (lastRound) { this.chargerLocked = true; this.chargerVel = 0; }
+  }
+
+  protected handleEvent(id: string) {
+    const md = this.model;
+    switch (id) {
+      case 'magRelease': this.knock(0, 0.02, 0, 0.3, 0, -0.35); break; // thumb on the paddle, a flick of the wrist
+      case 'magOut':
+        // the seated magazine is now the one in the hand (same count)
+        this.spareMag.setRounds(this.lastRounds);
+        md.mag.root.visible = false; this.spareMag.root.visible = true;
+        break;
+      case 'magDrop': this.spareMag.root.visible = false; break;
+      case 'magGrab': this.spareMag.setRounds(30); this.spareMag.root.visible = true; break;
+      case 'magAttach': this.spareMag.root.visible = false; md.mag.root.visible = true; md.mag.setRounds(30); break;
+      // seated: the shove travels up through the receiver, the magazine rattles once
+      case 'magIn': this.knock(0.01, 0.14, -0.02, 1.2, 0.2, 0.7); this.magWiggle = 1; break;
+      case 'boltRelease': this.chargerLocked = false; this.chargerVel = 0; this.knock(0, -0.03, -0.12, -1.4, 0.1, 0.5); break;
+      case 'raised': this.knock(0, -0.02, -0.03, -0.5, 0.05, 0.2); break;
+    }
+    super.handleEvent(id);
+  }
+
+  private lastRounds = 0;
+  /** The seated magazine's count (kept by the weapon logic). */
+  setRounds(n: number) { this.lastRounds = n; if (this.model.mag.root.visible) this.model.mag.setRounds(n); }
+
+  reload(empty: boolean, onDone: () => void) {
+    this.play(empty ? CARBINE_CLIPS.reloadEmpty : CARBINE_CLIPS.reload, () => {
+      this.model.mag.root.visible = true; this.spareMag.root.visible = false;
+      onDone();
+    });
+  }
+
+  cancel() {
+    if (this.player.playing) this.startXfade();
+    this.player.stop();
+    this.model.mag.root.visible = true; this.spareMag.root.visible = false;
+  }
+
+  protected updateParts(dt: number) {
+    const md = this.model;
+    this.heat = Math.max(0, this.heat - dt * 1.6);
+    // charging handle: held back while locked (+ the hand's extra pull), else it slams home on its spring
+    this.CHP[0] = 0;
+    this.player.get('chPull', this.CHP);
+    const target = (this.chargerLocked ? CH_TRAVEL : 0) + Math.max(0, this.CHP[0]);
+    if (target >= this.chargerPos || this.chargerLocked) { this.chargerPos = target; this.chargerVel = 0; }
+    else {
+      // released: slams forward (fast), a tiny bounce off the stop
+      this.chargerVel -= dt * 60;
+      this.chargerPos += this.chargerVel * dt;
+      if (this.chargerPos <= 0) { this.chargerPos = 0; this.chargerVel = this.chargerVel < -1 ? -this.chargerVel * 0.15 : 0; }
+    }
+    md.charger.position.z = CH_POS.z + this.chargerPos;
+    md.trigger.rotation.x = -this.trigger * 0.25;
+    this.MAG[0] = 0;
+    this.player.get('magSlide', this.MAG);
+    this.magWiggle = Math.max(0, this.magWiggle - dt * 5.5);
+    const w = this.magWiggle * this.magWiggle;
+    md.mag.root.position.y = -this.MAG[0] - Math.abs(Math.sin(this.magWiggle * 16)) * 0.0018 * w;
+    md.mag.root.rotation.x = Math.sin(this.magWiggle * 21) * 0.025 * w;
+  }
+
+  /** Steer the hand so the magazine it holds sits in / below the well, or its pinch sits on the charging-handle knob. */
+  protected steerSupport(pos: THREE.Vector3, quat: THREE.Quaternion) {
+    this.HOLD[0] = 0;
+    this.player.get('magHold', this.HOLD);
+    const a = clamp(this.HOLD[0], 0, 1);
+    if (a > 0) {
+      _q3.copy(this.model.magWell.quaternion).multiply(CMAG_Q_INV);
+      _v3.set(MAG_SEAT.x, MAG_SEAT.y - this.MAG[0], MAG_SEAT.z);
+      _v3.sub(_v.copy(CARBINE_MAG_P).applyQuaternion(_q3));
+      this.gunToContainer(_v3, _q3);
+      pos.lerp(_v3, a);
+      quat.slerp(_q3, a);
+    }
+    this.CHW[0] = 0;
+    this.player.get('chHold', this.CHW);
+    const c = clamp(this.CHW[0], 0, 1);
+    if (c > 0) {
+      // position only: the pinch point onto the knob (where the handle is now)
+      this.model.chargerKnob.updateWorldMatrix(true, false);
+      this.container.updateWorldMatrix(true, false);
+      _v3.setFromMatrixPosition(this.model.chargerKnob.matrixWorld);
+      this.container.worldToLocal(_v3);
+      _v3.sub(_v.copy(CH_GRIP).applyQuaternion(quat));
+      pos.lerp(_v3, c);
+    }
+  }
+
+  protected afterHands() {
+    const sm = this.spareMag.root;
+    if (!sm.visible) return;
+    this.lhPoint(CARBINE_MAG_P, sm.position);
+    sm.quaternion.copy(this.lh.root.quaternion).multiply(CMAG_Q);
+  }
+}
+/** Magazine origin (its top centre) in the support hand's rotation frame — see CMAG_Q. */
+const CARBINE_MAG_P = V(0.122, 0.046, -0.026);
+
 // ───────────────────────────────────────────── viewmodel (sway layer + rig switching)
 
 export const VM_SCALE = 1.36;
@@ -843,6 +1056,7 @@ export class Viewmodel {
   readonly sway = new THREE.Group();
   readonly pistol: PistolRig;
   readonly shotgun: ShotgunRig;
+  readonly carbine: CarbineRig;
   active: GunRig | null = null;
   private readonly lookSpring = new Spring3(3.2, 0.42);
   private readonly lookPos = new Spring3(4.5, 0.6);
@@ -860,21 +1074,25 @@ export class Viewmodel {
   constructor(m: VmMats, layer: number) {
     this.pistol = new PistolRig(m);
     this.shotgun = new ShotgunRig(m);
+    this.carbine = new CarbineRig(m);
     this.root.add(this.sway);
     // Narrower effective viewmodel FOV (~54° vs the 72° world camera): squash depth relative to x/y.
     this.root.scale.set(VM_SCALE, VM_SCALE, 1);
-    this.sway.add(this.pistol.container, this.shotgun.container);
+    this.sway.add(this.pistol.container, this.shotgun.container, this.carbine.container);
     this.pistol.container.visible = false;
     this.shotgun.container.visible = false;
+    this.carbine.container.visible = false;
     this.lowS.reset(1);
     setViewmodel(this.root, layer);
   }
 
-  setActive(id: 'pistol' | 'shotgun' | null) {
-    this.active = id === 'pistol' ? this.pistol : id === 'shotgun' ? this.shotgun : null;
+  setActive(id: 'pistol' | 'shotgun' | 'carbine' | null) {
+    this.active = id ? this.rig(id) : null;
     this.pistol.container.visible = this.active === this.pistol;
     this.shotgun.container.visible = this.active === this.shotgun;
+    this.carbine.container.visible = this.active === this.carbine;
   }
+  rig(id: 'pistol' | 'shotgun' | 'carbine'): GunRig { return id === 'pistol' ? this.pistol : id === 'shotgun' ? this.shotgun : this.carbine; }
 
   /** Jump / land impulses (m/s-ish). */
   bump(v: number) { this.vert.impulse(v); }

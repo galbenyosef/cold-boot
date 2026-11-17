@@ -9,8 +9,12 @@
 import * as THREE from 'three';
 import type { MaterialLibrary } from '../../core/types';
 import type { VmMats } from '../viewmodels/mats';
-import { Viewmodel, ShotgunRig, type RigMotion } from '../viewmodels/rig';
-import { PISTOL_CLIPS, SHOTGUN_CLIPS } from '../viewmodels/clips';
+import { Viewmodel, ShotgunRig, CarbineRig, type RigMotion } from '../viewmodels/rig';
+import { PISTOL_CLIPS, SHOTGUN_CLIPS, CARBINE_CLIPS } from '../viewmodels/clips';
+
+type W = 'pistol' | 'shotgun' | 'carbine';
+const CLIPS = { pistol: PISTOL_CLIPS, shotgun: SHOTGUN_CLIPS, carbine: CARBINE_CLIPS };
+function fireRig(vm: Viewmodel, w: W) { if (w === 'pistol') vm.pistol.fire(false); else if (w === 'shotgun') vm.shotgun.fire(() => {}); else vm.carbine.fire(false); }
 
 export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; mats: VmMats; lib: MaterialLibrary; q: URLSearchParams; hud: HTMLElement; debug: { fps: number } }) {
   const { renderer, scene, mats, q, hud, debug } = o;
@@ -27,12 +31,14 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
 
   // &sgrip=key:val,key:val… overrides ShotgunRig.SUPPORT (yaw, rise, roll, cx, z, thumbY, thumbZ, arm, elbowOut)
   for (const kv of (q.get('sgrip') ?? '').split(',').filter(Boolean)) { const [k, v] = kv.split(':'); if (k in ShotgunRig.SUPPORT) (ShotgunRig.SUPPORT as any)[k] = Number(v); }
+  for (const kv of (q.get('cgrip') ?? '').split(',').filter(Boolean)) { const [k, v] = kv.split(':'); if (k in CarbineRig.SUPPORT) (CarbineRig.SUPPORT as any)[k] = Number(v); }
   const vm = new Viewmodel(mats, 0);
   cam.add(vm.root);
-  const weapon = (q.get('weapon') ?? 'pistol') as 'pistol' | 'shotgun';
+  const weapon = (q.get('weapon') ?? 'pistol') as W;
   vm.setActive(weapon);
-  const rig = weapon === 'pistol' ? vm.pistol : vm.shotgun;
-  const clips = weapon === 'pistol' ? PISTOL_CLIPS : SHOTGUN_CLIPS;
+  const rig = vm.rig(weapon);
+  const clips = CLIPS[weapon];
+  if (q.get('empty') === '1' && weapon === 'carbine') vm.carbine.chargerLocked = true;
   const clipName = q.get('clip');
   const freezeT = q.get('t');
   const loopName = q.get('play');
@@ -74,8 +80,8 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
     if (q.get('fire') === '1') {
       fireT -= dt;
       if (fireT <= 0 && !rig.busy) {
-        fireT = weapon === 'pistol' ? 0.45 : 1.0;
-        if (weapon === 'pistol') vm.pistol.fire(false); else vm.shotgun.fire(() => {});
+        fireT = weapon === 'pistol' ? 0.45 : weapon === 'carbine' ? 0.1 : 1.0;
+        fireRig(vm, weapon);
       }
     }
     if (loopName && clips[loopName] && !rig.busy) { loopT += dt; if (loopT > 0.5) { rig.play(clips[loopName]); loopT = 0; } }
@@ -120,9 +126,9 @@ export async function runFp(o: { renderer: THREE.WebGLRenderer; scene: THREE.Sce
  */
 function runSheet(o: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; q: URLSearchParams; hud: HTMLElement; debug: { fps: number } }, vm: Viewmodel, cam: THREE.PerspectiveCamera) {
   const { renderer, scene, q, hud } = o;
-  const weapon = (q.get('weapon') ?? 'pistol') as 'pistol' | 'shotgun';
-  const rig = weapon === 'pistol' ? vm.pistol : vm.shotgun;
-  const clips = weapon === 'pistol' ? PISTOL_CLIPS : SHOTGUN_CLIPS;
+  const weapon = (q.get('weapon') ?? 'pistol') as W;
+  const rig = vm.rig(weapon);
+  const clips = CLIPS[weapon];
   const N = Number(q.get('sheet'));
   const cols = Number(q.get('cols') ?? Math.ceil(Math.sqrt(N * 1.4)));
   const rows = Math.ceil(N / cols);
@@ -159,7 +165,7 @@ function runSheet(o: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; q: URL
     if (act === 'switch' && t >= 0) mo.lower = t < 0.22 ? t / 0.22 : Math.max(0, 1 - (t - 0.22) / 0.34);
     if (act === 'fire' && t >= fired * gap - 1e-6 && fired < shots && t >= 0) {
       fired++;
-      if (weapon === 'pistol') vm.pistol.fire(false); else vm.shotgun.fire(() => {});
+      fireRig(vm, weapon);
     }
     mo.time += H;
     vm.update(H, mo);
@@ -169,8 +175,9 @@ function runSheet(o: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; q: URL
   if (weapon === 'shotgun') vm.shotgun.onEvent = (id) => { if (id === 'shellIn') vm.shotgun.saddleCount = Math.max(0, vm.shotgun.saddleCount - 1); };
   const render = () => {
     // restart the simulation: settle idle, then run the action
-    rig.cancel();
+    (rig as unknown as { cancel(): void }).cancel();
     if (weapon === 'shotgun') vm.shotgun.saddleCount = 4;
+    if (weapon === 'carbine') vm.carbine.chargerLocked = q.get('empty') === '1';
     mo.sprint = 0; mo.lower = 0; mo.speed = 0; fired = 0;
     simT = -1.2;
     while (simT < -1e-6) step();

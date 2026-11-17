@@ -40,6 +40,11 @@ export interface PlayerExtras {
   debug: Record<string, (...a: any[]) => any>;
 }
 
+/** Armour from a save / carry: finite, 0 … 100 (anything else → 0). */
+function cleanArmor(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? clamp(v, 0, 100) : 0;
+}
+
 export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExtras> {
   const spawn = ctx.debug.spawn ?? { position: ctx.level.spawn.position, yaw: ctx.level.spawn.yaw, pitch: 0 };
   const mats = resolveMats(ctx.materials, true); // first-person set (private clones with the viewmodel light)
@@ -60,6 +65,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   let yaw = spawn.yaw, pitch = spawn.pitch;
   let health = 100;
   const maxHealth = 100;
+  // stage 3b §8.2: armour takes 2/3 of every hit while it lasts
+  let armor = 0;
+  const maxArmor = 100;
+  const ARMOR_SHARE = 2 / 3;
   let alive = true;
   let focus: Interactable | null = null;
   let hitMarker = 0;
@@ -69,7 +78,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   let wallCheck = 0;
   let lastLookX = 0, lastLookY = 0;
   let noSprintT = 0;
-  let dbgFire = false, dbgReload = false;
+  let dbgFire = false, dbgReload = false, dbgHold = false;
   let dbgSlot: WeaponId | null = null;
   const dbgMove = { fwd: 0, strafe: 0, sprint: false, jump: false, crouch: false };
   // scripted look
@@ -88,8 +97,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   const _camP = new THREE.Vector3(), _camQ = new THREE.Quaternion();
   /** One owner of the weapon's stow: the strongest reason wins (a scene, the safe state, a palm scan). */
   function syncStow() {
-    const level = cine ? (cine.vm === 'hidden' ? 1 : LOWER_CINEMATIC) : safe ? LOWER_SAFE : palmStow ? 1 : -1;
-    if (level >= 0) weapons.setStowed(true, palmStow && !cine ? Math.max(level, 1) : level);
+    const level = cine ? (cine.vm === 'hidden' ? 1 : LOWER_CINEMATIC) : safe ? LOWER_SAFE : palmStow || strapStow ? 1 : -1;
+    if (level >= 0) weapons.setStowed(true, (palmStow || strapStow) && !cine ? Math.max(level, 1) : level);
     else weapons.setStowed(false);
   }
   const isDown = (c: string) => !consumed.has(c) && ctx.input.down(c);
@@ -211,13 +220,38 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         case 'medkit': return alive && health < maxHealth;
         case 'ammo_pistol': return !weapons.ammoFull('pistol');
         case 'ammo_shotgun': return !weapons.ammoFull('shotgun');
+        case 'ammo_carbine': return !weapons.ammoFull('carbine');
+        case 'plate': return alive && armor < maxArmor;
         default: return true;
       }
     },
     give: (kind, amount) => player.give(kind, amount),
     addKey: (k) => keys.add(k),
+    vest: (take) => startStrap(take),
   });
   for (const sp of ctx.level.pickupSpawns) pickups.spawn(sp);
+
+  // ── vest strap (§8.2): 0.8 s, weapon lowered, walking pace; damage, sprint, jump, a note or a pause cancel it
+  const STRAP = 0.8;
+  let strap: { t: number; take: () => void } | null = null;
+  let strapStow = false;
+  function startStrap(take: () => void): boolean {
+    if (armor >= maxArmor) { ctx.events.emit('story:toast', { text: 'Armour full' }); return false; }
+    if (strap || palm || cine || !alive || !controlsEnabled || ctx.state !== 'playing') return false;
+    strap = { t: 0, take };
+    strapStow = true;
+    syncStow();
+    return true;
+  }
+  function endStrap(done: boolean) {
+    const st = strap;
+    if (!st) return;
+    strap = null;
+    strapStow = false;
+    syncStow();
+    if (done) st.take();
+  }
+  function noteOpen() { return !!(ctx.ui as unknown as { noteOpen?: boolean } | undefined)?.noteOpen; }
 
   function computeBasis() {
     _e.set(pitch + camRig.kickPitch.x, yaw + camRig.kickYaw.x, 0, 'YXZ');
@@ -241,10 +275,16 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     get health() { return health; },
     set health(v: number) { health = clamp(v, 0, maxHealth); ctx.render.post.setLowHealth(lowHealthAmount()); },
     maxHealth,
-    // K placeholder (stage 3b §8.2, D18): no armour system until W1
-    armor: 0,
-    maxArmor: 100,
-    addArmor(_points: number) { return 0; },
+    get armor() { return armor; },
+    maxArmor,
+    addArmor(points: number) {
+      if (!(points > 0) || armor >= maxArmor) return 0;
+      const before = armor;
+      armor = Math.min(maxArmor, armor + points);
+      const delta = armor - before;
+      if (delta > 0) ctx.events.emit('player:armor', { armor, delta });
+      return delta;
+    },
     get alive() { return alive; },
     get controlsEnabled() { return controlsEnabled; },
     set controlsEnabled(v: boolean) { controlsEnabled = v; },
@@ -261,9 +301,16 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       if (!alive || ctx.debug.god || amount <= 0) return;
       // §8.2: a scene plays only with no hostile alive; anything that still lands on the frozen body is dropped
       if (cine) { console.warn(`[player] ${amount} damage during a cinematic ignored`); return; }
-      health = Math.max(0, health - amount);
-      ctx.events.emit('player:damaged', { amount, health, from: from ? from.clone() : null });
-      ctx.render.post.damage(clamp(amount / 35, 0.25, 1));
+      // §8.2: the armour takes 2/3 of the hit while it has points; health takes the rest
+      const absorbed = Math.min(armor, amount * ARMOR_SHARE);
+      if (absorbed > 0) armor = Math.max(0, armor - absorbed);
+      const before = health;
+      health = Math.max(0, health - (amount - absorbed));
+      const lost = before - health;
+      ctx.events.emit('player:damaged', { amount: lost, health, from: from ? from.clone() : null, absorbed, armor });
+      if (absorbed > 0) ctx.events.emit('player:armor', { armor, delta: -absorbed });
+      if (strap) endStrap(false);
+      ctx.render.post.damage(clamp(Math.max(lost, absorbed * 0.35) / 35, 0.25, 1));
       ctx.render.post.setLowHealth(lowHealthAmount());
       let side = 0, front = 0;
       if (from) {
@@ -298,6 +345,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         case 'shotgun': weapons.give('shotgun', amount); break;
         case 'ammo_pistol': weapons.addAmmo('pistol', amount || 12); break;
         case 'ammo_shotgun': weapons.addAmmo('shotgun', amount || 6); break;
+        case 'carbine': weapons.give('carbine', amount); break;
+        case 'ammo_carbine': weapons.addAmmo('carbine', amount || 30); break;
+        case 'vest': player.addArmor(amount || 50); break;
+        case 'plate': player.addArmor(amount || 15); break;
         case 'medkit': player.heal(amount || 40); break;
         case 'keycard': keys.add('keycard'); break;
       }
@@ -398,12 +449,15 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         keys: [...keys],
         flashlight: flash.on,
         pickups: [...pickups.collected],
+        armor: Math.round(armor * 100) / 100,
       };
     },
     restore(save: PlayerSave) {
       player.teleport(new THREE.Vector3(save.position[0], save.position[1], save.position[2]), save.yaw, 0);
       ctrl.body.velocity.set(0, 0, 0);
       player.health = Math.max(1, save.health);
+      armor = cleanArmor(save.armor); // a snap: no player:armor
+      if (strap) endStrap(false);
       weapons.cancelReload();
       for (const id of WEAPON_IDS) {
         const w = save.weapons?.[id], s = weapons.states[id];
@@ -414,8 +468,9 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         s.reloading = false;
       }
       weapons.addAmmo('shotgun', 0); // refreshes the shell saddle on the viewmodel
-      const cur = save.current && weapons.states[save.current].owned ? save.current
-        : (['shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
+      weapons.syncRounds();
+      const cur = save.current && weapons.states[save.current]?.owned ? save.current
+        : (['carbine', 'shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
       if (cur) weapons.switchTo(cur, true);
       keys.clear();
       for (const k of save.keys ?? []) keys.add(k);
@@ -436,19 +491,22 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
           s.reloading = false;
         }
         weapons.addAmmo('shotgun', 0);
+        weapons.syncRounds();
         const cur = save.current && weapons.states[save.current]?.owned ? save.current
-          : (['shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
+          : (['carbine', 'shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
         if (cur) weapons.switchTo(cur, true);
       }
+      // §8.2: armour comes with the carry (a snap: no player:armor)
+      if ('armor' in save) armor = cleanArmor(save.armor);
       if (typeof save.health === 'number' && Number.isFinite(save.health)) player.health = Math.max(1, save.health);
       if (typeof save.flashlight === 'boolean') flash.set(save.flashlight);
     },
     revive(h = maxHealth) {
-      alive = true; health = h; camRig.revive();
+      alive = true; health = h; armor = 0; camRig.revive();
       ctx.render.post.setLowHealth(lowHealthAmount());
       const last = weapons.states.shotgun.owned && weapons.current === null ? null : null;
       void last;
-      const id = (['shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
+      const id = (['carbine', 'shotgun', 'pistol'] as WeaponId[]).find((w) => weapons.states[w].owned) ?? null;
       if (id) weapons.switchTo(id, true);
     },
 
@@ -472,6 +530,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         const dx = inp.mouseDX * SENSITIVITY * k, dy = inp.mouseDY * SENSITIVITY * k;
         if (dx || dy) { look.active = false; headUp = null; }
         yaw -= dx;
+        if (dy > 0) weapons.compensate(dy); // pulling down against the climb
         const np = clamp(pitch - dy, -PITCH_LIMIT, PITCH_LIMIT);
         lastLookY = np - pitch; lastLookX = -dx;
         pitch = np;
@@ -505,7 +564,21 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         lastLookX += ny - yaw; lastLookY += np - pitch;
         yaw = ny; pitch = np;
       }
+      // carbine recoil: the climb (and its recovery) moves the real aim
+      if (weapons.aimDelta.pitch || weapons.aimDelta.yaw) {
+        const np = clamp(pitch + weapons.aimDelta.pitch, -PITCH_LIMIT, PITCH_LIMIT);
+        lastLookY += np - pitch; lastLookX += weapons.aimDelta.yaw;
+        pitch = np; yaw += weapons.aimDelta.yaw;
+      }
       yaw = wrapAngle(yaw);
+
+      // ── vest strap clock and what breaks it off
+      if (strap) {
+        const sprinting = (isDown('ShiftLeft') || isDown('ShiftRight') || dbgMove.sprint) && (isDown('KeyW') || dbgMove.fwd > 0);
+        const jumping = isPressed('Space') || dbgMove.jump;
+        if (!active || sprinting || jumping || noteOpen()) endStrap(false);
+        else { strap.t += dt; if (strap.t >= STRAP) endStrap(true); }
+      }
 
       // ── movement
       noSprintT = Math.max(0, noSprintT - dt);
@@ -517,7 +590,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         moveIn.jump = isPressed('Space') || dbgMove.jump;
         moveIn.crouchToggle = isPressed('KeyC');
         moveIn.crouchHold = dbgMove.crouch; // crouch is C only: Ctrl+W would close the tab mid-fight
-        moveIn.noSprint = noSprintT > 0 || weapons.reloading || weapons.firedRecently > 0;
+        moveIn.noSprint = noSprintT > 0 || weapons.reloading || weapons.firedRecently > 0 || !!strap;
         dbgMove.jump = false;
       }
       ctrl.update(dt, active ? moveIn : null, yaw, ev);
@@ -556,15 +629,15 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       // ── weapons
       if (active) {
         wIn.firePressed = mousePress(0) || dbgFire;
-        wIn.fireHeld = mouseHeld(0);
+        wIn.fireHeld = mouseHeld(0) || dbgHold;
         wIn.reload = isPressed('KeyR') || dbgReload;
-        wIn.slot = isPressed('Digit1') ? 'pistol' : isPressed('Digit2') ? 'shotgun' : dbgSlot;
+        wIn.slot = isPressed('Digit1') ? 'pistol' : isPressed('Digit2') ? 'shotgun' : isPressed('Digit3') ? 'carbine' : dbgSlot;
         wIn.wheel = inp.wheel;
         if (wIn.firePressed && ctrl.sprinting) noSprintT = 0.4;
         dbgFire = false; dbgReload = false; dbgSlot = null;
       } else if (cine) {
         // §8.2: nothing asked for during a scene is kept for after it
-        dbgFire = false; dbgReload = false; dbgSlot = null; dbgMove.jump = false;
+        dbgFire = false; dbgReload = false; dbgSlot = null; dbgMove.jump = false; dbgHold = false;
       }
       aim.moving = clamp(ctrl.speed / MOVE.sprint, 0, 1);
       aim.airborne = !ctrl.grounded;
@@ -587,6 +660,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       vm.update(dt, motion);
       vm.pistol.lf.setLevel(health / maxHealth);
       vm.shotgun.lf.setLevel(health / maxHealth);
+      vm.carbine.lf.setLevel(health / maxHealth);
       mats.wristLed.emissive.setHex(health > 30 ? 0x30e0ff : 0xff3020);
 
       // ── flashlight
@@ -600,7 +674,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       setVmLight(flash.level);
 
       // ── interaction
-      focus = alive && !palm && !cine ? pickVisible() : null;
+      focus = alive && !palm && !cine && !strap ? pickVisible() : null;
       if (active && focus && isPressed('KeyE')) ctx.interactables.use(focus);
 
       // ── pickups + HUD state
@@ -614,6 +688,15 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
   player.debug = {
     fire: () => { dbgFire = true; return weapons.current; },
+    /** Hold / release the trigger (full auto). */
+    hold: (on = true) => { dbgHold = on; return weapons.current; },
+    /** Every shot exactly at a world point (no spread); null releases. */
+    aimLock: (x: number | null, y = 0, z = 0) => { weapons.aimLock = x === null ? null : new THREE.Vector3(x, y, z); return !!weapons.aimLock; },
+    /** The vest strap: its clock, or -1. */
+    strap: () => (strap ? +strap.t.toFixed(3) : -1),
+    /** Lights of the carbine muzzle pool (check-weapons). */
+    muzzleLights: () => ctx.render.lights.group('player_muzzle').filter((h) => h.enabled).length,
+    setArmor: (v: number) => { armor = cleanArmor(v); return armor; },
     reload: () => { dbgReload = true; return weapons.current; },
     switchTo: (id: WeaponId) => { dbgSlot = id; return id; },
     move: (fwd = 0, strafe = 0, sprint = false) => { dbgMove.fwd = fwd; dbgMove.strafe = strafe; dbgMove.sprint = sprint; },
@@ -628,14 +711,15 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       health, alive, weapon: weapons.current, weapons: JSON.parse(JSON.stringify(weapons.states)), flashlight: flash.on,
       focus: focus?.id ?? null, lower: +weapons.lower.toFixed(2), clip: vm.active?.player.name ?? '',
       cinematic: cine ? cine.vm : null, safe, stowed: weapons.isStowed, vmVisible: vm.root.visible, consumed: [...consumed],
+      armor, strap: strap ? strap.t : -1, charger: vm.carbine.chargerLocked,
     }),
-    setPose: (id: 'pistol' | 'shotgun', x: number, y: number, z: number, rx: number, ry: number, rz: number) =>
-      (id === 'pistol' ? vm.pistol : vm.shotgun).setBase(x, y, z, rx, ry, rz),
+    setPose: (id: WeaponId, x: number, y: number, z: number, rx: number, ry: number, rz: number) =>
+      vm.rig(id).setBase(x, y, z, rx, ry, rz),
     stats: () => WEAPON_STATS,
     /** Slow tracers down for inspection (default 190 m/s). */
     tracerSpeed: (v = 190) => { weapons.tracers.speed = v; return v; },
     tracers: () => ({ visible: weapons.tracers.mesh.visible, count: weapons.tracers.mesh.geometry.drawRange.count / 6, layer: weapons.tracers.mesh.layers.mask }),
-    grips: () => ({ pistol: vm.pistol.report, shotgun: vm.shotgun.report }),
+    grips: () => ({ pistol: vm.pistol.report, shotgun: vm.shotgun.report, carbine: vm.carbine.report }),
     /** REVISION 6.1: the palm scan — its clock, the hand's state, and the solved clearance (mm) of the flat pose over the plate. */
     palm: () => ({
       active: !!palm, t: palm ? +palm.t.toFixed(3) : 0, progress: palm ? +(palm.t / palm.dur).toFixed(3) : -1,
@@ -645,6 +729,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   };
 
   if (ctx.debug.giveAll) {
+    weapons.give('carbine', 90); // §7: ?give=all adds the carbine + 90
     weapons.give('shotgun', 36);
     weapons.give('pistol', 96);
     weapons.lower = 0;

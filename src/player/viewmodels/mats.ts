@@ -22,6 +22,10 @@ export interface VmMats {
   gloveArmor: THREE.Material;
   sleeve: THREE.Material;
   shellHull: THREE.Material;
+  /** Stage 3b: smoke-grey translucent-look polymer (carbine magazine). */
+  smoke: THREE.Material;
+  /** Stage 3b: armour vest / plate carrier cordura. */
+  vest: THREE.Material;
   white: THREE.Material;
   plasticWhite: THREE.Material;
   emGreen: THREE.MeshStandardMaterial;
@@ -55,6 +59,8 @@ export function resolveMats(lib: MaterialLibrary, viewmodel = false): VmMats {
     gloveArmor: lib.clone('rubber', { color: 0x34373a, roughness: 0.62 }),
     sleeve: lib.clone('fabric', { color: new THREE.Color(0.06, 0.05, 0.042), roughness: 0.95, metalness: 0 }),
     shellHull: lib.clone('plastic_dark', { color: 0x7a1712, roughness: 0.45, metalness: 0 }),
+    smoke: lib.clone('plastic_dark', { color: 0x3e4449, roughness: 0.32, metalness: 0 }),
+    vest: lib.clone('fabric', { color: new THREE.Color(0.042, 0.046, 0.033), roughness: 0.95, metalness: 0 }),
     white: get('painted_white'),
     plasticWhite: get('plastic_white'),
     emGreen: lib.clone('emissive_green', { emissiveIntensity: 3.5 }),
@@ -65,7 +71,7 @@ export function resolveMats(lib: MaterialLibrary, viewmodel = false): VmMats {
     wristLed: lib.clone('emissive_cyan', { emissiveIntensity: 1.8 }),
   };
   // close-up textiles: stronger weave relief than the world-scale default
-  for (const f of [m.glove, m.gloveVC, m.gloveStrap, m.sleeve] as THREE.MeshStandardMaterial[]) f.normalScale?.multiplyScalar(2.2);
+  for (const f of [m.glove, m.gloveVC, m.gloveStrap, m.sleeve, m.vest] as THREE.MeshStandardMaterial[]) f.normalScale?.multiplyScalar(2.2);
   if (viewmodel) for (const k of Object.keys(m) as (keyof VmMats)[]) litForViewmodel(m[k]);
   return m;
 }

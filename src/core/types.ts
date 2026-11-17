@@ -218,7 +218,7 @@ export type ActorType = EnemyType | 'human';
 /**
  * Stage 3b §8.2 / §8.3: `carbine` (weapon; amount = rounds, as the others), `ammo_carbine` (+amount to the reserve,
  * cap 180), `vest` (+amount armour, 50 — taken by an interaction "Put on vest" with a 0.8 s strap, not on touch),
- * `plate` (+amount armour, 15 — on touch while armour < 100). Until W1, `give` ignores the four (K placeholder).
+ * `plate` (+amount armour, 15 — on touch while armour < 100).
  */
 export type PickupKind = 'pistol' | 'shotgun' | 'carbine' | 'ammo_pistol' | 'ammo_shotgun' | 'ammo_carbine' | 'medkit' | 'keycard' | 'vest' | 'plate';
 export type MusicState = 'silence' | 'ambient' | 'tension' | 'combat' | 'aftermath';
@@ -1039,7 +1039,6 @@ export interface Player extends Updatable {
   /**
    * Stage 3b §8.2: armour points, 0 … `maxArmor`. An incoming hit `d` is split: `absorbed = min(armor, d × 2/3)`,
    * `armor −= absorbed`, `health −= d − absorbed` (W1). Snapshot / restore / carry include it; `revive` keeps 0.
-   * K stub: always 0.
    */
   readonly armor: number;
   /** Stage 3b §8.2: 100. */

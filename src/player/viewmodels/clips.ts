@@ -191,3 +191,99 @@ export const SHOTGUN_CLIPS: Record<string, Clip> = {
     poses: { lh: [[0, 'reach'], [0.16, 'relaxed'], [0.32, 'rest']] },
   },
 };
+
+/*
+ * Carbine (stage 3b §8.3). Magazine change with the support hand: the gun rolls right so the well and the left flank
+ * face the eye, the hand closes on the old magazine, thumbs the paddle, strips it out and lets it fall, goes to the
+ * pouch at the belt, brings the fresh one up from below, steers it into the well and shoves it home (the rig steers
+ * the hand so the held magazine is exactly where the well wants it). Empty: the charging handle was locked back by
+ * the last round — after the magazine the hand reaches over the left flank, pinches the knob, draws it off its
+ * notch and lets it slam forward, then returns to the handguard.
+ *
+ *   reload 2.2 s:  0.36 magRelease · 0.40 magOut · 0.76 magDrop · 1.06 magGrab · 1.46 magAttach · 1.61 magIn
+ *   reloadEmpty 2.6 s: same, then 1.99 boltRelease
+ *   raise 0.38 s (0.29 raised: the support hand lands on the handguard) · lower 0.22 s
+ * Channels: magHold [w] (steer the hand so its magazine sits at the well, `magSlide` below the seat), magSlide [m],
+ * chHold [w] (steer the pinch onto the charging-handle knob), chPull [m] (extra pull past the locked position).
+ */
+const CC = [-0.06, 0.05, 0.0, 0.4, -0.14, -0.32];
+const cc = (t: number, dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0): number[] =>
+  [t, CC[0] + dx, CC[1] + dy, CC[2] + dz, CC[3] + rx, CC[4] + ry, CC[5] + rz];
+const cGun: number[][] = [
+  [0, 0, 0, 0, 0, 0, 0],
+  [0.08, 0.002, -0.004, -0.004, -0.03, 0.01, 0.04],
+  cc(0.3),
+  cc(0.5, 0, -0.002, 0, -0.01, 0, 0.01),
+  cc(0.62, 0, 0.006, 0, 0.035, 0, -0.03), // magazine yanked out: the gun bucks up off it
+  cc(0.9, 0, -0.003, 0.002, -0.01, 0.01, 0.02),
+  cc(1.4, -0.002, -0.004, 0.002, 0, 0.01, 0.0),
+  cc(1.5, 0, -0.008, 0, -0.025, 0, 0.0), // leans down onto the fresh magazine
+  cc(1.62, 0, 0.006, -0.002, 0.04, 0, 0.03), // seated
+];
+// support hand: wrist / fingers / back of hand (gun frame; the belt trip in the base frame)
+const cP: number[][] = [
+  [0.0, -0.03, 0.0, -0.21], [0.18, -0.06, -0.06, -0.15], [0.3, -0.035, -0.135, -0.075], [0.62, -0.03, -0.18, -0.07],
+  [0.72, -0.07, -0.21, -0.04], [0.82, -0.17, -0.36, 0.2], [1.0, -0.18, -0.38, 0.22], [1.12, -0.16, -0.33, 0.18],
+  [1.3, -0.06, -0.25, -0.05], [1.42, -0.03, -0.2, -0.07], [1.62, -0.026, -0.124, -0.068],
+];
+const cF: number[][] = [
+  [0.0, 0.47, 0.1, -0.88], [0.18, 0.25, -0.1, -0.95], [0.3, 0, 0, -1], [0.62, 0, 0, -1], [0.72, 0.1, -0.3, -0.95],
+  [0.82, 0.2, -0.95, -0.1], [1.12, 0.2, -0.9, -0.3], [1.3, 0, -0.3, -0.95], [1.42, 0, 0, -1], [1.62, 0, 0, -1],
+];
+const cD: number[][] = [
+  [0.0, -0.28, -0.96, 0.05], [0.18, -0.7, -0.7, 0.05], [0.3, -1, 0, 0], [0.62, -1, 0, 0], [0.72, -0.9, -0.3, 0.1],
+  [0.82, -0.85, 0.1, 0.5], [1.12, -0.85, 0.1, 0.4], [1.3, -1, -0.1, 0.1], [1.42, -1, 0, 0], [1.62, -1, 0, 0],
+];
+const cBase: number[][] = [[0, 0], [0.68, 0], [0.82, 1], [1.12, 1], [1.28, 0]];
+const cHold: number[][] = [[0, 0], [0.22, 0], [0.34, 1], [0.64, 1], [0.74, 0], [1.36, 0], [1.46, 1], [1.66, 1], [1.76, 0]];
+const cSlide: number[][] = [[0, 0], [0.38, 0], [0.42, 0.006], [0.5, 0.04], [0.6, 0.075], [0.66, 0.08], [1.3, 0.065], [1.46, 0.06], [1.52, 0.035], [1.6, 0.002], [1.62, 0]];
+const cEvents: [number, string][] = [[0.36, 'magRelease'], [0.4, 'magOut'], [0.76, 'magDrop'], [1.06, 'magGrab'], [1.46, 'magAttach'], [1.61, 'magIn']];
+const cLh: [number, string][] = [[0, 'rest'], [0.12, 'relaxed'], [0.28, 'open'], [0.36, 'mag'], [0.72, 'mag'], [0.8, 'open'], [0.95, 'relaxed'], [1.06, 'mag'], [1.64, 'mag'], [1.72, 'flat']];
+const cRh: [number, string][] = [[0, 'grip'], [0.3, 'grip'], [0.35, 'release'], [0.42, 'release'], [0.5, 'grip']];
+const cCam: number[][] = [[0, 0, 0], [0.25, -2.4, -1.0], [0.7, -3.0, -1.2], [1.0, -2.0, -0.8], [1.5, -3.4, -1.2], [1.68, -2.0, -0.6]];
+
+export const CARBINE_CLIPS: Record<string, Clip> = {
+  reload: {
+    name: 'reload', dur: 2.2,
+    tracks: {
+      gun: [...cGun, cc(1.8, 0.002, -0.004, -0.012, -0.06, 0.05, 0.2), [2.05, 0, 0.002, 0, 0.012, 0, 0.012], [2.2, 0, 0, 0, 0, 0, 0]],
+      lhFree: [[0, 0], [0.05, 0], [0.28, 1], [1.72, 1], [2.0, 0]], lhBase: cBase,
+      lhP: [...cP, [1.75, -0.05, -0.14, -0.07], [1.9, -0.05, -0.03, -0.17], [2.0, -0.03, 0.0, -0.21]],
+      lhF: [...cF, [1.8, 0.3, 0.1, -0.95], [2.0, 0.47, 0.1, -0.88]],
+      lhD: [...cD, [1.8, -0.6, -0.8, 0], [2.0, -0.28, -0.96, 0.05]],
+      magHold: cHold, magSlide: cSlide,
+      cam: [...cCam, [2.0, 0, 0], [2.2, 0, 0]],
+    },
+    poses: { lh: [...cLh, [1.85, 'relaxed'], [2.0, 'rest']], rh: cRh },
+    events: cEvents,
+  },
+  reloadEmpty: {
+    name: 'reloadEmpty', dur: 2.6,
+    tracks: {
+      // after the magazine the gun turns its left flank up to the hand, bucks as the handle slams home, settles
+      gun: [...cGun, cc(1.8, 0, 0.006, 0, 0.02, -0.06, -0.1), cc(1.98, 0, 0.004, 0, 0.0, -0.06, -0.1), cc(2.2, 0.003, 0, -0.016, -0.08, 0.08, 0.3), [2.45, 0, 0.002, 0, 0.012, 0, 0.01], [2.6, 0, 0, 0, 0, 0, 0]],
+      lhFree: [[0, 0], [0.05, 0], [0.28, 1], [2.12, 1], [2.4, 0]], lhBase: cBase,
+      lhP: [...cP, [1.72, -0.07, -0.1, -0.1], [1.85, -0.065, -0.05, -0.08], [2.05, -0.065, -0.05, -0.07], [2.2, -0.06, -0.03, -0.15], [2.4, -0.03, 0.0, -0.21]],
+      lhF: [...cF, [1.72, 0.05, 0.25, -0.97], [1.85, 0.05, 0.3, -0.95], [2.05, 0.05, 0.3, -0.95], [2.2, 0.4, 0.0, -0.9], [2.4, 0.47, 0.1, -0.88]],
+      lhD: [...cD, [1.72, -1, -0.1, 0], [1.85, -1, -0.2, 0], [2.05, -1, -0.2, 0], [2.2, -0.6, -0.8, 0], [2.4, -0.28, -0.96, 0.05]],
+      magHold: cHold, magSlide: cSlide,
+      chHold: [[0, 0], [1.7, 0], [1.88, 1], [2.02, 1], [2.1, 0]],
+      // the pinched knob is drawn off its notch (a few mm further back), then let go
+      chPull: [[0, 0], [1.88, 0], [1.96, 0.007], [1.99, 0.007], [2.0, 0]],
+      cam: [...cCam, [1.85, -0.6, -1.2], [2.05, -0.4, -1.0], [2.35, 0, 0], [2.6, 0, 0]],
+    },
+    poses: { lh: [...cLh, [1.8, 'open'], [1.88, 'pinch'], [1.99, 'pinch'], [2.05, 'open'], [2.2, 'relaxed'], [2.4, 'rest']], rh: cRh },
+    events: [...cEvents, [1.99, 'boltRelease']],
+  },
+  raise: {
+    name: 'raise', dur: 0.38,
+    tracks: {
+      gun: [[0, 0.01, -0.03, 0.02, -0.25, 0.12, -0.55], [0.22, 0.002, -0.004, 0.004, 0.03, 0.02, -0.08], [0.3, 0, 0.002, 0, 0.02, 0, 0.02], [0.38, 0, 0, 0, 0, 0, 0]],
+    },
+    events: [[0.29, 'raised']],
+  },
+  lower: {
+    name: 'lower', dur: 0.22,
+    tracks: { gun: [[0, 0, 0, 0, 0, 0, 0], [0.22, 0.01, -0.02, 0.02, -0.2, 0.1, 0.5]] },
+  },
+};
