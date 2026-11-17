@@ -92,6 +92,9 @@ const POS: Record<string, { ref: number; rolloff: number; send: number; gain?: n
   choir: { ref: 8, rolloff: 0.5, send: 1 },
   room: { ref: 2.5, rolloff: 1.1, send: 0.35 }, // a small speaker / a person in an office
   door: { ref: 2, rolloff: 1.3, send: 0.3 }, // behind a sealed cabin door
+  // stage 3c — K placeholders (W2b sets the real profiles: radio 2-D at conversation level, throat ref 5.5)
+  radio: { ref: 1.5, rolloff: 1.0, send: 0.3 },
+  throat: { ref: 8, rolloff: 0.5, send: 1 },
 };
 /** fx whose rendering already IS the barrier (a voice through a sealed door): no run-time occlusion on top of it. */
 const NO_OCCLUDE = new Set(['door']);

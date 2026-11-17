@@ -23,6 +23,8 @@
     "check:weapons": "node scripts/lib/optional.mjs scripts/check-weapons.mjs",
     "check:fxleak": "node scripts/lib/optional.mjs scripts/check-fxleak.mjs",
     "check:dark": "node scripts/lib/optional.mjs scripts/check-dark.mjs",
+    "play:l5": "node scripts/lib/optional.mjs scripts/playthrough-l5.mjs",
+    "check:soldier": "node scripts/lib/optional.mjs scripts/check-soldier.mjs",
     "check:cards": "node scripts/check-cards.mjs",
     "check:voice-level": "node scripts/check-voice-level.mjs",
     "check": "node scripts/check-zfight.mjs && node scripts/check-doors.mjs && node scripts/check-reach.mjs && node scripts/check-decals.mjs && node scripts/check-wreck.mjs && node scripts/check-chain.mjs && node scripts/check-nav.mjs && node scripts/check-cutscene.mjs && node scripts/check-voice-level.mjs",

@@ -63,6 +63,9 @@ function validSave(s: any, spec: SaveSpec): boolean {
   if (!st || !strings(st.beats) || !strings(st.read) || !strings(st.visited) || !strings(st.triggered) || !strings(st.cleared) || !strings(st.checkpoints)) return false;
   if (!st.flags || typeof st.flags !== 'object') return false;
   if (st.heard !== undefined && !strings(st.heard)) return false;
+  // stage 3c §7 (level 5): optional extra arrays / counters of a progress record
+  if (st.scares !== undefined && !strings(st.scares)) return false;
+  if (st.codeWrong !== undefined && !num(st.codeWrong)) return false;
   if (!strings(s.logs) || !strings(s.cleared) || !s.stats || !num(s.stats.time) || !num(s.stats.kills)) return false;
   return true;
 }
@@ -213,8 +216,29 @@ export type ProgressL4 = ProgressL3;
 export type SaveDataL4 = SaveV2<ProgressL4, CheckpointIdL4>;
 export const emptyProgressL4 = emptyProgressL3;
 
+// ───────────────────────────────────────────────────────────── level 5 (stage 3c §7, §8.1)
+
+export const CHECKPOINT_IDS_L5 = ['cp5_start', 'cp5_duty', 'cp5_ready', 'cp5_radio', 'cp5_spine', 'cp5_door', 'cp5_bay'] as const;
+export type CheckpointIdL5 = typeof CHECKPOINT_IDS_L5[number];
+export const STORY_REV_L5 = 1;
+export const SPEC_L5: SaveSpec = { level: 5, rev: STORY_REV_L5, ids: CHECKPOINT_IDS_L5 };
+/**
+ * §7 `ProgressL5` = `ProgressL3`'s shape plus `scares` and `codeWrong` (K decision: an extension, so every ProgressL5
+ * is a ProgressL3 and the stage base takes it unchanged). `flags` (free-form, owned by `src/story/l5`): gateOpen,
+ * gateLatched, scene, unitsIn, s1Free, radio, powered, keypad, spineWave, hatchSpine, hatchMag, boots, door, verified,
+ * dark, bayA, wheel, released, tunnel, patrolFree. `scares` = vignette ids fired (snapped on restore, D21);
+ * `codeWrong` = wrong keypad codes entered. A save without them (K's stub record) loads with `[]` / 0 — the story
+ * fills them with `{ ...emptyProgressL5(), ...saved }`.
+ */
+export interface ProgressL5 extends ProgressL3 {
+  scares: string[];
+  codeWrong: number;
+}
+export type SaveDataL5 = SaveV2<ProgressL5, CheckpointIdL5>;
+export function emptyProgressL5(): ProgressL5 { return { ...emptyProgressL3(), scares: [], codeWrong: 0 }; }
+
 /** Every level's checkpoint spec (menu CONTINUE validates through these). */
-const SPECS: Partial<Record<LevelId, SaveSpec>> = { 1: SPEC_L1, 2: SPEC_L2, 3: SPEC_L3, 4: SPEC_L4 };
+const SPECS: Partial<Record<LevelId, SaveSpec>> = { 1: SPEC_L1, 2: SPEC_L2, 3: SPEC_L3, 4: SPEC_L4, 5: SPEC_L5 };
 
 /** The room name of a level's valid checkpoint (menu); null = no checkpoint (an invalid one is deleted). */
 function checkpointPlace(level: LevelId): string | null {

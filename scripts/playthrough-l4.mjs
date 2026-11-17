@@ -19,6 +19,8 @@
 //        equalising, wait in chk; (f) gate-lock doorway during the latch; (g) into the gate lock with two units alive
 //        behind; (h) into the bay / sterile store while open. Each reaches `l4_end`. LEVEL4 SOFTLOCK OK.
 //   --frames   10 fps frame sequences of §10.5 → shots/l4/frames/ (with any mode; expensive).
+//   --next=4:5 (stage 3c K) run with the test override `?next=4:5`: the end hands over to level 5 — the end card is
+//        asserted per `nextOf(4)` (story.next()): null → `TO BE CONTINUED` + stored level 4; 5 → no TBC + stored 5.
 //   all modes  spawn visibility (ray to each new member's chest; visible only through a door / grille / sump opened in
 //        the last 3 s), every `mk4_` marker, never `state === 'cutscene'`, no enemy before its beat except the four
 //        dormant ones, every timed line within 0.12 s of its cue (§8.12), static pass (every `l4_` id ↔ one RULES entry
@@ -76,6 +78,8 @@ const CHOICES = flagv('choice')?.split(',') ?? ['stop', 'command'];
 const VARIANTS = flagv('variant')?.split(',') ?? ['a', 'b', 'c', 'd', 'e'];
 const CASES = flagv('case')?.split(',') ?? ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const FRAMES = argv.includes('--frames');
+// stage 3c (K): `--next=4:5` (or `--next 4:5`) — every page of the run gets `?next=4:5` (the end hands over to level 5)
+const NEXT = flagv('next') ?? (argv.includes('--next') ? argv[argv.indexOf('--next') + 1] : null);
 const SAVE_KEY = 'coldboot.save.l4.v2', SEEN_KEY = 'coldboot.seen.v1', CARRY_KEY = 'coldboot.carry.v2', LEVEL_KEY = 'coldboot.level';
 const CPS = ['cp4_start', 'cp4_clean', 'cp4_cold', 'cp4_hold', 'cp4_lower', 'cp4_navy', 'cp4_armed'];
 mkdirSync('shots/l4', { recursive: true });
@@ -308,7 +312,7 @@ const installWorldState = () => ev(() => {
 const boot = async (query = '') => {
   await ev(() => { window.__stale = true; }).catch(() => {});
   for (let i = 0; ; i++) {
-    try { await page.goto(`${base}/?level=4&autostart=1&god=1${query}`); } catch (e) { if (i >= 2) throw e; await wait(700); continue; }
+    try { await page.goto(`${base}/?level=4&autostart=1&god=1${query}${NEXT ? `&next=${NEXT}` : ''}`); } catch (e) { if (i >= 2) throw e; await wait(700); continue; }
     if (await ev(() => !window.__stale).catch(() => false)) break;
     if (i >= 2) throw new Error('boot: stale page');
   }
@@ -898,7 +902,9 @@ async function segEnd({ natural = true } = {}) {
   // (the UI root `.cb`, as playthrough-l3: the card's lines are in it while it shows)
   const card = await ev(() => (document.querySelector('.cb')?.innerText ?? '').replace(/\s+/g, ' '));
   const at = card.lastIndexOf('BIOLOGICAL SYSTEMS');
-  ok(at >= 0 && /TO BE CONTINUED/.test(card.slice(at)), `end card "${at >= 0 ? card.slice(at, at + 40) : card.slice(0, 40)}"`);
+  // stage 3c: the card per nextOf(4) (story.next()): null → TO BE CONTINUED + stored 4; 5 → no TBC + stored 5
+  const next4 = await ev(() => window.__game.story.next?.() ?? null);
+  ok(at >= 0 && /TO BE CONTINUED/.test(card.slice(at)) === (next4 === null), `end card "${at >= 0 ? card.slice(at, at + 40) : card.slice(0, 40)}" (next ${next4})`);
   await film('end_card', null, 2);
   const s = await ev((K) => ({ carry: JSON.parse(localStorage.getItem(K[0]) ?? 'null'), level: localStorage.getItem(K[1]), save: localStorage.getItem(K[2]) }), [CARRY_KEY, LEVEL_KEY, SAVE_KEY]);
   const c = s.carry, choice = await choiceOf();
@@ -911,7 +917,7 @@ async function segEnd({ natural = true } = {}) {
     if (opt.carbine) ok(c.weapons.carbine?.owned, 'carbine carried');
     if (opt.vests && ranCage) ok(c.armor > 0, `armour carried (${c.armor})`);
   }
-  ok(s.level === '4' && s.save === null, `stored level stays 4 (${s.level}), checkpoint cleared (${s.save === null})`);
+  ok(s.level === String(next4 ?? 4) && s.save === null, `stored level ${next4 ?? 4} (${s.level}), checkpoint cleared (${s.save === null})`);
 }
 /** Checks every mode makes at the end of a run: R4, spawn visibility, cutscene, line timing, markers. */
 async function runChecks(label) {

@@ -45,6 +45,8 @@ const INTENSITY: Record<ScreenKind, number> = {
   pressure: 2.8, habitat_status: 2.4, badge: 2.8, feed: 2.0, cctv: 2.0,
   // stage 3b §8.7 (screens4.ts)
   containment: 2.6, video_log: 2.2, roster: 2.4, theatre_cam: 2.2,
+  // stage 3c §8.9 — K placeholder values (W5)
+  keypad: 2.6, launch: 2.4, dock_status: 2.4, onpost: 2.6,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
@@ -52,6 +54,8 @@ const RATE: Record<ScreenKind, number> = {
   pressure: 4, habitat_status: 4, badge: 8, feed: 12, cctv: 12,
   // the roster's 1 Hz dots are on for 0.25 s: 12 Hz catches every one
   containment: 8, video_log: 12, roster: 12, theatre_cam: 12,
+  // stage 3c — K placeholder values (W5)
+  keypad: 8, launch: 6, dock_status: 4, onpost: 4,
 };
 /**
  * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must
@@ -271,6 +275,8 @@ export class ScreenManager {
       case 'video_log': videoLog(this.s4(s)); break;
       case 'roster': roster(this.s4(s)); break;
       case 'theatre_cam': theatreCam(this.s4(s)); break;
+      // stage 3c §8.9 — K placeholder: drawn as a terminal (its `text`) until W5 draws the real kinds
+      case 'keypad': case 'launch': case 'dock_status': case 'onpost': this.terminal(s); break;
     }
     g.globalAlpha = 1;
     // (the wall-sized cards are seen from far and at a slant: a sub-pixel grid would only alias into moiré)

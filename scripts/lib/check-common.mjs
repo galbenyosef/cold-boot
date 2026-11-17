@@ -14,10 +14,10 @@ export function parseArgs(argv = process.argv) {
   return args;
 }
 
-/** `--level N` → [N]; `all` (default) → every built level (stage 3b §10.2: 1–4; level 4 is K's stub until W4). */
+/** `--level N` → [N]; `all` (default) → every built level (stage 3c §10.2: 1–5; level 5 is K's stub until W4). */
 export function levelsOf(args) {
   const l = args.level ?? 'all';
-  return l === 'all' ? [1, 2, 3, 4] : [Number(l)];
+  return l === 'all' ? [1, 2, 3, 4, 5] : [Number(l)];
 }
 
 export async function launch() {

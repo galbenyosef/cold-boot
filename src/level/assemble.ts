@@ -4,7 +4,7 @@
  * Level 1 (`index.ts`) and level 2 (`l2/index.ts`) only differ in the data they pass in.
  */
 import * as THREE from 'three';
-import type { Door, GameContext, Level, NavNode, Room } from '../core/types';
+import type { CoverPoint, Door, FloorInfo, GameContext, Level, NavNode, Room } from '../core/types';
 import type { LevelBuild, MachineState } from './context';
 import { makeDoors, type DoorImpl, type DoorSpec } from './doors';
 import { buildNav, type NavPortal } from './nav';
@@ -37,6 +37,28 @@ export interface LevelDef {
   t0?: number;
   /** REVISION 5: named regions besides the per-room ones (each room id is a region by default). */
   regions?: Record<string, THREE.Box3[]>;
+  /** Stage 3c §8.3: soldier cover points (`Level.cover`; K placeholder default `[]` — levels 1–4 have none). */
+  cover?: readonly CoverPoint[];
+}
+
+/**
+ * Stage 3c §8.4 `Level.floorAt` (default for every level): the floor of `room` that `p` stands on — the main floor or a
+ * `floors[i]` whose plan box contains p, the highest with y ≤ p.y + 0.5 (else the lowest of them).
+ */
+export function floorOf(room: Room, p: THREE.Vector3): FloorInfo {
+  const main = room.floor ?? room.y0 ?? 0;
+  let best: FloorInfo | null = null, low: FloorInfo | null = null;
+  const consider = (f: FloorInfo) => {
+    if (!low || f.y < low.y) low = f;
+    if (f.y <= p.y + 0.5 && (!best || f.y > best.y)) best = f;
+  };
+  consider({ room: room.id, floor: -1, y: main, nav: true, exits: [] });
+  (room.floors ?? []).forEach((f, i) => {
+    const [x0, x1, z0, z1] = f.box;
+    if (p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1) return;
+    consider({ room: room.id, floor: i, y: f.y, nav: f.nav !== false, exits: (f.exits ?? []).map(([x, y, z]) => new THREE.Vector3(x, y, z)) });
+  });
+  return (best ?? low)!;
 }
 
 export type LevelImpl = Level & {
@@ -257,6 +279,8 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
     screen: (name) => L.screens.get(name),
     vignette(id) { L.fireVignette(id); },
     regions,
+    cover: def.cover ?? [],
+    floorAt(p) { const r = level.roomAt(p); return r ? floorOf(r, p) : null; },
     update(dt) {
       time += dt;
       for (let i = 0; i < doors.length; i++) doors[i].update(dt, ctx);

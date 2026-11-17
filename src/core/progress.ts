@@ -16,7 +16,7 @@ export const LEVEL_IDS: readonly LevelId[] = [1, 2, 3, 4, 5, 6];
 
 /** §7: a direct start without a carry (levels 2, 3 and 4). */
 const DIRECT: DirectLoadout = { weapons: { pistol: { clip: 12, reserve: 24 }, shotgun: { clip: 6, reserve: 8 } }, health: 100, flashlight: false };
-const NO_CAST = { foreman: false, human: false, tomasHead: false };
+const NO_CAST = { foreman: false, human: false, tomasHead: false, soldier: false };
 
 const unbuilt = (id: LevelId): LevelInfo => ({
   id, tag: `l${id}`, built: false, title: `LEVEL ${id}`, place: `Level ${id}`, bootStatus: `level ${id}`,
@@ -36,14 +36,14 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     id: 2, tag: 'l2', built: true, title: 'LINE TWO', place: 'Line Two', bootStatus: 'line two',
     screenHeader: 'HALCYON DYNAMICS // ERIDU DEEP FAB  —  LINE TWO / SECTION C', camLabel: 'LINE-2', idleText: true, powerOnAtLoad: true,
     keycardName: 'SECTION PASS', endEyebrow: 'End of Line Two', menuLine: 'Level 2  —  Line Two', subtitles: 'stacked',
-    cast: { foreman: true, human: true, tomasHead: true },
+    cast: { foreman: true, human: true, tomasHead: true, soldier: false },
     direct: { facts: {}, loadout: DIRECT }, healthFloor: 40, next: 3,
   },
   3: {
     id: 3, tag: 'l3', built: true, title: 'THE QUIET SIDE', place: 'Habitat Ring A', bootStatus: 'habitat ring',
     screenHeader: 'HALCYON DYNAMICS // ERIDU DEEP — HABITAT RING A', camLabel: 'CAM', idleText: true, powerOnAtLoad: true,
     keycardName: 'FACILITIES BADGE', endEyebrow: 'End of the Quiet Side', menuLine: 'Chapter 3  —  The Quiet Side', subtitles: 'stacked',
-    cast: { foreman: false, human: true, tomasHead: false },
+    cast: { foreman: false, human: true, tomasHead: false, soldier: false },
     direct: { facts: { choice: 'stop', unitsLeft: 28 }, loadout: { ...DIRECT, flashlight: true } }, healthFloor: 50,
     // stage 3b D4 (integration): finishing 3a hands over to level 4 (Biological Systems).
     next: 4,
@@ -52,11 +52,24 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     id: 4, tag: 'l4', built: true, title: 'BIOLOGICAL SYSTEMS', place: 'Biological Systems', bootStatus: 'biological systems',
     screenHeader: 'HALCYON BIO-SYSTEMS DIV. // ERIDU DEEP — BIOLOGICAL', camLabel: 'BIO', idleText: true, powerOnAtLoad: true,
     keycardName: 'FACILITIES BADGE', endEyebrow: 'End of Biological Systems', menuLine: 'Chapter 3  —  Biological Systems', subtitles: 'stacked',
-    cast: { foreman: false, human: false, tomasHead: false },
+    cast: NO_CAST,
     direct: { facts: { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true }, loadout: { ...DIRECT, flashlight: true, armor: 0 } },
+    // stage 3c D2: stays null on main until integration (IA sets 5); tests hand over with `?next=4:5`
     healthFloor: 50, next: null,
   },
-  5: unbuilt(5),
+  5: {
+    id: 5, tag: 'l5', built: true, title: 'POST 4', place: 'Post 4', bootStatus: 'post 4',
+    screenHeader: 'NAVAL DETACHMENT // ERIDU DEEP — POST 4', camLabel: 'POST4', idleText: true, powerOnAtLoad: true,
+    keycardName: 'FACILITIES BADGE', endEyebrow: 'End of Post 4', menuLine: 'Chapter 3  —  Post 4', subtitles: 'stacked',
+    // the cutscene soldier is an actor: his template is pre-warmed (§8.2.6)
+    cast: { ...NO_CAST, soldier: true },
+    direct: {
+      facts: { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true, testHour: 62.5 },
+      loadout: { weapons: { pistol: { clip: 12, reserve: 24 }, shotgun: { clip: 6, reserve: 6 }, carbine: { clip: 30, reserve: 90 } }, health: 100, flashlight: true, armor: 50 },
+    },
+    // stage 3c D3: the end card + menu (3d is not planned)
+    healthFloor: 50, next: null,
+  },
   6: unbuilt(6),
 };
 
@@ -88,7 +101,7 @@ export function nextOf(id: LevelId, debug?: Pick<DebugFlags, 'next'> | null): Le
   return o !== undefined && isLevelId(o) ? o : LEVELS[id].next;
 }
 
-/** The highest built level ≤ `id` (`?level=5` boots level 4 while 3c is unbuilt, §7). */
+/** The highest built level ≤ `id` (`?level=6` boots level 5 while 3d is unbuilt, stage 3c §7). */
 export function clampBuilt(id: number): LevelId {
   let best: LevelId = FIRST_LEVEL;
   for (const l of LEVEL_IDS) if (LEVELS[l].built && l <= id) best = l;

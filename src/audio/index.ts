@@ -30,7 +30,7 @@ const STEP_ID: Record<Surface, string> = {
 const IMPACT_ID: Record<Surface, string> = {
   metal: 'impact_metal', concrete: 'impact_concrete', rubber: 'impact_rubber', glass: 'impact_glass', robot: 'impact_robot', flesh: 'impact_flesh',
 };
-const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9 };
+const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9, soldier: 1.4 }; // soldier: K placeholder (stage 3c; W2b tunes)
 const GRATE_ROOMS = new Set(['corr_a', 'elevator']);
 /** Level 3 (habitat): the floor under the player's feet by room id — the contract's `Surface` has no carpet/tile, so
  *  footsteps there are chosen by room (any surface but glass / flesh / robot). `step_wood` is available for story use. */

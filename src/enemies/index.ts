@@ -101,7 +101,13 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
       tpl.scan = null;
     }
   }
-  const manager = createManager(ctx, { husk, skitter, sentry, foreman }, extra);
+  // stage 3c D5 — K placeholder (W3b registers the real soldier): a husk stands in, with one warning
+  let soldierWarned = false;
+  const soldier: EnemyFactory = (world, group, position, yaw, o) => {
+    if (!soldierWarned) { soldierWarned = true; console.warn('[enemies] soldier is not built yet (stage 3c W3a/W3b) — a husk stands in'); }
+    return husk(world, group, position, yaw, o);
+  };
+  const manager = createManager(ctx, { husk, skitter, sentry, foreman, soldier }, extra);
   // §8.8: route ActorOpts.who to the human factory and expose Halvorsen's props on his handle (`prop?(name, value)`).
   {
     const baseActor = manager.actor.bind(manager);

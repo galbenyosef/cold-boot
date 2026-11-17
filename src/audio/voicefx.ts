@@ -8,7 +8,9 @@
  *             higher/smaller), small delays, wide stereo, a few "every speaker at once" slap copies.
  *             `choir:N` keeps N layers (1 = a single voice; used as it shuts down).
  *   intercom  wall panel: band-pass, a little drive, hiss, squelch clicks on and off
- *   headset   handset / radio (alias `radio`): narrower, dirtier, static crackle, short dropouts
+ *   headset   handset: narrower, dirtier, static crackle, short dropouts
+ *   radio     (stage 3c) Kessler's handset radio; `radio:1` one speaker — until W2b rendered as `headset` (K placeholder)
+ *   throat    (stage 3c) CHOIR speaking through a soldier — until W2b rendered as `choir` (K placeholder)
  *   unit      a staff voice coming out of a service unit: comb resonance + ring modulation + light
  *             bit-crush, dropouts and one stutter — still the person, with nothing behind it
  *   foreman   all layers of a multi-voice line (cast "layers") through the unit chain, out of sync
@@ -28,15 +30,16 @@ import { hashStr, mulberry } from './synth/core';
 export const FX_SR = 24000;
 const OUT_RMS = 0.13;
 
-export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen';
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen' | 'radio' | 'throat';
 
 // `screen` (stage 3b D17): a monitor's speaker playing a recording = the `recorder` DSP chain (chainOf); only its
 // position profile differs (voice.ts POS.screen: ref 4 m, rolloff 0.7)
-export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door', 'screen'];
+// stage 3c §6.1: `radio` and `throat` are names of their own (no longer the alias radio → headset)
+export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door', 'screen', 'radio', 'throat'];
 
 export function parseFx(fx: string | undefined | null): { name: VoiceFxName; arg: number | null } {
   const [raw, a] = String(fx ?? 'clean').toLowerCase().split(':');
-  const alias: Record<string, VoiceFxName> = { radio: 'headset', handset: 'headset', speaker: 'pa', staff: 'unit', tape: 'recorder', desk: 'room', cabin: 'door' };
+  const alias: Record<string, VoiceFxName> = { handset: 'headset', speaker: 'pa', staff: 'unit', tape: 'recorder', desk: 'room', cabin: 'door' };
   const n = (alias[raw] ?? raw) as VoiceFxName;
   const arg = a !== undefined && a !== '' && Number.isFinite(+a) ? +a : null;
   return { name: FX_NAMES.includes(n) ? n : 'clean', arg };
@@ -217,6 +220,8 @@ function thump(c: Ctx, at: number, f0: number, level: number, dst: AudioNode): v
 
 /** The DSP chain an fx name renders through: `screen` is an alias of `recorder` (stage 3b D17); the rest are their own. */
 export function chainOf(name: VoiceFxName): VoiceFxName {
+  if (name === 'radio') return 'headset';   // stage 3c — K placeholder (W2b builds the radio chain)
+  if (name === 'throat') return 'choir';    // stage 3c — K placeholder (W2b builds the throat chain)
   return name === 'screen' ? 'recorder' : name;
 }
 

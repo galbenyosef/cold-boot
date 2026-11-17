@@ -50,6 +50,8 @@ export function parseDebug(): DebugFlags {
     choice: q.get('choice') === 'stop' || q.get('choice') === 'command' ? (q.get('choice') as 'stop' | 'command') : null,
     units: /^\d+$/.test(q.get('units') ?? '') ? Math.min(32, Number(q.get('units'))) : null,
     next: parseNext(q.get('next')),
+    // stage 3c H10: a test sets it on __game.debug before using the keypad (never from the URL)
+    keypadInput: null,
     fps: 0,
   };
 }

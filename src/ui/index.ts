@@ -105,6 +105,15 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
     showEnding() { return ending.show(); },
     setHudVisible(v) { hudWanted = v; syncHud(); },
     showSkip(progress) { hud.showSkip(progress); },
+    // stage 3c §8.6 — K placeholder (W2a): the HUD radio strip
+    radio(_o) { /* no-op until W2a */ },
+    // stage 3c §8.5 — K placeholder (W2a): resolves at once with the test-injected code (consumed) or null
+    keypad(_o) {
+      const code = ctx.debug.keypadInput ?? null;
+      ctx.debug.keypadInput = null;
+      return Promise.resolve(code);
+    },
+    closeKeypad() { /* K placeholder: nothing is ever open */ },
 
     eyelids(open, seconds) { setLids(open, seconds); },
     blur(px, seconds) { setBlur(px, seconds); },

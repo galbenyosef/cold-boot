@@ -8,6 +8,8 @@ import type { Fragment } from '../text';
 export const TITLE_CARD_L4 = ['BIOLOGICAL SYSTEMS', 'ERIDU DEEP — BIO-SYS'];
 /** §7: the stage-end card (`style: 'ending'`, 12 s, skippable). */
 export const END_CARD_L4 = ['BIOLOGICAL SYSTEMS', '', 'TO BE CONTINUED'];
+/** Stage 3c §8.1 / D2: the card when the chain hands over to level 5 (`nextOf(4) === 5`): no TO BE CONTINUED, 6 s. */
+export const END_CARD_L4_NEXT = ['BIOLOGICAL SYSTEMS'];
 
 // ───────────────────────────────────────────────────────────── the clock (D20)
 

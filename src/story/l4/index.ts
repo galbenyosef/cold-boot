@@ -4,7 +4,8 @@
  * ./base.ts), the lines' rules ./dialogue.ts, every written text and the clock ./text.ts. This file adds the stage end
  * (§7: carry `from: 4` with facts + `kills4`, `testHour`, the first-view flags; weapons incl. the carbine; armour; the
  * level-4 checkpoint cleared; end card `BIOLOGICAL SYSTEMS` / `TO BE CONTINUED` 12 s skippable; the menu; stored level
- * stays 4 while `LEVELS[4].next === null`).
+ * stays 4 while `LEVELS[4].next === null`). Stage 3c §8.1 / D2: with a next (`nextOf(4) === 5` — the test override
+ * `?next=4:5` until IA sets `LEVELS[4].next`) the card is `BIOLOGICAL SYSTEMS` alone, 6 s skippable, then `goToLevel()`.
  *
  * ═════════════════════════════════════════ TEST HOOKS on `window.__game.story` (scripts/playthrough-l4.mjs H1–H9)
  *  H1 end()                 the stage end of §7 (as the natural end calls it).
@@ -40,7 +41,7 @@ import { levelOf, nextOf } from '../../core/progress';
 import { createStagePage } from '../stage/page';
 import { ScriptL4 } from './script';
 import { RULES4 } from './dialogue';
-import { END_CARD_L4, LOG_IDS_L4, TITLE_CARD_L4, TOAST4 } from './text';
+import { END_CARD_L4, END_CARD_L4_NEXT, LOG_IDS_L4, TITLE_CARD_L4, TOAST4 } from './text';
 
 export { TITLE_CARD_L4, END_CARD_L4 };
 
@@ -74,7 +75,8 @@ export async function createStoryL4(ctx: GameContext): Promise<StorySystem> {
     try { s?.talk.shutUp(); } catch { /* ignore */ }
     ctx.setState('ended');
     ctx.ui.setHudVisible(false);
-    try { await ctx.ui.showCard(END_CARD_L4, { style: 'ending', skippable: true, seconds: 12 }); } catch (err) { console.error('[story] end card failed', err); }
+    const card = next === null ? END_CARD_L4 : END_CARD_L4_NEXT;
+    try { await ctx.ui.showCard(card, { style: 'ending', skippable: true, seconds: next === null ? 12 : 6 }); } catch (err) { console.error('[story] end card failed', err); }
     try { ctx.render.post.grade?.(0, 0); } catch { /* ignore */ }
     if (mode === 'reload') { if (next !== null) goToLevel(); else location.reload(); }
   }

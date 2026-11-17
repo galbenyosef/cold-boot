@@ -11,6 +11,7 @@ import { assembleLevel, buildRooms, type MachineLoop, type PortalSpec } from './
 import { createLevel2 } from './l2';
 import { createLevel3 } from './l3';
 import { createLevel4 } from './l4';
+import { createLevel5 } from './l5';
 import { buildMed } from './rooms/med';
 import { buildCorridor } from './rooms/corridor';
 import { buildQuarters } from './rooms/quarters';
@@ -56,7 +57,7 @@ const MACHINE_LOOPS: Record<string, MachineLoop> = {
 };
 
 /** Dispatch on the level this page load runs (REVISION 4; §8.1: one entry per built level). */
-const LEVEL_BUILDERS: Partial<Record<LevelId, (ctx: GameContext) => Promise<Level>>> = { 1: createLevel1, 2: createLevel2, 3: createLevel3, 4: createLevel4 };
+const LEVEL_BUILDERS: Partial<Record<LevelId, (ctx: GameContext) => Promise<Level>>> = { 1: createLevel1, 2: createLevel2, 3: createLevel3, 4: createLevel4, 5: createLevel5 };
 
 export async function createLevel(ctx: GameContext): Promise<Level> {
   // dev only (stage 3a K3): `?greybox=deck2` loads the two-deck test greybox (lazy chunk; not a level)

@@ -40,8 +40,16 @@ const SHOTS_L4: Shot[] = [
   { from: v(-4, 6.45, -10.5), to: v(-3.4, 6.4, -11.0), lookFrom: v(-6, 6.0, -20), lookTo: v(-5.7, 6.0, -20.3), dur: 14, fov: 60 },
 ];
 
+/**
+ * Level 5 (stage 3c §8.1): eye (0, 1.7, −2) in gate5 → look (0, 1.5, −10) at the duty-room door. Set for the built level
+ * (W4's greybox / the dressing); on K's stub room it frames the stub's north wall (its placeholder screen).
+ */
+const SHOTS_L5: Shot[] = [
+  { from: v(0, 1.7, -2), to: v(0.3, 1.7, -2.4), lookFrom: v(0, 1.5, -10), lookTo: v(0.2, 1.5, -10.2), dur: 14, fov: 60 },
+];
+
 /** Menu shots per level (§8.1: a lookup, one entry per built level). */
-const SHOTS: Partial<Record<LevelId, Shot[]>> = { 1: SHOTS_L1, 2: SHOTS_L2, 3: SHOTS_L3, 4: SHOTS_L4 };
+const SHOTS: Partial<Record<LevelId, Shot[]>> = { 1: SHOTS_L1, 2: SHOTS_L2, 3: SHOTS_L3, 4: SHOTS_L4, 5: SHOTS_L5 };
 
 const BASE_FADE = 0.12;
 

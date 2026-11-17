@@ -314,6 +314,12 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         k++;
       }
     },
+    // stage 3c B1 — K placeholder (W3b): no soldier holds yet, so a release is a wake (the contract's L1–4 meaning)
+    release(group) { manager.wakeGroup(group); },
+    // stage 3c — K placeholder (W3b): nothing holds before the soldier AI exists
+    holding(_group) { return 0; },
+    // stage 3c B2 — K placeholder (W3b): the chest point of a dead soldier (lifted above his wreck box)
+    corpsePoint(_id, _part) { return null; },
     hitscan(origin, direction, maxDistance) {
       best.t = maxDistance; best.volume = null;
       let hitEnemy: EnemyBase | null = null;

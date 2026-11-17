@@ -3,7 +3,7 @@
  * Tile sizes are in metres (geometry UVs are metres), see TILE in the final report / README of the module.
  */
 import * as THREE from 'three';
-import type { MaterialName } from '../../core/types';
+import type { MaterialName, NavyDockMaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
@@ -94,7 +94,8 @@ const U_WOOD_ = (o: { a: number; b: number; leaf: number; ring: number; warp: nu
 });
 const col = (c: number) => ({ uCol: { value: srgb(c) } });
 
-export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`>, MatSpec> = {
+// stage 3c — K placeholder: the navy / dock set (§8.9) stays out of the record until W5 adds it (remove the exclusion then)
+export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | NavyDockMaterialName>, MatSpec> = {
   wall_panel: {
     tex: { size: HERO, tile: 2, depth: 0.02, glsl: G_WALL, uniforms: wall(0x4f5b55, 0.9), aoRadius: 0.03, seed: 1 },
     params: {}, env: 1, macro: [0.25, 0.25],

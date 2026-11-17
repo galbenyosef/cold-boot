@@ -54,8 +54,11 @@ export interface LevelInfo {
   menuLine: string | null;
   /** Subtitles: 'single' = one line at a time (level 1's look), 'stacked' = speakers stack, per-speaker styles. */
   subtitles: 'single' | 'stacked';
-  /** Enemy templates the level needs at load (enemies/index.ts). */
-  cast: { foreman: boolean; human: boolean; tomasHead: boolean };
+  /**
+   * Enemy templates the level needs at load (enemies/index.ts). Stage 3c §8.2.6: `soldier` = the level has a soldier
+   * ACTOR (the cutscene) — the soldier template is pre-warmed even when `enemySpawns` hold no soldier (level 5 only).
+   */
+  cast: { foreman: boolean; human: boolean; tomasHead: boolean; soldier: boolean };
   /** Arrival without a carry (direct start / debug URL): loadout and facts (§7). */
   direct: { facts: Facts; loadout: DirectLoadout | null };
   /** A carried health value below this is raised to it on arrival (0 = none). */
@@ -94,7 +97,11 @@ export interface Facts {
   [k: string]: string | number | boolean | undefined;
 }
 
-/** The loadout + facts one level hands to the next (§8.1). Key `coldboot.carry.v2`. */
+/**
+ * The loadout + facts one level hands to the next (§8.1). Key `coldboot.carry.v2`.
+ * Stage 3c §7 (K decision): the flashlight CELL is not carried — `flashlight` is only whether the lamp was on; a new
+ * level starts with a full cell (`PlayerSave.torch` is a checkpoint field, never part of a carry).
+ */
 export interface CarryV2 {
   v: 2;
   /** The level that wrote it; only valid for `LEVELS[from].next`. */
@@ -157,6 +164,13 @@ export interface DebugFlags {
    * test can walk 3 → 4 while `LEVELS[3].next` is still null on main. null = no override.
    */
   next: Partial<Record<LevelId, LevelId>> | null;
+  /**
+   * Stage 3c §8.5 / H10 (tests only, never from the URL): a code a test injects for the next `UISystem.keypad()` call.
+   * `keypad()` consumes it (clears it back to null): K's stub resolves with it at once; the real overlay (W2a) types it
+   * key by key (visible, with its clicks) and presses ENT itself. null = normal input (the stub resolves null).
+   * Always null at boot.
+   */
+  keypadInput: string | null;
   /** Smoothed frames per second, written by main loop. */
   fps: number;
 }
@@ -212,7 +226,11 @@ export type Surface = 'metal' | 'concrete' | 'glass' | 'rubber' | 'robot' | 'fle
 export type WeaponId = 'pistol' | 'shotgun' | 'carbine';
 /** §8.1: every WeaponId, in slot order. snapshot / restore / carry iterate this list (never hard-coded ids). */
 export const WEAPON_IDS: readonly WeaponId[] = ['pistol', 'shotgun', 'carbine'];
-export type EnemyType = 'skitter' | 'husk' | 'sentry' | 'foreman';
+/**
+ * Stage 3c D5: `soldier` = a taken navy sailor (src/enemies/soldier, W3a body / W3b AI): human rig, ranged, uses
+ * `Level.cover`. Until W3b registers it the manager builds a husk in its place (K placeholder, warns once).
+ */
+export type EnemyType = 'skitter' | 'husk' | 'sentry' | 'foreman' | 'soldier';
 /** Scripted puppets (enemies.actor) may also be a human (REVISION 4: Tomas). */
 export type ActorType = EnemyType | 'human';
 /**
@@ -271,6 +289,11 @@ export interface GameEvents {
   'enemy:woke': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:alerted': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:attack': { id: number; type: EnemyType; position: THREE.Vector3; kind: 'melee' | 'ranged' };
+  /**
+   * Stage 3c §8.2.5: every shot an enemy fires (soldiers; tests count them). `origin` = muzzle, `point` = where the
+   * round ended (the player's body on a hit, the world point of a miss), `hit` = the player took it.
+   */
+  'enemy:fired': { id: number; type: EnemyType; origin: THREE.Vector3; point: THREE.Vector3; hit: boolean };
   'enemy:damaged': { id: number; type: EnemyType; point: THREE.Vector3; direction: THREE.Vector3; amount: number; part?: string };
   /**
    * REVISION 5: a player's shot line passed through a puppet before hitting the world (the enemies module
@@ -624,7 +647,8 @@ export type MaterialName =
   | 'emissive_cyan'
   | 'emissive_green'
   | HabitatMaterialName
-  | ClinicalMaterialName;
+  | ClinicalMaterialName
+  | NavyDockMaterialName;
 
 /**
  * Stage 3a habitat materials (docs/plans/stage-3a.md §8.6), implemented by task P1. Until then `get` warns and falls
@@ -660,6 +684,21 @@ export type ClinicalMaterialName =
   | 'navy_grey'           // haze grey 0x7b858c, chipped
   | 'deck_nonslip';       // non-slip grit deck paint
 
+/**
+ * Stage 3c navy / dock materials (docs/plans/stage-3c.md §8.9), implemented by task W5. Until then `get` warns and
+ * falls back (`painted_dark`), and materials/defs keeps them out of its exhaustive SPECS record (W5 removes that
+ * exclusion).
+ */
+export type NavyDockMaterialName =
+  | 'hull_white'          // curved plate enamel, weld seams, rivets, condensation streaks
+  | 'deck_grate'          // bar grating 30 × 5 mm at 40 mm, alpha-tested, double-sided, casts
+  | 'wet_steel'           // overlay: roughness 0.06, ripple normal (wet patches)
+  | 'fatigue_navy'        // rip-stop fatigues, navy blue-grey
+  | 'knit_black'          // balaclava knit
+  | 'helmet_navy'         // matte, scuffed
+  | 'webbing'             // vest, pouches
+  | 'rubber_mat';         // ready-room floor mat
+
 export type DecalName =
   | 'blood_splat' | 'blood_smear' | 'blood_pool' | 'oil_stain' | 'oil_drip' | 'scorch'
   | 'bullet_metal' | 'bullet_concrete' | 'scratches' | 'grime' | 'handprint' | 'water_stain';
@@ -688,13 +727,19 @@ export type ScreenKind =
   | 'containment'      // amber hold panel: hazard bar, ticking counter, `[ ACKNOWLEDGE ]` box (`text` per §6.4)
   | 'video_log'        // Sunde's video log (§6.4; the story animates it per line)
   | 'roster'           // controller roster: 19 red + 4 grey dots, `NODE 2` (§6.4)
-  | 'theatre_cam';     // canvas close-up of the nape: LED dot + LINK state; `text` = '<cue>|<t>|<attempt>' (§6.4)
+  | 'theatre_cam'      // canvas close-up of the nape: LED dot + LINK state; `text` = '<cue>|<t>|<attempt>' (§6.4)
+  // stage 3c (§8.9, §6.4): drawn by materials once W5 lands; until then drawn as `terminal_idle` (K placeholder)
+  | 'keypad'           // keypad panel: `NO AUTHORITY` → `ENTER CODE` → `* * * _` → `CODE REJECTED` → `ACCEPTED` → `OPEN`
+  | 'launch'           // SDV launch console (pre-launch check, launch authority, `AWAITING PALM`)
+  | 'dock_status'      // duty board / boat board: status lines (`\n`-separated)
+  | 'onpost';          // `ON POST` + a big number (`text` = the number, e.g. "26")
 
 /**
  * `wayfinding` (stage 3a §8.6): habitat signage; until materials implement it, drawn like `stencil`.
  * `clinical` (stage 3b §8.7): blue-grey Bio-Sys signage (W6); until then drawn like `stencil` (signs.ts fallback).
+ * `navy` (stage 3c §8.9): white stencil on haze grey, hull numbers (W5); until then drawn like `stencil`.
  */
-export type SignStyle = 'label' | 'warning' | 'danger' | 'directional' | 'stencil' | 'wayfinding' | 'clinical';
+export type SignStyle = 'label' | 'warning' | 'danger' | 'directional' | 'stencil' | 'wayfinding' | 'clinical' | 'navy';
 
 export interface MaterialLibrary extends Updatable {
   /** Shared instance — do NOT mutate. Unknown names log a warning and return a fallback. */
@@ -746,8 +791,18 @@ export interface FxSystem extends Updatable {
  * small-room reflections) and `door` (through a door) are stage 3a additions (§6.1, §8.11), implemented by P7.
  * `screen` (stage 3b D17): a monitor's speaker = the `recorder` DSP chain with its own position profile (ref 4 m,
  * rolloff 0.7; W2b). Until W2b it renders exactly as `recorder` (K placeholder in audio/voicefx.ts).
+ * Stage 3c §6.1 / §8.6: `radio` (Kessler's handset; `radio:1` = the one-speaker variant; fxLead 0.04 once W2b lands) and
+ * `throat` (CHOIR speaking through a soldier: a positioned, close, calm voice; POS ref 5.5). Until W2b `radio` renders
+ * as `headset` and `throat` as `choir` (K placeholders in audio/voicefx.ts / voice.ts POS). `radio` is no longer an
+ * alias of `headset` in `parseFx`.
  */
-export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen';
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen' | 'radio' | 'throat';
+
+/**
+ * Stage 3c §10.0 H14 / §8.11: one entry of `audio.debug.log` (a module extra, W2b — a ring of the last 512 `play` /
+ * `say` calls; not a contract member). `t` = audio-engine seconds, `pos` = the source position or null (2-D).
+ */
+export interface AudioLogEntry { id: string; t: number; pos: [number, number, number] | null }
 
 /** Sound ids are free-form strings; the list implemented by audio is in docs/DESIGN.md → Audio. */
 export interface PlayOpts {
@@ -849,7 +904,12 @@ export interface EnemySpawn {
    * 'spawn'   — not present until enemies.spawnGroup(group) (emerges from vent etc.).
    */
   mode: 'dormant' | 'spawn';
-  /** Optional pose hint for dormant enemies: 'rack' (hanging on a conveyor hook), 'slumped', 'standing', 'ceiling'. */
+  /**
+   * Optional pose hint for dormant enemies: 'rack' (hanging on a conveyor hook), 'slumped', 'standing', 'ceiling'.
+   * Stage 3c §8.2.4 (soldiers, `mode: 'spawn'`): 'hold' = he arrives HOLDING — `state 'idle'`, awake, not hunting (not in
+   * `activeCount`), never fires, head tracks by sight; he leaves hold on `EnemyManager.release(group)` or by himself
+   * (shot at, a bullet within 1.5 m, sees the player within 6 m — then `enemy:alerted`). Other poses: normal AI.
+   */
   pose?: string;
   /**
    * What a dormant machine does while inert (revision 2). 'still' (default) — nothing.
@@ -867,6 +927,31 @@ export interface EnemySpawn {
    * drawn by W5.
    */
   skin?: EnemySkin;
+  /** Stage 3c §8.2 (data, soldier only): his weapon; absent = 'carbine'. Other types ignore it. */
+  arms?: SoldierArms;
+  /** Stage 3c §8.2.4 (data, soldier only): preferred cover set id (`CoverPoint.set`); absent = any set (none preferred). */
+  cover?: string;
+}
+
+/** Stage 3c §8.2: a soldier's weapon (EnemySpawn.arms). */
+export type SoldierArms = 'pistol' | 'carbine';
+
+/**
+ * Stage 3c §5.4 / §8.3: one cover point for soldiers (level data, `Level.cover`; level 5 `src/level/l5/cover.ts`, W4).
+ */
+export interface CoverPoint {
+  /** `cv5_…` */
+  id: string;
+  /** Feet position, on a floor. */
+  position: THREE.Vector3;
+  /** Horizontal unit vector: the direction he faces using it (the covering object lies 0.3 … 0.7 m along it). */
+  normal: THREE.Vector3;
+  /** 'low' = he crouches behind it (eye 0.85) and rises to fire; 'high' = he stands and leans out 0.35 m. */
+  height: 'low' | 'high';
+  /** Room id the point stands in. */
+  room: string;
+  /** Cover set id (EnemySpawn.cover), e.g. 'ready', 'spine', 'bay'. */
+  set: string;
 }
 
 /** Stage 3b §8.4: enemy skins (see EnemySpawn.skin). */
@@ -902,6 +987,31 @@ export interface RoomFloor {
   y: number;
   /** Plan-view extent `[x0, x1, z0, z1]` (as built by `LevelBuild.room(…, { floors })`, K3). */
   box: [number, number, number, number];
+  /**
+   * Stage 3c D20 / §8.4 (data): false = a floor enemies never walk (no nav nodes sampled on it: the crawlway, the
+   * magazine). Absent = true. A floor may lie BELOW the room's main floor (y < y0; the room's bounds then start at the
+   * lowest floor − 0.5, W4).
+   */
+  nav?: boolean;
+  /**
+   * Stage 3c §8.4 (data, `nav: false` floors): the standing points `[x, y, z]` at the top of each way out (hatch tops).
+   * While the player is on this floor enemies target the nearest of these and stand off 2–5 m from it (W3b).
+   */
+  exits?: readonly [number, number, number][];
+}
+
+/** Stage 3c §8.4: `Level.floorAt` — the walkable floor a point stands on. */
+export interface FloorInfo {
+  /** Room id (`roomAt(p)`). */
+  room: string;
+  /** Index into the room's `floors`; -1 = the room's main floor. */
+  floor: number;
+  /** Floor height. */
+  y: number;
+  /** Enemies walk it (`RoomFloor.nav !== false`; the main floor is always true). */
+  nav: boolean;
+  /** `RoomFloor.exits` as vectors (empty for nav floors). */
+  exits: readonly THREE.Vector3[];
 }
 
 export interface Room {
@@ -945,6 +1055,9 @@ export interface Level extends Updatable {
   /**
    * Revision 2: fire a named one-shot scripted set-piece ("vignette") — ids in docs/DESIGN.md.
    * Safe to call twice (second call is ignored while running / after one-shots). Unknown ids warn once.
+   * Stage 3c D21 / §8.7 (the `:snap` convention, W4 implements it in level/context.ts): `vignette('<id>:snap')` applies
+   * the vignette's END STATE instantly and silently (no sound, no fx, idempotent) — checkpoint restores and tests use
+   * it; an id without a registered snap warns once. A vignette owns its own sounds (§8.11): the story never plays them.
    */
   vignette(id: string): void;
   /**
@@ -957,6 +1070,15 @@ export interface Level extends Updatable {
    * occludeForeign, enemies' cull) — used around a feed pass. null clears it. Required since stage 3b (D18).
    */
   setVisibilityOverride(rooms: ReadonlySet<string> | null): void;
+  /** Stage 3c §5.4 / §8.3 (D28: required): soldier cover points. Levels 1–4: `[]`. */
+  readonly cover: readonly CoverPoint[];
+  /**
+   * Stage 3c §8.4 (required): the floor `p` (feet) stands on — the room by `roomAt(p)`, then the room's floor (main or
+   * `floors[i]` whose plan box contains p) with the greatest y ≤ p.y + 0.5 (else the lowest). null = outside every room.
+   * The enemies read `nav` / `exits` through it (a player on a `nav: false` floor). Default implementation:
+   * level/assemble.ts.
+   */
+  floorAt(p: THREE.Vector3): FloorInfo | null;
 }
 
 // ───────────────────────────────────────────────────────────── player (src/player)
@@ -1107,6 +1229,7 @@ export interface Enemy {
   readonly position: THREE.Vector3;
   readonly health: number;
   readonly alive: boolean;
+  /** Stage 3c: a soldier holding (EnemySpawn.pose 'hold') reports 'idle' — awake, not hunting (EnemyManager.holding). */
   readonly state: 'dormant' | 'idle' | 'alert' | 'chase' | 'attack' | 'stagger' | 'dead';
   readonly object: THREE.Object3D;
 }
@@ -1156,6 +1279,49 @@ export interface EnemyManager extends Updatable {
    * aliveInGroup is 0.
    */
   removeGroup(group: string): void;
+  /**
+   * Stage 3c B1 (required): a soldier in `hold` (EnemySpawn.pose 'hold') → normal AI; emits `enemy:alerted` for each
+   * member released. Other types (and levels 1–4): the same as `wakeGroup(group)` (K stub: exactly `wakeGroup`).
+   */
+  release(group: string): void;
+  /**
+   * Stage 3c (required, K decision): living members of `group` that are holding (count; 0 for every non-soldier). The
+   * level-5 story's `calm()` and its `debugState.groups[g].holding` read it. K stub: 0.
+   */
+  holding(group: string): number;
+  /**
+   * Stage 3c B2 / S4 (required): a world point on a DEAD enemy's body. 'chest' = the chest bone's x/z, its y lifted to
+   * `max(chest.y, wreckBox.max.y + 0.08)` (K decision: the manager applies the lift, so a ray to the point is not ended
+   * by the body's own 0.15 m walkable box). Live while the body falls (1.2–1.6 s) — read it after the fall. null =
+   * unknown id, alive, or removed. K stub: null.
+   */
+  corpsePoint(id: number, part: 'chest'): THREE.Vector3 | null;
+}
+
+/**
+ * Stage 3c §10.0 H12: one row of `enemies.debug.soldiers()` (a module extra on the manager, W3b — not a contract
+ * member; the story's `soldiers()` hook returns these rows). Positions are plain arrays.
+ */
+export interface SoldierDebug {
+  id: number;
+  group: string;
+  pos: [number, number, number];
+  state: Enemy['state'];
+  /** Knows where the player is (noticed, or told by his group). */
+  aware: boolean;
+  holding: boolean;
+  /** Holds one of the two fire tokens (aim / burst). */
+  token: boolean;
+  /** Weapon light on. */
+  light: boolean;
+  /** Cover point id in use, or null. */
+  cover: string | null;
+  hp: number;
+  suppression: number;
+  /** Rounds fired / that hit the player / bursts, since spawn. */
+  shots: number;
+  hits: number;
+  bursts: number;
 }
 
 /** REVISION 5: how a puppet is rendered. Holograms are see-through sci-fi projections (no shadow, no collision). */
@@ -1164,6 +1330,8 @@ export interface ActorOpts {
   look?: ActorLook;
   /** §8.8 (stage 3a): which person a 'human' actor is (body, head, voice). Default 'tomas'. */
   who?: ActorWho;
+  /** Stage 3c §8.2.8: a 'soldier' actor's name tape (e.g. 'BREKKE'); other types ignore it. */
+  name?: string;
 }
 /** §8.8: the human actors. */
 export type ActorWho = 'tomas' | 'halvorsen';
@@ -1217,6 +1385,22 @@ export interface UISystem extends Updatable {
   setHudVisible(visible: boolean): void;
   /** §8.2 (stage 3a): cutscene skip ring, 0..1 while SPACE is held; null hides it. Required since stage 3b (D18). */
   showSkip(progress: number | null): void;
+  /**
+   * Stage 3c §8.6 (required): the HUD radio strip above the vitals (mic icon, live dot, 5 bars, `Q` hint under it).
+   * `label` e.g. 'POST 4 — CMD — CH 1'; `live` = a radio line is playing. null hides it. K stub: no-op.
+   */
+  radio(o: { label: string; live: boolean } | null): void;
+  /**
+   * Stage 3c §8.5 (required): open the keypad overlay (not a pause; the pointer stays locked — a virtual cursor on the
+   * mouse deltas, digit keys / numpad, Backspace, Enter). Resolves with the entered string (exactly `digits` long) on
+   * ENT, or null when closed (Esc / E / damage / any non-'playing' state / `closeKeypad()`). The STORY disables player
+   * control while it is open and judges the code. `title` heads the overlay; `panel` = the world panel's screen name
+   * the story mirrors. A second call while open closes the first (null) and opens anew.
+   * K stub: resolves at once with `ctx.debug.keypadInput` (then clears it) or null.
+   */
+  keypad(o: { digits: number; title: string; panel?: string }): Promise<string | null>;
+  /** Stage 3c §8.5 (required): close an open keypad (its promise resolves null). No-op when none is open. */
+  closeKeypad(): void;
 }
 
 // ───────────────────────────────────────────────────────────── story (src/story)

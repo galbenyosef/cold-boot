@@ -4,21 +4,26 @@ Run everything here and fix what it finds. When the user finds a new class of de
 
 ## Automated
 - `npm run typecheck` and `npm run build`
-- `npm run check` — runs (levels 1–4 where a check takes `--level`; `all` = every built level):
+- `npm run check` — runs (levels 1–5 where a check takes `--level`; `all` = every built level):
   - `check:zfight` — overlapping coplanar surfaces (flickering "double layer" walls). Zero findings.
   - `check:doors` — parts left hanging when a door / moving machine part moves (e.g. bolts in mid-air).
   - `check:wreck` — a dead robot on the floor is walked over, not into.
   - `check:reach` — per story phase, the player cannot reach what must be sealed and can reach what is needed.
   - `check:decals` — bullet holes / decals shot onto every door leaf (and registered movers) ride with it or vanish when it opens; none left hanging in mid-air.
-  - `check:chain` — the level chain + save/carry v2: every built level boots directly (`?level=5+` clamps to 4, a bad
+  - `check:chain` — the level chain + save/carry v2: every built level boots directly (`?level=6+` clamps to 5, a bad
     `?level=` falls back to the stored level), L1 → L2 → L3 hand-overs keep loadout and facts (both choices), level 3's
-    end card + carry (incl. `testHour`) — today's end without `?next=`, the hand-over to level 4 through the test
-    override `?next=3:4` (both choices: card without TO BE CONTINUED, weapons, health, flashlight, facts, armour
-    37 → 37 / 900 → 100 / NaN → 0, real reload), level 4's direct start and end (carry incl. carbine + armour, stored
-    level stays 4), menu CONTINUE / BEGIN on a stored level 3 and 4, v1 saves discarded once, corrupt carries ignored,
-    a carry without the carbine loads it unowned, a pre-3b level-3 checkpoint restores; plus a source grep that fails
-    on a binary level branch (allow-list `scripts/levelgrep-allow.txt`). Static build:
-    `node scripts/check-chain.mjs --url http://127.0.0.1:<port>`.
+    end card + carry (incl. `testHour`) and its live hand-over to level 4, the 3 → 4 test override `?next=3:4` (both
+    choices: card without TO BE CONTINUED, weapons, health, flashlight, facts, armour 37 → 37 / 900 → 100 / NaN → 0,
+    real reload), level 4's direct start and its end WITHOUT `?next=` (today's card with TO BE CONTINUED, stored level
+    stays 4 — `LEVELS[4].next` is null until stage 3c's integration), the 4 → 5 hand-over through the test override
+    `?next=4:5&handoff=1` (both choices: card without TO BE CONTINUED, stored 5, weapons incl. the carbine, health floor
+    50, armour 37 → 37 / 900 → 100 / NaN → 0, flashlight, facts, `testHour`; the flashlight CELL is not carried — a new
+    level starts full; real reload), level 5's direct start (pistol 12 + 24, shotgun 6 + 6, carbine 30 + 90, armour 50,
+    flashlight on, `testHour 62.5`; HUD with carbine / armour / cell) and end (carry from 5 incl. `kills5` + `testHour`,
+    `POST 4` / TO BE CONTINUED, stored level stays 5), menu CONTINUE / BEGIN on a stored level 3, 4 and 5, v1 saves
+    discarded once, corrupt carries ignored, a carry without the carbine loads it unowned, a pre-3b level-3 and a
+    pre-3c level-4 checkpoint restore; plus a source grep that fails on a binary level branch (allow-list
+    `scripts/levelgrep-allow.txt`). Static build: `node scripts/check-chain.mjs --url http://127.0.0.1:<port>`.
   - `check:nav` — enemy navigation (nav v2, two decks): nodes on their floors and in their rooms, every link walked by a husk capsule, no unlinked deck, enemies can follow the player into every phase's goal regions; real husks reach the player across decks (greybox) and in levels 1–2, stand off when cut off, no drift on ramps (greybox + levels 1–2; prints the L1/L2 nav hash). `node scripts/check-nav.mjs --url http://127.0.0.1:<port>`.
   - `check:cutscene` — cutscene camera + player cinematic + safe state on the dev scene (`?cutdev=1`, greybox): no input moves / fires during a scene, awkward entries (sprint, backwards, mid-jump, mid-reload, palm scan, note, pause, fire held, dying), camera = shot table, end pose / weapon exact, hand-back continuity, skip only once seen (same end state, no jump), no shot in or across the safe state; levels 1–2 unaffected. `--url`, `--frames` (shots/p4/).
   - `check:voice` (`scripts/check-voice-level.mjs`) — speech MEASURED at the listener: a tap on the voice bus and the
@@ -55,6 +60,22 @@ Run everything here and fix what it finds. When the user finds a new class of de
   - `npm run check:voice -- --url <url> --level 4 [--choice command]` — Sunde's log from the PI desk and the office door,
     a unit panel line, the gallery announcer at both ends: level + sync as level 3's scenes.
   - `check:nav` runs level 4's cases with the others.
+- Stage 3c (docs/plans/stage-3c.md §10), on a static build (rules for building it: `docs/plans/stage-3c-agent-rules.md`):
+  - `npm run play:l4 -- <url> --choice=stop` stays green on main (the end card per `nextOf(4)`: TO BE CONTINUED while
+    `LEVELS[4].next` is null); `--next=4:5` runs the same level into the hand-over (card without TBC, stored level 5).
+  - `npm run play:l5 -- <url>` (level 5, both choices; `--contract` = every hook of §10.0 exists), `--checkpoints`,
+    `--impatient`, `--order` (a–f), `--softlock` (a–i), `--scares` (each `v5_*` once, calm, spaced, sounds owned once
+    via `audio.debug.log`), `--ads`, `--frames` (10 fps sequences of §10.5 → `shots/l5/frames/`; look at them).
+  - `npm run check:soldier -- --url <url>` (the taken soldier on its dev page: TTK, first-burst miss, hit fractions,
+    telegraph, cover, suppression, misses near the player, damage cap, tokens, death + radio point, perception in the
+    dark, hold / release, grating, exits stand-off, actor, cost).
+  - `npm run check:dark -- --url <url> --level 5` (no-light with `player.debug.torch(0)`, light at full charge, the
+    enemies' dark-room marks at 10 / 20 / 30 m — the soldier's red, never cyan; the dark-run walk), `check:fxleak --level
+    5`, `check:reach --level 5` (phases A … X, `mustNotUse`), `check:nav` (level-5 cases at real speeds), `check:doors`,
+    `check:decals`, `check:wreck`, `check:zfight`, `check:cutscene` (the level-5 scene), `check:voice --level 5`,
+    `check:cards` (the `POST 4` card), `check:weapons` unchanged.
+  - Every check view / stand-off / marker stands inside a room interior (`roomAt` + 0.3 m inset) — a check standing in
+    a wall passes for the wrong reason.
 - `node scripts/check-cards.mjs <url>` — title / intro / end cards keep their number of text lines and stay on screen
   through the letter-spacing animation, at four window sizes.
 
