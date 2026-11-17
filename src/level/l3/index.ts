@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import type { GameContext, Level } from '../../core/types';
 import { LevelBuild, roomFloor } from '../context';
 import { pitProblems, type DoorImpl, type DoorSpec } from '../doors';
+import { sealedDoor } from '../kit';
 import { defineInstances } from '../props';
 import { assembleLevel, buildRooms, type PortalSpec } from '../assemble';
 import type { TriggerSpec } from '../triggers';
@@ -75,8 +76,23 @@ export function doors3(L: LevelBuild): DoorSpec[] {
     cab('d3_q4', 15, -34, 'D. OYELARAN', false), cab('d3_q5', 19, -34, 'R. BRANDT', false), cab('d3_q6', 23, -34, 'T. HALVORSEN', false),
     { id: 'd3_ring_e', x: 28, z: -31, wall: 'x', kind: 'std', locked: true, leafMat: 'painted_dark', labelFront: 'RING A', labelBack: 'RING A — EAST', rooms: ['ring_e', 'quarters'] },
     { id: 'd3_bio', x: 12, y: D2, z: -38, wall: 'x', kind: 'std', locked: true, auto: false, leafMat: 'painted_white', labelFront: 'HABITAT RING', labelBack: 'BIOLOGICAL SYSTEMS', rooms: ['bio_lock', 'atrium'] },
-    { id: 'd3_bio_inner', x: 16, y: D2, z: -38, wall: 'x', kind: 'std', locked: true, status: 'dark', leafMat: 'painted_white', labelFront: 'OUTER LOCK', labelBack: 'BIOLOGICAL SYSTEMS', rooms: ['bio_lock', 'bio_lock'] },
+    // (stage 3b D4 / D19: the BIO lock's inner door never opens in 3a — `d3_bio_inner` is a static sealed prop now,
+    // see `bioInner` below; 3b starts in its own copy of this lock)
   ];
+}
+
+/**
+ * Stage 3b §8.8.4 (D19): the BIO lock's inner door (16, 4.8, −38) — a static `sealedDoor` (no Door, no phase state),
+ * seen only from inside the lock; unpowered panels ("DECON — AWAITING" is the lock's own `bio_panel`).
+ */
+function bioInner(L: LevelBuild, G: GreyGrid) {
+  G.air('door:d3_bio_inner', [16 - HW, D2, -38.8, 16 + HW, D2 + 2.4, -37.2], { rooms: ['bio_lock'], look: 'reveal' });
+  const b = L.namedBuilder('sealed:d3_bio_inner');
+  b.rooms = ['bio_lock'];
+  sealedDoor(L, b, {
+    id: 'd3_bio_inner', x: 16, y: D2, z: -38, wall: 'x', kind: 'std', sides: 'back', status: 'dark', leafMat: 'painted_white',
+    labelBack: 'BIOLOGICAL SYSTEMS',
+  });
 }
 
 /** Carve a door's opening through its 0.4 m wall, the slots its std leaves slide into, nothing else. */
@@ -97,8 +113,6 @@ function carveDoor(G: GreyGrid, s: DoorSpec) {
     put(-end, -w / 2, y, y + h, -0.07, 0.07);
     put(w / 2, end, y, y + h, -0.07, 0.07);
   }
-  // d3_bio_inner leads to 3b: a 0.8 m stub of the corridor beyond so its opening is not a blind niche
-  if (s.id === 'd3_bio_inner') G.air(`door:${s.id}`, [s.x + HW, y, s.z - w / 2, s.x + HW + 0.8, y + h, s.z + w / 2], def);
 }
 
 // ───────────────────────────────────────────────────────────── triggers (§2.3)
@@ -241,6 +255,7 @@ export async function createLevel3(ctx: GameContext): Promise<Level> {
     placeLights(l, d?.lights ?? LIGHTS3[id]);
   }] as const), lap);
   for (const s of specs) carveDoor(G, s);
+  bioInner(L, G);
   gameplay(L);
 
   // shell faces: neutral walls / ceilings, a faint floor tint per room (dressing may restyle a room's faces)

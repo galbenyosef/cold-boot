@@ -3,7 +3,9 @@
  * Everything is authored in the builder's current local frame.
  */
 import * as THREE from 'three';
+import type { ScreenKind } from '../core/types';
 import type { Axis, Builder, Mat, Rng } from './builder';
+import type { LevelBuild } from './context';
 
 export type P3 = [number, number, number];
 
@@ -335,4 +337,169 @@ export function stairs(b: Builder, mat: Mat, w: number, rise: number, run: numbe
   }
   const len = Math.hypot(n * rise, n * run), ang = Math.atan2(n * rise, n * run);
   for (const s of [-1, 1]) b.rbox('trim_steel', (s * w) / 2, (n * rise) / 2 - 0.05, (-n * run) / 2, 0.03, 0.18, len, ang, 0, 0);
+}
+
+// ───────────────────────────────────────────────────────────── sealed doors (stage 3b D19)
+
+/**
+ * Stage 3b D19: a door that never opens in its stage — a STATIC prop (no `Door`, no blockers, no prompt, nothing
+ * moves): frame, closed leaves, status panels, an optional text panel, one static collider across the opening.
+ * The caller carves the opening through its wall (w × h, full wall thickness; no leaf slots) and passes a static zone
+ * builder whose `rooms` are the rooms that can see it. Geometry is authored like `DoorImpl` (door-local: x along the
+ * opening, y up from the floor, +z = the `front` side), so it reads as the same door family.
+ */
+export interface SealedDoorSpec {
+  id: string; x: number; z: number;
+  /** Floor of the opening (world y). Default 0. */
+  y?: number;
+  /** 'z' = in a wall on a z = const plane (opening along x); 'x' likewise. */
+  wall: 'x' | 'z';
+  /** 'std' 1.6 × 2.4 two-leaf door; 'wide' 3.0 × 2.8 blast / pressure gate look. */
+  kind?: 'std' | 'wide';
+  w?: number; h?: number;
+  leafMat?: Mat;
+  /** Lintel labels seen from the +z (local) / −z side. Empty / absent = no label. */
+  labelFront?: string; labelBack?: string;
+  /** Which faces are dressed (the other side is solid structure nobody sees). Default 'both'. */
+  sides?: 'both' | 'front' | 'back';
+  /** Jamb status panels: red `locked` (default) or `dark` (unpowered). */
+  status?: 'locked' | 'dark';
+  /** A text screen on the wall beside the door (`L.screen(name ?? `${id}_panel`, kind ?? 'terminal_idle', …)`). */
+  panel?: { name?: string; text: string; side: 'front' | 'back'; kind?: ScreenKind };
+  /** Wide only: locking dogs round the leaf edge (4 groups — left, right, top, bottom — each a registered mover). */
+  dogs?: number;
+}
+
+/** What `sealedDoor` made: `root` (= `L.objects[id]`, `userData.spec`), and the dog groups when asked for. */
+export interface SealedDoor {
+  root: THREE.Object3D;
+  /**
+   * `L.objects[`${id}_dogs`]` when `dogs` was given: `userData.edges` = [{ obj, dir }] (dir = world unit vector the
+   * group retracts along, toward the leaf centre), `userData.set(k)` places every group (0 = engaged, 1 = retracted by
+   * `userData.travel` m).
+   */
+  dogs?: THREE.Object3D;
+}
+
+export function sealedDoor(L: LevelBuild, b: Builder, s: SealedDoorSpec): SealedDoor {
+  const wide = s.kind === 'wide';
+  const w = s.w ?? (wide ? 3.0 : 1.6), h = s.h ?? (wide ? 2.8 : 2.4), floor = s.y ?? 0;
+  const ry = s.wall === 'z' ? 0 : Math.PI / 2;
+  const jw = 0.3, T = 0.2, pr = 0.12;
+  const leafMat: Mat = s.leafMat ?? 'wall_panel_dark';
+  const sides = (s.sides ?? 'both') === 'both' ? [1, -1] : s.sides === 'front' ? [1] : [-1];
+  const statusMat = L.ctx.materials.screen('door_locked', { aspect: 1.5 });
+  if (s.status === 'dark') { L.ctx.materials.setScreen(statusMat, 'door_locked', { text: ' ' }); statusMat.emissiveIntensity = 0; }
+
+  b.push(s.x, floor, s.z, ry);
+  for (const sg of sides) {
+    const z0 = sg * T, z1 = sg * (T + pr);
+    const face = sg > 0 ? '+z' : '-z';
+    for (const side of [-1, 1]) {
+      const xc = side * (w / 2 + jw / 2);
+      b.bx('trim_steel', side * (w / 2 - 0.01), 0, z0, side * (w / 2 + jw), h + 0.3, z1);
+      b.detail(() => {
+        b.bx('hazard_stripes', xc - side * (jw / 2 - 0.01) - 0.045, 0.3, z1, xc - side * (jw / 2 - 0.01) + 0.045, h - 0.05, z1 + sg * 0.006);
+        b.bx('painted_dark', xc - jw / 2 - 0.03, 0, z0 + sg * 0.012, xc + jw / 2 + 0.03, 0.3, z1 + sg * 0.03);
+      });
+    }
+    b.bx('trim_steel', -w / 2 - jw, h - 0.01, z0, w / 2 + jw, h + 0.3, z1);
+    const label = sg > 0 ? s.labelFront : s.labelBack;
+    b.detail(() => {
+      b.bx('painted_dark', -w / 2 - jw - 0.03, h + 0.24, z0 + sg * 0.012, w / 2 + jw + 0.03, h + 0.32, z1 + sg * 0.03);
+      b.bx('hazard_stripes', -w / 2, h, z1, w / 2, h + 0.06, z1 + sg * 0.006);
+      if (label) b.sign(label, 'label', 0, h + 0.155, z1, Math.min(w - 0.2, 0.09 * label.length + 0.3), 0.13, face);
+      // status panel housing + the (red or unlit) panel on the right-hand jamb as seen from this side
+      const px = sg * (w / 2 + jw / 2 + 0.02);
+      b.box('painted_dark', px, 1.4, z1 + sg * 0.02, 0.2, 0.3, 0.04);
+      b.quad(statusMat, px, 1.43, z1 + sg * 0.04, 0.15, 0.1, face, 0, 'unit', 0.002);
+    });
+    hazardStrip(b, -w / 2 - 0.2, sg > 0 ? T + pr + 0.03 : -(T + pr + 0.33), w / 2 + 0.2, sg > 0 ? T + pr + 0.33 : -(T + pr + 0.03));
+  }
+  // the closed leaves (std: two, a 12 mm seam; wide: one slab, ribs and a hazard band); 2 cm into the reveals
+  if (wide) {
+    b.bx(leafMat, -w / 2 - 0.02, 0.01, -0.08, w / 2 + 0.02, h + 0.02, 0.08);
+    for (const sg of sides) {
+      const z = sg * 0.08, f = sg > 0 ? '+z' : '-z';
+      b.box('hazard_stripes', 0, 1.4, z + sg * 0.005, w, 0.22, 0.01);
+      b.box('trim_steel', 0, h - 0.08, z + sg * 0.02, w, 0.1, 0.04);
+      b.box('trim_steel', 0, 0.09, z + sg * 0.02, w, 0.14, 0.04);
+      for (const sx of [-1.3, 0, 1.3]) b.box('trim_steel', sx * (w / 3.0), h * 0.5, z + sg * 0.03, 0.07, h - 0.4, 0.06);
+      for (const px of [-0.72, 0.72]) {
+        panelOn(b, 'trim_steel', px * (w / 3.0), 0.7, z, 1.1 * (w / 3.0), 0.8, f, 0.03, 0.04);
+        panelOn(b, 'trim_steel', px * (w / 3.0), 2.1, z, 1.1 * (w / 3.0), 0.8, f, 0.03, 0.04);
+      }
+    }
+  } else {
+    for (const side of [-1, 1]) {
+      const x0 = side < 0 ? -w / 2 - 0.02 : 0.006, x1 = side < 0 ? -0.006 : w / 2 + 0.02, xc = (x0 + x1) / 2, lw = x1 - x0;
+      b.bx(leafMat, x0, 0.01, -0.05, x1, h + 0.02, 0.05);
+      for (const sg of sides) {
+        const z = sg * 0.05, f = sg > 0 ? '+z' : '-z';
+        panelOn(b, 'trim_steel', xc, 0.55, z, lw - 0.16, 0.8, f, 0.02, 0.03);
+        panelOn(b, 'trim_steel', xc, h * 0.75, z, lw - 0.16, h - 1.45, f, 0.02, 0.03);
+        b.box('hazard_stripes', xc, h * 0.475, z + sg * 0.004, lw - 0.04, 0.16, 0.008);
+      }
+    }
+    b.bx('trim_steel', -0.006, 0.01, -0.056, 0.006, h, 0.056); // the meeting seam
+  }
+  b.collide(-w / 2, 0, wide ? -0.08 : -0.05, w / 2, h, wide ? 0.08 : 0.05, 'metal', true);
+  b.pop();
+
+  const root = new THREE.Object3D();
+  root.name = s.id;
+  root.position.set(s.x, floor, s.z);
+  root.rotation.y = ry;
+  root.userData.spec = s;
+  root.userData.sealed = true;
+  L.root.add(root);
+  L.objects.set(s.id, root);
+
+  // text panel on the wall beside the door (1.5 m up, clear of the frame, to its right as seen from that side)
+  if (s.panel) {
+    const sg = s.panel.side === 'front' ? 1 : -1;
+    const off = w / 2 + jw + 0.35;
+    const p = new THREE.Vector3(sg * off, 1.5, sg * (T + 0.006)).applyAxisAngle(new THREE.Vector3(0, 1, 0), ry).add(new THREE.Vector3(s.x, floor, s.z));
+    const face = s.wall === 'z' ? (sg > 0 ? '+z' : '-z') : (sg > 0 ? '+x' : '-x');
+    L.screen(s.panel.name ?? `${s.id}_panel`, s.panel.kind ?? 'terminal_idle', 0.5, 0.3, p.x, p.y, p.z, face, { text: s.panel.text });
+  }
+
+  let dogs: THREE.Object3D | undefined;
+  if (wide && s.dogs) {
+    const sg = sides[0];
+    const grp = new THREE.Group();
+    grp.name = `${s.id}_dogs`;
+    grp.position.set(s.x, floor, s.z);
+    grp.rotation.y = ry;
+    L.root.add(grp);
+    const n = Math.max(4, s.dogs);
+    // 12 → 4 on each vertical edge, 2 on the top and the bottom edge (dog 0.18 × 0.12 × 0.06 on the leaf face)
+    const perV = Math.max(1, Math.round(n / 3)), perH = Math.max(1, Math.floor((n - 2 * perV) / 2));
+    const zc = sg * (0.08 + 0.065); // (dog face 0.175 proud of the wall plane: clear of the leaf's ribs at 0.14)
+    const UP = new THREE.Vector3(0, 1, 0);
+    const edges: { obj: THREE.Object3D; dir: THREE.Vector3; local: THREE.Vector3 }[] = [];
+    const mk = (name: string, out: THREE.Vector3, pts: [number, number][], vertical: boolean) => {
+      const part = L.part(`${s.id}:dogs:${name}`);
+      for (const [x, y] of pts) part.box('steel_raw', x, y, zc, vertical ? 0.18 : 0.12, vertical ? 0.12 : 0.18, 0.06);
+      const g = part.build();
+      g.name = `${s.id}_dogs_${name}`;
+      grp.add(g);
+      L.ctx.physics.addMover?.(g);
+      const local = out.clone().negate();
+      edges.push({ obj: g, dir: local.clone().applyAxisAngle(UP, ry), local });
+    };
+    const ys = Array.from({ length: perV }, (_, i) => 0.35 + ((h - 0.7) * (i + 0.5)) / perV);
+    const xs = Array.from({ length: perH }, (_, i) => -w / 2 + (w * (i + 1)) / (perH + 1));
+    mk('left', new THREE.Vector3(-1, 0, 0), ys.map((y) => [-w / 2 + 0.11, y] as [number, number]), true);
+    mk('right', new THREE.Vector3(1, 0, 0), ys.map((y) => [w / 2 - 0.11, y] as [number, number]), true);
+    mk('top', new THREE.Vector3(0, 1, 0), xs.map((x) => [x, h - 0.2] as [number, number]), false);
+    mk('bottom', new THREE.Vector3(0, -1, 0), xs.map((x) => [x, 0.26] as [number, number]), false);
+    const travel = 0.1;
+    grp.userData.edges = edges.map((e) => ({ obj: e.obj, dir: e.dir }));
+    grp.userData.travel = travel;
+    grp.userData.set = (k: number) => { for (const e of edges) e.obj.position.copy(e.local).multiplyScalar(travel * Math.min(1, Math.max(0, k))); };
+    L.objects.set(grp.name, grp);
+    dogs = grp;
+  }
+  return { root, dogs };
 }

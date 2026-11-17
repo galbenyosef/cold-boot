@@ -17,14 +17,15 @@
 // they fail as they must, FAIL when they pass.
 // Levels 1–2 print their nav node hash and build time (nav v2 must leave both unchanged).
 //
-// Usage: node scripts/check-nav.mjs [--url http://127.0.0.1:5173] [--level 1|2|all|greybox] [--no-sim] [--verbose]
+// Level 4 (stage 3b §10.3) declares its own cases like level 3, with `sentries` (a list) besides `sentry`.
+// Usage: node scripts/check-nav.mjs [--url http://127.0.0.1:5173] [--level 1|2|3|4|all|greybox] [--no-sim] [--verbose]
 // Exit code 1 on any failure.
 import { parseArgs, launch, bootLevel } from './lib/check-common.mjs';
 
 const args = parseArgs();
 const base = args.url ?? 'http://127.0.0.1:5173';
 const which = args.level ?? 'all';
-const targets = which === 'all' ? ['greybox', 1, 2, 3] : which === 'greybox' ? ['greybox'] : [Number(which)];
+const targets = which === 'all' ? ['greybox', 1, 2, 3, 4] : which === 'greybox' ? ['greybox'] : [Number(which)];
 const sims = !args['no-sim'];
 /**
  * Levels 1–2 nav node sets as built before nav v2 (K4 baseline: ids, positions, rooms, links). Nav v2 must not change
@@ -463,8 +464,7 @@ for (const target of targets) {
       const cm = r.come;
       line(cm.reached && !cm.under && !cm.outside && !cm.stuck, `${''.padEnd(18)} … door unlocked: ${cm.reached ? `attacked after ${cm.t.toFixed(1)} s` : `NOT reached in ${c.within} s (at ${cm.at})`}${cm.stuck ? `, stuck ${cm.stuck}` : ''}`);
     }
-    if (cases.sentry) {
-      const c = cases.sentry;
+    for (const c of [...(cases.sentry ? [cases.sentry] : []), ...(cases.sentries ?? [])]) {
       const r = await page.evaluate((c) => window.__nav.sentry(c), c);
       line(r.reached && !r.outside, `${c.id.padEnd(18)} ${c.label} — ${r.reached ? `fired after ${r.t.toFixed(1)} s` : `did not fire in ${c.within} s (at ${r.at})`}`);
     }

@@ -125,8 +125,11 @@ function doorSetup(id) {
     const aims = targets.map(({ lf, tgt }, i) => ({ leaf: lf.name || `leaf${i}`, o: [tgt[0] + nrm[0] * dist, tgt[1], tgt[2] + nrm[2] * dist], d: [-nrm[0], 0, -nrm[2]], lf }));
     const ok = aims.every((a) => { const h = g.physics.raycast(new V(...a.o), new V(...a.d), 5); return h && h.owner === a.lf; });
     if (!ok) continue;
-    const ex = px + nrm[0] * 3, ez = pz + nrm[2] * 3;
-    g.player.teleport(new V(ex, y0, ez), Math.atan2(-(px - ex), -(pz - ez)), Math.atan2(1.3 - 1.6, 3));
+    // stand 3 m out, or closer when that point is outside every room (a door onto a 3 m wide corridor)
+    let out = 3;
+    for (const o of [3, 2.2, 1.4]) { out = o; let r = null; try { r = g.level.roomAt(new V(px + nrm[0] * o, y0 + 1, pz + nrm[2] * o)); } catch { r = null; } if (r) break; }
+    const ex = px + nrm[0] * out, ez = pz + nrm[2] * out;
+    g.player.teleport(new V(ex, y0, ez), Math.atan2(-(px - ex), -(pz - ez)), Math.atan2(1.3 - 1.6, out));
     return { kind: d.spec.kind, wall, side, dist, aims: aims.map(({ lf, ...a }) => a), y0 };
   }
   return { kind: d.spec.kind, wall, aims: [], y0, unreachable: true };

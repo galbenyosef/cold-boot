@@ -407,10 +407,13 @@ export class LevelBuild {
   }
 
   // ── gameplay data ──
-  enemy(group: string, type: EnemyType, mode: 'dormant' | 'spawn', x: number, y: number, z: number, yaw: number, pose?: string, idle?: EnemySpawn['idle']) {
+  /** `opts.skin` (stage 3b §8.4): visual variant of a husk / sentry (`lab` | `navy`); absent = today's look. */
+  enemy(group: string, type: EnemyType, mode: 'dormant' | 'spawn', x: number, y: number, z: number, yaw: number, pose?: string, idle?: EnemySpawn['idle'],
+    opts?: { skin?: EnemySpawn['skin'] }) {
     const n = this.enemySpawns.filter((e) => e.group === group).length;
     const e: EnemySpawn = { id: `${group}_${n + 1}`, type, position: new THREE.Vector3(x, y, z), yaw, group, mode, pose };
     if (idle) e.idle = idle;
+    if (opts?.skin) e.skin = opts.skin;
     this.enemySpawns.push(e);
   }
   pickup(id: string, kind: PickupKind, x: number, y: number, z: number, amount: number, yaw = 0) {

@@ -45,6 +45,11 @@ export interface DoorSpec {
   /** Initial status override (see Door.setStatus). */
   status?: 'cycling' | 'dark' | null;
   /**
+   * Stage 3b §2.2 (D12): the prompt shown while the door's status is `cycling` (amber CYCLING panel) — the reason for
+   * the hold ("Containment hold", "Release from booth"). Default "Cycling".
+   */
+  cyclingPrompt?: string;
+  /**
    * Std leaves only: 'industrial' (default — pressed steel panels, chevron band, pull bar) or 'habitat' (stage 3a:
    * a plain painted / veneered / glazed leaf with moulded panels, a lever pull, a kick plate — no chevrons). Frames are
    * the same in both (a level dresses them with casings).
@@ -170,6 +175,22 @@ export class DoorImpl implements Door {
   leaf(i: number): THREE.Object3D { return this.leaves[i]; }
   /** Shudder the leaves as if something hit them (`amp` metres, decaying over `seconds`). */
   shake(amp: number, seconds: number) { this.rattle = seconds; this.rattleDur = seconds; this.rattleAmp = amp; this.rattleT = 0; }
+  private nudgeAmt = 0;
+  private nudgeDur = 1;
+  private nudgeT = -1;
+  /**
+   * Stage 3b §2.2 / D26: a door held open (or part open) twitches toward closed and back — its safety beam finds the
+   * obstruction again. The leaves travel `dt` of the full stroke (0 … 1) toward closed and return, the whole twitch
+   * lasting `seconds` (half-sine). Leaf blockers follow the leaves (they only close the opening if the leaves really
+   * reach into it) and decals ride with the leaves as always; `isOpen`, the stroke and the panel do not change.
+   * A closed door ignores it.
+   */
+  nudge(dt: number, seconds: number) {
+    if (this.t <= 0 || dt <= 0 || seconds <= 0) return;
+    this.nudgeAmt = Math.min(1, dt);
+    this.nudgeDur = seconds;
+    this.nudgeT = 0;
+  }
 
   get isOpen() { return this.target === 1; }
   /** REVISION 5: the leaves are fully shut (not merely closing). */
@@ -213,7 +234,7 @@ export class DoorImpl implements Door {
     const shown = this.shown;
     if (this.shownKey === shown) return;
     this.shownKey = shown;
-    this.prompt.prompt = shown === 'cycling' ? 'Cycling' : shown === 'dark' ? 'No power' : 'Locked';
+    this.prompt.prompt = shown === 'cycling' ? this.spec.cyclingPrompt ?? 'Cycling' : shown === 'dark' ? 'No power' : 'Locked';
     const m = this.L.ctx.materials;
     if (shown === 'dark') { m.setScreen(this.statusMat, 'door_locked', { text: ' ' }); this.statusMat.emissiveIntensity = 0; }
     else m.setScreen(this.statusMat, shown === 'cycling' ? 'door_cycling' : shown === 'locked' ? 'door_locked' : 'door_open');
@@ -299,6 +320,13 @@ export class DoorImpl implements Door {
       const x = this.t;
       this.apply(x * x * (3 - 2 * x));
     } else if (this.boxes[2].enabled) this.boxes[2].enabled = false;
+    if (this.nudgeT >= 0) {
+      this.nudgeT += dt;
+      const k = Math.min(1, this.nudgeT / this.nudgeDur);
+      const x = Math.max(0, this.t - this.nudgeAmt * Math.sin(Math.PI * k));
+      this.apply(x * x * (3 - 2 * x));
+      if (k >= 1) this.nudgeT = -1;
+    }
     if (this.deniedFlash > 0 || this.rattle > 0) {
       // tiny shudder of the leaves when denied; a hard, decaying rattle when something hits them
       let s = 0, r = 0;

@@ -10,7 +10,8 @@
  *   F   escape (office latched)        G   breach (pressure door + shutter open)
  *   H   purge running                  I   outer lock open                 J   latched inside the outer lock
  *   F_kitchen / H_ring — F / H with the script-only spawn door (d3_kitchen / d3_ring_e) held open for its group
- *   nostory — `?nostory=1`: every door auto except the cabins, kitchen, ring_e (locked) and bio_inner (dark); shutter open
+ *   nostory — `?nostory=1`: every door auto except the cabins, kitchen, ring_e (locked); shutter open
+ *   (stage 3b §8.8.4: the BIO lock's inner door is no longer a door — a static sealed prop, in no phase)
  *
  * Latches (REVISION 5.1 `closeBehind(door, keepSide)`): `LATCHES3` — door, the trigger that arms it, the phase it is
  * armed in, the keep-side test on the player's feet. The story owns the timing (lift open ≥ 1.5 s etc.).
@@ -48,7 +49,7 @@ export const ALWAYS3 = ['kitchen', 'ring_e', 'cabins', 'hatch_voids', 'outside',
 
 export const DOOR_IDS3 = [
   'd3_lift', 'd3_pressure', 'd3_lobby', 'd3_lobby_inner', 'd3_office', 'd3_stair_w', 'd3_canteen', 'd3_canteen_atr', 'd3_kitchen',
-  'd3_shutter_ne', 'd3_clinic', 'd3_quarters', 'd3_q1', 'd3_q2', 'd3_q3', 'd3_q4', 'd3_q5', 'd3_q6', 'd3_ring_e', 'd3_bio', 'd3_bio_inner',
+  'd3_shutter_ne', 'd3_clinic', 'd3_quarters', 'd3_q1', 'd3_q2', 'd3_q3', 'd3_q4', 'd3_q5', 'd3_q6', 'd3_ring_e', 'd3_bio',
 ] as const;
 export type DoorId3 = (typeof DOOR_IDS3)[number];
 type Doors = Record<DoorId3, DoorState>;
@@ -59,7 +60,7 @@ const cabins = (s: DoorState) => Object.fromEntries(CABINS3.map((id) => [id, s])
 const A: Doors = {
   d3_lift: 'locked', d3_pressure: 'locked', d3_lobby: 'locked', d3_lobby_inner: 'locked', d3_office: 'locked', d3_stair_w: 'locked',
   d3_canteen: 'auto', d3_canteen_atr: 'auto', d3_clinic: 'auto', d3_quarters: 'auto', d3_kitchen: 'locked', d3_ring_e: 'locked',
-  d3_shutter_ne: 'locked', ...cabins('locked'), d3_bio: 'locked', d3_bio_inner: 'dark',
+  d3_shutter_ne: 'locked', ...cabins('locked'), d3_bio: 'locked',
 } as Doors;
 const A2 = { ...A, d3_lift: 'open' } as Doors;
 const B = { ...A2, d3_lift: 'locked', d3_pressure: 'shut' } as Doors;
@@ -83,7 +84,7 @@ const H = { ...G, d3_bio: 'cycling' } as Doors;
 const I = { ...G, d3_bio: 'auto' } as Doors;
 const J = { ...G, d3_bio: 'locked' } as Doors;
 const NOSTORY: Doors = Object.fromEntries(DOOR_IDS3.map((id) => [id, 'auto'])) as Doors;
-Object.assign(NOSTORY, { ...cabins('locked'), d3_kitchen: 'locked', d3_ring_e: 'locked', d3_bio_inner: 'dark', d3_shutter_ne: 'open' });
+Object.assign(NOSTORY, { ...cabins('locked'), d3_kitchen: 'locked', d3_ring_e: 'locked', d3_shutter_ne: 'open' });
 
 /** Phases in which the cabins show `private` (before the takeover). */
 const PRIVATE = new Set<PhaseId3>(['A', 'A2', 'B', 'B2', 'C', 'S1', 'S2']);
@@ -132,7 +133,7 @@ export const PHASES3: Phase[] = [
   // the two script-only spawn doors standing open for their groups (§5.2: g3_canteen's kitchen husk in F, g3_breach_2 in H)
   P('F_kitchen', 'F with d3_kitchen opened by the script for g3_canteen (no player check: the kitchen stays ALWAYS-forbidden)', { ...F, d3_kitchen: 'open' } as Doors),
   P('H_ring', 'H with d3_ring_e opened by the script for g3_breach_2', { ...H, d3_ring_e: 'open' } as Doors),
-  P('nostory', '?nostory=1: every door auto except cabins / kitchen / ring_e (locked), bio_inner (dark); shutter open', NOSTORY),
+  P('nostory', '?nostory=1: every door auto except cabins / kitchen / ring_e (locked); shutter open', NOSTORY),
 ];
 
 /** Cabin panels: `private` before the takeover (§8.12; drawn as plain locked until the level implements it). */

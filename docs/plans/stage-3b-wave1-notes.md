@@ -74,3 +74,23 @@
 - `player:armor` +50 at the end of the 0.8 s vest strap, +15 per plate; `Armour full` toast when a vest is refused.
   Pickup kinds `carbine`, `ammo_carbine` (+30, max 180), `vest`, `plate` work. `?give=all` gives the carbine + 90.
 - Debug: `player.debug.setArmor(v)`, `hold(on)`, `aimLock(x,y,z|null)`, `strap()`; `state()` reports `armor`, `strap`.
+
+## Greybox (W4, `src/level/l4/`)
+- All 25 rooms, 20 doors, 25 triggers, phases A, B, S, C, D, D2, E, F, G (+ variants, nostory), markers, pickups, spawns
+  (with skins), light groups + `_emerg` groups (`LIGHTS_OUT4`), nav cases, every screen and interactable — with the plan's ids.
+- **Dressing tasks:** your file exports a `Partial<Record<RoomId4, RoomDress>>` (`ENTRY_DRESS`, `CLEAN_DRESS`,
+  `SURGICAL_DRESS`, `NAVY_DRESS`, `TUBE_DRESS`). Read the header of your stub: it lists what the shell already made in your
+  rooms (do NOT re-create it), which vignettes/machines you own, and how to hide the grey stand-in blocks (material
+  `grey_standin`, with colliders: gown bench, wet-lab islands and hood counter, PI desk, pens, tables, gallery bench tier and
+  camera desk, booth, cage mesh, pump sets, pipe trunk, supply crate). Use kit props with `collide: false` where the stand-in
+  collider stays, or replace both — never two colliders.
+- Greybox placeholders exist for the vignettes `viv_vent`, `vent_s_a`, `vent_s_b`, `plant_sump`, `valve_open`, `gate_dogs`,
+  `lights_out4`, `decon_cycle`, `shower_cycle`, the machine `cold_jam`, and the object+machine `theatre_arm` (cue cycle with
+  W9a's API, no body): **registering the same id replaces the placeholder** (D2: build the real `theatreArm`).
+- Sealed props: `d4_outer`, `door4_theatre`, `gate4` (dogs: registered movers, `userData.set(k)`).
+- Corrections to the plan: `gate_panel` screen at x 34.1 (marker stays at 33.9); `theatre_cam` at (4.0, 6.0, −46.5); the
+  gallery bench tier (x ±1.0) overlaps `d4_gal`'s frame by ~0.1 m — D2 trims it. Corridor corners are carved open.
+  Glass see-through ranges: `corr_n`–`wetlab` 18 m, `corr_e`–`node2` 12 m.
+- `g4_vent` holds all four vent skitters; the story spawns the pair at the chosen vent. Carbine pickup amount 90.
+- **ST:** remove the placeholder button `l4_stub_end` in the gate lock when the real story lands. An alerted husk WALKS
+  (1.3 m/s) unless it sees the player within 7.5 m or the story `rouse`s it — rouse groups that must arrive in time.
