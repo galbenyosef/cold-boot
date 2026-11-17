@@ -140,6 +140,61 @@ function lineClass(l: string): string {
   return c;
 }
 
+/**
+ * A card line animates its letter-spacing while it shows. Its line breaks must not depend on that: lay the line out once,
+ * at the WIDER of its two states, and freeze the result (`white-space: pre`), so the text never re-wraps mid-animation
+ * on any screen. A title that does not fit on one line is scaled down; a paragraph (`long` / `multi`) is broken by words.
+ */
+function lockLines(el: HTMLElement, avail: number): void {
+  const text = el.textContent ?? '';
+  if (!text.trim() || avail <= 0) return;
+  const prevTransition = el.style.transition;
+  el.style.transition = 'none';
+  el.style.whiteSpace = 'pre';
+  const widest = (): { w: number; show: boolean } => {
+    el.classList.remove('show'); const w0 = el.scrollWidth;
+    el.classList.add('show'); const w1 = el.scrollWidth;
+    return w1 >= w0 ? { w: w1, show: true } : { w: w0, show: false };
+  };
+  let m = widest();
+  if (m.w > avail) {
+    const para = el.classList.contains('long') || el.classList.contains('multi');
+    if (para) {
+      // break by words at the widest state, then freeze the breaks
+      el.classList.toggle('show', m.show);
+      el.style.whiteSpace = 'pre-line';
+      el.style.maxWidth = `${avail}px`;
+      el.textContent = '';
+      const spans: HTMLSpanElement[] = [];
+      text.split('\n').forEach((line, li) => {
+        if (li) el.appendChild(document.createTextNode('\n'));
+        line.split(/ +/).filter(Boolean).forEach((word, wi) => {
+          if (wi) el.appendChild(document.createTextNode(' '));
+          const sp = document.createElement('span'); sp.textContent = word; el.appendChild(sp); spans.push(sp);
+        });
+      });
+      const out: string[] = []; let top = Number.NaN, cur: string[] = [];
+      for (const sp of spans) {
+        const t = sp.offsetTop;
+        if (cur.length && Math.abs(t - top) > 1) { out.push(cur.join(' ')); cur = []; }
+        top = t; cur.push(sp.textContent ?? '');
+      }
+      if (cur.length) out.push(cur.join(' '));
+      el.textContent = out.join('\n');
+      el.style.maxWidth = '';
+      el.style.whiteSpace = 'pre';
+    } else {
+      // a single-line title: scale it to fit at its widest
+      const size = parseFloat(getComputedStyle(el).fontSize) || 16;
+      el.style.fontSize = `${Math.max(size * 0.4, size * (avail / m.w) * 0.985)}px`;
+      m = widest();
+    }
+  }
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.style.transition = prevTransition;
+}
+
 export class Cards {
   constructor(private ctx: GameContext, private parent: HTMLElement) { ensureExtraCss(); }
 
@@ -161,11 +216,17 @@ export class Cards {
     };
 
     const els: HTMLElement[] = [];
+    // freeze every text line's layout before anything shows (see `lockLines`)
+    const lock = () => {
+      const wide = root.clientWidth * 0.92, std = Math.min(1000, root.clientWidth * 0.88);
+      for (const e of els) if (!e.classList.contains('rule')) lockLines(e, e.classList.contains('big') || e.classList.contains('etitle') ? wide : std);
+    };
     if (style === 'title') {
       els.push(h('div', 'big', stage, lines[0] ?? ''));
       els.push(h('div', 'rule', stage));
       for (const l of lines.slice(1)) els.push(h('div', 'ln' + lineClass(l), stage, l));
       const total = opts.seconds ?? 4.5;
+      lock();
       await wait(0.3);
       els.forEach((e) => e.classList.add('show'));
       skip?.classList.add('show');
@@ -179,6 +240,7 @@ export class Cards {
       if (titled) els.push(h('div', 'ln eyebrow', stage, info.endEyebrow!));
       lines.forEach((l, i) => els.push(h('div', 'ln' + lineClass(l) + (titled && i === 0 ? ' etitle' : ''), stage, l)));
       els[els.length - 1]?.classList.add('last');
+      lock();
       const per = opts.seconds ? opts.seconds / (els.length + 1) : 1.9;
       await wait(0.6);
       skip?.classList.add('show');

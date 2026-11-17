@@ -380,7 +380,7 @@ export function buildCss(noise: string): string {
 .cb .card.card-title .big.show { opacity: 1; letter-spacing: .5em; }
 .cb .card.card-title .rule { width: 0; height: 1px; margin: 28px auto; background: linear-gradient(90deg, transparent, var(--cyan), transparent); transition: width 2.6s cubic-bezier(.2,.8,.2,1) .4s; }
 .cb .card.card-title .rule.show { width: 340px; }
-.cb .card .stage { max-width: min(1000px, 88vw); }
+.cb .card .stage { max-width: 92vw; }
 .cb .card .ln.multi { white-space: pre-line; line-height: 2.1; }
 .cb .card .ln.long { font-size: 12px; line-height: 2; letter-spacing: .3em; margin-right: -.3em; }
 .cb .card .ln.long.show { letter-spacing: .34em; }
