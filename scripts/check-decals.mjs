@@ -127,7 +127,9 @@ function doorSetup(id) {
     if (!ok) continue;
     // stand 3 m out, or closer when that point is outside every room (a door onto a 3 m wide corridor)
     let out = 3;
-    for (const o of [3, 2.2, 1.4]) { out = o; let r = null; try { r = g.level.roomAt(new V(px + nrm[0] * o, y0 + 1, pz + nrm[2] * o)); } catch { r = null; } const own = d.spec?.rooms; if (r && (!own || own.includes(r.name) || own.includes(r.id))) break; }
+    const own = d.spec?.rooms;
+    const inOwn = (o) => { let r = null; try { r = g.level.roomAt(new V(px + nrm[0] * o, y0 + 1, pz + nrm[2] * o)); } catch { r = null; } return !!r && (!own || own.includes(r.name) || own.includes(r.id)); };
+    for (const o of [3, 2.2, 1.4]) { out = o; if (inOwn(o) && inOwn(o + 0.6)) break; }
     const ex = px + nrm[0] * out, ez = pz + nrm[2] * out;
     g.player.teleport(new V(ex, y0, ez), Math.atan2(-(px - ex), -(pz - ez)), Math.atan2(1.3 - 1.6, out));
     return { kind: d.spec.kind, wall, side, dist, aims: aims.map(({ lf, ...a }) => a), y0 };
