@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 
 /** Vertex-stage lighting helper. Requires `#include <common>` and `#include <lights_pars_begin>` first. */
-const FX_LIGHT = /* glsl */ `
+export const FX_LIGHT = /* glsl */ `
 float fxPhase(float cosT, float g) {
   float g2 = g * g;
   float hg = (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * cosT, 1e-3), 1.5);
@@ -61,7 +61,7 @@ vec3 fxLight(vec3 p, float g, out vec3 domDir) {
 }
 `;
 
-const FOG_FRAG = /* glsl */ `
+export const FOG_FRAG = /* glsl */ `
 float fxFog(float depth) {
 #ifdef USE_FOG
   #ifdef FOG_EXP2
@@ -325,7 +325,7 @@ void main() {
 }
 `;
 
-function premultBlend(m: THREE.ShaderMaterial) {
+export function premultBlend(m: THREE.ShaderMaterial) {
   m.transparent = true;
   m.depthWrite = false;
   m.depthTest = true;
@@ -339,7 +339,7 @@ function premultBlend(m: THREE.ShaderMaterial) {
   return m;
 }
 
-function litUniforms(extra: Record<string, THREE.IUniform>) {
+export function litUniforms(extra: Record<string, THREE.IUniform>) {
   const u = THREE.UniformsUtils.merge([THREE.UniformsLib.lights, THREE.UniformsLib.fog]);
   // added after merge so textures are not cloned
   for (const k in extra) u[k] = extra[k];

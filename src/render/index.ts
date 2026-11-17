@@ -127,8 +127,16 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
       }
     }
   }
+  /** Stage 3b D21: hide every registered fx volume (`fx.volumes()`, wherever it is parented); returns what was hidden. */
+  function hideFxVolumes(): THREE.Object3D[] {
+    const fx = (ctx as Partial<GameContext>).fx as { volumes?(): readonly { object: THREE.Object3D }[] } | undefined;
+    const out: THREE.Object3D[] = [];
+    for (const v of fx?.volumes?.() ?? []) if (v.object.visible) { v.object.visible = false; out.push(v.object); }
+    return out;
+  }
   /** Hide everything that is not level geometry or a light (reflection re-capture: static world only). */
   function hideDynamic(): void {
+    occluded.push(...hideFxVolumes());
     const level = (ctx as Partial<GameContext>).level;
     const kids = scene.children;
     for (let i = 0; i < kids.length; i++) {
@@ -289,10 +297,14 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     // Reflection probes.
     const level = (ctx as Partial<GameContext>).level;
     const rooms: readonly RoomBox[] = level?.rooms ?? [];
+    // Stage 3b D21: no fx volume (the sea, fog, lamp grids, bounded particle sets…) in any reflection
+    const shown = hideFxVolumes();
     try {
       probes.bake(positions, rooms);
     } catch (e) {
       console.error('[render] probe bake failed', e);
+    } finally {
+      for (const o of shown) o.visible = true;
     }
 
     camera.updateMatrixWorld();

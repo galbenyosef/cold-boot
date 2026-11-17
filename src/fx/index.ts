@@ -18,7 +18,9 @@ import { Decals } from './decals';
 import { Arcs, type ArcSlot } from './arcs';
 import { Debris } from './debris';
 import { createPuffAtlas } from './textures';
-import { Emitters, type EmitterKind } from './emitters';
+import { Emitters, type EmitterKind, type EmitterSink } from './emitters';
+import { VolumeRegistry, type FxAperture, type FxVolume, type FxVolumeSpec } from './volumes';
+import { createFog, type FogHandle, type FogOpts } from './fog';
 import { createViewport, type ViewportHandle, type ViewportOpts } from './viewport';
 import { createFalls, createPool, type FallsHandle, type FallsOpts, type PoolHandle, type PoolOpts } from './water';
 import { createLampGrid, type LampGridHandle, type LampGridOpts } from './lamps';
@@ -26,6 +28,8 @@ import { createLampGrid, type LampGridHandle, type LampGridOpts } from './lamps'
 export type { ViewportHandle, ViewportOpts, ViewportState } from './viewport';
 export type { FallsHandle, FallsOpts, PoolHandle, PoolOpts, PoolSurfaceQuad } from './water';
 export type { LampGridHandle, LampGridOpts, LampSetOpts, LampState } from './lamps';
+export type { FxAperture, FxVolume, FxVolumeSpec } from './volumes';
+export type { FogHandle, FogOpts } from './fog';
 
 const QMUL: Record<Quality, number> = { low: 0.45, medium: 0.7, high: 1, ultra: 1.25 };
 
@@ -64,7 +68,42 @@ function cone(n: THREE.Vector3, spread: number) {
 
 const r = (a: number, b: number) => a + (b - a) * Math.random();
 
-export interface FxStats { streaks: number; puffs: number; debris: number; emitters: number; habitat: number }
+export interface FxStats { streaks: number; puffs: number; debris: number; emitters: number; habitat: number; volumes: number; bounded: number }
+
+/** Stage 3b §8.6.3: a bounded emitter — its particles live in a per-box set, fade at the box's faces, die on leaving it. */
+export interface EmitterOpts {
+  bounds: THREE.Box3;
+  /** Registry (D21) for the box's set (shared by every emitter with the same box): drawn only while one is drawn. */
+  rooms?: readonly string[];
+  id?: string;
+  seenFrom?: readonly string[];
+  /** Steam jet speed multiplier (default 1 = 4–6.5 m/s; a decon mist wants ≈ 0.3 so the jets fill the box). */
+  speed?: number;
+}
+
+export interface BreathHandle { enabled: boolean; readonly box: THREE.Box3; remove(): void }
+
+/**
+ * Stage 3b §8.6 (W7) — not in the contract; reach them as `ctx.fx as FxSystemEx`.
+ *   fog          — bounded ground fog (+ glints), 1–2 draw calls, registered
+ *   breathZone   — the player's breath shows while the eye is inside `box`
+ *   emitter(…, { bounds }) — a bounded emitter (see EmitterOpts)
+ *   volume / volumes / debugVolumes / forceVolumes / drawnRooms — the D21 registry (see volumes.ts)
+ */
+export interface FxVolumesApi {
+  fog(o: FogOpts): FogHandle;
+  breathZone(box: THREE.Box3, o?: { rooms?: readonly string[]; id?: string }): BreathHandle;
+  emitter(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number, o?: EmitterOpts): { stop(): void; enabled: boolean };
+  /** Register a volume (owners of their own glow / particle objects; fx's own register themselves). */
+  volume(spec: FxVolumeSpec): FxVolume;
+  volumes(): readonly FxVolume[];
+  /** Every registered volume in opaque unlit magenta (check:fxleak). */
+  debugVolumes(on: boolean): void;
+  /** check:fxleak: ignore the room gate (every volume drawn wherever its owner shows it). */
+  forceVolumes(on: boolean): void;
+  /** Rooms drawn this frame (the level's portal set). */
+  drawnRooms(): string[];
+}
 
 /**
  * Stage 3a §8.7 (P2) — habitat effects. Not in the contract yet (proposed for `FxSystem`); reach them as
@@ -80,7 +119,7 @@ export interface FxHabitat {
   pool(o: PoolOpts): PoolHandle;
   lampGrid(o: LampGridOpts): LampGridHandle;
 }
-export type FxSystemEx = FxSystem & FxHabitat & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> };
+export type FxSystemEx = FxSystem & FxHabitat & FxVolumesApi & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> };
 
 export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   const root = new THREE.Group();
@@ -457,11 +496,84 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
     puffs.spawn();
   };
 
+  // ── stage 3b (W7): the volume registry, fog, breath, bounded emitter sets
+  const registry = new VolumeRegistry(ctx);
+  let nVol = 0;
+  const fogs: FogHandle[] = [];
+  const bounded = new Map<string, { box: THREE.Box3; sink: EmitterSink; group: THREE.Group }>();
+  /** One particle set (own puffs + streaks, 1 draw call each while alive) per bounds box. */
+  function boundedSet(o: EmitterOpts) {
+    const b = o.bounds;
+    const key = [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z].map((v) => v.toFixed(2)).join(',');
+    let set = bounded.get(key);
+    if (set) return set;
+    const group = new THREE.Group();
+    group.name = `fx:bounded:${o.id ?? key}`;
+    const p = new Puffs(512, atlas, streaks.planes);
+    p.bounds = b.clone();
+    const s = new Streaks(512, pixelScale);
+    s.bounds = b.clone();
+    s.gravity = streaks.gravity;
+    p.mesh.name = 'fx:bounded:puffs'; s.mesh.name = 'fx:bounded:streaks';
+    group.add(p.mesh, s.mesh);
+    group.userData.fxCenter = b.getCenter(new THREE.Vector3());
+    root.add(group);
+    set = { box: b.clone(), sink: { puffs: p, streaks: s }, group };
+    bounded.set(key, set);
+    registry.register({ id: o.id ?? `emitters@${key}`, object: group, rooms: o.rooms ?? [], seenFrom: o.seenFrom });
+    return set;
+  }
+
+  // breath (§8.6.2): a puff every 3.4 ± 0.6 s while the eye is in a zone (life 1.2 s, rise 0.1 m/s, alpha 0.18);
+  // none while sprinting or within 1 s of a shot
+  let breath: { puffs: Puffs; zones: (BreathHandle & { removed: boolean })[]; timer: number; burst: number } | null = null;
+  let lastShot = -10, clock = 0;
+  ctx.events.on('weapon:fired', () => { lastShot = clock; });
+  const _fw = new THREE.Vector3(), _pv = new THREE.Vector3();
+  function updateBreath(dt: number) {
+    const b = breath!;
+    clock += dt;
+    b.puffs.update(dt, ctx.camera);
+    const pl = ctx.player;
+    if (!pl) return;
+    let inside = false;
+    for (const z of b.zones) if (z.enabled && z.box.containsPoint(pl.eye)) { inside = true; break; }
+    if (!inside) { b.timer = Math.max(b.timer, 0.8); b.burst = 0; return; }
+    b.timer -= dt;
+    if (b.burst > 0) {
+      b.burst -= dt;
+      if (b.burst <= 0) exhale(0.7);
+    }
+    if (b.timer > 0) return;
+    b.timer = r(2.8, 4.0);
+    const v = pl.velocity;
+    if (Math.hypot(v.x, v.z) > 4.4 || clock - lastShot < 1.0 || !pl.alive) return;
+    exhale(1);
+    b.burst = 0.16;
+  }
+  function exhale(k: number) {
+    const pl = ctx.player!;
+    _fw.copy(pl.forward);
+    _pv.copy(pl.velocity).multiplyScalar(0.85);
+    resetPuff(SHAPE.SMOKE);
+    const P = puffs.s;
+    // just in front of the mouth, low in the view, drifting out ahead (and along with a walking player)
+    P.px = pl.eye.x + _fw.x * 0.4 + r(-0.02, 0.02); P.py = pl.eye.y - 0.09 + _fw.y * 0.4; P.pz = pl.eye.z + _fw.z * 0.4 + r(-0.02, 0.02);
+    P.vx = _pv.x + _fw.x * 0.5; P.vy = 0.1 + _fw.y * 0.3; P.vz = _pv.z + _fw.z * 0.5;
+    P.life = 1.2; P.s0 = 0.035; P.s1 = r(0.2, 0.26) * k; P.grow = 1.8;
+    P.alpha = 0.18 * k; P.fadeIn = 0.12; P.fadePow = 1.4; P.drag = 1.1; P.buoy = 0.04;
+    // (albedo > 1: condensate scatters forward and the particle light is compressed; alpha stays the plan's 0.18)
+    P.r = P.g = 1.35; P.b = 1.42; P.er0 = 0.1; P.er1 = 0.7; P.phase = 0.5; P.rotV = r(-0.5, 0.5);
+    breath!.puffs.spawn(P);
+  }
+
   const fx = {
     viewport(o: ViewportOpts): ViewportHandle {
       const h = createViewport(o, habitat, quality);
+      const pane: FxAperture = { center: o.position.clone(), normal: o.normal.clone().setY(0).normalize(), width: o.width, height: o.height };
+      const reg = registry.register({ id: o.id ?? `viewport#${++nVol}`, object: h.object, rooms: o.rooms ?? [], seenFrom: o.seenFrom, apertures: [pane] });
       const remove = h.remove.bind(h);
-      h.remove = () => { remove(); drop(viewports, h); };
+      h.remove = () => { remove(); reg.remove(); drop(viewports, h); };
       viewports.push(h);
       return h;
     },
@@ -613,9 +725,47 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
       }
     },
 
-    emitter(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number) {
-      return emitters.add(kind, point, direction, rate);
+    emitter(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number, o?: EmitterOpts) {
+      if (!o?.bounds) return emitters.add(kind, point, direction, rate);
+      if (kind === 'sparks') console.warn('[fx] emitter: sparks cannot be bounded (lit streaks + flashes); the bounds are ignored');
+      return emitters.add(kind, point, direction, rate, kind === 'sparks' ? undefined : boundedSet(o).sink, o.speed ?? 1);
     },
+
+    fog(o: FogOpts): FogHandle {
+      const h = createFog(o, habitat, quality);
+      const id = o.id ?? `fog#${++nVol}`;
+      const regs = [registry.register({ id, object: h.mesh, rooms: o.rooms, seenFrom: o.seenFrom })];
+      if (h.glints) regs.push(registry.register({ id: `${id}_glints`, object: h.glints, rooms: o.glintRooms ?? o.rooms, seenFrom: o.seenFrom }));
+      const remove = h.remove.bind(h);
+      h.remove = () => { remove(); for (const x of regs) x.remove(); drop(fogs, h); };
+      fogs.push(h);
+      return h;
+    },
+
+    breathZone(box: THREE.Box3, o: { rooms?: readonly string[]; id?: string } = {}): BreathHandle {
+      if (!breath) {
+        const p = new Puffs(24, atlas, streaks.planes);
+        p.mesh.name = 'fx:breath';
+        root.add(p.mesh);
+        breath = { puffs: p, zones: [], timer: 1.5, burst: 0 };
+      }
+      const b = breath;
+      // the breath set's one mesh serves every zone: each zone registers it (gated by the union of their rooms)
+      b.puffs.mesh.userData.fxCenter = box.getCenter(new THREE.Vector3());
+      const reg = registry.register({ id: o.id ?? `breath#${++nVol}`, object: b.puffs.mesh, rooms: o.rooms ?? [] });
+      const z: BreathHandle & { removed: boolean } = {
+        enabled: true, box: box.clone(), removed: false,
+        remove() { z.removed = true; const i = b.zones.indexOf(z); if (i >= 0) b.zones.splice(i, 1); reg.remove(); },
+      };
+      b.zones.push(z);
+      return z;
+    },
+
+    volume(spec: FxVolumeSpec): FxVolume { return registry.register(spec); },
+    volumes(): readonly FxVolume[] { return registry.list; },
+    debugVolumes(on: boolean) { registry.setDebug(on); },
+    forceVolumes(on: boolean) { registry.setForced(on); },
+    drawnRooms() { return registry.drawnRooms(); },
 
     update(dt: number) {
       if (!warmed) { warmed = true; decals.warm(false); debris.warm(false); arcs.mesh.visible = false; }
@@ -635,6 +785,9 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
       arcs.update(dt, arcTick);
       flashes.update(dt);
       debris.update(dt, ctx.physics);
+      for (let i = 0; i < fogs.length; i++) fogs[i].update(dt);
+      for (const set of bounded.values()) { set.sink.streaks.update(dt); set.sink.puffs.update(dt, cam); }
+      if (breath) updateBreath(dt);
       if (viewports.length || fallsList.length || pools.length || grids.length) {
         const q = quality();
         cam.getWorldPosition(camWorld);
@@ -646,10 +799,14 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
 
       streaks.update(dt);
       puffs.update(dt, cam);
+      // D21: last, after every handle's own visibility — a volume is drawn only while one of its rooms is drawn
+      registry.update();
     },
 
     stats(): FxStats {
-      return { streaks: streaks.count, puffs: puffs.count, debris: debris.activeCount, emitters: emitters.count, habitat: viewports.length + fallsList.length + pools.length + grids.length };
+      let nb = breath ? breath.puffs.count : 0;
+      for (const set of bounded.values()) nb += set.sink.puffs.count + set.sink.streaks.count;
+      return { streaks: streaks.count, puffs: puffs.count, debris: debris.activeCount, emitters: emitters.count, habitat: viewports.length + fallsList.length + pools.length + grids.length + fogs.length, volumes: registry.list.length, bounded: nb };
     },
     clearDecals() { decals.clear(); },
     /** Checks / debug: live decals with their anchors. */

@@ -52,6 +52,13 @@ const BEDS: [number, number, number, number][] = [
  */
 const TREES: [number, number, number, number][] = [[-7.3, -18, 7.6, 2.0], [3.3, -16.2, 6.8, 1.8], [-8.2, -25.0, 6.6, 1.8], [-2.3, -36.8, 7.2, 2.0]];
 
+/**
+ * check:fxleak (W7): rooms that look into the atrium through an opening — the gallery glazing (and the lobby through
+ * the gallery), the canteen's glass front, the side doors, and the lock / lift axis through the pressure door (3a §2.8,
+ * the beacon ray). The sea is still checked to show only through its pane from all of them.
+ */
+const ATRIUM_SEEN_FROM: string[] = ['gallery_n', 'lobby', 'lock', 'lift3', 'canteen', 'quarters', 'clinic', 'bio_lock'];
+
 const atrium: RoomDress = {
   label: false,
   look: { floor: 'terrazzo', wall: 'plaster_warm', ceiling: 'plaster_warm' },
@@ -104,6 +111,8 @@ const atrium: RoomDress = {
       // glow toward the canteen that turned into "sparkles" (marine snow) close up. The shader marches every ray from the
       // glass outward on its own, the proxy only has to be closed behind the pane: 0.2 keeps it inside x ±11.6.)
       position: V(0, 5.1, -44.0), normal: V(0, 0, 1), width: 16, height: 9, spread: 0.2,
+      // stage 3b D21 (W7): registered — drawn only while the atrium is drawn, never in a probe, seen only through its pane
+      id: 'fx3_sea', rooms: ['atrium'], seenFrom: ATRIUM_SEEN_FROM,
       cable: { from, to: beacon.clone().addScaledVector(dir, 60), radius: 0.55, beacon, markers: 2 },
       floods: [{ at: [-6.5, 4.6, 0.6], dir: [0.15, -1.3, 1], intensity: 0.12 }, { at: [6.5, 4.6, 0.6], dir: [-0.15, -1.3, 1], intensity: 0.1 }],
     });
@@ -118,16 +127,12 @@ const atrium: RoomDress = {
     for (const [m, p] of FIXTURES.get(L) ?? []) lampGrid.addFixture(m, p, m.emissiveIntensity, 0);
     const fxObj = L.marker('atrium_fx', 0, 0, -28);
     fxObj.userData = { viewport, falls, pool: poolFx, lampGrid, water };
-    // I1: hidden until the first level update, so the load-time reflection-probe bake (render.prepare) does not capture
-    // them — the sea volume's floods and beacon (HDR, up to 70×) baked into the atrium probe showed as a large white
-    // glare and "sparkles" on every glass surface reflecting it (the canteen's glass door from the stair foot, the
-    // gallery glazing). Progressive re-captures already hide everything outside the level root.
-    viewport.visible = false; lampGrid.mesh.visible = false; falls.mesh.visible = false; poolFx.mesh.visible = false;
-    // the effects are not under the level root: hide them while the atrium is not drawn
-    L.updaters.push(() => {
-      const v = L.isVisible('atrium');
-      viewport.visible = v; lampGrid.mesh.visible = v; falls.mesh.visible = v; poolFx.mesh.visible = v;
-    });
+    // Stage 3b D21 (W7): the fx-volume registry. Each is drawn only while the atrium is drawn; render.prepare (the
+    // load-time probe bake) and the probe re-captures hide them all (the I1 glare: the sea's floods and beacon baked
+    // into the atrium probe showed as a white glare and "sparkles" on every glass surface reflecting it).
+    fx.volume({ id: 'fx3_lamps', object: lampGrid.mesh, rooms: ['atrium'], seenFrom: ATRIUM_SEEN_FROM });
+    fx.volume({ id: 'fx3_falls', object: falls.mesh, rooms: ['atrium'], seenFrom: ATRIUM_SEEN_FROM });
+    fx.volume({ id: 'fx3_pool', object: poolFx.mesh, rooms: ['atrium'], seenFrom: ATRIUM_SEEN_FROM });
     L.ctx.render.post.grade?.(0.35, 0);
     // lamp-grid hangers (two rods per panel)
     b.detail(() => {

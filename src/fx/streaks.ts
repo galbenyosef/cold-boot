@@ -30,6 +30,7 @@ export interface StreakSpawn {
 export type LandHook = (type: ST, x: number, y: number, z: number, nx: number, ny: number, nz: number, speed: number) => void;
 
 const STRIDE = 12;
+const _bp = new THREE.Vector3();
 
 export class Streaks {
   readonly mesh: THREE.Mesh;
@@ -42,6 +43,9 @@ export class Streaks {
   hitPlane = -1;
   onLand: LandHook | null = null;
   gravity = -9.81;
+  /** Stage 3b §8.6.3: a bounded set (own instance): streaks die on leaving the box, fade over `boundsFade` m to its faces. */
+  bounds: THREE.Box3 | null = null;
+  boundsFade = 0.3;
 
   private pool: SlotPool;
   private buf: Float32Array;
@@ -87,10 +91,12 @@ export class Streaks {
 
   get count() { return this.pool.count; }
 
-  spawn(): number {
+  /** Spawn from this instance's scratch `s`, or another instance's (bounded sets reuse the global fill code). */
+  spawn(s: StreakSpawn = this.s): number {
+    if (this.bounds && !this.bounds.containsPoint(_bp.set(s.px, s.py, s.pz))) return -1;
     const slot = this.pool.alloc();
     if (slot < 0) return -1;
-    const s = this.s, F = this.F;
+    const F = this.F;
     F.px[slot] = s.px; F.py[slot] = s.py; F.pz[slot] = s.pz;
     F.vx[slot] = s.vx; F.vy[slot] = s.vy; F.vz[slot] = s.vz;
     F.age[slot] = s.age0; F.life[slot] = s.life; F.size[slot] = s.size;
@@ -163,6 +169,7 @@ export class Streaks {
         F.grav[i] = 0;
       }
     }
+    if (this.bounds && !this.bounds.containsPoint(_bp.set(px, py, pz))) return false;
     F.px[i] = px; F.py[i] = py; F.pz[i] = pz;
     F.vx[i] = vx; F.vy[i] = vy; F.vz[i] = vz;
     return true;
@@ -196,6 +203,13 @@ export class Streaks {
         kind = t === ST.OIL ? 1.55 : t === ST.GLASS ? 1.9 : t === ST.DROP || t === ST.SPLASH ? 1.8 : t === ST.BLOOD ? 1.35 : 1.08;
         if (t === ST.CHIP || t === ST.GLASS) a *= Math.min(1, (1 - lf) * 5);
         shutter = t === ST.DROP ? 0.045 : 0.025;
+      }
+      if (this.bounds) {
+        const bb = this.bounds, x = F.px[i], y = F.py[i], z = F.pz[i];
+        const d = Math.min(x - bb.min.x, bb.max.x - x, y - bb.min.y, bb.max.y - y, z - bb.min.z, bb.max.z - z);
+        const f = this.boundsFade;
+        const k = d <= 0 ? 0 : d >= f ? 1 : d / f;
+        a *= k; if (kind < 0.5) { r *= k; g *= k; b *= k; }
       }
       let tx = F.vx[i] * shutter, ty = F.vy[i] * shutter, tz = F.vz[i] * shutter;
       const tl2 = tx * tx + ty * ty + tz * tz;

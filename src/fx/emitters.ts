@@ -23,8 +23,14 @@ export interface EmitterDeps {
   qmul(): number;
 }
 
+/** Where an emitter's particles go: the global pools, or a bounded set's own instances (stage 3b §8.6.3). */
+export interface EmitterSink { puffs: Puffs; streaks: Streaks }
+
 interface Em {
   kind: EmitterKind;
+  sink: EmitterSink;
+  /** Jet speed multiplier (steam). */
+  speed: number;
   pos: THREE.Vector3;
   dir: THREE.Vector3;
   t1: THREE.Vector3;
@@ -59,7 +65,7 @@ export class Emitters {
 
   get count() { return this.list.length; }
 
-  add(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number) {
+  add(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number, sink?: EmitterSink, speed = 1) {
     const dir = new THREE.Vector3();
     if (kind === 'dust') dir.set(0, 1, 0);
     else if (direction && direction.lengthSq() > 1e-8) dir.copy(direction).normalize();
@@ -69,7 +75,7 @@ export class Emitters {
     t1.cross(dir).normalize();
     const t2 = new THREE.Vector3().crossVectors(dir, t1);
     const em: Em = {
-      kind, pos: point.clone(), dir, t1, t2,
+      kind, speed, sink: sink ?? { puffs: this.d.puffs, streaks: this.d.streaks }, pos: point.clone(), dir, t1, t2,
       rate: rate ?? (kind === 'steam' ? 70 : kind === 'sparks' ? 0.7 : kind === 'drip' ? 0.8 : 60),
       acc: 0, timer: Math.random() * 0.5, t: 0, seed: Math.random() * 100,
       floor: null, floorY: 0, ceil: null,
@@ -134,7 +140,7 @@ export class Emitters {
       this.d.resetPuff(SHAPE.SMOKE);
       const a = Math.random() * Math.PI * 2, s = Math.random() * 0.1;
       _n.copy(em.dir).addScaledVector(em.t1, Math.cos(a) * s).addScaledVector(em.t2, Math.sin(a) * s).normalize();
-      const sp = r(4, 6.5) * surge;
+      const sp = r(4, 6.5) * surge * em.speed;
       const back = Math.random() * dt; // sub-frame spread so the jet is continuous
       P.px = em.pos.x + _n.x * (0.03 + sp * back); P.py = em.pos.y + _n.y * (0.03 + sp * back); P.pz = em.pos.z + _n.z * (0.03 + sp * back);
       P.vx = _n.x * sp; P.vy = _n.y * sp; P.vz = _n.z * sp;
@@ -143,7 +149,7 @@ export class Emitters {
       const v = r(0.75, 0.9);
       P.r = v; P.g = v * 1.01; P.b = v * 1.04;
       P.er0 = 0.12; P.er1 = 0.75; P.phase = 0.5; P.fadeIn = 0.14; P.rotV = r(-1.4, 1.4);
-      this.d.puffs.spawn();
+      em.sink.puffs.spawn(P);
     }
     if (em.acc > 4) em.acc = 4;
   }
@@ -183,8 +189,8 @@ export class Emitters {
     const h = Math.max(0.1, em.pos.y - em.floorY);
     S.life = Math.sqrt((2 * h) / Math.abs(this.d.streaks.gravity)) + 0.5;
     S.size = r(0.004, 0.006); S.r = 0.25; S.g = 0.28; S.b = 0.3; S.alpha = 0.85; S.drag = 0.05;
-    S.planeA = em.floor ? this.d.streaks.planes.add(em.floor.normal.x, em.floor.normal.y, em.floor.normal.z, em.pos.x, em.floorY, em.pos.z) : -1;
-    this.d.streaks.spawn();
+    S.planeA = em.floor ? em.sink.streaks.planes.add(em.floor.normal.x, em.floor.normal.y, em.floor.normal.z, em.pos.x, em.floorY, em.pos.z) : -1;
+    em.sink.streaks.spawn(S);
   }
 
   private dust(em: Em, dt: number, visible: boolean) {
@@ -207,7 +213,7 @@ export class Emitters {
       S.life = r(6, 12); S.size = r(0.0015, 0.0042);
       const w = r(0.6, 0.9);
       S.r = w; S.g = w * 0.97; S.b = w * 0.92; S.alpha = r(0.6, 1);
-      this.d.streaks.spawn();
+      em.sink.streaks.spawn(S);
     }
   }
 }

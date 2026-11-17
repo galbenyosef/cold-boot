@@ -35,6 +35,7 @@ export interface PuffSpawn {
 }
 
 const STRIDE = 16;
+const _bp = new THREE.Vector3();
 
 export class Puffs {
   readonly mesh: THREE.Mesh;
@@ -59,6 +60,12 @@ export class Puffs {
   private sweepFn: (s: number) => boolean;
   private camPos = new THREE.Vector3();
   private camDir = new THREE.Vector3();
+  /**
+   * Stage 3b §8.6.3: a bounded set (its own instance): puffs die when their centre leaves the box and fade to 0
+   * toward its faces (over `boundsFade` m, or 0.4 × the puff's size when larger, so no billboard pokes far out).
+   */
+  bounds: THREE.Box3 | null = null;
+  boundsFade = 0.3;
 
   constructor(readonly cap: number, tex: THREE.Texture, private planes: PlaneRing) {
     this.pool = new SlotPool(cap);
@@ -92,10 +99,12 @@ export class Puffs {
 
   get count() { return this.pool.count; }
 
-  spawn(): number {
+  /** Spawn from this instance's scratch `s`, or from another instance's (bounded sets reuse the global fill code). */
+  spawn(s: PuffSpawn = this.s): number {
+    if (this.bounds && !this.bounds.containsPoint(_bp.set(s.px, s.py, s.pz))) return -1;
     const slot = this.pool.alloc();
     if (slot < 0) return -1;
-    const s = this.s, F = this.F;
+    const F = this.F;
     F.px[slot] = s.px; F.py[slot] = s.py; F.pz[slot] = s.pz;
     F.vx[slot] = s.vx; F.vy[slot] = s.vy; F.vz[slot] = s.vz;
     F.age[slot] = -Math.max(0, s.delay); F.life[slot] = s.life;
@@ -129,6 +138,7 @@ export class Puffs {
     F.vx[i] *= damp; F.vz[i] *= damp;
     F.vy[i] = F.vy[i] * damp + F.buoy[i] * dt;
     F.px[i] += F.vx[i] * dt; F.py[i] += F.vy[i] * dt; F.pz[i] += F.vz[i] * dt;
+    if (this.bounds && !this.bounds.containsPoint(_bp.set(F.px[i], F.py[i], F.pz[i]))) { this.inOrder[i] = 0; return false; }
     const pa = this.pa[i], pb = this.pb[i];
     if (pa >= 0 || pb >= 0) {
       const t = age / F.life[i];
@@ -196,6 +206,14 @@ export class Puffs {
       } else {
         alpha = fin;
         emit = F.emit[i] * (1 - t) * (1 - t);
+      }
+      if (this.bounds) {
+        const b = this.bounds, x = F.px[i], y = F.py[i], z = F.pz[i];
+        const d = Math.min(x - b.min.x, b.max.x - x, y - b.min.y, b.max.y - y, z - b.min.z, b.max.z - z);
+        const f = Math.max(this.boundsFade, size * 0.4);
+        alpha *= d <= 0 ? 0 : d >= f ? 1 : (d / f) * (d / f) * (3 - 2 * d / f);
+        emit *= d <= 0 ? 0 : Math.min(1, d / f);
+        if (alpha <= 0.001 && emit <= 0.001) continue;
       }
       const o = k * STRIDE;
       buf[o] = F.px[i]; buf[o + 1] = F.py[i]; buf[o + 2] = F.pz[i]; buf[o + 3] = size;

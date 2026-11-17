@@ -17,6 +17,12 @@
  * has the habitat), 'dark' (floods off, only the beacon, blinks and what the room throws out). `setState(s, seconds)`.
  * Quality: march steps and particle count scale per `ctx.render.quality` (uniforms + draw range — never recompiles).
  * Nothing here is a light (no pool slot); the level's glass pane (`glass_clear`) supplies the probe reflection.
+ *
+ * Stage 3b (W7): every fragment of the volume and every snow fleck is drawn only along a view ray that crosses the pane
+ * rectangle (3 cm slack) — the proxy seen through any other gap draws nothing (the 3a "glare / sparkles" class). A
+ * viewport registers in the fx-volume registry (`id`, `rooms`, `seenFrom`; its pane is its only aperture). Wide panes
+ * (width ≥ 20 m, a tube side) are capped: march steps low 4 / medium 6 / high 8, snow 300 / 450 / 600 per side.
+ * `cheap: true` = the fallback without the march (a tinted gradient, seabed, cable lamps, snow).
  */
 import * as THREE from 'three';
 import type { Quality } from '../core/types';
@@ -56,6 +62,18 @@ export interface ViewportOpts {
   shapeGap?: number;
   /** Initial state (default 'calm'). */
   state?: ViewportState;
+  /**
+   * Stage 3b §8.6.4 / D21: registry id and the rooms it is drawn for (drawn only while one of them is drawn; probe
+   * captures never see it). `seenFrom`: further rooms whose view points may see it through an opening (check:fxleak).
+   */
+  id?: string;
+  rooms?: readonly string[];
+  seenFrom?: readonly string[];
+  /**
+   * Stage 3b §8.6.4 fallback: no ray march — a depth/height gradient lit by the floods' colour, the seabed, the cable
+   * and its lamps, the snow. A fraction of the cost; use it for the second of two facing tube panes.
+   */
+  cheap?: boolean;
 }
 
 export interface ViewportHandle {
@@ -92,6 +110,10 @@ const LOOKS: Record<ViewportState, Look> = {
 /** In-scatter samples per flood cone. */
 const QSTEPS: Record<Quality, number> = { low: 4, medium: 6, high: 8, ultra: 10 };
 const QSNOW: Record<Quality, number> = { low: 700, medium: 1100, high: 1500, ultra: 1500 };
+/** Stage 3b §8.6.4 caps for wide panes (width ≥ 20 m, e.g. a tube side): march steps and snow per side. */
+const WIDE = 20;
+const QSTEPS_WIDE: Record<Quality, number> = { low: 4, medium: 6, high: 8, ultra: 8 };
+const QSNOW_WIDE: Record<Quality, number> = { low: 300, medium: 450, high: 600, ultra: 600 };
 const QSHAPES: Record<Quality, number> = { low: 1, medium: 2, high: 3, ultra: 3 };
 const SNOW_MAX = 1500;
 const BIO_MAX = 40;
@@ -161,6 +183,7 @@ uniform float uMarkers;
 uniform vec4 uShape[3];     // xyz centre, radius (0 = off)
 uniform float uBio;
 uniform float uGlass;
+uniform vec2 uClip;
 
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 
@@ -213,6 +236,9 @@ void main() {
   vec3 g = ro + rd * t0;                    // on the glass
   vec3 gl = g - uOrigin;
   vec2 gp = vec2(dot(gl, uU), dot(gl, uV)) / uHalf;   // -1..1 on the pane
+  // stage 3b D21: the sea is seen through its pane and nowhere else — a proxy fragment reached through any other
+  // gap (a seam in the walls around it, an oblique view past the frame) draws nothing
+  if (abs(gp.x) > 1.0 + uClip.x || abs(gp.y) > 1.0 + uClip.y) discard;
   // from here the ray starts at the glass
   vec3 o = g;
   float tEnd = uMaxDist;
@@ -232,9 +258,19 @@ void main() {
     if (cT > 0.0 && cT < tEnd) tEnd = cT; else cT = -1.0;
   }
   // ── in-scatter: per flood, only along the segment of the ray inside its cone (few samples, smooth shafts)
-  float j = ign(gl_FragCoord.xy + fract(uTime * 7.31) * 113.0);
   vec3 scat = vec3(0.0);
   float sMax = min(tEnd, uMaxDist);
+#ifdef VP_CHEAP
+  // fallback: no march — the floods' glow as a gradient (brighter high and near, toward the beams' side)
+  {
+    float up = clamp(0.5 + 0.5 * dot(rd, uV) + 0.25 * gp.y, 0.0, 1.0);
+    float fl = (uFloodI.x + uFloodI.y + uFloodI.z) * 0.0045;
+    vec3 near = floodAt(o + rd * min(sMax, 2.5) + uV * 0.6);
+    // (tinted as the marched water is: red dies first)
+    scat = (near * 0.06 + uFloodCol * fl * (0.25 + 0.75 * up)) * vec3(0.35, 0.8, 1.15) * 1.5 * (1.0 - exp(-uSigma * sMax * 0.8));
+  }
+#else
+  float j = ign(gl_FragCoord.xy + fract(uTime * 7.31) * 113.0);
   float n = uSteps;
   for (int f = 0; f < 3; f++) {
     if (uFloodI[f] <= 0.0) continue;
@@ -257,6 +293,7 @@ void main() {
   scat *= uFloodCol;
   // forward-ish scattering for rays looking along the beams, weak back-scatter otherwise
   scat *= 0.11;
+#endif
   // room spill (analytic): out through the pane, back to the eye
   vec3 sig2 = uSigma * 2.6 + 0.8;
   scat += uSpill * (1.0 - exp(-sig2 * sMax)) / sig2 * 0.55;
@@ -296,6 +333,7 @@ void main() {
   }
   // ── large slow shapes: soft bells (no hard edge), a wavering margin, trailing threads, a faint pulsing rim of
   //    light. Seen mostly as something blocking the haze of the beams; subtle by design.
+#ifndef VP_CHEAP
   for (int i = 0; i < 3; i++) {
     float r = uShape[i].w;
     if (r <= 0.0) continue;
@@ -330,6 +368,7 @@ void main() {
     float pulse = 0.5 + 0.5 * sin(uTime * 0.9 - ang * 4.0);
     col += (L * (0.02 * a + 0.05 * rim + 0.04 * thr) + vec3(0.05, 0.42, 0.55) * (rim * pulse + thr * 0.3) * (0.03 + 0.1 * uBio)) * far;
   }
+#endif
 
   // ── lamps on the cable, each with its own (longer) fog: the beacon reads at 18 m
   vec3 sigB = uSigma * 0.22;
@@ -387,6 +426,7 @@ uniform vec2 uCurrent;     // drift along u, w (m/s)
 uniform float uPxScale;
 uniform float uBio;
 uniform float uBioCount;
+uniform vec2 uHalf;
 varying vec3 vCol;
 varying float vSoft;
 void main() {
@@ -403,6 +443,19 @@ void main() {
   vec3 world = uOrigin + uU * lp.x + uV * lp.y - uN * lp.z;
   vec4 mv = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
+  // stage 3b D21: a fleck is drawn only when the eye sees it through the pane
+  {
+    vec3 rd = world - cameraPosition;
+    float den = dot(rd, uN);
+    float t = den < -1e-5 ? dot(uOrigin - cameraPosition, uN) / den : -1.0;
+    vec3 h = cameraPosition + rd * t - uOrigin;
+    if (t <= 0.0 || t >= 1.0 || abs(dot(h, uU)) > uHalf.x || abs(dot(h, uV)) > uHalf.y) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      gl_PointSize = 0.0;
+      vCol = vec3(0.0); vSoft = 0.0;
+      return;
+    }
+  }
   float dist = -mv.z;
   float distG = length(world - cameraPosition);
   // light: floods + the room spill near the glass, through the murk to the eye (from the glass onward)
@@ -447,7 +500,7 @@ void main() {
 
 let NOISE: THREE.Data3DTexture | null = null;
 /** 32³ tileable smooth value noise (lattice period 8, smoothstep-interpolated per texel), shared by all viewports. */
-function noiseTexture(): THREE.Data3DTexture {
+export function noiseTexture(): THREE.Data3DTexture {
   if (NOISE) return NOISE;
   const S = 32, L = 8, k = S / L;
   let seed = 1234567;
@@ -490,6 +543,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
   const U = new THREE.Vector3().crossVectors(V, N).normalize(); // right, as seen from the room
   const W = N.clone().negate(); // outward
   const halfW = o.width / 2, halfH = o.height / 2;
+  const wide = o.width >= WIDE;
   const depth = o.depth ?? 18;
   const spread = o.spread ?? 1.6;
   const vis = o.visibility ?? 4.5;
@@ -586,8 +640,10 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       uMarkers: { value: 1 },
       uShape: { value: shapeU },
       uGlass: { value: 1 },
+      uClip: { value: new THREE.Vector2(0.03 / halfW, 0.03 / halfH) },
     },
   });
+  if (o.cheap) { volMat.defines = { VP_CHEAP: 1 }; volMat.name = 'fx:viewport:cheap'; }
 
   // proxy: truncated pyramid from the pane outline (at the glass) to a wider far rectangle
   const fw = halfW + depth * spread, fh = halfH + depth * spread * 0.6;
@@ -641,6 +697,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       uCurrent: { value: new THREE.Vector2(0.045, -0.012) },
       uPxScale: { value: 600 },
       uBioCount: { value: BIO_MAX },
+      uHalf: { value: new THREE.Vector2(halfW, halfH) },
     },
   });
   const snow = new THREE.Points(sgeo, snowMat);
@@ -721,7 +778,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       const vu = volMat.uniforms;
       vu.uBeacon.value = cur.beacon;
       vu.uMarkers.value = cur.markers;
-      vu.uSteps.value = QSTEPS[q] ?? 7;
+      vu.uSteps.value = (wide ? QSTEPS_WIDE[q] : QSTEPS[q]) ?? 6;
       // shapes
       const maxShapes = Math.min(3, shapeMax ?? QSHAPES[q] ?? 2);
       for (let i = 0; i < 3; i++) {
@@ -743,7 +800,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       // snow
       const su = snowMat.uniforms;
       su.uPxScale.value = pixelScale;
-      sgeo.setDrawRange(0, QSNOW[q] ?? 1100);
+      sgeo.setDrawRange(0, (wide ? QSNOW_WIDE[q] : QSNOW[q]) ?? 600);
       void camera;
     },
   };

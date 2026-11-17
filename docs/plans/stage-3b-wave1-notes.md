@@ -56,3 +56,21 @@
 - Emergency strips: `stripMat(L)` shared; `setStrips(L, 1)` for `lights_out4`. Emissives ≤ 0.35 by default.
 - Booth: origin (28.0, 0, −55.2), ry π puts the console recesses on the plan's coordinates.
 - Weak, fix while dressing if cheap: cage mesh reads as bar grating; `vestHooks` faint; pumps show no sign of running.
+
+## Fx (W7, `src/fx/index.ts` → `FxSystemEx`)
+- `fog`, `breathZone`, `emitter(…, { bounds, speed })`, `volume`, `volumes`, `debugVolumes`, `forceVolumes`, `drawnRooms`.
+- **Every fx volume a dressing task creates must be registered with `id`, `rooms` and, where it is meant to be seen from
+  another room through a door or pane, `seenFrom`.** `check:fxleak` fails otherwise. The tube viewports: `rooms: ['tube']`,
+  `seenFrom: ['chk', 'gatel']`. A sea viewport draws only along rays crossing its pane (automatic).
+- Decon nozzles: `speed` ≈ 0.3, aimed down (at default speed the jets cross the lock and die at the far face).
+- Fog: bottom face does not fade; side/top faces do; spill joins through the door gap. Cost in the cold store 0.33 / 0.59 /
+  0.86 ms (LOW/MEDIUM/HIGH). Faint slice bands on vertical surfaces seen from a crouch — keep tall props off the fog floor.
+- Breath: automatic inside a `breathZone`; skipped while sprinting and 1 s after firing.
+- Hide a registered volume through its handle, not by setting `visible` (the room gate would re-show it).
+- Known in level 3: `d3_clinic`'s frosted glass leaf is see-through while its portal is `see: false` (with the door shut the
+  atrium is not drawn behind it) — for integration.
+
+## Player (W1)
+- `player:armor` +50 at the end of the 0.8 s vest strap, +15 per plate; `Armour full` toast when a vest is refused.
+  Pickup kinds `carbine`, `ammo_carbine` (+30, max 180), `vest`, `plate` work. `?give=all` gives the carbine + 90.
+- Debug: `player.debug.setArmor(v)`, `hold(on)`, `aimLock(x,y,z|null)`, `strap()`; `state()` reports `armor`, `strap`.
