@@ -51,11 +51,11 @@ async function main() {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   paintBackdrop(canvas);
   const events = createEvents();
-  const weapon = (id: 'pistol' | 'shotgun', clip: number, size: number, reserve: number): WeaponState => ({ id, owned: true, clip, clipSize: size, reserve, reloading: false });
+  const weapon = (id: 'pistol' | 'shotgun' | 'carbine', clip: number, size: number, reserve: number): WeaponState => ({ id, owned: true, clip, clipSize: size, reserve, reloading: false });
   const player = {
     position: new THREE.Vector3(0, 0, -16), eye: new THREE.Vector3(0, 1.65, -16), forward: new THREE.Vector3(0, 0, -1), velocity: new THREE.Vector3(),
-    yaw: 0, pitch: 0, health: 100, maxHealth: 100, alive: true, controlsEnabled: true, flashlightOn: false,
-    weapons: { pistol: weapon('pistol', 9, 12, 36), shotgun: weapon('shotgun', 4, 6, 18) }, currentWeapon: null as any,
+    yaw: 0, pitch: 0, health: 100, maxHealth: 100, armor: 0, maxArmor: 100, alive: true, controlsEnabled: true, flashlightOn: false,
+    weapons: { pistol: weapon('pistol', 9, 12, 36), shotgun: weapon('shotgun', 4, 6, 18), carbine: weapon('carbine', 30, 30, 90) }, currentWeapon: null as any,
     focus: null as any, hitMarker: 0, keys: new Set<string>(),
     damage() {}, heal() {}, give() {}, hasKey: () => false, addKey() {}, teleport() {}, shake() {}, lookAt() {}, update() {},
   } as any;
@@ -101,7 +101,7 @@ async function main() {
   requestAnimationFrame(loop);
 
   const dev = document.getElementById('dev')!;
-  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2', 'menu-l3', 'card-end-l3', 'skip-0', 'skip-50', 'skip-100', 'place-1', 'place-2']) {
+  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'hud-armour', 'hud-armour-break', 'hud-carbine', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2', 'menu-l3', 'card-end-l3', 'skip-0', 'skip-50', 'skip-100', 'place-1', 'place-2']) {
     const a = document.createElement('a'); a.href = `?screen=${s}`; a.textContent = s; dev.appendChild(a);
   }
 
@@ -132,6 +132,32 @@ async function main() {
       emit('story:objective', { text: 'Restore main power — Power Distribution 3' });
       emit('story:subtitle', { speaker: 'CHOIR', text: CHOIR.fabReveal[0].text, duration: 30 });
       break;
+    // W2a: armour bar (?armor=0|37|100, default 37) over the pistol; break = 20 → 0 under absorbed hits; carbine HUD
+    case 'hud-armour':
+    case 'hud-armour-break':
+    case 'hud-carbine': {
+      playing();
+      player.currentWeapon = screen === 'hud-carbine' ? 'carbine' : 'pistol';
+      player.health = 82;
+      player.armor = Number(q.get('armor') ?? (screen === 'hud-armour-break' ? 20 : 37));
+      emit('story:objective', { text: 'Get to Post 4 — the surgical suite' });
+      emit('pickup', { kind: 'vest', amount: 50, position: new THREE.Vector3() });
+      emit('pickup', { kind: 'plate', amount: 15, position: new THREE.Vector3() });
+      emit('pickup', { kind: 'carbine', amount: 30, position: new THREE.Vector3() });
+      emit('pickup', { kind: 'ammo_carbine', amount: 30, position: new THREE.Vector3() });
+      setTimeout(() => emit('story:toast', { text: 'Armour vest' }), 300);
+      if (screen === 'hud-armour-break') {
+        const hit = (abs: number, left: number) => setTimeout(() => {
+          player.armor = Math.max(0, player.armor - abs); player.health -= left;
+          emit('player:armor', { armor: player.armor, delta: -abs });
+          emit('player:damaged', { amount: left, health: player.health, from: new THREE.Vector3(4, 0, -16), absorbed: abs, armor: player.armor });
+        }, Number(q.get('t') ?? 600));
+        hit(12, 6); setTimeout(() => hit(8, 4), 1200);
+      } else if (q.get('flash')) {
+        setTimeout(() => emit('player:damaged', { amount: 4, health: player.health, from: null, absorbed: 8, armor: player.armor }), 200);
+      }
+      break;
+    }
     case 'hud-quiet':
       // The quiet opening: unarmed, objective dimmed, only the contextual flashlight hint.
       playing();

@@ -182,4 +182,11 @@ export const ICONS: Record<string, { vb: string; d: string[] }> = {
     'M70 4.5 H84 L90 7 L108 13 L106 21 L86 16 L80 16 L76 13 H70 Z',
     'M74 13 L72 18 H78', 'M4 8.2 H66',
   ] },
+  // compact carbine: stamped upper with rail, flash hider, curved 30-round magazine, side-folded stock
+  carbine: { vb: '0 0 96 28', d: [
+    'M22 6 H74 V12 H22 Z', 'M74 7.5 H92 V10.5 H74', 'M89 6.5 V11.5', 'M30 4 H62', 'M64 4 V6',
+    'M22 8 H4 V14 H22', 'M4 8 V14',
+    'M44 12 L46 17 H55 L58 12',
+    'M38 12 C37 19 40 24 46 26 L52 25 C48 22 46 18 46 12', 'M26 12 L24 19 H30 L33 12',
+  ] },
 };

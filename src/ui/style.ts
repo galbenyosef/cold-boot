@@ -57,6 +57,19 @@ export function buildCss(noise: string): string {
 .cb .vitals.low .hp-num, .cb .vitals.low .lbl.hp { color: var(--red); }
 .cb .vitals.low .hp-seg:not(.off) { background: var(--red); box-shadow: 0 0 8px var(--red-2); animation: cb-pulse 1s ease-in-out infinite; }
 .cb .vitals.hit .hp-num { animation: cb-hit .35s ease-out; }
+.cb .armour { margin-bottom: 9px; align-items: center; transition: opacity .3s; --arm: #8fb4d8; }
+.cb .armour.off { display: none; }
+.cb .armour-lbl { min-width: 76px; display: flex; flex-direction: column; gap: 3px; }
+.cb .armour-lbl .lbl { color: var(--arm); opacity: .85; }
+.cb .armour-num { font: 300 17px/1 var(--f-thin); letter-spacing: .04em; color: var(--arm); font-variant-numeric: tabular-nums; }
+.cb .armour-bar { display: flex; gap: 2px; }
+.cb .arm-seg { width: 8px; height: 6px; background: var(--arm); opacity: 1; transform: skewX(-24deg); transition: opacity .25s; box-shadow: 0 0 6px rgba(143,180,216,.35); }
+.cb .arm-seg.off { opacity: 1; background: transparent; box-shadow: none; outline: 1px solid rgba(143,180,216,.16); outline-offset: -1px; }
+.cb .armour.empty .armour-num { opacity: .5; }
+.cb .armour.empty .arm-seg.off { outline-color: rgba(143,180,216,.4); }
+.cb .armour.flash .arm-seg:not(.off) { animation: cb-arm-flash .45s ease-out; }
+.cb .armour.flash .armour-num { animation: cb-arm-flash .45s ease-out; }
+@keyframes cb-arm-flash { 0% { filter: brightness(2.6) drop-shadow(0 0 6px #8fb4d8); } 100% { filter: none; } }
 .cb .torch { margin-top: 10px; display: flex; align-items: center; gap: 8px; font: 500 10px/1 var(--f-mono); letter-spacing: .28em; color: var(--dim); }
 .cb .torch i { width: 6px; height: 6px; border: 1px solid var(--dim); border-radius: 50%; display: inline-block; }
 .cb .torch.on i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
@@ -72,6 +85,9 @@ export function buildCss(noise: string): string {
 .cb .pips { display: flex; justify-content: flex-end; gap: 2px; margin-top: 9px; height: 8px; }
 .cb .pip { width: 3px; height: 8px; background: var(--fg); opacity: .8; transition: opacity .12s; }
 .cb .pip.shell { width: 7px; border-radius: 1px; background: var(--amber); }
+.cb .pip.slim { width: 2px; }
+.cb .weapon .head .mode { font: 500 9px/1 var(--f-mono); letter-spacing: .28em; color: var(--cyan); border: 1px solid var(--cyan-2); padding: 3px 5px 3px 7px; }
+.cb .weapon .head .mode.hidden { display: none; }
 .cb .pip.spent { opacity: .12; }
 .cb .weapon.empty .clip { color: var(--red); }
 .cb .weapon .status { height: 12px; margin-top: 8px; font: 500 10px/12px var(--f-mono); letter-spacing: .3em; color: var(--amber); }
@@ -154,6 +170,7 @@ export function buildCss(noise: string): string {
   animation: cb-pk-in .35s cubic-bezier(.2,.8,.2,1) both; }
 .cb .pk b { font: 300 17px/1 var(--f-thin); letter-spacing: .04em; color: var(--fg); }
 .cb .pk.weapon b { color: var(--cyan); }
+.cb .pk.armour b { color: #8fb4d8; }
 .cb .pk.health b { color: #8dffbf; }
 .cb .pk.out { animation: cb-pk-out .6s ease forwards; }
 

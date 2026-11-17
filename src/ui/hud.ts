@@ -11,14 +11,15 @@ import { SkipRing } from './extra';
 import { levelOf } from '../core/progress';
 
 const SEGMENTS = 20;
-const WEAPON_NAMES: Record<WeaponId, string> = { pistol: 'HD-9 SIDEARM', shotgun: 'HD-12 BREACHER', carbine: 'CARBINE' /* K placeholder (W2a) */ };
+/** Armour bar: an empty outline stays this long (s) after armour hits 0, then the bar hides (§8.2). */
+const ARMOUR_EMPTY_HOLD = 3;
+const WEAPON_NAMES: Record<WeaponId, string> = { pistol: 'HD-9 SIDEARM', shotgun: 'HD-12 BREACHER', carbine: 'CARBINE' };
 const PICKUP_TEXT: Record<PickupKind, [string, string]> = {
   pistol: ['HD-9 SIDEARM', 'weapon'],
   shotgun: ['HD-12 BREACHER', 'weapon'],
   ammo_pistol: ['9MM ROUNDS', ''],
   ammo_shotgun: ['12G SHELLS', ''],
   medkit: ['TRAUMA GEL', 'health'],
-  // K placeholders (stage 3b §8.2 / §8.3; W2a finalises)
   carbine: ['CARBINE', 'weapon'],
   ammo_carbine: ['CARBINE ROUNDS', ''],
   vest: ['ARMOUR VEST', 'armour'],
@@ -29,7 +30,11 @@ const PICKUP_TEXT: Record<PickupKind, [string, string]> = {
 export class Hud {
   readonly root: HTMLDivElement;
   private vitals: HTMLDivElement;
+  private armour: HTMLDivElement;
+  private armNum: HTMLSpanElement;
+  private armSegs: HTMLDivElement[] = [];
   private hpNum: HTMLDivElement;
+  private wMode: HTMLSpanElement;
   private segs: HTMLDivElement[] = [];
   private torch: HTMLDivElement;
   private torchState: HTMLSpanElement;
@@ -63,7 +68,7 @@ export class Hud {
 
   // cached values
   private c = {
-    hp: -1, segsOn: -1, low: false, weapon: undefined as WeaponId | null | undefined, clip: -1, clipSize: -1, reserve: -1,
+    armor: -1, armOn: -1, hp: -1, segsOn: -1, low: false, weapon: undefined as WeaponId | null | undefined, clip: -1, clipSize: -1, reserve: -1,
     reloading: false, focus: null as string | null, torch: null as boolean | null, spread: -1, hit: -1, visible: false,
   };
   private spread = 0;
@@ -71,6 +76,10 @@ export class Hud {
   private toastLeft = 0;
   private freshLeft = 0;
   private hitLeft = 0;
+  /** Armour has been above 0 at some point on this level (the bar stays hidden until then). */
+  private armourEver = false;
+  private armourEmptyLeft = 0;
+  private armFlashLeft = 0;
   private locLeft = 0;
   private lastRoom: string | null = null;
   private pendingRoom: string | null = null;
@@ -91,6 +100,13 @@ export class Hud {
     const vh = h('div', 'head', this.vitals);
     h('span', 'lbl hp', vh, 'VITALS');
     h('span', 'rule', vh);
+    // armour (stage 3b §8.2): directly above the health bar, same column grid; hidden until armour > 0
+    this.armour = h('div', 'armour row off', this.vitals);
+    const al = h('div', 'armour-lbl', this.armour);
+    h('span', 'lbl', al, 'ARMOUR');
+    this.armNum = h('span', 'armour-num', al, '0');
+    const abar = h('div', 'armour-bar', this.armour);
+    for (let i = 0; i < SEGMENTS; i++) this.armSegs.push(h('div', 'arm-seg', abar));
     const row = h('div', 'row', this.vitals);
     this.hpNum = h('div', 'hp-num glow', row, '100');
     const bar = h('div', 'hp-bar', row);
@@ -104,6 +120,7 @@ export class Hud {
     this.weapon = h('div', 'weapon off', root);
     const wh = h('div', 'head', this.weapon);
     this.wName = h('span', 'lbl', wh, '');
+    this.wMode = h('span', 'mode hidden', wh, 'AUTO');
     this.wIcon = h('span', '', wh);
     const ammo = h('div', 'ammo', this.weapon);
     this.clip = h('div', 'clip glow', ammo, '0');
@@ -166,7 +183,7 @@ export class Hud {
     ev.on('story:toast', (e) => this.toast(e.text));
     ev.on('pickup', (e) => this.addPickup(e.kind, e.amount));
     ev.on('weapon:fired', () => { this.spread = Math.min(1, this.spread + 0.55); });
-    ev.on('player:damaged', (e) => this.damaged(e.from));
+    ev.on('player:damaged', (e) => this.damaged(e.from, e.absorbed ?? 0));
     ev.on('player:flashlight', () => { this.torchEverToggled = true; });
   }
 
@@ -218,7 +235,13 @@ export class Hud {
     setTimeout(() => { row.classList.add('out'); setTimeout(() => row.remove(), 700); }, 3200);
   }
 
-  private damaged(from: THREE.Vector3 | null): void {
+  private damaged(from: THREE.Vector3 | null, absorbed = 0): void {
+    if (absorbed > 0) {
+      toggle(this.armour, 'flash', false);
+      void this.armour.offsetWidth;
+      this.armour.classList.add('flash');
+      this.armFlashLeft = 0.45;
+    }
     toggle(this.vitals, 'hit', false);
     void this.vitals.offsetWidth;
     this.vitals.classList.add('hit');
@@ -264,6 +287,25 @@ export class Hud {
       if (low !== c.low) { c.low = low; toggle(this.vitals, 'low', low); }
     }
     if (this.hitLeft > 0 && (this.hitLeft -= dt) <= 0) this.vitals.classList.remove('hit');
+    if (this.armFlashLeft > 0 && (this.armFlashLeft -= dt) <= 0) this.armour.classList.remove('flash');
+
+    // ── armour: hidden until > 0 this level; at 0 afterwards an empty outline for 3 s, then hidden
+    const maxA = p.maxArmor || 100;
+    const armor = Math.max(0, Math.min(maxA, Math.ceil(p.armor ?? 0)));
+    if (armor > 0) { this.armourEver = true; this.armourEmptyLeft = 0; }
+    else if (c.armor > 0) this.armourEmptyLeft = ARMOUR_EMPTY_HOLD;
+    else if (this.armourEmptyLeft > 0) this.armourEmptyLeft = Math.max(0, this.armourEmptyLeft - dt);
+    if (armor !== c.armor) {
+      c.armor = armor;
+      setText(this.armNum, String(armor));
+      const on = Math.ceil((armor / maxA) * SEGMENTS);
+      if (on !== c.armOn) {
+        c.armOn = on;
+        this.armSegs.forEach((s, i) => toggle(s, 'off', i >= on));
+      }
+      toggle(this.armour, 'empty', armor === 0);
+    }
+    toggle(this.armour, 'off', !(armor > 0 || (this.armourEver && this.armourEmptyLeft > 0)));
 
     const torch = !!p.flashlightOn;
     if (torch !== c.torch) {
@@ -284,6 +326,7 @@ export class Hud {
       toggle(this.weapon, 'off', !wid);
       if (wid) {
         setText(this.wName, WEAPON_NAMES[wid] ?? wid.toUpperCase());
+        toggle(this.wMode, 'hidden', wid !== 'carbine'); // full-auto fire (§8.3)
         this.wIcon.innerHTML = '';
         const ic = ICONS[wid];
         if (ic) {
@@ -299,7 +342,7 @@ export class Hud {
         if (w.clipSize !== c.clipSize) {
           c.clipSize = w.clipSize;
           this.pips.innerHTML = '';
-          for (let i = 0; i < w.clipSize; i++) h('div', 'pip' + (wid === 'shotgun' ? ' shell' : ''), this.pips);
+          for (let i = 0; i < w.clipSize; i++) h('div', 'pip' + (wid === 'shotgun' ? ' shell' : wid === 'carbine' ? ' slim' : ''), this.pips);
           c.clip = -1;
         }
         if (w.clip !== c.clip) {
