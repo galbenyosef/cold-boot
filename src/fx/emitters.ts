@@ -31,6 +31,8 @@ interface Em {
   sink: EmitterSink;
   /** Jet speed multiplier (steam). */
   speed: number;
+  /** Stage 3b B9: tight short-lived jet puffs (steam). */
+  jet: boolean;
   pos: THREE.Vector3;
   dir: THREE.Vector3;
   t1: THREE.Vector3;
@@ -65,7 +67,7 @@ export class Emitters {
 
   get count() { return this.list.length; }
 
-  add(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number, sink?: EmitterSink, speed = 1) {
+  add(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number, sink?: EmitterSink, speed = 1, jet = false) {
     const dir = new THREE.Vector3();
     if (kind === 'dust') dir.set(0, 1, 0);
     else if (direction && direction.lengthSq() > 1e-8) dir.copy(direction).normalize();
@@ -75,7 +77,7 @@ export class Emitters {
     t1.cross(dir).normalize();
     const t2 = new THREE.Vector3().crossVectors(dir, t1);
     const em: Em = {
-      kind, speed, sink: sink ?? { puffs: this.d.puffs, streaks: this.d.streaks }, pos: point.clone(), dir, t1, t2,
+      kind, speed, jet, sink: sink ?? { puffs: this.d.puffs, streaks: this.d.streaks }, pos: point.clone(), dir, t1, t2,
       rate: rate ?? (kind === 'steam' ? 70 : kind === 'sparks' ? 0.7 : kind === 'drip' ? 0.8 : 60),
       acc: 0, timer: Math.random() * 0.5, t: 0, seed: Math.random() * 100,
       floor: null, floorY: 0, ceil: null,
@@ -144,8 +146,14 @@ export class Emitters {
       const back = Math.random() * dt; // sub-frame spread so the jet is continuous
       P.px = em.pos.x + _n.x * (0.03 + sp * back); P.py = em.pos.y + _n.y * (0.03 + sp * back); P.pz = em.pos.z + _n.z * (0.03 + sp * back);
       P.vx = _n.x * sp; P.vy = _n.y * sp; P.vz = _n.z * sp;
-      P.life = r(2.0, 3.0); P.s0 = r(0.04, 0.06); P.s1 = r(0.6, 1.1); P.grow = 1.1;
-      P.alpha = r(0.12, 0.18); P.fadePow = 2.2; P.drag = r(1.3, 1.6); P.buoy = 0.8;
+      if (em.jet) {
+        // (B9) a jet: a fast, narrow, short-lived line of spray from the nozzle, gone before it can fill the box
+        P.life = r(0.45, 0.75); P.s0 = r(0.03, 0.05); P.s1 = r(0.22, 0.38); P.grow = 1.0;
+        P.alpha = r(0.38, 0.5); P.fadePow = 1.4; P.drag = r(0.6, 0.9); P.buoy = 0.1;
+      } else {
+        P.life = r(2.0, 3.0); P.s0 = r(0.04, 0.06); P.s1 = r(0.6, 1.1); P.grow = 1.1;
+        P.alpha = r(0.12, 0.18); P.fadePow = 2.2; P.drag = r(1.3, 1.6); P.buoy = 0.8;
+      }
       const v = r(0.75, 0.9);
       P.r = v; P.g = v * 1.01; P.b = v * 1.04;
       P.er0 = 0.12; P.er1 = 0.75; P.phase = 0.5; P.fadeIn = 0.14; P.rotV = r(-1.4, 1.4);

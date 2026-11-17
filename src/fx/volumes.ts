@@ -53,6 +53,8 @@ const _c = new THREE.Vector3();
 export class VolumeRegistry {
   readonly list: Entry[] = [];
   private debugOn = false;
+  /** check:fxleak's magenta mode is on (level view culling stands down so walls occlude as the portal graph says). */
+  get debugging(): boolean { return this.debugOn; }
   private forced = false;
   private swapped = new Map<THREE.Mesh | THREE.Points, THREE.Material | THREE.Material[]>();
   private debugMats = new WeakMap<THREE.Material, THREE.Material>();

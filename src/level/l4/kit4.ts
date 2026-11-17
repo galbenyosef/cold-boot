@@ -37,6 +37,7 @@ import * as THREE from 'three';
 import type { Builder, Face, Mat, Rng } from '../builder';
 import type { LevelBuild } from '../context';
 import { extrude, lathe } from '../kit';
+import { setDoorStyler } from '../doors';
 
 export { alongWall, wallU } from '../l3/kit3';
 
@@ -110,7 +111,7 @@ function srand(seed: number) { let a = seed >>> 0; return () => { a = (a + 0x6d2
  * at its world position (box UVs); every 0.18 s the field jumps by whole texels, so each LED blinks on its own
  * rhythm. One material (and one updater) per level. Intensity ≤ 0.35 (seen through the Node 2 window).
  */
-export function rackLedMat(L: LevelBuild, intensity = 0.35): THREE.MeshStandardMaterial {
+export function rackLedMat(L: LevelBuild, intensity = 0.7): THREE.MeshStandardMaterial {
   return mat4(L, 'k4_rack_led', () => {
     const r = srand(77);
     const tex = canvasTex(64, 64, (g) => {
@@ -851,7 +852,7 @@ export function floorStrip(b: Builder, L: LevelBuild, ax: number, az: number, bx
   b.push((ax + bx) / 2, y, (az + bz) / 2, ry);
   b.detail(() => {
     b.bx('stainless', -0.03, 0, -len / 2, 0.03, 0.007, len / 2);
-    b.bx(M, -0.02, 0.006, -len / 2 + 0.01, 0.02, 0.009, len / 2 - 0.01);
+    b.bx(M, -0.02, 0.006, -len / 2 + 0.01, 0.02, 0.012, len / 2 - 0.01); // (lens 5 mm proud of the channel: B5)
   });
   b.pop();
 }
@@ -1469,7 +1470,7 @@ export function tubeRib(b: Builder, L: LevelBuild, o: { w?: number; wallH?: numb
     const len = Math.hypot(xc - xa, yc - ya), ang = Math.atan2(yc - ya, xc - xa);
     b.rbox(N, (xa + xc) / 2, (ya + yc) / 2 - 0.08, 0, len + 0.01, 0.14, 0.2, 0, 0, ang);
   }
-  b.detail(() => b.bx(S, -0.12, ridge - 0.2, -0.105, 0.12, ridge - 0.04, 0.105)); // crown splice plate
+  b.detail(() => b.bx(S, -0.12, ridge - 0.2, -0.113, 0.12, ridge - 0.04, 0.113)); // crown splice plate (13 mm off the rafter faces: B5)
 }
 
 /**
@@ -1579,4 +1580,184 @@ export function bulkheadRing(b: Builder, L: LevelBuild, o: { depth?: number; w?:
     b.collide(ow / 2, 0, -dep / 2, w / 2 + e, ridge + e, dep / 2, 'metal', true);
     b.collide(-ow / 2, oh, -dep / 2, ow / 2, ridge + e, dep / 2, 'metal', true);
   }
+}
+
+// ───────────────────────────────────────────────────────────── portal culling (integration B6)
+
+/** A see-through opening between two rooms that is not a door: world rectangle in a wall plane. */
+export interface Opening4 { a: string; b: string; wall: 'x' | 'z'; at: number; u0: number; u1: number; y0: number; y1: number }
+
+/**
+ * Level 4 view culling on top of the level's portal graph (B6). The graph says which rooms MAY be seen (open doors,
+ * the corridor loop's open corners, glass); from the shower exit that is the whole loop, the cold store and every door
+ * frame on it (≈ 150 draw calls that sit behind walls). This walks the same portals from the camera's room, but only
+ * through openings whose screen rectangle overlaps the rectangle it came through (classic portal culling, conservative:
+ * an opening the camera stands in or behind passes the whole rectangle on), and hides every room-tagged group of the
+ * level root whose rooms it did not reach. Lights, enemies, pickups and fx volumes follow through the level's
+ * `roomVisible`, which is narrowed to the same set. Only ever hides what the graph shows; never shows anything.
+ */
+export function installPortalCull4(L: LevelBuild, openings: Opening4[]) {
+  const cam = L.ctx.camera;
+  const vp = new THREE.Matrix4();
+  const v4 = new THREE.Vector4();
+  type Portal = { a: number; b: number; pts: THREE.Vector3[]; door: { t: number; ajar?: number } | null };
+  let ready = false, portals: Portal[] = [], rooms: { id: string; x0: number; x1: number; z0: number; z1: number }[] = [];
+  let tagged: { obj: THREE.Object3D; ids: number[]; culled: boolean; masks: Map<THREE.Object3D, number> }[] = [];
+  /**
+   * Set aside / restore a group for the main view: its meshes move to the render's view-cull layer (30) — `visible`
+   * stays the level's (checks and feeds walk it), probe captures still see them, shadow passes do not.
+   */
+  const setCulled = (t: (typeof tagged)[number], on: boolean) => {
+    if (t.culled === on) return;
+    t.culled = on;
+    if (on) t.obj.traverse((o) => { if ((o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints) { t.masks.set(o, o.layers.mask); o.layers.mask = 1 << 30; } });
+    else { for (const [o, m] of t.masks) o.layers.mask = m; t.masks.clear(); }
+  };
+  let baseVisible: ((x: number, z: number) => boolean) | null = null;
+  const reached = new Uint8Array(64);
+  const rect = new Float32Array(64 * 4);
+  const MARGIN = 0.12; // NDC: one frame of turning at ~400°/s and the view bob
+  const quad = (wall: 'x' | 'z', at: number, u0: number, u1: number, y0: number, y1: number) => wall === 'z'
+    ? [new THREE.Vector3(u0, y0, at), new THREE.Vector3(u1, y0, at), new THREE.Vector3(u0, y1, at), new THREE.Vector3(u1, y1, at)]
+    : [new THREE.Vector3(at, y0, u0), new THREE.Vector3(at, y0, u1), new THREE.Vector3(at, y1, u0), new THREE.Vector3(at, y1, u1)];
+  const setup = () => {
+    const level = L.ctx.level;
+    if (!level?.doors?.length || !L.root.userData.roomVisible) return false;
+    rooms = L.rooms.map((r) => ({ id: r.id, x0: r.bounds.min.x, x1: r.bounds.max.x, z0: r.bounds.min.z, z1: r.bounds.max.z }));
+    const idx = new Map(rooms.map((r, i) => [r.id, i]));
+    for (const d of level.doors) {
+      const root = L.objects.get(d.id);
+      const rs = root?.userData.rooms as string[] | undefined;
+      if (!root || !rs || rs.length !== 2 || !idx.has(rs[0]) || !idx.has(rs[1])) continue;
+      const impl = d as unknown as { width?: number; height?: number; t: number; ajar?: number };
+      const w = impl.width ?? 1.6, h = impl.height ?? 2.4, y = d.position.y;
+      const xWall = Math.abs(Math.sin(root.rotation.y)) > 0.5;
+      const c = xWall ? d.position.z : d.position.x;
+      portals.push({ a: idx.get(rs[0])!, b: idx.get(rs[1])!, pts: quad(xWall ? 'x' : 'z', xWall ? d.position.x : d.position.z, c - w / 2, c + w / 2, y, y + h), door: impl });
+    }
+    for (const o of openings) {
+      if (!idx.has(o.a) || !idx.has(o.b)) continue;
+      portals.push({ a: idx.get(o.a)!, b: idx.get(o.b)!, pts: quad(o.wall, o.at, o.u0, o.u1, o.y0, o.y1), door: null });
+    }
+    tagged = [];
+    for (const o of L.root.children) {
+      const rs = o.userData.rooms as string[] | undefined;
+      const ids = (rs ?? []).map((r) => idx.get(r)).filter((i): i is number => i !== undefined);
+      if (ids.length) tagged.push({ obj: o, ids, culled: false, masks: new Map() });
+    }
+    baseVisible = L.root.userData.roomVisible as (x: number, z: number) => boolean;
+    const roomAt = (x: number, z: number) => {
+      for (let i = 0; i < rooms.length; i++) { const r = rooms[i]; if (x > r.x0 + 0.05 && x < r.x1 - 0.05 && z > r.z0 + 0.05 && z < r.z1 - 0.05) return i; }
+      return -1;
+    };
+    L.root.userData.roomVisible = (x: number, z: number): boolean => {
+      if (!baseVisible!(x, z)) return false;
+      if (!active) return true;
+      const i = roomAt(x, z);
+      return i < 0 || reached[i] === 1;
+    };
+    return true;
+  };
+  let active = false;
+  /** Screen rectangle of a portal ∩ `r` (x0, y0, x1, y1 in NDC), or null; conservative near / behind the camera. */
+  const cv = [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()];
+  const NEAR_W = 0.05;
+  const clip = (p: Portal, r: number[]): number[] | null => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const add = (x: number, y: number, w: number) => {
+      const px = x / w, py = y / w;
+      if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py;
+    };
+    let behind = 0;
+    for (let k = 0; k < 4; k++) { const q = p.pts[k]; cv[k].set(q.x, q.y, q.z, 1).applyMatrix4(vp); if (cv[k].w < NEAR_W) behind++; }
+    if (behind === 4) {
+      // wholly behind the eye: invisible, unless the eye stands in the opening (then it passes the whole rectangle on)
+      const a = p.pts[0], d = p.pts[3], e = cam.position;
+      const dx = Math.max(Math.min(a.x, d.x) - e.x, 0, e.x - Math.max(a.x, d.x));
+      const dy = Math.max(Math.min(a.y, d.y) - e.y, 0, e.y - Math.max(a.y, d.y));
+      const dz = Math.max(Math.min(a.z, d.z) - e.z, 0, e.z - Math.max(a.z, d.z));
+      return dx * dx + dy * dy + dz * dz < 0.6 * 0.6 ? r.slice() : null;
+    }
+    // the quad (corners 0 1 3 2 in order) clipped against the eye's near plane: the corners in front + the points where
+    // its edges cross the plane (a far opening edge-on to the eye no longer passes the whole screen on)
+    const ring = [0, 1, 3, 2];
+    for (let k = 0; k < 4; k++) {
+      const A = cv[ring[k]], B = cv[ring[(k + 1) % 4]];
+      if (A.w >= NEAR_W) add(A.x, A.y, A.w);
+      if ((A.w >= NEAR_W) !== (B.w >= NEAR_W)) {
+        const t = (A.w - NEAR_W) / (A.w - B.w);
+        add(A.x + (B.x - A.x) * t, A.y + (B.y - A.y) * t, NEAR_W);
+      }
+    }
+    x0 = Math.max(x0 - MARGIN, r[0]); y0 = Math.max(y0 - MARGIN, r[1]); x1 = Math.min(x1 + MARGIN, r[2]); y1 = Math.min(y1 + MARGIN, r[3]);
+    return x0 < x1 && y0 < y1 ? [x0, y0, x1, y1] : null;
+  };
+  L.updaters.push(() => {
+    if (!ready) { ready = setup(); if (!ready) return; }
+    const level = L.ctx.level;
+    cam.updateMatrixWorld();
+    const p = cam.position;
+    let start = -1;
+    for (let i = 0; i < rooms.length; i++) { const r = rooms[i]; if (p.x >= r.x0 && p.x <= r.x1 && p.z >= r.z0 && p.z <= r.z1) { start = i; break; } }
+    // (check:fxleak's magenta mode tests that walls hide a mis-gated volume: the walls must all be there for it)
+    if ((L.ctx.fx as unknown as { volumesDebug?: boolean }).volumesDebug) start = -1;
+    active = start >= 0;
+    reached.fill(0);
+    if (start < 0) { active = false; for (const t of tagged) setCulled(t, false); return; }
+    vp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    const big = [-1 - MARGIN, -1 - MARGIN, 1 + MARGIN, 1 + MARGIN];
+    reached[start] = 1;
+    rect.set(big, start * 4);
+    const queue = [start];
+    let guard = 0;
+    while (queue.length && guard++ < 400) {
+      const i = queue.shift()!;
+      const r = [rect[i * 4], rect[i * 4 + 1], rect[i * 4 + 2], rect[i * 4 + 3]];
+      for (const q of portals) {
+        const j = q.a === i ? q.b : q.b === i ? q.a : -1;
+        if (j < 0 || !L.isVisible(rooms[j].id)) continue;
+        if (q.door && !(q.door.t > (q.door.ajar ?? 0) + 1e-3)) continue;
+        const c = clip(q, r);
+        if (!c) continue;
+        if (reached[j]) {
+          // grow the room's rectangle (another way in); revisit only if it grew
+          const o = j * 4;
+          const n0 = Math.min(rect[o], c[0]), n1 = Math.min(rect[o + 1], c[1]), n2 = Math.max(rect[o + 2], c[2]), n3 = Math.max(rect[o + 3], c[3]);
+          if (n0 < rect[o] - 1e-3 || n1 < rect[o + 1] - 1e-3 || n2 > rect[o + 2] + 1e-3 || n3 > rect[o + 3] + 1e-3) { rect[o] = n0; rect[o + 1] = n1; rect[o + 2] = n2; rect[o + 3] = n3; queue.push(j); }
+        } else { reached[j] = 1; rect.set(c, j * 4); queue.push(j); }
+      }
+    }
+    for (const t of tagged) {
+      let mine = false;
+      for (const i of t.ids) if (reached[i]) { mine = true; break; }
+      setCulled(t, !mine);
+    }
+  });
+}
+
+/** Level 4's non-door openings (§2.1 corners carved open, §2.8 glass), for `installPortalCull4`. */
+export const OPENINGS4: Opening4[] = [
+  { a: 'corr_n', b: 'corr_w', wall: 'z', at: -12, u0: -15, u1: -12, y0: 4.8, y1: 7.8 },
+  { a: 'corr_n', b: 'corr_e', wall: 'z', at: -12, u0: 12, u1: 15, y0: 4.8, y1: 7.8 },
+  { a: 'corr_s', b: 'corr_w', wall: 'z', at: -34, u0: -15, u1: -12, y0: 4.8, y1: 7.8 },
+  { a: 'corr_s', b: 'corr_e', wall: 'z', at: -34, u0: 12, u1: 15, y0: 4.8, y1: 7.8 },
+  { a: 'corr_n', b: 'wetlab', wall: 'z', at: -12, u0: -11, u1: 3, y0: 5.7, y1: 7.0 },
+  { a: 'corr_e', b: 'node2', wall: 'x', at: 12, u0: -23.4, u1: -20.6, y0: 5.5, y1: 7.3 },
+  { a: 'gallery', b: 'theatre', wall: 'z', at: -47, u0: -7.6, u1: 7.6, y0: 5.0, y1: 7.6 },
+];
+
+// ───────────────────────────────────────────────────────────── door styling (integration B2)
+
+/** Pressure doors keep the industrial hazard frame (outer lock, tube ends). */
+const PRESSURE4 = new Set(['d4_inner', 'd4_tube_n', 'd4_tube_s']);
+/**
+ * Level 4's one door styler (B2): Deck 2 (the clean side, floor y 4.8) gets clinical frames and leaves, Deck 1 (the
+ * navy level) navy frames and leaves; pressure doors keep their hazard markings. Call from any room's `build` (rooms
+ * are built before the doors).
+ */
+export function styleDoors4(L: LevelBuild) {
+  setDoorStyler(L, (s) => {
+    if (PRESSURE4.has(s.id) || s.kind !== 'std') return null;
+    return { frameStyle: (s.y ?? 0) > 2 ? 'clinical' : 'navy' };
+  });
 }

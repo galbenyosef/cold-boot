@@ -24,7 +24,7 @@ import * as THREE from 'three';
 import type { Builder, Mat } from '../builder';
 import type { LevelBuild } from '../context';
 import type { LightRow } from '../l3/grey';
-import { glassFront, isStandin, restyle } from '../l3/kit3';
+import { isStandin, restyle } from '../l3/kit3';
 import type { FxSystemEx } from '../../fx';
 import { D2, STAIR4, type RoomId4 } from './grey';
 import type { RoomDress } from './index';
@@ -168,6 +168,9 @@ function buildStore(L: LevelBuild) {
   // a dark luminaire (the store has no light of its own: the husks come out of the dark)
   b.at(6.0, y + 3.0, -41.0, PI / 2, () => luminaire(b, L, { glow: lumMat(L, 'store_off', 0.02) }));
   sticker(b, 4.21, y + 1.55, -39.6, '+x');
+  // the steriliser's standby panel (the store's only glow, B7)
+  b.bx('painted_dark', 6.2, y + 0.75, -42.8, 7.0, y + 1.05, -42.76);
+  b.bx(glow4(L, 'd2_store_standby', 0x7fa8ff, 0.25), 6.28, y + 0.85, -42.76, 6.6, y + 0.95, -42.75);
 }
 
 // ───────────────────────────────────────────────────────────── gallery (§2.6 B3 layout)
@@ -175,7 +178,13 @@ function buildStore(L: LevelBuild) {
 function buildGallery(L: LevelBuild) {
   // the stand-in visuals go (their colliders stay: bench tier 0.9 m, camera desk 1.0 m)
   restyle(L, 'gallery_grey', isStandin, null);
-  restyle(L, 'gallery_grey', (m) => m === L.ctx.materials.get('glass'), glassFront(L));
+  // B3 / §2.8: the glazing reflects the bright gallery (bench tops, ceiling) through the probe as pale wavy bands that
+  // read as smoke in the theatre — keep the reflection a faint sheen (the library re-applies its own env multiplier on
+  // every env-map change, so the value is held here)
+  const pane = L.ctx.materials.clone('glass_clear', { side: THREE.FrontSide });
+  pane.name = 'd2_gallery_pane';
+  L.updaters.push(() => { if (pane.envMapIntensity !== 0.22) pane.envMapIntensity = 0.22; });
+  restyle(L, 'gallery_grey', (m) => m === L.ctx.materials.get('glass'), pane);
   const b = L.builder('gallery_dress');
   const M = setpieceMats(L);
   const y = D2;
@@ -246,7 +255,8 @@ function buildGallery(L: LevelBuild) {
   for (const x of [-7.0, -3.0, 0.8, 7.2]) b.at(x, y + 3.0, -43.95, 0, () => luminaire(b, L, { glow: lum, len: 1.2, w: 0.3 }));
   b.at(-1.8, y + 3.0, -45.4, 0, () => hepaDiffuser(b, L));
   bindTo(L, 'gallery', [[lum, 0.22]]);
-  glassStars(L);
+  // (B9: fx now stars every pane itself — the gallery's own star ring would double it)
+  void glassStars;
   // ── emergency strips (§8.11): along the glass base and the bench fronts
   for (const [a, c] of [[-7.5, 2.95], [5.05, 9.5]] as const) floorStrip(b, L, a, -46.7, c, -46.7, { y });
   for (const [a, c] of [[-9.7, -1.05], [1.05, 7.95]] as const) floorStrip(b, L, a, -44.9, c, -44.9, { y });
@@ -428,6 +438,12 @@ function driveArm(L: LevelBuild, arm: THREE.Object3D) {
   const ud = arm.userData as { cycle: ArmCycle; cueTimes(): Record<ArmCue | 'period', number>; claspWorld(out?: THREE.Vector3): THREE.Vector3 };
   const cyc = ud.cycle;
   const fmt = (n: number) => n.toLocaleString('en-GB');
+  // B3: the desk monitor sits under the bright gallery — its glossy face mirrored the bench and ceiling as a grey veil
+  // over the nape picture. Matte the two theatre screens' reflection (the library re-applies env on every env change)
+  {
+    const mats = ['theatre_cam', 'theatre_screen'].map((n) => L.screens.get(n)).filter((m): m is THREE.MeshStandardMaterial => !!m);
+    L.updaters.push(() => { for (const m of mats) if (m.envMapIntensity !== 0.08) m.envMapIntensity = 0.08; });
+  }
   let parked = false;
   const machine = L.machines.get('theatre_arm');
   if (machine) L.machines.set('theatre_arm', (s) => { machine(s); parked = s === 'off'; });
@@ -437,9 +453,9 @@ function driveArm(L: LevelBuild, arm: THREE.Object3D) {
   };
   const linkOf = (c: ArmCue) => (c === 'handshake' ? 'HANDSHAKE' : c === 'fail' || c === 'remove' || c === 'regel' || c === 'return' || c === 'idle' ? 'FAILED' : '—');
   const wall = (c: ArmCue) => {
-    if (parked) { setScr('theatre_screen', 'terminal_idle', 'THEATRE 1 — NO PROCEDURE\nARM PARKED'); return; }
-    if (c === 'fail') { setScr('theatre_screen', 'terminal_alert', `LINK FAILED\nNO PULSE — ATTEMPT ${fmt(cyc.attempt)}`); return; }
-    setScr('theatre_screen', 'terminal_idle', `THEATRE 1 — FITTING 31 — ATTEMPT ${fmt(cyc.attempt)}\nHOST: STRAND, E.\nPULSE: NONE\nLINK: ${linkOf(c)}\nQUEUE: AUTO — ORDER 0031-H (YIELD)`);
+    if (parked) { setScr('theatre_screen', 'terminal_idle', '[plain]THEATRE 1 — NO PROCEDURE\nARM PARKED'); return; }
+    if (c === 'fail') { setScr('theatre_screen', 'terminal_alert', `[plain]LINK FAILED\nNO PULSE — ATTEMPT ${fmt(cyc.attempt)}`); return; }
+    setScr('theatre_screen', 'terminal_idle', `[plain]THEATRE 1 — FITTING 31 — ATTEMPT ${fmt(cyc.attempt)}\nHOST: STRAND, E.\nPULSE: NONE\nLINK: ${linkOf(c)}\nQUEUE: AUTO — ORDER 0031-H (YIELD)`);
   };
   const cam = () => {
     if (parked) { setScr('theatre_cam', 'theatre_cam', 'off'); return; }
@@ -571,7 +587,7 @@ function buildStair(L: LevelBuild) {
     if (s % 3 === 1) continue;
     const zc = z0 + tread * (s + 0.5), top = rise * (s + 1);
     const x = 13.25 - (risers - s) * 0.012 + ((s * 7) % 5) * 0.02;
-    b.decal('blood_smear', 0, x, top, zc + 0.05, 0.16 + (s % 3) * 0.05, 0.34, '+y', 0.2 + (s % 4) * 0.25);
+    b.decal('blood_smear', 0, x, top, zc + 0.05, 0.24 + (s % 3) * 0.06, 0.46, '+y', 0.2 + (s % 4) * 0.25); // (B9: wider — it read faint on the dark treads)
   }
   // his hand on the east wall below the rail, all the way down (white wall, then the naval grey)
   for (let z = z0 + tread * risers - 0.6; z > z0 + 0.3; z -= 1.15) {
@@ -593,14 +609,16 @@ export const SURGICAL_DRESS: Partial<Record<RoomId4, RoomDress>> = {
     lights: [
       { group: 'scrub', type: 'point', p: [0, 7.55, -40], color: CLEAN, i: 6, d: 8 },
       { group: 'scrub', type: 'point', p: [-2, 7.55, -38.5], color: CLEAN, i: 3, d: 6, min: 'medium' },
-      em('scrub', [0, 7.55, -40], 2.5, 9),
+      em('scrub', [0, 7.55, -40], 1.4, 8),
     ],
   },
   store4: {
     build: buildStore,
     look: { floor: 'floor_epoxy', wall: 'wall_clean', ceiling: 'ceiling_clean' },
     label: false,
-    lights: [],
+    // B7: no light of its own, but not a black hole either — the dim blue of the steriliser's standby panel low on
+    // the south wall gives the shelves an edge for the flashlight to work from (prio low: loses its slot first)
+    lights: [{ group: 'store4', type: 'point', p: [6.6, D2 + 0.9, -42.4], color: 0x7fa8ff, i: 0.5, d: 4, prio: 0.3 }],
   },
   gallery: {
     build: buildGallery,
@@ -611,7 +629,7 @@ export const SURGICAL_DRESS: Partial<Record<RoomId4, RoomDress>> = {
     lights: [
       { group: 'gallery', type: 'point', p: [0.8, 7.55, -44.2], color: CLEAN, i: 4, d: 11 },
       { group: 'gallery', type: 'point', p: [-5, 7.55, -44.2], color: CLEAN, i: 3, d: 8, min: 'high' },
-      em('gallery', [2.5, 7.55, -44.6], 2.2, 12),
+      em('gallery', [2.5, 7.55, -44.6], 1.4, 10),
     ],
   },
   theatre: {

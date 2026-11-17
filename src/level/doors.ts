@@ -55,6 +55,14 @@ export interface DoorSpec {
    * the same in both (a level dresses them with casings).
    */
   style?: 'industrial' | 'habitat';
+  /**
+   * Stage 3b (integration B2): frame + std-leaf finish. 'industrial' (default: steel jambs with chevron strips, hazard
+   * bands on the floor, chevron band across the leaves); 'clinical' (Bio-Sys clean side: white powder-coated casing,
+   * stainless reveal and threshold, a small status light, clinical lintel sign, plain leaves with a vision slot and push
+   * plates — no chevrons); 'navy' (naval deck: haze-grey casing, stencilled lintel, dark threshold, plain leaves).
+   * Pressure doors keep 'industrial'.
+   */
+  frameStyle?: 'industrial' | 'clinical' | 'navy';
   /** Habitat leaves: a narrow vision panel at eye height in each leaf (dark glazing in a brass bead). */
   vision?: boolean;
   /** Habitat leaves without a vision panel: brass name plate on the +z / −z face (eye height, one leaf per face). */
@@ -343,9 +351,62 @@ export class DoorImpl implements Door {
 
   // ───────────────────────────────────────── geometry
 
-  private buildFrame(b: Builder, ry: number, root: THREE.Group) {
+  /**
+   * Clinical / navy casing (B2): jambs and lintel as one casing per face in one finish, a slim status-light housing,
+   * the lintel sign, a flush threshold. Three to four materials per frame zone (the industrial frame uses seven).
+   * Same envelope as the industrial frame (jambs 0.3 wide, 0.12 proud of the 0.2 wall face), so walls, decals,
+   * pockets and checks see the same solid.
+   */
+  private buildPlainFrame(b: Builder, ry: number, root: THREE.Group, kind: 'clinical' | 'navy') {
     const { w, h } = this;
     const sp = this.spec;
+    const jw = 0.3, T = 0.2, pr = 0.12;
+    const clin = kind === 'clinical';
+    const casing: Mat = clin ? 'painted_white' : 'navy_grey';
+    const trim: Mat = clin ? 'stainless' : 'painted_dark';
+    b.push(sp.x, this.floor, sp.z, ry);
+    for (const s of [1, -1]) {
+      const z0 = s * T, z1 = s * (T + pr);
+      const face = s > 0 ? '+z' : '-z';
+      for (const side of [-1, 1]) {
+        // (the jamb's inner face stands 1 cm into the opening: never coplanar with a thick wall's cut face)
+        // (jambs start 2 cm above the floor: their foot is the trim kick block below, never a face on the floor plane)
+        b.bx(casing, side * (w / 2 - 0.01), 0.1, z0, side * (w / 2 + jw), h + 0.3, z1);
+        b.bx(trim, side * (w / 2 - 0.02), 0.005, z0 + s * 0.006, side * (w / 2 + jw + 0.012), 0.1, z1 + s * 0.012); // kick block
+      }
+      b.bx(casing, -w / 2 - jw, h - 0.01, z0, w / 2 + jw, h + 0.3, z1);
+      b.detail(() => {
+        // a thin trim bead round the opening on the casing face
+        for (const side of [-1, 1]) b.bx(trim, side * (w / 2 - 0.01), 0.1, z1, side * (w / 2 + 0.03), h + 0.03, z1 + s * 0.008);
+        b.bx(trim, -w / 2 + 0.01, h - 0.01, z1, w / 2 - 0.01, h + 0.03, z1 + s * 0.008);
+        const label = s > 0 ? sp.labelFront : sp.labelBack;
+        const lw = Math.min(w + 0.3, 0.085 * label.length + 0.36);
+        b.sign(label, clin ? 'clinical' : 'stencil', 0, h + 0.15, z1, lw, 0.2, face);
+        // status light housing on the right-hand jamb (as seen from this side): slim, flush
+        const px = s * (w / 2 + jw / 2 + 0.02);
+        b.box(trim, px, 1.43, z1 + s * 0.018, 0.19, 0.14, 0.036);
+      });
+    }
+    // threshold: one flush plate across the wall's depth (12 mm proud), no hazard bands
+    b.bx(trim, -w / 2 - jw, -0.05, -(T + pr), w / 2 + jw, 0.012, T + pr);
+    b.detail(() => {
+      // reveal liners (leave the leaf slot free) — inside the opening, 2 cm proud of the wall's cut faces
+      for (const side of [-1, 1]) for (const s of [-1, 1]) b.bx(trim, side * (w / 2 - 0.02), 0.012, s * 0.085, side * (w / 2), h - 0.02, s * (T - 0.004));
+      for (const s of [-1, 1]) b.bx(casing, -w / 2 + 0.02, h - 0.02, s * 0.085, w / 2 - 0.02, h, s * (T - 0.004));
+    });
+    b.pop();
+    const sy = 1.43 + this.floor - this.y0;
+    const quads = [1, -1].map((s) => new THREE.PlaneGeometry(0.11, 0.07)
+      .applyMatrix4(new THREE.Matrix4().makeRotationY(s > 0 ? 0 : Math.PI).setPosition(s * (w / 2 + jw / 2 + 0.02), sy, s * (T + pr + 0.037))));
+    const m = new THREE.Mesh(mergeGeometries(quads, false)!, this.statusMat);
+    m.name = `${sp.id}:status`;
+    root.add(m);
+  }
+
+  private buildFrame(b: Builder, ry: number, root: THREE.Group) {
+    const sp = this.spec;
+    if (sp.frameStyle === 'clinical' || sp.frameStyle === 'navy') { this.buildPlainFrame(b, ry, root, sp.frameStyle); return; }
+    const { w, h } = this;
     const jw = 0.3, T = 0.2, pr = 0.12;
     b.push(sp.x, this.floor, sp.z, ry);
     for (const s of [1, -1]) {
@@ -431,9 +492,19 @@ export class DoorImpl implements Door {
             b.box('painted_dark', xc, 0.1, z + sg * 0.012, lw - 0.04, 0.16, 0.024);
             continue;
           }
+          if (sp.frameStyle === 'clinical') {
+            // clean-room leaf: flush slab, a narrow vision slot by the meeting edge, push plate, kick plate
+            const xm = side < 0 ? x1 : x0;
+            const vx = xm + side * 0.2;
+            b.box('stainless', vx, 1.6, z + sg * 0.004, 0.17, 0.62, 0.008);
+            b.box('screen_off', vx, 1.6, z + sg * 0.009, 0.12, 0.56, 0.004);
+            b.box('stainless', xm + side * 0.14, 1.05, z + sg * 0.004, 0.12, 0.34, 0.008);
+            b.box('stainless', xc, 0.14, z + sg * 0.004, lw - 0.06, 0.24, 0.008);
+            continue;
+          }
           panelOn(b, 'trim_steel', xc, 0.55, z, lw - 0.16, 0.8, f, 0.02, 0.03);
           panelOn(b, 'trim_steel', xc, h * 0.75, z, lw - 0.16, h - 1.45, f, 0.02, 0.03);
-          b.box('hazard_stripes', xc, h * 0.475, z + sg * 0.004, lw - 0.04, 0.16, 0.008);
+          b.box(sp.frameStyle === 'navy' ? 'painted_dark' : 'hazard_stripes', xc, h * 0.475, z + sg * 0.004, lw - 0.04, 0.16, 0.008);
           b.box('trim_steel', xc - side * (lw / 2 - 0.16), h * 0.475, z + sg * 0.03, 0.04, 0.3, 0.05);
           b.box(mat, xc, h - 0.07, z + sg * 0.012, lw - 0.1, 0.06, 0.024);
           b.box(mat, xc, 0.08, z + sg * 0.012, lw - 0.06, 0.12, 0.024);

@@ -74,6 +74,14 @@ export interface ViewportOpts {
    * and its lamps, the snow. A fraction of the cost; use it for the second of two facing tube panes.
    */
   cheap?: boolean;
+  /**
+   * Stage 3b integration (B8): draw the flood heads themselves — a small hot lens with its own fog halo at each flood's
+   * position, so a beam in the water starts at a lamp you can see (not an unexplained glow). Brightness factor; 0 = off
+   * (default, 3a's look unchanged).
+   */
+  heads?: number;
+  /** B8: pull the floods' in-scatter this far (0 … 1) toward grey (the extinction makes it an electric blue). Default 0. */
+  desat?: number;
 }
 
 export interface ViewportHandle {
@@ -133,6 +141,8 @@ uniform vec3 uFloodI;
 uniform vec3 uFloodCol;
 uniform vec2 uFloodCos;
 uniform vec3 uSpill;
+uniform float uHeads;
+uniform float uDesat;
 
 uniform highp sampler3D tNoise;
 /** Smooth value noise, period 8 lattice units, from a 32³ texture (one fetch instead of eight hashes). */
@@ -294,6 +304,8 @@ void main() {
   // forward-ish scattering for rays looking along the beams, weak back-scatter otherwise
   scat *= 0.11;
 #endif
+  // (B8) the floods' shafts toward grey: the extinction alone paints them an electric blue
+  scat = mix(scat, vec3(dot(scat, vec3(0.3, 0.5, 0.2))), uDesat);
   // room spill (analytic): out through the pane, back to the eye
   vec3 sig2 = uSigma * 2.6 + 0.8;
   scat += uSpill * (1.0 - exp(-sig2 * sMax)) / sig2 * 0.55;
@@ -370,6 +382,20 @@ void main() {
   }
 #endif
 
+  // ── (B8) the flood heads: a lens you can see where each beam starts, brightest seen from in front of it
+  if (uHeads > 0.0) for (int f = 0; f < 3; f++) {
+    if (uFloodI[f] <= 0.0) continue;
+    vec3 fp = uFloodPos[f];
+    vec2 rp = rayPoint(o, rd, fp, uMaxDist * 2.0);
+    float dist = length(fp - o);
+    float occ = (tEnd < dist - 0.3) ? 0.1 : 1.0;
+    float facing = 0.3 + 0.7 * smoothstep(-0.3, 0.7, dot(normalize(o - fp), uFloodDir[f]));
+    vec3 att = exp(-uSigma * 0.3 * dist);
+    float core = 1.0 / (1.0 + pow(rp.x / 0.045, 2.0));
+    float halo = exp(-rp.x / (0.22 + dist * 0.05));
+    vec3 lc = mix(uFloodCol, vec3(1.0), 0.6);
+    col += lc * uFloodI[f] * uHeads * facing * att * occ * (core * 1.6 + halo * 0.22);
+  }
   // ── lamps on the cable, each with its own (longer) fog: the beacon reads at 18 m
   vec3 sigB = uSigma * 0.22;
   for (int i = 0; i < 4; i++) {
@@ -585,6 +611,8 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
     uFloodCos: { value: new THREE.Vector2(Math.cos(0.3), Math.cos(0.5)) },
     uSpill: { value: new THREE.Color() },
     uBio: { value: 0 },
+    uHeads: { value: o.heads ?? 0 },
+    uDesat: { value: o.desat ?? 0 },
     tNoise: { value: noiseTexture() },
   };
 

@@ -152,6 +152,12 @@ export class LightPool implements LightManager {
   shadowUpdates = 0;
   /** §8.14: lights skipped this update because of `minQuality` (switched on, but below their quality). */
   capped = 0;
+  /**
+   * Stage 3b (integration B6): is the room at (x, z) drawn this frame (the level's portal set)? A light standing in a
+   * room the view does not draw scores ×0.08 — it only takes a slot nobody visible wants (the theatre lamp no longer
+   * displaces a corridor light). null = every room counts as drawn.
+   */
+  roomVisible: ((x: number, z: number) => boolean) | null = null;
   activeSlots = 0;
   /** Pinned lights holding a slot / pinned lights left without one (no out-of-view light to displace), last update. */
   pinned = 0;
@@ -477,6 +483,7 @@ export class LightPool implements LightManager {
           }
           if (frustum) { h.inView = frustum.intersectsSphere(_sphere); if (!h.inView) vis = 0.4; }
           else h.inView = true;
+          if (frustum && !bake && this.roomVisible && !this.roomVisible(h.position.x, h.position.z)) { vis *= 0.08; h.inView = false; }
           const x = d / (reach * 0.75 + 3);
           const prox = 1 / (1 + x * x);
           const iTerm = Math.min(Math.max(Math.sqrt(base / 30), 0.35), 2.5);

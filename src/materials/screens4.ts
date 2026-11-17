@@ -487,6 +487,9 @@ export function theatreCam(s: S4) {
   // LED: red solid 1.0 s, then three blinks 0.25 on / 0.25 off (§4.4); off otherwise
   let led = 0;
   if (cue === 'handshake') led = ct < 1 ? 1 : ct < 2.5 ? (Math.floor((ct - 1) / 0.25) % 2 === 0 ? 1 : 0) : 0;
+  // B3 (D9): seated and powered, not linked — the amber stage (the arm's ring is amber from fit + 3.45 to the handshake)
+  const amber = cue === 'fit' && ct >= 3.45;
+  const ledCol = amber ? [255, 170, 40] : [255, 50, 30];
   const nx = W * 0.47, ny = H * 0.5;
   // gel on the skin: wet shine, stronger right after a fitting
   const wet = cue === 'regel' || cue === 'return' || cue === 'idle' || cue === 'approach' ? 0.55 : 0.85;
@@ -522,13 +525,14 @@ export function theatreCam(s: S4) {
     g.fillStyle = 'rgba(200,210,215,0.18)'; g.fillRect(cx - cw * 0.4, cy - chh * 0.4, cw * 0.8, chh * 0.06);
     // LED (4 mm): a dark lens, or lit red with its bloom
     const lx = cx, ly = cy - chh * 0.3, lr = Math.max(2.5, cw * 0.022);
-    if (led) {
+    if (led || amber) {
+      const [cr, cg, cb] = ledCol;
       g.save(); g.globalCompositeOperation = 'lighter';
-      const lg = g.createRadialGradient(lx, ly, 0, lx, ly, lr * 9);
-      lg.addColorStop(0, 'rgba(255,60,40,0.95)'); lg.addColorStop(0.25, 'rgba(255,30,20,0.45)'); lg.addColorStop(1, 'rgba(255,0,0,0)');
-      g.fillStyle = lg; g.fillRect(lx - lr * 9, ly - lr * 9, lr * 18, lr * 18);
+      const lg = g.createRadialGradient(lx, ly, 0, lx, ly, lr * 11);
+      lg.addColorStop(0, `rgba(${cr},${cg},${cb},0.95)`); lg.addColorStop(0.25, `rgba(${cr},${cg},${cb},0.45)`); lg.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+      g.fillStyle = lg; g.fillRect(lx - lr * 11, ly - lr * 11, lr * 22, lr * 22);
       g.restore();
-      g.fillStyle = '#ffd8d0'; g.beginPath(); g.arc(lx, ly, lr, 0, Math.PI * 2); g.fill();
+      g.fillStyle = amber ? '#fff0c8' : '#ffd8d0'; g.beginPath(); g.arc(lx, ly, lr, 0, Math.PI * 2); g.fill();
     } else {
       g.fillStyle = '#1c0b0a'; g.beginPath(); g.arc(lx, ly, lr, 0, Math.PI * 2); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.25)'; g.beginPath(); g.arc(lx - lr * 0.3, ly - lr * 0.3, lr * 0.35, 0, Math.PI * 2); g.fill();
@@ -562,8 +566,8 @@ export function theatreCam(s: S4) {
   g.textAlign = 'right'; g.fillStyle = 'rgba(228,240,238,0.6)';
   g.fillText('CAM 2 · NAPE', W * 0.97, fs * 1.55);
   // LINK state: the line read from the door — large, with a dot that is the LED's colour
-  const link = cue === 'handshake' ? 'HANDSHAKE' : cue === 'fail' ? 'FAILED' : '—';
-  const lcol = cue === 'handshake' ? '#ffb23a' : cue === 'fail' ? '#ff3a2a' : '#c9d6d4';
+  const link = cue === 'handshake' ? 'HANDSHAKE' : cue === 'fail' ? 'FAILED' : amber ? 'SEATED · NO LINK' : '—';
+  const lcol = cue === 'handshake' ? '#ff5a3a' : cue === 'fail' ? '#ff3a2a' : amber ? '#ffb23a' : '#c9d6d4';
   const bh = H * 0.17, by = H * 0.74;
   g.fillStyle = cue === 'fail' ? 'rgba(70,6,4,0.8)' : 'rgba(0,0,0,0.55)'; g.fillRect(0, by, W, bh);
   g.textBaseline = 'middle'; g.textAlign = 'left';
@@ -572,7 +576,7 @@ export function theatreCam(s: S4) {
   g.fillStyle = blink ? lcol : 'rgba(255,58,42,0.45)';
   g.fillText(`LINK: ${link}`, W * 0.03, by + bh * 0.53);
   const dx = W * 0.03 + g.measureText(`LINK: ${link}`).width + ls * 0.7, dr = ls * 0.3;
-  if (led) { g.save(); g.shadowColor = '#ff2a1a'; g.shadowBlur = dr * 3; g.fillStyle = '#ff3a2a'; g.beginPath(); g.arc(dx, by + bh / 2, dr, 0, Math.PI * 2); g.fill(); g.restore(); }
+  if (led || amber) { const c = amber ? '#ffaa28' : '#ff3a2a'; g.save(); g.shadowColor = c; g.shadowBlur = dr * 3; g.fillStyle = c; g.beginPath(); g.arc(dx, by + bh / 2, dr, 0, Math.PI * 2); g.fill(); g.restore(); }
   else { g.strokeStyle = 'rgba(200,214,212,0.6)'; g.lineWidth = 2; g.beginPath(); g.arc(dx, by + bh / 2, dr, 0, Math.PI * 2); g.stroke(); }
   g.fillStyle = 'rgba(228,240,238,0.75)'; g.textAlign = 'left';
   fit(g, 'QUEUE: AUTO — ORDER 0031-H (YIELD)', 500, H * 0.045, W * 0.94, MONO);

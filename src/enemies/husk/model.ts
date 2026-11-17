@@ -97,7 +97,8 @@ export function buildHuskTemplate(ctx: GameContext, skin?: EnemySkin): HuskTempl
   try {
     const { template, data } = buildRigLods(authorHusk, mats, {
       radius: 1.5, center: new THREE.Vector3(0, 0.95, 0),
-      fold: { red: 'glow', cyan: 'glow', chrome: 'steel' }, tint: { red: tintOf(0xff0702, 2.2), cyan: tintOf(0x10c8ff, 2.5) },
+      // (stage 3b B6: the lab skin's nitrile forearms go into the pale-blue band's material — one draw call less per unit)
+      fold: { red: 'glow', cyan: 'glow', chrome: 'steel', ...(skin === 'lab' ? { glove: 'stripe' } : {}) }, tint: { red: tintOf(0xff0702, 2.2), cyan: tintOf(0x10c8ff, 2.5) },
       lod: { k: 0.55, minFeature: 0.012, remap },
       proxy: { k: 0.25, minFeature: 0.03, exclude },
       colorize: { shell: skin === 'lab' ? shellClean : shellGrime },

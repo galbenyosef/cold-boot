@@ -119,6 +119,9 @@ function glare(g: CanvasRenderingContext2D, W: number, H: number) {
   g.globalCompositeOperation = 'source-over';
 }
 
+/** Stage 3b: `terminal_idle` / `terminal_alert` text starting with this shows only that text (no log, no footer). */
+export const PLAIN = '[plain]';
+
 export class ScreenManager {
   private screens: Screen[] = [];
   private byMat = new WeakMap<THREE.Material, Screen>();
@@ -293,6 +296,8 @@ export class ScreenManager {
     g.fillStyle = fg; g.fillRect(0, 0, W, fs * 1.5);
     g.fillStyle = amber ? '#0d0702' : '#020b05';
     g.fillText(this.header, fs * 0.5, fs * 0.25);
+    // stage 3b (B3/B8): text starting `[plain]` is the whole content — large, no scrolling log, no footer chatter
+    if (s.text?.startsWith(PLAIN)) { this.plainBlock(s, s.text.slice(PLAIN.length).replace(/^\n/, ''), fg, fs * 1.8, H - fs * 0.8); return; }
     // advance log
     const step = 0.45;
     while (s.t - s.lineTimer > step) { s.lineTimer += step; s.lines.push(logLine(s.rand)); if (s.lines.length > 40) s.lines.shift(); }
@@ -334,8 +339,27 @@ export class ScreenManager {
     g.fillText(`OPERATOR: ---   LINK: NO CARRIER   ${blink ? '█' : ' '}`, fs * 0.5, H - fs * 1.35);
   }
 
+  /** Stage 3b: a pinned message filling (top … bottom), lines sized to fit, the first line brightest. */
+  private plainBlock(s: Screen, text: string, fg: string, top: number, bottom: number) {
+    const { g, W } = s;
+    const msg = text.split('\n');
+    const avail = bottom - top;
+    const big = Math.max(10, Math.min(avail / (msg.length * 1.3 + 0.4), W / 12));
+    g.save();
+    g.textBaseline = 'top'; g.textAlign = 'left';
+    g.shadowColor = fg; g.shadowBlur = big * 0.4;
+    msg.forEach((ln, i) => {
+      let sz = big; g.font = `700 ${sz}px ${MONO}`;
+      while (g.measureText(ln).width > W - big && sz > 8) { sz -= 1; g.font = `700 ${sz}px ${MONO}`; }
+      g.fillStyle = i === 0 ? '#f2f6ee' : fg;
+      g.fillText(ln, big * 0.5, top + big * 0.4 + i * big * 1.3);
+    });
+    g.restore();
+  }
+
   private alert(s: Screen) {
     const { g, W, H } = s;
+    const plain = !!s.text?.startsWith(PLAIN);
     const on = Math.floor(s.t * 2.2) % 2 === 0;
     g.fillStyle = on ? '#3a0302' : '#120000'; g.fillRect(0, 0, W, H);
     // hazard border
@@ -346,7 +370,7 @@ export class ScreenManager {
     g.fillStyle = '#100000';
     for (let x = -H; x < W + H; x += b * 2) { g.beginPath(); g.moveTo(x, H); g.lineTo(x + b, H); g.lineTo(x + b + H, 0); g.lineTo(x + H, 0); g.closePath(); g.fill(); }
     g.restore();
-    const msg = (s.text ?? 'WARNING').toUpperCase();
+    const msg = (plain ? s.text!.slice(PLAIN.length).replace(/^\n/, '') : s.text ?? 'WARNING').toUpperCase();
     const lines = msg.split('\n');
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = on ? '#ffd8d0' : '#ff3a28';
@@ -358,6 +382,7 @@ export class ScreenManager {
       g.fillText(ln, W / 2, H * 0.45 + (i - (lines.length - 1) / 2) * fs * 1.1);
     });
     g.shadowBlur = 0;
+    if (plain) return;
     g.font = `${Math.round(H * 0.06)}px ${MONO}`; g.fillStyle = '#ff6a50';
     g.fillText(`CHOIR PRIORITY OVERRIDE  ·  CODE ${(s.seed % 900 + 100)}-R`, W / 2, H - b * 2.2);
   }

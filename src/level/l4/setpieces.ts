@@ -48,6 +48,26 @@ function libOr(ctx: GameContext, name: MaterialName, fb: MaterialName, over: Par
   c.name = `${name}_standin`;
   return c;
 }
+/** Short dark hair: dense strands along v (crown → hairline) over a near-black base, a few grey-brown highlights. */
+function hairTexture(): THREE.Texture {
+  const W = 256, H = 256;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = '#17120f'; g.fillRect(0, 0, W, H);
+  const R = rng(4471);
+  for (let i = 0; i < 5200; i++) {
+    const x = R() * W, y = R() * H, l = 5 + R() * 12, a = (R() - 0.5) * 0.5;
+    g.strokeStyle = R() < 0.7 ? `rgba(8,6,5,${0.5 + R() * 0.4})` : `rgba(${90 + R() * 30 | 0},${76 + R() * 24 | 0},${64 + R() * 20 | 0},${0.25 + R() * 0.3})`;
+    g.lineWidth = R() < 0.8 ? 1 : 1.6;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.sin(a) * l, y + Math.cos(a) * l); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+
 export function setpieceMats(L: LevelBuild): Mats {
   let m = MATS.get(L);
   if (m) return m;
@@ -59,8 +79,10 @@ export function setpieceMats(L: LevelBuild): Mats {
     nitrile: named(M.clone('plastic_white', { color: 0x5f7fc4, roughness: 0.55, metalness: 0 }), 'sp4_nitrile'),
     // fogged visor: milky, slightly glossy, opaque (no transparent call, no face behind it)
     visor: named(M.clone('plastic_white', { color: 0xc6d0d4, roughness: 0.28, metalness: 0 }), 'sp4_visor'),
-    skin: named(M.clone('skin', { color: 0xc4c0bf }), 'sp4_skin'),
-    hair: named(M.clone('plastic_dark', { color: 0x6b5d50, roughness: 0.9, metalness: 0 }), 'sp4_hair'),
+    // dead pallor: cold grey, not a warm doll tone (B1)
+    skin: named(M.clone('plastic_white', { color: 0xb3aaa6, map: null, normalMap: null, roughness: 0.62, metalness: 0 }), 'sp4_skin'),
+    // close-cropped dark hair: strands from the crown down (sphere v), never a smooth brown cap (B1)
+    hair: named(M.clone('plastic_dark', { color: 0xffffff, map: hairTexture(), normalMap: null, roughness: 0.82, metalness: 0 }), 'sp4_hair'),
     gel: named(new THREE.MeshStandardMaterial({ color: 0x4f8796, roughness: 0.04, metalness: 0, emissive: 0x061418, emissiveIntensity: 1 }), 'sp4_gel'),
     sole: M.get('rubber'),
     shirt: M.get('cloth_coverall'),
@@ -326,12 +348,60 @@ export function claspInst(b: Builder, x: number, y: number, z: number, rx: numbe
 // ───────────────────────────────────────────────────────────── geometry helpers
 
 /** Capsule along +y from 0 to `len` (radii r0 at the bottom, r1 at the top), lathe-built (uv in metres). */
-function capsule(r0: number, r1: number, len: number, radial = 10): THREE.BufferGeometry {
+function capsule(r0: number, r1: number, len: number, radial = 10, step = 0): THREE.BufferGeometry {
   const pts: THREE.Vector2[] = [];
   const n = 4;
   for (let i = 0; i <= n; i++) { const a = -PI / 2 + (i / n) * (PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, Math.cos(a) * r0), Math.sin(a) * r0)); }
+  // (cloth: extra rings along the straight part so the folds have vertices to live on)
+  if (step > 0) { const k = Math.floor(len / step); for (let i = 1; i < k; i++) { const t = i / k; pts.push(new THREE.Vector2(r0 + (r1 - r0) * t, len * t)); } }
   for (let i = 0; i <= n; i++) { const a = (i / n) * (PI / 2); pts.push(new THREE.Vector2(Math.max(1e-4, Math.cos(a) * r1), len + Math.sin(a) * r1)); }
   return new THREE.LatheGeometry(pts, radial);
+}
+
+/**
+ * Cloth folds (integration B1: "bodies read as smooth mannequins"). A displaced copy of `g`: sharp creases along a few
+ * random directions (the slack of a baggy coverall) + compression rings round the local y axis (sleeves and legs
+ * bunched at the joints). Displacement along the normal in geometry units; normals bent by the displacement's
+ * gradient (analytic, so the lathe / sphere seams stay smooth).
+ */
+function folded(g: THREE.BufferGeometry, seed: number, amp: number, freq: number, ringAmp = 0, ringFreq = 0): THREE.BufferGeometry {
+  const out = g.clone();
+  const pos = out.getAttribute('position') as THREE.BufferAttribute;
+  const nor = out.getAttribute('normal') as THREE.BufferAttribute;
+  const R = rng(seed);
+  const K = 5;
+  const dirs: THREE.Vector3[] = [], fr: number[] = [], ph: number[] = [], am: number[] = [];
+  for (let k = 0; k < K; k++) {
+    dirs.push(new THREE.Vector3(R.range(-1, 1), R.range(-0.6, 0.6), R.range(-1, 1)).normalize());
+    fr.push(freq * R.range(0.6, 1.4)); ph.push(R.range(0, 6.28)); am.push(R.range(0.5, 1));
+  }
+  const rph = R.range(0, 6.28), rtw = R.range(-1, 1);
+  const disp = (x: number, y: number, z: number) => {
+    let c = 0;
+    for (let k = 0; k < K; k++) {
+      const s = Math.abs(Math.sin((x * dirs[k].x + y * dirs[k].y + z * dirs[k].z) * fr[k] + ph[k]));
+      const r = 1 - s; c += am[k] * (r * r * r - 0.25);
+    }
+    let d = amp * c;
+    if (ringAmp) { const s = Math.abs(Math.sin(y * ringFreq + Math.atan2(z, x) * rtw + rph)); d += ringAmp * (s ** 8 - 0.12); }
+    return d;
+  };
+  const e = 0.25 / Math.max(freq, ringFreq, 1);
+  const p = new THREE.Vector3(), n = new THREE.Vector3(), gr = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i); n.fromBufferAttribute(nor, i);
+    const d = disp(p.x, p.y, p.z);
+    gr.set(
+      (disp(p.x + e, p.y, p.z) - disp(p.x - e, p.y, p.z)) / (2 * e),
+      (disp(p.x, p.y + e, p.z) - disp(p.x, p.y - e, p.z)) / (2 * e),
+      (disp(p.x, p.y, p.z + e) - disp(p.x, p.y, p.z - e)) / (2 * e),
+    );
+    gr.addScaledVector(n, -gr.dot(n));
+    pos.setXYZ(i, p.x + n.x * d, p.y + n.y * d, p.z + n.z * d);
+    n.sub(gr).normalize();
+    nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  return out;
 }
 /** Matrix placing a +y-aligned primitive from A towards B (optional scale on x/z for an elliptic section). */
 function alignAB(A: THREE.Vector3, B: THREE.Vector3, sx = 1, sz = 1, roll?: THREE.Vector3): THREE.Matrix4 {
@@ -526,6 +596,20 @@ export function body(L: LevelBuild, b: Builder, pose: BodyPose, name: string, op
   } : def, R);
   const halfOff = !!opts.suitHalfOff;
   const hood = opts.hood ?? !(pose === 'prone_table' || halfOff);
+  if (!hood && pose !== 'prone_table') {
+    // B1: a bare head lies face down — the face pressed into the floor, the crown and the back of the head up; seen
+    // from any side it is hair, an ear and the nape, never a face
+    const head = sk.o.head;
+    const f = new THREE.Vector3(0, 0, 1).transformDirection(head.matrixWorld);
+    const q = new THREE.Quaternion().setFromUnitVectors(f, new THREE.Vector3(0.15, -1, 0).normalize());
+    const wq = head.getWorldQuaternion(new THREE.Quaternion()).premultiply(q);
+    const pq = head.parent!.getWorldQuaternion(new THREE.Quaternion()).invert();
+    head.quaternion.copy(pq.multiply(wq));
+    sk.root.updateMatrixWorld(true);
+    // lift the whole body until the skull clears the floor (skull centre 0.1 up the head, radius ≈ 0.105)
+    const c = wp(head, 0, 0.1, 0.015);
+    if (c.y < 0.1) { sk.root.position.y += 0.1 - c.y; sk.root.updateMatrixWorld(true); }
+  }
 
   if (pose === 'prone_table') {
     // lay the body on its front at table height, then slide it so the nape lands on the requested point
@@ -604,15 +688,22 @@ function drawBody(b: Builder, L: LevelBuild, M: Mats, sk: Skel, o: DrawOpts) {
   const J = sk.o;
   const suit = M.tyvek;
   const top = o.halfOff ? M.shirt : suit;
+  // cloth (Tyvek, the undershirt) gets folds: denser tessellation + creases + bunching rings (B1)
+  let foldSeed = hashStr(o.name) & 0xffff;
+  const cloth = (mat: Mat) => mat === suit || mat === M.shirt;
   const seg = (mat: Mat, A: THREE.Vector3, B: THREE.Vector3, ra: number, rb: number, radial = 10, cap = true) => {
     const len = A.distanceTo(B);
     if (len < 1e-4) return;
-    b.geo(mat, capsule(ra, rb, len, radial), 'box', alignAB(A, B));
+    const g = cloth(mat) && ra > 0.03
+      ? folded(capsule(ra, rb, len, Math.max(radial, 16), 0.035), ++foldSeed * 7919, 0.0032, 60, 0.0055, 62)
+      : capsule(ra, rb, len, radial);
+    b.geo(mat, g, 'box', alignAB(A, B));
     if (cap) o.caps.push([A.clone(), B.clone(), ra, rb]);
   };
   const ell = (mat: Mat, j: THREE.Object3D, cx: number, cy: number, cz: number, rx: number, ryy: number, rz: number, seg2 = 14, rot?: THREE.Euler) => {
     const m = new THREE.Matrix4().copy(j.matrixWorld).multiply(new THREE.Matrix4().compose(new THREE.Vector3(cx, cy, cz), new THREE.Quaternion().setFromEuler(rot ?? _e.set(0, 0, 0)), new THREE.Vector3(rx, ryy, rz)));
-    b.geo(mat, sphereGeo(seg2), 'box', m);
+    const g = cloth(mat) && Math.max(rx, ryy, rz) > 0.05 ? folded(sphereGeo(Math.max(seg2, 26)), ++foldSeed * 7919, 0.03, 7.5) : sphereGeo(seg2);
+    b.geo(mat, g, 'box', m);
   };
 
   // ── torso: pelvis, waist, chest (baggy suit: generous radii), zip
@@ -663,7 +754,11 @@ function drawBody(b: Builder, L: LevelBuild, M: Mats, sk: Skel, o: DrawOpts) {
     // bare head (face never shown: the poses keep it down / away): skin neck, skull, short hair, ears
     seg(M.skin, nb, nt, 0.058, 0.055, 12);
     ell(M.skin, J.head, 0, 0.1, 0.015, 0.088, 0.112, 0.102, 18);
-    ell(M.hair, J.head, 0, 0.12, -0.012, 0.09, 0.098, 0.097, 18);
+    // hair: a lumpy cap over the crown and the back of the skull down to the nape (never a smooth egg)
+    b.geo(M.hair, folded(sphereGeo(26), hashStr(o.name) * 31, 0.035, 9), 'box',
+      new THREE.Matrix4().copy(J.head.matrixWorld).multiply(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.12, -0.014), new THREE.Quaternion(), new THREE.Vector3(0.093, 0.1, 0.1))));
+    b.geo(M.hair, folded(sphereGeo(20), hashStr(o.name) * 37, 0.04, 10), 'box',
+      new THREE.Matrix4().copy(J.head.matrixWorld).multiply(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.065, -0.034), new THREE.Quaternion().setFromEuler(_e.set(0.35, 0, 0)), new THREE.Vector3(0.084, 0.07, 0.078))));
     b.detail(() => {
       for (const s of [-1, 1]) ell(M.skin, J.head, s * 0.084, 0.088, -0.004, 0.009, 0.024, 0.015, 8);
     });
@@ -1164,7 +1259,7 @@ export function theatreArm(L: LevelBuild, at: THREE.Vector3, opts: TheatreArmOpt
   part('tool', (b) => {
     b.cyl(dark, 0, -0.025, 0, 0.034, 0.05, 'y', 18);
     b.cyl(white, 0, -0.07, 0, 0.033, 0.04, 'y', 18);
-    b.detail(() => b.torus(drv.mat, 0, -0.058, 0, 0.035, 0.0055, 'y', 28)); // ring (7 cm across)
+    b.detail(() => b.torus(drv.mat, 0, -0.058, 0, 0.037, 0.008, 'y', 28)); // ring (7 cm across, 1.6 cm thick: B3)
     b.box(steel, 0, -0.1, 0, 0.11, 0.024, 0.03);
     b.push(0, -TOOL, 0, 0, -PI / 2, 0);
     clasp(b, L, 'off', 0, drv.mat, dark); // one material for shell, pad and prongs: the arm stays at 4 skinned calls
@@ -1182,7 +1277,8 @@ export function theatreArm(L: LevelBuild, at: THREE.Vector3, opts: TheatreArmOpt
   halo.position.set(CLASP.led.x, -TOOL + CLASP.led.z + 0.004, -CLASP.led.y);
   B.tool.add(halo);
   // the ring's own glow (same uniforms): 7 cm is ~5 px from the gallery's far end — it must not shrink below that
-  const ringHalo = ledHalo(drv, 0.045, 7, 0.55);
+  // (B3: from the gallery path the 7 cm ring is the lesson — its glow is a soft 16 cm disc, never under 13 px)
+  const ringHalo = ledHalo(drv, 0.1, 16, 1.25);
   ringHalo.position.set(0, -0.058, 0);
   B.tool.add(ringHalo);
 

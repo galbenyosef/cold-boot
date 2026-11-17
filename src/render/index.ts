@@ -19,6 +19,12 @@ import { QUALITY, type QualityPreset } from './quality';
 import { Volumetrics } from './volumetrics';
 
 const VIEWMODEL_LAYER = 1;
+/**
+ * Stage 3b (integration B6): meshes a level's own view culling has set aside for this view (level 4's portal cull)
+ * live on this layer only. The main world pass does not draw it; reflection-probe captures do (they see all round);
+ * `visible` is never touched, so the level's room visibility and the checks that walk the scene are unaffected.
+ */
+export const VIEW_CULL_LAYER = 30;
 const FOG_COLOR = 0x0a0d10;
 const FOG_DENSITY = 0.02;
 
@@ -182,6 +188,8 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     vol.strength = settings.volumetric;
     scene.environmentIntensity = settings.envIntensity;
 
+    // (level 4 on: levels 1–3 keep their light selection exactly as before)
+    lights.roomVisible = ctx.levelId < 4 ? null : ((ctx as Partial<GameContext>).level?.root?.userData?.roomVisible as ((x: number, z: number) => boolean) | undefined) ?? null;
     lights.update(dt, realDt, camPos, camera);
     if (teleported) { lights.snap(); probes.snapTo(camPos); }
     probes.update(realDt, camPos);
@@ -190,6 +198,7 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     const mask = camera.layers.mask;
     camera.layers.enableAll();
     camera.layers.disable(VIEWMODEL_LAYER);
+    camera.layers.disable(VIEW_CULL_LAYER);
     const bg = scene.background;
     clearCol.copy(bg instanceof THREE.Color ? bg : fogColor);
     renderer.setRenderTarget(post.scene);

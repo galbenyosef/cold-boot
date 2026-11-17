@@ -14,7 +14,7 @@ import type { DecalName, FxSystem, GameContext, HitOwner, Quality, Surface } fro
 import { Streaks, ST } from './streaks';
 import { Puffs, SHAPE } from './puffs';
 import { Flashes } from './flashes';
-import { Decals } from './decals';
+import { Decals, GLASS_STAR } from './decals';
 import { Arcs, type ArcSlot } from './arcs';
 import { Debris } from './debris';
 import { createPuffAtlas } from './textures';
@@ -79,6 +79,11 @@ export interface EmitterOpts {
   seenFrom?: readonly string[];
   /** Steam jet speed multiplier (default 1 = 4–6.5 m/s; a decon mist wants ≈ 0.3 so the jets fill the box). */
   speed?: number;
+  /**
+   * Stage 3b B9: steam as a tight jet — short-lived, small, denser puffs that stay a line from the nozzle (air-shower
+   * jets) instead of billowing into a room-filling haze. Default false.
+   */
+  jet?: boolean;
 }
 
 export interface BreathHandle { enabled: boolean; readonly box: THREE.Box3; remove(): void }
@@ -101,6 +106,8 @@ export interface FxVolumesApi {
   debugVolumes(on: boolean): void;
   /** check:fxleak: ignore the room gate (every volume drawn wherever its owner shows it). */
   forceVolumes(on: boolean): void;
+  /** Stage 3b B6: true while `debugVolumes(true)` is on (level 4's view culling stands down for check:fxleak). */
+  readonly volumesDebug: boolean;
   /** Rooms drawn this frame (the level's portal set). */
   drawnRooms(): string[];
 }
@@ -159,6 +166,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   // surface coincides with a static collider) catch decals within 4 cm of their meshes. Everything else is
   // static world exactly as before.
   const _rc = new THREE.Raycaster();
+  _rc.layers.enableAll(); // (stage 3b B6: a mesh the level's view cull set aside — layer 30 — is still a surface to snap to)
   const _hits: THREE.Intersection[] = [];
   const _sp = new THREE.Vector3(), _sn = new THREE.Vector3(), _mb = new THREE.Box3();
   /** Ray along -normal from `front` m off the point to `back` m behind it onto obj's visible meshes → _sp / _sn. */
@@ -425,7 +433,8 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
         break;
       }
       case 'glass': {
-        put('bullet_metal', point, normal, r(0.04, 0.06), undefined, owner, false);
+        // (B9: a pale crazed star — the dark pit was invisible on every dark pane)
+        put(GLASS_STAR, point, normal, r(0.12, 0.18), Math.random() * Math.PI * 2, owner, false);
         spawnChips(10, 0.55, 0.62, 0.65, true);
         _dust.setRGB(0.55, 0.58, 0.6);
         dustBurst(point, _n, 2, 0.15, _dust, 0.12, 1.5, sp);
@@ -728,7 +737,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
     emitter(kind: EmitterKind, point: THREE.Vector3, direction?: THREE.Vector3, rate?: number, o?: EmitterOpts) {
       if (!o?.bounds) return emitters.add(kind, point, direction, rate);
       if (kind === 'sparks') console.warn('[fx] emitter: sparks cannot be bounded (lit streaks + flashes); the bounds are ignored');
-      return emitters.add(kind, point, direction, rate, kind === 'sparks' ? undefined : boundedSet(o).sink, o.speed ?? 1);
+      return emitters.add(kind, point, direction, rate, kind === 'sparks' ? undefined : boundedSet(o).sink, o.speed ?? 1, !!o.jet);
     },
 
     fog(o: FogOpts): FogHandle {
@@ -764,6 +773,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
     volume(spec: FxVolumeSpec): FxVolume { return registry.register(spec); },
     volumes(): readonly FxVolume[] { return registry.list; },
     debugVolumes(on: boolean) { registry.setDebug(on); },
+    get volumesDebug() { return registry.debugging; },
     forceVolumes(on: boolean) { registry.setForced(on); },
     drawnRooms() { return registry.drawnRooms(); },
 

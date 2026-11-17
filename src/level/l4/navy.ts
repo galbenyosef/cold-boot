@@ -115,7 +115,9 @@ function weldMesh(L: LevelBuild): THREE.MeshStandardMaterial {
       const g = c.getContext('2d')!;
       const n = 16, p = S / n, lw = Math.max(1, (3 * S) / 512);
       g.strokeStyle = '#ffffff'; g.lineWidth = lw; g.lineCap = 'square';
-      if (p < 2.5) { g.fillStyle = '#ffffff'; g.globalAlpha = 1; g.fillRect(0, 0, S, S); }
+      // (B4: a far mip of a 19 % wire mesh is mostly air — it must not turn into a solid grey wall that hides the issue
+      // board: under the alpha test it drops out; the frame members still draw the cage)
+      if (p < 6) { g.fillStyle = '#ffffff'; g.globalAlpha = 0.3; g.fillRect(0, 0, S, S); }
       else {
         for (let k = -n; k <= 2 * n; k++) {
           g.beginPath(); g.moveTo(k * p, 0); g.lineTo(k * p + S, S); g.stroke();
@@ -234,7 +236,7 @@ const lcorr: RoomDress = {
     const b = L.builder('lcorr_dress');
     // lights in caged bulkheads (§2.7: 2 all + 1 medium)
     for (const [x, min] of [[8, undefined], [19.5, undefined], [13.5, 'medium']] as const) {
-      const { glow } = lamp(L, 'lcorr', x, 2.98, -61, min ? 5 : 8, min ? 6 : 9, { min });
+      const { glow } = lamp(L, 'lcorr', x, 2.72, -61, min ? 5 : 8, min ? 6 : 9, { min });
       bulkhead(b, glow, x, 3.2, -61, PI / 2);
     }
     // south wall: Bio's service runs on navy brackets (white process water, sea water, a red fire main)
@@ -323,17 +325,19 @@ const chk: RoomDress = {
     restyle(L, 'chk_grey', (m) => m === glass || m === grate || m === trim, null);
 
     // ── lights (§2.7: 2 points all, booth spot cast medium+, 1 more point — now the cage lamp, all) ──
-    const p1 = lamp(L, 'chk', 29.0, 3.78, -61.5, 12, 12);
+    // (B7: the light points hang 0.45 m under their fittings — at 0.22 m the ceiling took a blown hot spot)
+    const p1 = lamp(L, 'chk', 29.0, 3.4, -61.5, 12, 12);
     bulkhead(b, p1.glow, 29.0, 4.0, -61.5);
-    // (over the cage door: on LOW it is the light that shows the reward through the mesh)
-    const p2 = lamp(L, 'chk', 37.2, 3.78, -61.3, 13, 12);
-    bulkhead(b, p2.glow, 37.2, 4.0, -61.3);
+    // B4: inside the cage, over its door: the contents are lit and the mesh is back-lit (it reads as a screen you see
+    // through, not a lit grey wall); its spill still lights Eng at the door
+    const p2 = lamp(L, 'chk', 37.4, 3.5, -63.6, 13, 12);
+    bulkhead(b, p2.glow, 37.4, 4.0, -63.6);
     const bs = L.spot('chk', 28.0, 2.5, -56.5, 28.0, 0.9, -56.0, LAMP, 6, 4, 1.1, { cast: true });
     bs.desc.minQuality = 'medium';
     const bsGlow = L.glow(bs, 'emissive_warm', 0.2);
     b.bx('navy_grey', 27.75, 2.55, -56.75, 28.25, 2.6, -56.25).bx(bsGlow, 27.8, 2.535, -56.7, 28.2, 2.55, -56.3);
     // the cage lamp (all qualities — the reward must read on LOW too; chk keeps 4 descriptors: 3 points + the spot)
-    const cl = lamp(L, 'chk', 38.5, 3.62, -64.6, 8, 6, { color: LAMP });
+    const cl = lamp(L, 'chk', 38.5, 3.45, -64.6, 8, 6, { color: LAMP });
     bulkhead(b, cl.glow, 38.5, 4.0, -64.6, PI / 2);
 
     // ── the booth (W9b kit on the greybox colliders: glass planes matched to the collider centres) ──
@@ -394,6 +398,14 @@ const chk: RoomDress = {
     // padlock torn off, on the floor by the door
     b.detail(() => { b.box('gunmetal', 37.95, 0.02, -62.25, 0.06, 0.04, 0.03); b.torus('steel_raw', 37.95, 0.045, -62.25, 0.022, 0.005, 'z', 8); });
     // weapon rack (one carbine left: `p4_carbine` on the middle tier), vest hooks either side
+    // B4: a pale issue board behind the rack and the vests — the carbine and the vests read as dark shapes on it from
+    // the checkpoint door (they were black on haze grey), stencilled outlines of the missing rifles
+    const board = paint(L, 0xc9cdc6, 0.7);
+    b.bx(board, 39.79, 0.45, -66.1, 39.8, 2.15, -62.9);
+    b.detail(() => {
+      for (const z of [-63.95, -65.05]) b.bx('painted_dark', 39.786, 0.95, z - 0.012, 39.79, 2.0, z + 0.012);
+      b.sign('ISSUE BOARD — SIGN FOR EVERY ITEM', 'stencil', 39.786, 2.05, -64.5, 1.6, 0.08, '-x');
+    });
     b.at(39.8, 0, -64.5, -PI / 2, () => weaponRack(b, L));
     for (const z of [-63.4, -65.6]) {
       b.push(39.8, 1.45, z, -PI / 2);
@@ -472,7 +484,7 @@ const guard: RoomDress = {
   build(L) {
     hazeWalls(L, guard);
     const b = L.builder('guard_dress');
-    const { glow } = lamp(L, 'guard', 43, 2.78, -59, 8, 8);
+    const { glow } = lamp(L, 'guard', 43, 2.52, -59, 8, 8);
     bulkhead(b, glow, 43, 3.0, -59, PI / 2);
     // two bunks along the south wall (the door lane z −59.9 … −58.1 stays clear)
     // (own colliders, not the kit's one box to the top rail: `note4_bunk` lies on the lower mattress and must be
@@ -542,9 +554,9 @@ const plant4: RoomDress = {
     const P = machinery(L);
 
     // ── lights (§2.7): 2 pendants (all), gauge flood (cast, medium+), the amber beacon (alarm, off at load) ──
-    const l1 = lamp(L, 'plant4', 49, 4.12, -59, 11, 10);
+    const l1 = lamp(L, 'plant4', 49, 3.95, -59, 11, 10);
     pendant(b, l1.glow, 49, 4.5, -59);
-    const l2 = lamp(L, 'plant4', 53.5, 4.12, -59, 11, 10);
+    const l2 = lamp(L, 'plant4', 53.5, 3.95, -59, 11, 10);
     pendant(b, l2.glow, 53.5, 4.5, -59);
     const gs = L.spot('plant4', 54.2, 4.3, -59, 55.8, 2.3, -59, LAMP, 8, 4.5, 0.9, { cast: true });
     gs.desc.minQuality = 'medium';

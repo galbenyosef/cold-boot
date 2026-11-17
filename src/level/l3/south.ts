@@ -65,11 +65,21 @@ const CABINS: Record<string, { n: string; color: number }> = {
   d3_q4: { n: 'A 4', color: 0x9a5a48 }, d3_q5: { n: 'A 5', color: 0x7d7a6c }, d3_q6: { n: 'A 6', color: 0x4f6a5e },
 };
 /** Level 3's civilian doors get habitat leaves (no chevrons); everything industrial stays as built. */
+/** Frosted (acid-etched) glass: milky, opaque to the eye; `transparent` keeps the habitat leaf's glazed build. */
+function frostedGlass(L: LevelBuild): THREE.MeshStandardMaterial {
+  const m = L.ctx.materials.clone('plastic_white', { color: 0xd3dcdb, map: null, normalMap: null, roughness: 0.42, metalness: 0, transparent: true, opacity: 1, depthWrite: true });
+  m.name = 'd3_frosted_glass';
+  return m;
+}
 function styleDoors(L: LevelBuild) {
+  let frosted: THREE.MeshStandardMaterial | undefined;
   const veneer: Partial<DoorSpec> = { style: 'habitat', leafMat: 'wood_veneer' };
   setDoorStyler(L, (s) => {
     switch (s.id) {
-      case 'd3_lobby': case 'd3_canteen_atr': case 'd3_quarters': case 'd3_clinic': return { style: 'habitat' };
+      case 'd3_lobby': case 'd3_canteen_atr': case 'd3_quarters': return { style: 'habitat' };
+      // (stage 3b B9: the clinic's glass is frosted — its portal is `see: false`, so a clear leaf showed the void where
+      // the culled atrium should be; frosted = opaque to the eye, still the glazed habitat leaf)
+      case 'd3_clinic': return { style: 'habitat', leafMat: frosted ??= frostedGlass(L) };
       case 'd3_lobby_inner': return { ...veneer, plates: [null, 'Staff'] };
       case 'd3_office': return { ...veneer, plates: ['P. Halvorsen', null] };
       case 'd3_stair_w': case 'd3_canteen': return { ...veneer, vision: true };

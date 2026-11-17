@@ -87,6 +87,8 @@ export class Probes {
     this.cubeCamera = new THREE.CubeCamera(0.08, 90, this.cubeRT);
     this.cubeCamera.layers.enableAll();
     this.cubeCamera.layers.disable(viewmodelLayer);
+    // (the face cameras see what a level's view culling set aside for the main view: layer 30, render/index.ts)
+    for (const c of this.cubeCamera.children) c.layers.enable(30);
 
     this.blendMat = new THREE.ShaderMaterial({
       name: 'EnvBlend',

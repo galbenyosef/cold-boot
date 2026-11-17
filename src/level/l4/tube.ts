@@ -150,15 +150,17 @@ function tubeBuild(L: LevelBuild) {
 
   // the sea (§2.9): two viewports, drawn only while the tube is drawn and only along rays through their panes
   const fx = L.ctx.fx as FxSystemEx;
-  const common = { width: 34, height: 2.6, depth: 12, spread: 0.1, visibility: 6, seabed: -2, shapes: 1, shapeGap: 90, state: 'cold' as const, rooms: ['tube'], seenFrom: ['chk', 'gatel'] };
+  const common = { width: 34, height: 2.6, depth: 12, spread: 0.1, visibility: 6, seabed: -2, shapes: 1, shapeGap: 90, state: 'cold' as const, rooms: ['tube'], seenFrom: ['chk', 'gatel'], heads: 0.6, desat: 0.7 };
   const west = fx.viewport({
     ...common, id: 'fx4_sea_w', position: V(30.0, 1.7, RING_Z), normal: V(1, 0, 0), cable: null,
-    floods: [{ at: [0, 2.2, 1.0], dir: [0, -1, 0.6], intensity: 0.35 }, { at: [-12, 2.2, 1.0], dir: [0.1, -1, 0.6], intensity: 0.3 }],
+    // (B8: the flood heads stand 2.5 m out in the water at y ≈ 2.6, inside the pane's view — each beam starts at a lamp
+    // you can see; at 1 m out and 3.9 high they hid above the pane and the cones read as unexplained glows)
+    floods: [{ at: [0, 0.9, 2.5], dir: [0, -1, 0.55], intensity: 0.55 }, { at: [-12, 0.9, 2.5], dir: [0.1, -1, 0.55], intensity: 0.45 }],
   });
   const east = fx.viewport({
     ...common, id: 'fx4_sea_e', position: V(34.0, 1.7, RING_Z), normal: V(-1, 0, 0),
     cable: { from: V(40, -3, -101), to: V(44, 30, -112), radius: 0.08, markers: 3 },
-    floods: [{ at: [-8, 2.0, 1.4], dir: [0.2, -1, 0.7], intensity: 0.5 }, { at: [10, 2.2, 1.0], dir: [0, -1, 0.6], intensity: 0.3 }],
+    floods: [{ at: [-8, 0.8, 3.0], dir: [0.2, -1, 0.65], intensity: 0.7 }, { at: [10, 0.9, 2.5], dir: [0, -1, 0.55], intensity: 0.45 }],
   });
   const o = L.marker('tube_fx', TX, 1.7, RING_Z);
   o.userData = { west, east };
@@ -196,8 +198,8 @@ function cabinet(b: Builder, L: LevelBuild, s: number, z: number, label: string,
 const TUBE_LIGHTS: LightRow[] = [
   // (LOW has only these two: at the plan's −78 / −96 with d 12 the last 8 m before the gate lock went near-black on LOW;
   // −76 / −98 with d 14 keep the whole walk readable, the ring between them in their overlap)
-  { group: 'tube', type: 'point', p: [TX, 3.15, -76], color: 0xc4dcf4, i: 8, d: 14 },
-  { group: 'tube', type: 'point', p: [TX, 3.15, -98], color: 0xc4dcf4, i: 8, d: 14 },
+  { group: 'tube', type: 'point', p: [TX, 3.15, -79], color: 0xc4dcf4, i: 8, d: 14 }, // (B10: 7 m either side of the ring — the fight's centre was the darkest stretch)
+  { group: 'tube', type: 'point', p: [TX, 3.15, -93], color: 0xc4dcf4, i: 8, d: 14 },
   { group: 'tube', type: 'point', p: [TX, 3.15, -70], color: 0xc4dcf4, i: 4, d: 8, min: 'medium' },
   { group: 'tube', type: 'point', p: [TX, 3.15, -104], color: 0xc4dcf4, i: 4, d: 8, min: 'medium' },
 ];

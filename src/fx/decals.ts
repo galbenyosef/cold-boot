@@ -68,6 +68,51 @@ function chainState(o: THREE.Object3D): 'shown' | 'hidden' | null {
   return vis ? 'shown' : 'hidden';
 }
 
+/** Private decal (not a library `DecalName`): the glass star, placed through `place(GLASS_STAR, …)`. */
+export const GLASS_STAR = '__glass_star' as DecalName;
+function glassStarMaterial(): THREE.Material {
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  let seed = 7;
+  const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const cx = S / 2, cy = S / 2;
+  // crushed core: a frosted disc with a dark hole
+  const cg = g.createRadialGradient(cx, cy, 0, cx, cy, S * 0.09);
+  cg.addColorStop(0, 'rgba(255,255,255,0.95)'); cg.addColorStop(0.6, 'rgba(235,242,246,0.7)'); cg.addColorStop(1, 'rgba(235,242,246,0)');
+  g.fillStyle = cg; g.beginPath(); g.arc(cx, cy, S * 0.09, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(20,24,26,0.8)'; g.beginPath(); g.arc(cx, cy, S * 0.012, 0, Math.PI * 2); g.fill();
+  // radial cracks with branches, and a few concentric arcs
+  g.strokeStyle = 'rgba(245,250,252,0.9)'; g.lineCap = 'round';
+  const n = 11 + Math.floor(r() * 4);
+  for (let i = 0; i < n; i++) {
+    let a = (i / n) * Math.PI * 2 + r() * 0.4, x = cx, y = cy;
+    const len = S * (0.22 + r() * 0.26);
+    g.lineWidth = 1.6;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 6; k++) {
+      a += (r() - 0.5) * 0.35;
+      x += Math.cos(a) * len / 6; y += Math.sin(a) * len / 6;
+      g.lineTo(x, y);
+      if (r() < 0.3) { const b = a + (r() < 0.5 ? 0.6 : -0.6); g.moveTo(x, y); g.lineTo(x + Math.cos(b) * len * 0.15, y + Math.sin(b) * len * 0.15); g.moveTo(x, y); }
+    }
+    g.stroke();
+  }
+  g.lineWidth = 1;
+  for (const rr of [0.07, 0.13]) {
+    g.beginPath();
+    for (let i = 0; i < 9; i++) { const a0 = r() * Math.PI * 2; g.moveTo(cx + Math.cos(a0) * S * rr, cy + Math.sin(a0) * S * rr); g.arc(cx, cy, S * rr, a0, a0 + 0.3 + r() * 0.3); }
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.MeshStandardMaterial({
+    name: 'fx_glass_star', map: t, color: 0xeef4f8, transparent: true, depthWrite: false, roughness: 0.25, metalness: 0,
+    emissive: 0x8a96a0, emissiveMap: t, emissiveIntensity: 0.12, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+  });
+  return m;
+}
+
 export class Decals {
   readonly root = new THREE.Group();
   private batches = new Map<DecalName, Batch[]>();
@@ -94,6 +139,8 @@ export class Decals {
       }
       this.batches.set(name, list);
     }
+    // Stage 3b (B9): a pale crazed star for hits on glass (the library's bullet pits are dark — invisible on dark panes)
+    this.batches.set(GLASS_STAR, [this.makeBatch(glassStarMaterial(), 32, 'fx_decal_glass_star')]);
   }
 
   private makeBatch(mat: THREE.Material, cap: number, name: string): Batch {

@@ -32,7 +32,7 @@ import { D2, type RoomId4 } from './grey';
 import type { RoomDress } from './index';
 import {
   benchIsland, clinicalSign, filingWall, fumeHood, glow4, hepaDiffuser, jetPanel, labWhite, lockerBank,
-  luminaire, nozzleGrid, rackLedMat, serverRack, stepOverBench, stripMat, suitRack, ultFreezer, type Nozzles,
+  luminaire, nozzleGrid, rackLedMat, serverRack, stepOverBench, stripMat, styleDoors4, installPortalCull4, OPENINGS4, suitRack, ultFreezer, type Nozzles,
 } from './kit4';
 import { body } from './setpieces';
 
@@ -241,6 +241,8 @@ const lock4: RoomDress = {
   look: { floor: 'floor_epoxy', wall: 'wall_clean', ceiling: 'ceiling_clean' },
   lights: [],
   build(L) {
+    styleDoors4(L);
+    installPortalCull4(L, OPENINGS4);
     const b = L.builder('lock4_dress');
     const H = Y + 3.0;
     const lum = glow4(L, 'lum_lock4', 0xeef4ff, 0.35);
@@ -274,7 +276,7 @@ const lock4: RoomDress = {
     const bounds = new THREE.Box3(new THREE.Vector3(-1.8, Y, 0.2), new THREE.Vector3(1.8, H - 0.02, 3.8));
     const mist = pts.map((p) => {
       const d = new THREE.Vector3((p.x > 0 ? -1 : 1) * 0.12, -1, (p.z - 2.0) * 0.2).normalize();
-      const e = fx.emitter('steam', p, d, 32, { bounds, rooms: ['lock4'], seenFrom: ['gown'], id: 'fx4_decon', speed: 0.6 });
+      const e = fx.emitter('steam', p, d, 40, { bounds, rooms: ['lock4'], seenFrom: ['gown'], id: 'fx4_decon', speed: 0.5, jet: true });
       e.enabled = false;
       return e;
     });
@@ -304,7 +306,7 @@ const gown: RoomDress = {
     lit(L, [
       { group: 'gown', type: 'point', p: [0, H - 0.3, -3.4], color: CLEAN, i: 6.5, d: 8 },
       { group: 'gown', type: 'point', p: [-2.4, H - 0.3, -1.4], color: CLEAN, i: 3, d: 6, min: 'medium' },
-      emRow('gown', [0, H - 0.2, -3.0], 2.5, 8),
+      emRow('gown', [0, H - 0.2, -3.0], 1.4, 7),
     ], [[0, lum, 0.35], [2, emL, 0.35]]);
     for (const [x, z] of [[-2.0, -1.6], [2.0, -1.6], [-2.0, -4.4], [2.0, -4.4]] as const) b.at(x, H, z, 0, () => luminaire(b, L, { glow: lum }));
     for (const z of [-1.6, -4.4]) b.at(0, H, z, 0, () => hepaDiffuser(b, L));
@@ -433,7 +435,7 @@ const shower: RoomDress = {
     for (const nz of jets) for (const p of nz.points) {
       if (hid.containsPoint(p)) continue;
       const d = nz.dir.clone().add(new THREE.Vector3(0, -0.25, 0)).normalize();
-      const e = fx.emitter('steam', p, d, 14, { bounds, rooms: ['shower'], seenFrom: ['corr_n'], id: 'fx4_shower', speed: 0.8 });
+      const e = fx.emitter('steam', p, d, 26, { bounds, rooms: ['shower'], seenFrom: ['corr_n'], id: 'fx4_shower', speed: 0.55, jet: true });
       e.enabled = false;
       ems.push(e);
     }
@@ -460,10 +462,10 @@ const corr_n: RoomDress = {
     const emL = glow4(L, 'em_corr_n', EMERG, 0.35);
     const emR = glow4(L, 'em_red_corr_n', 0xff3a24, 0.35, 0xc8b0ac);
     lit(L, [
-      { group: 'corr_n', type: 'point', p: [-5.5, H - 0.55, -10.5], color: CLEAN, i: 10, d: 11 },
-      { group: 'corr_n', type: 'point', p: [5.5, H - 0.55, -10.5], color: CLEAN, i: 10, d: 11 },
+      { group: 'corr_n', type: 'point', p: [-7, H - 0.55, -10.5], color: CLEAN, i: 10, d: 12 }, // (B10: ±7 — at ±5.5 the corners into corr_w / corr_e went black on LOW and MEDIUM)
+      { group: 'corr_n', type: 'point', p: [7, H - 0.55, -10.5], color: CLEAN, i: 10, d: 12 },
       { group: 'corr_n', type: 'point', p: [-12.5, H - 0.55, -10.5], color: CLEAN, i: 6, d: 8, min: 'high' },
-      emRow('corr_n', [0, H - 0.2, -10.5], 2.8, 16),
+      emRow('corr_n', [0, H - 0.2, -10.5], 1.2, 9),
       emRow('corr_n', [-14.4, H - 0.4, -9.6], 2.5, 6, RED, 'medium'),
     ], [[0, lum, 0.35], [3, emL, 0.35], [4, emR, 0.35]]);
     for (let x = -13.5; x <= 13.6; x += 3) b.at(x, H, -10.5, 0, () => luminaire(b, L, { glow: lum }));
@@ -552,7 +554,7 @@ const wetlab: RoomDress = {
       { group: 'wetlab', type: 'point', p: [-7.0, H - 0.8, -14.9], color: CLEAN, i: 8, d: 11 },
       { group: 'wetlab', type: 'point', p: [-2.0, H - 0.8, -21.1], color: CLEAN, i: 8, d: 11 },
       { group: 'wetlab', type: 'spot', p: [-6, Y + 2.2, -22.85], t: [-6, Y + 0.9, -23.4], color: 0xf4fbff, i: 5, d: 3, angle: 1.0, min: 'medium' },
-      emRow('wetlab', [-4, H - 0.2, -18], 3, 14),
+      emRow('wetlab', [-4, H - 0.2, -18], 1.6, 10),
     ], [[0, lum, 0.35], [0, hoodGlow, 0.3], [3, emL, 0.35]]);
     for (const x of [-9.5, -4.5, 0.5]) for (const z of [-14.2, -18.0, -21.6]) b.at(x, H, z, 0, () => luminaire(b, L, { glow: lum }));
     for (const x of [-7, -2]) for (const z of [-16.1, -19.8]) b.at(x, H, z, 0, () => hepaDiffuser(b, L));
@@ -722,7 +724,7 @@ const pi_office: RoomDress = {
     lit(L, [
       { group: 'pi_office', type: 'spot', p: [7.0, 6.6, -12.9], t: [7.4, 5.55, -13.4], color: 0xfff2dc, i: 8, d: 5, angle: 1.0, cast: true, prio: 0.8 },
       { group: 'pi_office', type: 'point', p: [8, H - 0.65, -16.5], color: CLEAN, i: 4.5, d: 8 },
-      emRow('pi_office', [8, H - 0.2, -16], 2.5, 9),
+      emRow('pi_office', [8, H - 0.2, -16], 1.4, 8),
     ], [[0, lamp, 0.35], [1, lum, 0.35], [2, emL, 0.35]]);
     for (const [x, z] of [[6.2, -15.0], [9.8, -15.0], [6.2, -18.0], [9.8, -18.0]] as const) b.at(x, H, z, 0, () => luminaire(b, L, { glow: lum }));
     b.at(8, H, -13.4, 0, () => hepaDiffuser(b, L));
