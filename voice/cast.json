@@ -191,6 +191,14 @@
       "refText": "Hello? Sorry to bother you. I think there's something wrong with the door. Can you hear me?",
       "fx": "door",
       "why": "STAGE 3a, measurement only: 'high pitch' (plan said moderate) because moderate came out at 246-271 Hz = Voss/Unit. F0 ~314 Hz. Heard through the door low-pass. Runner-ups: auditions 4, 1 (voice/auditions/resident)."
+    },
+    "sunde": {
+      "name": "DR. A. SUNDE",
+      "describe": "female, middle-aged",
+      "seed": 2,
+      "refText": "Log entry. Um. The gel batch is stable at minus twenty. Fitting times are... down again. I want that on the record.",
+      "fx": "screen",
+      "why": "Provisional (stage 3b W8): halting video-log voice; candidates in voice/auditions/sunde for the user to pick."
     }
   },
   "_fx": "Run-time processing names (src/audio/voice.ts): clean, choir (choir:N = N layers), intercom, headset (alias radio), unit, recorder, pa, foreman. Resolution: line.fx > first matching fxRules entry (id regex / note substring) > variant fx > character fx."

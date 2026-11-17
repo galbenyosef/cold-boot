@@ -1,0 +1,14 @@
+{
+  "describe": "female, middle-aged",
+  "seed": 2,
+  "refText": "Log entry. Um. The gel batch is stable at minus twenty. Fitting times are... down again. I want that on the record.",
+  "language": "en",
+  "source": "audition 8",
+  "sha": "9773618391dad00d",
+  "duration": 6.41,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "log entry um the gel batch is stable at minus twenty fitting times are down again i want that on the record"
+  }
+}
