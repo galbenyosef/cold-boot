@@ -112,3 +112,11 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `fire()` cues: splash ≈1.07 s (key the splash sound on `part` at 0.25 if the plan's timing is wanted). D3a: frame work
   lamp at `frame6.userData.lampPoint`→`lampTarget`, bj glow at `bj6.userData.glowPoint`. Weak: tether poorly visible,
   winch greybox-level, no fibre stubs on the ripped connector, lever guard a box, puddles flat black in the feed set.
+- 3d W4a: `check:nav --level 6` + `check:nav all`; `check:reach all`; zfight + doors L1–5 (context.ts touched);
+  `check:physics` (rewrite its stale level-6-stub case); `check:chain` (stub button `l6_stub_end` until ST-a);
+  fxleak/dark L6; perf views; `play:l5`. Unify the three flagged-collider paths (context.ts `L.flagged`/`extraColliders`
+  vs W4b `extraCollider` vs kit6/setpieces6 `moveOnlyColliders6`). check-reach: reload per row so snaps don't leak.
+  Rail/guard tops are dynamic boxes that stop rounds in a 0.3 m band (acceptable? look). Plan deviations to fold into
+  DESIGN at IA: trench treads 0.35, tent 0.8 m south, shaft guard on L2 north edge dropped, cover moves (COVER6_NOTES).
+- Run gates 3/4 of the 3d plan (loader-in-motion review on the chamber, perf view (9) with loader + six enemies) were
+  NOT run before wave 2 (user's test rule) — do them at 3d IA/IB; D3a measures its own views meanwhile.
