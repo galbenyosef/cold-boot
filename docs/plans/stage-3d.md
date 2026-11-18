@@ -1026,9 +1026,9 @@ Soldier data as 3c (`EnemySpawn.arms`, `.cover`, pose `hold`); husks are `navy` 
 | `g6_vault` | 1 soldier (set `vault`) + 2 husks | spawn in hold6 | same markers | pull + 5 s | |
 | `g6_vault_k` | 3 skitters | spawn in the trench under G1/G2/G3 (y −1.0), or under `vent6_vault` (−5.6, 5.9, −160.0), (−6.4, 5.9, −160.0), (−6.0, 5.9, −159.4) | | pull + 5 s | |
 | `g6_shaft` | 1 husk | spawn under L3 | `mk6_shaft_u` (−26.8, −12, −162.8), yaw π | §4.7 | the thing climbing in the dark |
-| `g6_loader` | **the loader** | dormant pose `working` from load (sealed chamber: never visible or reachable before phase K) | rig on its rails, grab over the well | §4.8 | the boss |
+| `g6_loader` | **the loader** | `mode: 'spawn'`, pose `working`; **spawned when Key B turns** (D31) and by `afterReplay` while `shaftOpen && !loaderDead` — never in `triggered` (§7.1) | rig on its rails, grab over the well holding B-14 | §4.6 (Key B), §4.8 | the boss |
 | `g6_w1` (+ twin `g6_w1_r`) | 2 soldiers (sets `gal_n`, `gal_w`) | spawn in stores6 | `mk6_w1_a` (−72.0, −12, −144.0), `mk6_w1_b` (−68.0, −12, −144.0), yaw 0 | hostile start + 2 s | long-range fire from the galleries |
-| `g6_w2` (+ `g6_w2_r`) | 4 husks, `emerge: 'climb'` (§8.4) | spawn under water at the ladder feet | (−57.3, −23.2, −176.4), (−57.3, −25.6, −175.6) west; (−46.7, −23.2, −176.4), (−46.7, −25.6, −175.6) east (≥ 2.9 m under the surface: hidden, the water stops sight) | pin + 1.5 s | "something in the water" made real |
+| `g6_w2` (+ `g6_w2_r`) | 4 husks, `pose: 'climb'` (§8.4; kinematic from spawn to exit) | spawn under water at the ladder feet | (−57.3, −23.2, −176.4), (−57.3, −24.4, −175.6) west; (−46.7, −23.2, −176.4), (−46.7, −24.4, −175.6) east (head ≥ 1.0 m under the surface: hidden, the water stops sight; the second climber 5.2 m up = 6.6 s to its exit, S1c) | pin + 1.5 s | "something in the water" made real |
 | `g6_w3` (+ `g6_w3_r`) | 2 soldiers (set `gal_e`) + 1 husk | spawn at the shaft bottom, `d6_pool` shut and the player not in shaft6 (else in stores6, phase K_stores) | `mk6_w3_a` (−24.0, −12, −163.4), `mk6_w3_b` (−26.6, −12, −163.4), `mk6_w3_u` (−26.8, −12, −170.8) (all under L3 / L2) | pressure full, when ≤ 3 non-loader hostiles live (else as soon as it holds) | CHOIR brings hands from behind him |
 
 Totals: **10 soldiers**, **14 husks**, **5 skitters**, **1 sentry**, **the loader**. Waits on enemies: the boss end (the
@@ -1038,38 +1038,45 @@ the 3c damage cap (18 health+armour / s from all soldiers) and 2 fire tokens hol
 
 ### 5.2 Pickups
 
-| id | kind | amount | where (stand ≤ 1.6 m from the eye) |
-|---|---|---|---|
-| `p6_lock_ammo` | ammo_carbine | 30 | (3.4, 1.0, 1.2) tray-end shelf |
-| `p6_tun_med` | medkit | 35 | (−1.85, 1.85, −24.0) on JB1 |
-| `p6_tun_ammo` | ammo_carbine | 30 | (1.85, 1.85, −40.0) on JB2 |
-| `p6_tun_plate` | plate | 15 | (−1.85, 1.85, −56.0) on JB3 |
-| `p6_rep_ammo_1`, `_2` | ammo_carbine | 30 each | (15.6, 1.0, −89.5), (15.6, 1.0, −88.6) east-wall shelf |
-| `p6_rep_med` | medkit | 35 | (−5.6, 1.0, −82.0) first-aid box |
-| `p6_rep_shells` | ammo_shotgun | 8 | (7.6, 1.2, −82.2) on LC2 |
-| `p6_bay_plate`, `p6_bay_ammo` | plate 15, ammo_carbine 30 | | (20.1, 1.0, −104.4), (20.1, 1.0, −103.6) bay shelf |
-| `p6_tunb_ammo` | ammo_carbine | 30 | (13.6, 2.0, −125.0) on RH2 |
-| `p6_tunb_med` | medkit | 35 | (10.4, 2.0, −141.0) on RH3 |
-| `p6_he_vest` | vest (E, "Put on vest") | 50 | (3.2, 1.3, −160.75) locker |
-| `p6_he_ammo_1`, `_2` | ammo_carbine | 30 each | (15.6, 1.0, −179.3), (15.0, 1.0, −179.3) console east end |
-| `p6_he_med` | medkit | 35 | (21.5, 1.0, −176.0) |
-| `p6_he_shells`, `p6_he_pistol` | ammo_shotgun 8, ammo_pistol 24 | | (2.4, 1.0, −172.0), (2.4, 1.0, −171.4) west shelf |
-| `p6_vault_ammo`, `p6_vault_med` | ammo_carbine 30, medkit 35 | | (1.6, 1.0, −150.0), (1.6, 1.0, −151.0) east shelf |
-| `p6_vault_plate` | plate | 15 | (−3.0, 1.8, −151.4) on NR |
-| `p6_trench_plate_1`, `_2` | plate | 15 each | (−12.4, −1.25, −176.4), (−12.4, −1.25, −175.8) (the jointer's kit) |
-| `p6_trench_ammo_1`, `_2` | ammo_carbine | 30 each | (−10.0, −1.25, −178.8), (−9.4, −1.25, −178.8) |
-| `p6_trench_med` | medkit | 35 | (−8.6, −1.25, −178.8) |
-| `p6_shaft_ammo` | ammo_carbine | 30 | (−22.4, −5.0, −171.1) fire-point cabinet at L2 |
-| `p6_shaft_med` | medkit | 35 | (−27.4, −11.2, −171.4) on the bottom box |
-| `p6_ge_ammo_1`, `_2`, `p6_ge_med` | ammo_carbine 30 × 2, medkit | | (−28.6, −11.0, −194.6), (−28.6, −11.0, −194.0), (−28.6, −11.0, −193.4) east gallery locker |
-| `p6_gw_ammo`, `p6_gw_plate`, `p6_gw_shells` | ammo_carbine 30, plate, ammo_shotgun 8 | | (−75.4, −11.0, −194.6), (−75.4, −11.0, −194.0), (−75.4, −11.0, −193.4) west gallery locker |
-| `p6_mid_ammo` | ammo_carbine | 30 | (−65.4, −14.8, −159.4) on MC1 |
-| `p6_mid_med`, `p6_mid_plate` | medkit, plate | | (−39.4, −14.8, −159.6), (−39.4, −14.8, −159.0) on MC2 |
-| `p6_uc_ammo_1`, `_2` | ammo_carbine | 30 each | (−63.4, −18.2, −155.0), (−62.6, −18.2, −155.0) on P1 |
-| `p6_uc_med`, `p6_uc_plate` | medkit, plate | | (−41.4, −18.2, −155.0), (−40.6, −18.2, −155.0) on P2 |
-| `p6_ww_ammo`, `p6_ww_med` | ammo_carbine 30, medkit | | (−70.0, −19.0, −195.5), (−34.0, −19.0, −195.5) window-walk fire points |
-| `p6_cage_ammo`, `p6_cage_plate` | ammo_carbine 30, plate | | (−54.5, −15.0, −167.0), (−54.5, −15.0, −166.5) on a box in the cage's north-west corner (x −54.8 … −54.2, z −167.2 … −166.2, h 1.0) |
-| (drop) each soldier | ammo_carbine 15 — **or the carbine itself (30) if the player owns none** (3c S6) | | on its body (touch) |
+Every auto pickup obeys the as-built rule (conventions; S1b): item ≤ 1.3 m above the floor it is taken from, ≤ 0.3 m
+behind the face it is approached from, a stand point ≤ 1.0 m horizontally from it. Columns: item centre; the surface it
+lies on (top y above its floor); distance to the approach face; the stand point.
+
+| id | kind | amount | item centre | surface (top above floor) | to face | stand (feet) |
+|---|---|---|---|---|---|---|
+| `p6_lock_ammo` | ammo_carbine | 30 | (3.4, 1.0, 1.2) | tray-end shelf (1.0) | 0.2 (west face) | (2.6, 0, 1.2) |
+| `p6_tun_med` | medkit | 35 | (−1.25, 1.0, −24.0) | bracket shelf on JB1's corridor face x −1.4 (1.0) | 0.15 | (−0.5, 0, −24.0) |
+| `p6_tun_ammo` | ammo_carbine | 30 | (1.25, 1.0, −40.0) | bracket shelf on JB2 (face x 1.4) | 0.15 | (0.5, 0, −40.0) |
+| `p6_tun_plate` | plate | 15 | (−1.25, 1.0, −56.0) | bracket shelf on JB3 | 0.15 | (−0.5, 0, −56.0) |
+| `p6_rep_ammo_1`, `_2` | ammo_carbine | 30 each | (15.6, 1.0, −89.5), (15.6, 1.0, −88.6) | east-wall shelf x 15.4 … 15.8 (1.0) | 0.2 | (14.8, 0, −89.0) |
+| `p6_rep_med` | medkit | 35 | (−5.55, 1.0, −82.0) | first-aid box on the west wall (1.0) | 0.25 | (−4.8, 0, −82.0) |
+| `p6_rep_shells` | ammo_shotgun | 8 | (7.6, 1.25, −82.6) | LC2 top (1.2), at its south edge | 0.2 (south face −82.8) | (7.6, 0, −83.5) |
+| `p6_bay_plate`, `p6_bay_ammo` | plate 15, ammo_carbine 30 | | (20.1, 1.0, −104.4), (20.1, 1.0, −103.6) | bay shelf x 19.9 … 20.3 (1.0) | 0.2 | (19.3, 0, −104.0) |
+| `p6_tunb_ammo` | ammo_carbine | 30 | (12.75, 1.0, −125.0) | bracket shelf on RH2's face x 12.9 | 0.15 | (12.0, 0, −125.0) |
+| `p6_tunb_med` | medkit | 35 | (11.25, 1.0, −141.0) | bracket shelf on RH3's face x 11.1 | 0.15 | (12.0, 0, −141.0) |
+| `p6_he_vest` | vest (E, "Put on vest") | 50 | (3.2, 1.3, −160.75) | locker hook (interaction, not auto) | — | (3.2, 0, −161.6) |
+| `p6_he_ammo_1`, `_2` | ammo_carbine | 30 each | (15.6, 1.05, −179.0), (15.0, 1.05, −179.0) | console desk (1.0), at its north edge | 0.2 (north face −178.8) | (15.3, 0, −178.2) |
+| `p6_he_med` | medkit | 35 | (21.55, 1.0, −176.0) | first-aid box on the east wall (1.0) | 0.25 | (20.8, 0, −176.0) |
+| `p6_he_shells`, `p6_he_pistol` | ammo_shotgun 8, ammo_pistol 24 | | (2.4, 1.0, −172.0), (2.4, 1.0, −171.4) | west shelf x 2.2 … 2.6 (1.0) | 0.2 | (3.2, 0, −171.7) |
+| `p6_vault_ammo`, `p6_vault_med` | ammo_carbine 30, medkit 35 | | (1.6, 1.0, −150.0), (1.6, 1.0, −151.0) | east shelf x 1.4 … 1.8 (1.0) | 0.2 | (0.8, 0, −150.5) |
+| `p6_vault_plate` | plate | 15 | (−3.0, 1.0, −150.65) | bracket shelf on NR's north face −150.8 | 0.15 | (−3.0, 0, −149.9) |
+| `p6_trench_plate_1`, `_2` | plate | 15 each | (−12.4, −1.25, −176.4), (−12.4, −1.25, −175.8) | the trench floor (0.15) | — | crouched in T-a |
+| `p6_trench_ammo_1`, `_2` | ammo_carbine | 30 each | (−10.0, −1.25, −178.8), (−9.4, −1.25, −178.8) | the trench floor | — | crouched in T-b |
+| `p6_trench_med` | medkit | 35 | (−8.6, −1.25, −178.8) | the trench floor | — | crouched in T-b |
+| `p6_shaft_ammo` | ammo_carbine | 30 | (−22.4, −5.0, −171.1) | fire-point cabinet shelf at L2 (1.0) | 0.2 | (−23.2, −6, −171.1) |
+| `p6_shaft_med` | medkit | 35 | (−27.4, −11.2, −171.4) | the bottom box (0.8) | 0.2 | (−26.6, −12, −171.4) |
+| `locker6_e` | **dock ammo locker** (interaction "Take ammo", re-armed each boss restore) | carbine 60 | (−28.4, −11.0, −194.6), use point (−28.9, −11.0, −194.6) | east gallery wall | — | (−29.6, −12, −194.6) |
+| `p6_ge_med` | medkit | 35 | (−28.5, −11.0, −193.6) | the locker's shelf (1.0) | 0.3 | (−29.4, −12, −193.6) |
+| `locker6_w` | dock ammo locker | carbine 30 + shells 8 | (−75.6, −11.0, −194.6), use point (−75.1, −11.0, −194.6) | west gallery wall | — | (−74.4, −12, −194.6) |
+| `p6_gw_plate` | plate | 15 | (−75.5, −11.0, −193.6) | the locker's shelf | 0.3 | (−74.6, −12, −193.6) |
+| `locker6_n` | dock ammo locker (S9) | carbine 60 | (−52.0, −11.0, −148.4), use point (−52.0, −11.0, −148.9) | north gallery wall, under the dock board | — | (−52.0, −12, −149.6) |
+| `p6_mid_ammo` | ammo_carbine | 30 | (−65.4, −14.75, −159.0) | MC1 top (1.2), at its north edge | 0.2 (north face −158.8) | (−65.4, −16, −158.1) |
+| `p6_mid_med`, `p6_mid_plate` | medkit, plate | | (−39.8, −14.75, −159.0), (−39.0, −14.75, −159.0) | MC2 top, north edge | 0.2 | (−39.4, −16, −158.1) |
+| `p6_uc_ammo_1`, `_2` | ammo_carbine | 30 each | (−63.4, −19.0, −153.8), (−62.6, −19.0, −153.8) | tool shelf on P1's north face −154.0 (1.0) | 0.2 | (−63.0, −20, −153.0) |
+| `p6_uc_med`, `p6_uc_plate` | medkit, plate | | (−41.4, −19.0, −153.8), (−40.6, −19.0, −153.8) | tool shelf on P2's north face | 0.2 | (−41.0, −20, −153.0) |
+| `p6_ww_ammo`, `p6_ww_med` | ammo_carbine 30, medkit | | (−70.0, −19.0, −195.5), (−34.0, −19.0, −195.5) | window-walk fire points on the south wall (1.0) | 0.3 | (−70.0, −20, −194.7), (−34.0, −20, −194.7) |
+| `p6_cage_ammo`, `p6_cage_plate` | ammo_carbine 30, plate | | (−54.5, −15.0, −167.0), (−54.5, −15.0, −166.5) | the cage box (1.0) | 0.3 (east face −54.2) | (−53.7, −16, −166.8) |
+| (drop) each soldier | ammo_carbine 15 — **or the carbine itself (30) if the player owns none** (3c S6) | | on its body (touch; a body in water deeper than 0.6 m drops nothing — it sinks) | | | |
 
 ### 5.3 Economy and TTK (player weapons as built: pistol 20, shotgun 9 × 9, carbine 18 × 0.8 beyond 40 m; aim RMB)
 
@@ -1080,15 +1087,17 @@ the 3c damage cap (18 health+armour / s from all soldiers) and 2 fire tokens hol
 | skitter | 18 | — | 1 | 1 | 1 |
 | sentry | 60 | — | 3 | 1 | 4 |
 | loader flood (× 4) | 40 | 1.0 | 2 | 1 | 3 |
-| loader jaw ram (× 2) | 200 | **1.0 extended** (amber glass lit) / 0.1 retracted | 10 | 3 shells | 12 / ≈ 1.2 s (a 3.2 s window: the lock 0.8 + recovery 2.4) |
-| loader pod | 500 | **0.1 cowl shut → 1.0 open** (after both rams) | 25 | (out of range) | 28 / ≈ 2.8 s on target |
+| loader jaw ram (× 2) | 200 | **1.0 extended** (amber glass lit) / **0 retracted** (clank, sparks, pip shake — S3) | 10 | 3 shells | 12 / ≈ 1.2 s (a 3.2 s window: the lock 0.8 + recovery 2.4) |
+| loader pod | 500 | **0 cowl shut → 1.0 open** (after both rams) | 25 | (out of range) | 28 / ≈ 2.8 s on target |
 | loader body | — | 0.05 (sparks, R2) | | | |
 
-HP to clear on the main route: soldiers 1,000 + husks 1,260 + skitters 90 + sentry 60 + the loader's required parts 900
-(+ 160 floods, optional) = **3,310** ≈ 185 carbine hits ≈ 370 rounds at 50 %. Carbine rounds on the main route: 540 in
-pickups (+ 60 in the trench) + 150 in drops = **690** (+ the carry; the 180 reserve cap keeps it sane). The arena alone:
-loader 900 + W1–W3 (4 soldiers, 5 husks) 850 = 1,750 HP ≈ 200 rounds at 50 %; the arena holds 240 + 60 in drops = 300
-(1.5 ×; `--dry` proves it, §10.1). Medkits 11 (+1 trench), plates 9 (+2 trench), vest 50. Every fight has ≥ 30 carbine
+**Budget in hits (S9):** the main route needs soldiers 10 × 7 = 70, husks 14 × 5 = 70, skitters 5, the sentry 4, the
+loader's rams 2 × 12 = 24 and pod 28 → **201 carbine hits ≈ 402 rounds at 50 %**. Carbine rounds on the main route (all
+reachable under the pickup rule, §5.2): 300 before the arena + 300 in it (pickups and the dock lockers) = **600** (+ 60 in the trench) + 150 in drops = **750** (+ the carry; the 180 reserve cap keeps it sane). **The arena
+alone** needs rams 24 + pod 28 + W1/W3 soldiers 4 × 7 = 28 + W2/W3 husks 5 × 5 = 25 = **105 hits = 210 rounds at 50 %**; it
+holds the three dock lockers 150 + mid deck 30 + undercroft 60 + window walk 30 + cage 30 = **300** + 4 drops × 15 = 60 →
+**360 (1.71 ×, 42 % left over)**; `--dry` proves ≥ 30 % (§10.1). And **every boss restore tops the reserve to ≥ 90 and
+re-arms the lockers** (B5), so a restore never leaves him dry. Medkits 11 (+1 trench), plates 9 (+2 trench), vest 50. Every fight has ≥ 30 carbine
 rounds and a medkit ≤ 15 m before it. A player with no carbine (3b skippable) gets one from the first soldier he kills
 (3c S6 rule) — the direct start always has one.
 
@@ -1153,13 +1162,17 @@ or in water deeper than 0.6 m (the wet points stand in 0.5 m). W4 self-tests eac
 
 | wave | at | contents | route / behaviour | restore |
 |---|---|---|---|---|
-| W1 | hostile start + 2.0 s | 2 soldiers from stores6 onto the north gallery | covers `gal_n`, then `gal_w`; they shoot at the cage and the dock at 18–35 m; the loader's floods light the player for them (D20) | twin `g6_w1_r` |
-| W2 | pin out + 1.5 s | 4 husks climb out of the well (2 per ladder, 1.5 s apart) | over the coaming, down to the dock, rushed 30 s; up `ST6_M` / `ST6_M2` to the mid deck and the cage if he is there | `g6_w2_r` |
-| W3 | pressure full, once ≤ 3 non-loader hostiles live | 2 soldiers + 1 husk from the shaft bottom through `d6_pool` (or stores6) | covers `gal_e` (behind the player when he is at the frame) | `g6_w3_r` |
+| W1 | hostile start + 2.0 s | 2 soldiers from stores6 onto the north gallery | covers `gal_n`, then `gal_w`; they shoot at the cage and the dock at 18–35 m; the loader's floods light the player for them (D20) | twin `g6_w1_r` (the restore re-applies phase K_stores and the `d6_stores` latch for it, S2b); restore point `mk6_boss_safe` (east gallery) |
+| W2 | pin out + 1.5 s | 4 husks climb out of the well (2 per ladder, 1.5 s apart) | over the coaming, down to the dock, rushed 30 s; up `ST6_M` / `ST6_M2` to the mid deck and the cage if he is there | `g6_w2_r`; restore point `mk6_boss_safe` |
+| W3 | pressure full, once ≤ 3 non-loader hostiles live | 2 soldiers + 1 husk from the shaft bottom through `d6_pool` (or stores6) | covers `gal_e` (behind the player when he is at the frame) | `g6_w3_r` (from the shaft bottom as the original); restore point **`mk6_boss_safe_w`** (−74.3, −12, −170.0) on the west gallery, yaw −90 (looking east), 46 m from W3's door — never beside it (S2c) |
 
 Whatever the order: killing the loader first does not cancel a wave (each keys on its step); skipping the frame for a
 while does not start them (each needs its step). A wave's members that leave the chamber (into the shaft) are fought
-there; the stranded rule removes members unseen ≥ 30 m for 60 s during the quiet's `fightOutWhere`.
+there; the stranded rule removes members unseen ≥ 30 m for 60 s during the quiet's `fightOutWhere`. **On a restore only
+the latest wave comes back** (the one whose step is latest among those done): fresh from its twin if it was `alive` at the
+save; if it was `pending` (W3 waiting for ≤ 3 hostiles) it is re-queued under its own rule, never spawned after the grace
+regardless; a wave `dead` at the save stays dead; earlier waves never come back (S2a). This keeps a restore within the
+cap of 6.
 
 ### 5.6 The boss — the dock loader (`EnemyType 'loader'`, W3a body + W3b behaviour)
 
@@ -1170,7 +1183,7 @@ rust runs, hazard bands, worn decals `HALCYON DOCK SYSTEMS — DL-2 — SWL 32 T
 pod's sensor cluster and a status lamp on the grab — **cyan while working (dormant), red from the hostile start, out
 when dead** (the merged marks' language). It is never a creature: it moves with a crane's inertia (accelerate, coast,
 brake, sway), it announces itself on its PA in a crane's safety phrases, it lights what it is about to do.
-States: `working` (dormant from load: a scripted loop — B-14 lowered into the well, the grab returning empty, a slow
+States: `working` (from its spawn when Key B turns, D31: a scripted loop — B-14 lowered into the well, the grab returning empty, a slow
 patrol over the dock; floods sweeping its work area; reacts to damage at once: hostile), `stage1`, `stage2`, `stage3`,
 `guard` (a sub-state of every stage), `dying`, `dead`.
 
@@ -1182,8 +1195,8 @@ trolley: sway x/z ±0.4 rad as a damped spring — the sway is real, it reads as
 (a scaled cylinder set, one material), grab body 1, jaws 1 (one skinned mesh), rams 1, pod + cowl 1, flood heads 1, lenses
 (emissive) 1, festoon 0 (level), marks 0 (merged), shadow proxy 1 (grab only), the carried container 1 (the level's
 instance swapped to a dynamic mesh while carried)). **Hit volumes**: `flood_1 … 4` (spheres r 0.32 at the lamp heads),
-`ram_e` / `ram_w` (capsules r 0.12 × 1.0 m on the grab's east and west sides; ×1.0 only while extended, else ×0.1 —
-the volume stays, the multiplier changes), `pod` (box 1.6 × 1.0 × 1.2; ×0.1 until `cowl` opens), `grab` (box, ×0.05),
+`ram_e` / `ram_w` (capsules r 0.12 × 1.0 m on the grab's east and west sides; ×1.0 only while extended, else **0** —
+the volume stays, the multiplier changes), `pod` (box 1.6 × 1.0 × 1.2; **0** until `cowl` opens), `grab` (box, ×0.05),
 `bridge` / `trolley` (boxes, ×0.05; volumes merged per part). Part names in `EnemyHit.part`: `flood_n`, `ram_e`,
 `ram_w`, `pod`, `body`. Light: each flood is a `ctx.render.lights` spot (14° … 22° cone, 45 m, prio 0.9; FL1/FL2 cast
 on MEDIUM+), the grab's ring light is emissive only.
@@ -1199,12 +1212,12 @@ and its slam tracking lags 0.5 s more (it aims by its sensor alone).
 
 | attack | stages | telegraph (what the player sees / hears) | timing | effect | rules |
 |---|---|---|---|---|---|
-| **SLAM** (drop the grab on him) | 1, 2, 3 (rams alive) | the floods converge on him and a **bright ring** tracks his feet with a 0.25 s lag (0.75 s with no floods) while the grab hovers 3.5 m above his deck (`loader_track` whine); then the ring **stops and turns red**, the jaws open with a hiss (`loader_jaws`), the brakes clack (`loader_brake`) | track 1.4 / 1.1 / 0.9 s; **lock 0.8 s (all stages)**; drop 0.45 s | impact r 1.8 m: **35** + knock-back 6 m/s away (horizontal only); shock r 4 m: shake 0.5, no damage; then the grab **sits 2.4 s (stage 3: 1.8 s) with the jaws open — rams extended, amber glasses lit** (the weak-point window); rise 1.0 s | a target only on the dock / wet dock (d ≤ 0.7) / mid deck, ≥ 3.5 m from the no-slam zone (plan x −58 … −46, z −174 … −149: the cage, the frame, the trough and the winch), not under the mid deck or a gallery, not on a stair ± 1.5 m, no other enemy within 2.0 m (it waits 0.5 s and re-checks, max 3); cooldown 5.5 / 4.2 / 3.2 s. A player walking at 3.6 m/s leaves the ring in the lock (2.9 m); wading knee-deep 2.27 m (the 0.25 s lag included: still out, by 0.12 m); waist-deep: never targeted |
-| **SHIFT** (moves the cover) | 1, 2 | the floods leave him and fix on the container he is using; the jaws hiss open over it; the **destination slot's painted outline lights and strobes amber** | clamp 1.0 s; lift 2.0 s; carry 1.6 m/s; outline lit **1.6 s before** the set-down | the container (and its cover points) leave; set down in the free slot farthest from him (stage 1); **40** + a push out if he stands inside the destination slot at contact | every 18 s while he is within 3 m of an occupied slot's box; never a slot holding an enemy |
-| **DROP** (cargo on the head) | 2, 3 | as SHIFT, but the destination is the free slot **nearest** him within 6 m, and the outline strobes red; the container hangs 4.5 m over it | strobe **1.6 s**, release, fall 0.96 s | **40** if inside the slot box at contact, else nothing; the container becomes cover there | cooldown 9 / 7 s; only into slots (never onto a route) |
+| **SLAM** (drop the grab on him) | 1, 2, 3 (rams alive) | the floods converge on him and a **bright ring** tracks his feet with a 0.25 s lag (0.75 s with no floods) while the grab hovers 3.5 m above his deck (`loader_track` whine); then the ring **stops and turns red**, the jaws open with a hiss (`loader_jaws`), the brakes clack (`loader_brake`) | track 1.4 / 1.1 / 0.9 s; **lock 0.8 s (all stages)**; drop 0.45 s | impact r 1.8 m: **35** + knock-back 6 m/s away (horizontal only); shock r 4 m: shake 0.5, no damage; then the grab **sits 2.4 s (stage 3: 1.8 s) with the jaws open — rams extended, amber glasses lit** (the weak-point window); rise 1.0 s | a target only on the dock / wet dock (d ≤ 0.7) / mid deck, ≥ 3.5 m from the no-slam zone (plan x −58 … −46, z −174 … −149: the cage, the frame, the trough and the winch), not under the mid deck or a gallery, not on a stair ± 1.5 m, **the grab's box at its lowest clear of every collider but the deck** (no slam onto MC1 / MC2, the console, a container, the bar guard — S6b), no other enemy within 2.0 m (it waits 0.5 s and re-checks, max 3); **damage only with a clear ray from the grab's bottom centre to the player's chest** (a container between them shields him — S6c); cooldown 5.5 / 4.2 / 3.2 s. Escape (controller as built, ground accel 11): a walker from rest covers 2.55 m in the 0.8 s lock and 4.17 m by impact; a knee-deep wader 2.5 m by impact — both clear 1.8 + 0.35; waist-deep: never targeted |
+| **SHIFT** (moves the cover) | 1, 2 | the floods leave him and fix on the container he is using; the jaws hiss open over it; the **destination slot's painted outline lights and strobes amber** | clamp 1.0 s; lift 2.0 s; carry 1.6 m/s; outline lit **1.6 s before** the set-down | the container (and its cover points) leave; set down in the free slot farthest from him (stage 1); **40** + a push out if he stands inside the destination slot at contact | every 18 s while he is within 3 m of an occupied slot's box **on his own deck** (feet within ± 1 m of the slot's floor — never from a gallery, S3); never a slot holding an enemy; never lifts while a body's feet are within 0.3 m above the container's top (it waits, re-checks, then shoves the body off at 2 m/s — B2); the set-down footprint clear of every collider but the deck (S6b) |
+| **DROP** (cargo on the head) | 2, 3 | as SHIFT, but the destination is the free slot **nearest** him within 6 m, and the outline strobes red; the container hangs 4.5 m over it | strobe **1.6 s**, release, fall 0.69 s (g 19) | **40** if inside the slot box at contact, else nothing; the container becomes cover there | cooldown 9 / 7 s; only into slots (never onto a route) |
 | **SWING** (wrecking-ball) | 3, **both rams gone** (the jaws hang dead) | the trolley winds back 1.2 s with a brake squeal (`loader_squeal`) while the floods swing into a **lit lane** along the swing line; the ropes creak | wind 1.2 s; sweep 1.4 s along a 9 m arc at chest height (the grab's bottom 1.15 m above the deck) | **30** + knock-back 7 m/s; **a crouched player passes under it** (1.1 m capsule) | lanes only where the trolley can run (x −67 … −37, keeping 4.2 m from the galleries' edges) and only where the whole arc is clear of colliders at the swing height (bar guard, cage, containers, stairs, the winch — `Level.dock.target` checks the lane); on his deck only (a wader in the wet dock stands below a dock-level swing); cooldown 5 s |
 | **GLARE** | all | the floods on him | continuous | flood-lit (D20); exposure bump 0.15 (no damage) | — |
-| **GUARD** | all | the grab parks 3.2 m over the mid deck in front of the cage at (−52, −12.8, −163), its jaws closed, the floods on him | while he is unreachable (a gallery, the undercroft, the cage, the shaft) for ≥ 2 s | — | 3.2 m clearance: he walks under it; never in a doorway or over a stair |
+| **GUARD** | all | the grab parks high over the south dock at (−52, −8, −186) (grab centre; out of the cage's line, ~18 m off), jaws closed (rams retracted: ×0), the floods on him | while he is unreachable (a gallery, the undercroft, the cage, the shaft) for ≥ 2 s | — | nobody is under it (it hangs 11 m over the wet dock); it leaves the moment he steps onto a slam-target deck (S3) |
 
 Damage cap: the loader deals ≤ 40 health+armour per 2 s (a guard). It never damages enemies (CHOIR's hands) and never
 knocks the player through a rail (knock-back is horizontal; rails are move-only colliders — a body stops).
@@ -1214,28 +1227,30 @@ knocks the player through a rail (knock-back is horizontal; rails are move-only 
 | part | HP | multiplier | on destroy |
 |---|---|---|---|
 | `flood_1 … 4` | 40 each | 1.0 | lamp head shatters (`flood_pop`, glass), its spot goes out, a sparking stub; the beam set shrinks (D20); the chamber darkens with each |
-| `ram_e`, `ram_w` | 200 each | 1.0 extended (amber glass lit) / 0.1 retracted | the ram bursts (spray, `ram_burst`), that side's jaws hang open; milestone; first one → stage ≥ 2; both → stage 3, **SLAM becomes a dead-weight drop** (same telegraph, no jaw hiss) and **SWING** is added; the pod's cowl opens (`cowl_open`: louvres snap open, steam, the red glow inside, PA `Control fault. Cooling.`) |
-| `pod` | 500 | 0.1 cowl shut / **1.0 open** | death (§5.6.8) |
+| `ram_e`, `ram_w` | 200 each | 1.0 extended (amber glass lit) / **0 retracted** (a hard clank `armour_clank`, sparks, the HUD pip shakes — R2's "different"; coordinator 4) | the ram bursts (spray, `ram_burst`), that side's jaws hang open; milestone; first one → stage ≥ 2; both → stage 3, **SLAM becomes a dead-weight drop** (same telegraph, no jaw hiss) and **SWING** is added; the pod's cowl opens (`cowl_open`: louvres snap open, steam, the red glow inside, PA `Control fault. Cooling.`) |
+| `pod` | 500 | **0 cowl shut** (the same clank) / **1.0 open** | death (§5.6.8) |
 | `body` (bridge, trolley, grab, ropes) | — | 0.05 | sparks, `impact_metal` |
 
 Stage = max(objective stage, damage stage): **1** at the hostile start; **2** at pin out or the first ram; **3** at the
 pressure full or both rams. Stage 2 adds `lights_out6` (once, whichever triggered it) and DROP; stage 3 shortens every
-timing as the table and makes the bridge / trolley 1.5 × faster (bridge 2.0 → 3.0 m/s, trolley 2.5 → 3.5 m/s, hoist
-2.0 m/s, drop 7.8 m/s).
+timing as the table and makes the bridge 1.5 × and the trolley 1.4 × faster (bridge 2.0 → 3.0 m/s, trolley 2.5 → 3.5
+m/s, hoist 2.0 m/s, drop 7.8 m/s). **No risk-free win (S3):** the rams are extended only in a slam's lock and recovery
+and in a clamp / release on his own deck, and the loader slams only decks it can reach — so from the cage, the undercroft
+or a gallery every ram and the shut pod take 0; the floods can be shot from anywhere (they are optional).
 
 #### 5.6.6 `LOADER_TUNING` (the one table; IA retunes here only)
 
 | key | value |
 |---|---|
 | `hp` | floods 40, rams 200, pod 500 |
-| `mult` | ram extended 1.0 / retracted 0.1 · pod open 1.0 / shut 0.1 · body 0.05 |
+| `mult` | ram extended 1.0 / **retracted 0** · pod open 1.0 / **shut 0** (clank + pip shake) · body 0.05 |
 | `sight` | 60 m, sensor at the pod; flood slew 1.2 rad/s; flood cone 14°–22°, 45 m |
 | `slam` | track 1.4 / 1.1 / 0.9 s · lag 0.25 s (0.75 s no floods) · lock 0.8 s · hover 3.5 m · drop 0.45 s · r 1.8 m dmg 35 knock 6 m/s · shock r 4 m shake 0.5 · recover 2.4 / 2.4 / 1.8 s · rise 1.0 s · cooldown 5.5 / 4.2 / 3.2 s |
-| `shift` | period 18 s · near 3 m · clamp 1.0 s · lift 2.0 s · carry 1.6 m/s · outline 1.6 s · dmg 40 |
-| `drop` | stages 2–3 · near 6 m · strobe 1.6 s · height 4.5 m · dmg 40 · cooldown 9 / 7 s |
+| `shift` | period 18 s · near 3 m on his deck (± 1 m) · lift guard 0.3 m · clamp 1.0 s · lift 2.0 s · carry 1.6 m/s · outline 1.6 s · dmg 40 |
+| `drop` | stages 2–3 · near 6 m on his deck · strobe 1.6 s · height 4.5 m (fall 0.69 s) · dmg 40 · cooldown 9 / 7 s |
 | `swing` | stage 3 + both rams · wind 1.2 s · sweep 1.4 s · arc 9 m · bottom 1.15 m · dmg 30 knock 7 m/s · cooldown 5 s |
-| `guard` | after 2 s unreachable · park (−52, mid deck + 3.2, −163) |
-| `speed` | bridge 2.0 / 3.0 m/s · trolley 2.5 / 3.5 m/s · hoist 2.0 m/s · drop 7.8 m/s |
+| `guard` | after 2 s unreachable · park `Level.dock.park` = (−52, −8, −186) |
+| `speed` | bridge 2.0 / 3.0 m/s (× 1.5) · trolley 2.5 / 3.5 m/s (× 1.4) · hoist 2.0 m/s · drop 7.8 m/s |
 | `noSlam` | plan box x −58 … −46, z −174 … −149 (the cage, the frame, the trough, the winch; `Level.dock.noSlam`) + 3.5 m horizontal margin, applied on the mid deck; on the dock the same plan area is the well and its coaming (never a target) |
 | `cap` | ≤ 40 per 2 s to the player |
 | `waveCap` | 6 non-loader hostiles in pool6 + shaft6 |
@@ -1258,40 +1273,53 @@ over the well's centre (−52, −176) — "it dies reaching for the water"), th
 it; the floods die one by one over 1.5 s; the bridge coasts into its end-stop buffers with a long screech. Nothing lands
 on a deck (no wreck box to route around); no damage to the player from the death. Milestone; boss pips off.
 
-#### 5.6.9 Boss checkpoints (D21)
-Milestones: pin, pressure, cut, ram E, ram W, pod. 1.0 s after each (player alive, not mid-grip of another task),
-`cp6_m<n>` is written (n = milestones done, 1 … 5; the sixth is the end of the fight, after which `cp6_quiet` follows
-when calm). Saved: flags (`pin`, `pressure`, `trunkCut`, `ramE`, `ramW`, `loaderDead`), the loader's `BossState` (parts'
-HP, floods alive, stage, slot layout, B-14 gone), waves spawned / which is latest, `lights_out6`, `launchAt`. **Restore:**
-the player at `mk6_boss_safe` (−30.0, −12, −166.0) on the east gallery (outside the grab's reach, 4 m north of the
-shaft door) yaw +90 (looking west over the chamber), **health = max(saved, 60)**, armour as saved; the loader rebuilt
-with `boss.restore(state)` in `guard` for 3.0 s (grace) then its stage; earlier waves cleared (`removeGroup`); the latest
-wave re-spawned **fresh** from its twin (`spawnGroup('g6_wN_r')`) after 3.0 s; the frame as saved (pin out, gauge at
-full or 0 — partial pump progress is not saved); slots as saved. A death never replays more than one milestone.
+#### 5.6.9 Boss checkpoints (D21; amended for B5, S2)
+Milestones: pin, pressure, cut, ram E, ram W, pod. 1.0 s after each, if the player is alive, `cp6_m<n>` is written
+**with `checkpointNow`** (the base's calm saver never fires mid-fight, `base.ts:719-756`); if a grip is running at that
+moment the save is **deferred to the grip's end + 1.0 s** (never skipped — a ram killed during the 6 s pump keeps its
+checkpoint). n = milestones done, 1 … 5; the sixth ends the fight, after which `cp6_quiet` follows when calm. Saved: the
+flags (`pin`, `pressure`, `trunkCut`, `ramE`, `ramW`, `loaderDead`, `bjOpen` …), the loader's `BossState` (parts' HP,
+floods alive, stage, slot layout, B-14 in the well), `waves` (`pending` / `alive` / `dead` per wave and which is latest),
+`lights_out6`, `launchAt`. **Restore** (a fresh page): the player at the **latest wave's restore point** — `mk6_boss_safe`
+(−30.0, −12, −166.0) on the east gallery yaw +90 for W1 / W2 / none, **`mk6_boss_safe_w`** (−74.3, −12, −170.0) on the west
+gallery yaw −90 when W3 is latest (S2c) — **health = max(saved, 60)**, armour as saved, **the carbine's reserve topped to
+≥ 90** (the best owned weapon's if he has no carbine) and the three **dock ammo lockers re-armed** (B5); the loader
+rebuilt with `boss.restore(state)` in `guard` for 3.0 s (grace) then its stage; **only the latest wave** handled per §5.5
+(twin if `alive`, re-queued under its rule if `pending`, nothing if `dead`), W1's twin with phase K_stores and its latch
+re-applied; earlier waves never come back; the frame as saved (pin out, gauge full or 0 — partial pump progress is not
+saved); slots as saved. When the loader dies, `enemy:group-cleared` puts `g6_loader` into `prog.cleared`; that is harmless
+because every later load has `loaderDead` and calls `removeSilently()` first (S2e). The level-6 `calm()` ignores holding
+soldiers through `EnemyManager.holding(group)` (merged in 3c's K, S2f). A death never replays more than one milestone.
 
 #### 5.6.10 Tests (`scripts/check-loader.mjs`, W3b; on `src/enemies/dev/loader.html` with a greybox arena that copies the
 chamber's rails, decks, well, slots and the no-slam box; W3b ships a `StubLoaderRig` (boxes) so 1–14 run before W3a lands)
 1. Telegraph: every SLAM has track ≥ 0.9 s + lock 0.8 s before the drop (state log); the ring stops at the lock start;
-   `loader_jaws` once per slam; no damage outside r 1.8 m.
-2. Fairness: a bot walking straight at 3.6 m/s from the lock start leaves r 1.8 + capsule in every trial (100); wading
-   0.5 m deep likewise; no slam ever targets d > 0.7, the no-slam box + 3.5 m (mid deck), under-deck, a stair ± 1.5 m, a gallery.
-3. Windows: after a slam the rams are ×1.0 for 2.4 s (stage 3: 1.8 s) and ×0.1 otherwise; a debug aim-lock carbine kills
+   `loader_jaws` once per slam; no damage outside r 1.8 m; no damage without the grab-to-chest ray (a container between).
+2. Fairness: a bot walking straight from rest (ground accel 11) from the lock start leaves r 1.8 + capsule in every trial
+   (100); wading 0.5 m deep likewise; no slam ever targets d > 0.7, the no-slam box + 3.5 m (mid deck), under-deck, a stair
+   ± 1.5 m, a gallery, or a point where the grab box at its lowest would touch a collider other than the deck.
+3. Windows: after a slam the rams are ×1.0 for 2.4 s (stage 3: 1.8 s) and **0** otherwise; a debug aim-lock carbine kills
    one ram in one window at 10 m.
-4. Damage model: floods 3 carbine hits; rams 12 extended / 112 retracted; pod 28 open / 278 shut; body ×0.05.
+4. Damage model: floods 3 carbine hits; rams 12 extended / **∞ retracted (0 damage, `armour_clank` once per 0.3 s, pip
+   shake)**; pod 28 open / **0 shut**; body ×0.05.
 5. Stages: pin → 2; first ram → 2; pressure → 3; both rams → 3 + cowl open + SWING enabled; whichever first.
 6. SHIFT / DROP: every set-down and drop is preceded by the outline ≥ 1.6 s; only into slots; never a slot with an enemy;
-   a bot standing in the slot takes 40 and is pushed out (never inside a box afterwards); the route corridors (§2.6.9)
-   stay passable for every reachable slot layout (2⁶ layouts with 4 containers: a capsule flood fill per layout).
-7. SWING: lit lane ≥ 1.2 s before; a crouched bot passes under; never reaches a gallery.
-8. GUARD: unreachable player ≥ 2 s → the grab parks at the park point; its bottom ≥ 3.2 m over the mid deck; never over a
-   door or stair.
+   never triggered by a player on another deck (a gallery); a bot standing in the slot takes 40 and is pushed out (never
+   inside a box afterwards); the route corridors (§2.6.9) stay passable for every slot layout (**C(6,4) = 15** layouts with
+   4 containers: a capsule flood fill per layout — S1d).
+   6b. (B2) A bot dropped onto a container top, and onto the grab top, ends on a deck within 0.5 s; the loader never lifts
+   with a body on its load.
+7. SWING: lit lane ≥ 1.2 s before; a crouched bot passes under; never reaches a gallery; never through a collider.
+8. GUARD: unreachable player ≥ 2 s → the grab parks at `Level.dock.park`; leaves it when he steps onto a target deck.
 9. Flood-lit: a soldier with an eye ray sees a player inside a live flood beam at 30 m (dark region), not after the flood
-   dies.
+   dies, and not while that flood's light is out of the light pool (S13).
 10. Cap: ≤ 40 per 2 s, every 2 s window; never damages an enemy.
-11. Knock-back: 200 knock-backs next to rails, the coaming and the bar guard: the player never ends beyond a rail.
+11. Knock-back: 200 knock-backs next to rails, the coaming guard and the bar guard: the player never ends beyond a guard.
 12. Death: the grab ends in the well, nothing on a deck; marks out ≤ 2.5 s; pips off; `enemy:died` once.
 13. Restore round-trip: `boss.snapshot()` → `restore()` reproduces parts, stage, floods, slots; grace 3.0 s.
 14. Cost: the loader's update ≤ 0.25 ms on MEDIUM; rays ≤ 20/s (sight 6, slam-target checks, flood occlusion).
+15. (S3) A bot in the cage, and one on the east gallery, with W1 dead, firing at the rams and the pod for 120 s: 0 damage
+    to either.
 
 ### 5.7 Scares in the quiet moments (vignettes, 3c §5.5 kit and rules)
 
@@ -1307,14 +1335,16 @@ stated. Exemptions noted per row.
 | 3 | `v6_handset` | he6 | §4.5 | the phone's howler buzzes three times; a man's whisper from the hanging handset; if answered, Aas | `phone_howler`, `phone_dead_click`, `line_hiss` + lines `l6_aas_*` (story-spoken, fx `phone`) | handset on its hook, howler silent | | the navy's sound-powered phones are hard-wired, outside CHOIR's network; Aas found a station |
 | 4 | `v6_drum` | vault6 | CD2 in view ≤ 12 m for 1 s, ≥ 4 s in the vault | the 4 m drum starts to turn by itself, its ratchet clacking louder and faster, cable paying out into the trench in loops; it brakes with a bang and rocks still | `ratchet_run`, `drum_rumble`, `drum_brake` | drum stopped, 6 m of cable slack on the floor (decal + a static coil, no collider) | L | its brake was left off (the jointers' job card); the hull's flex turns it — and CHOIR runs the drum stands (it does not deny it) |
 | 5 | `v6_ring` | vault6 | the first fast ping after the pull (exempt from spacing and calm: the pull's consequence) | the ping, much closer now, and the whole vault rings with it like a bell; dust sifts from the trays; the drums hum | `ping_close`, `hull_ring`, `dust_sift` | — | L | the buoy's transducer is bolted to the hull below; the backup carries everything now |
-| 6 | `v6_thud` | vault6 / he6 / shaft6 | §4.6 | a long deep thud through the structure, felt (shake 0.25), then a long hiss of water filling something, far off; the lights dip once | `far_lock_flood`, `lights_dip` | — | L | it is Post 4's launch lock flooding: the boat leaving (E2 shows it) |
-| 7 | `v6_shaft_lights` | shaft6 | §4.7 | the landing lamps below him pop one after the other — pop, pop, pop — then the ones above; only the nosing strips; and two red points climbing toward him from the bottom | `bulb_pop` × 5, `glass_tinkle` | lamps dead, `shaft6_emerg` on | L | CHOIR kills the mains (as 3c); the emergency strips are hard-wired; the unit is real (F6) |
-| 8 | `v6_well_eyes` | pool6 | the reveal (exempt from the boss rule; ends at the hostile start) | deep in the black well, past where the light goes, four faint cyan points, still, in two pairs by the walls | — (silent) | gone | | they are the units of W2, dormant at the ladder feet (cyan = powered standby); they climb out when the pin comes out |
+| 6 | `v6_thud` | vault6 / he6 | §4.6 — only within pull + 20 … + 90 s and before Key B turns, else never (S4, S10d) | a long deep thud through the structure, felt (shake 0.25), then a long hiss of water filling something, far off; the lights dip once | `far_lock_flood`, `lights_dip` | — | L | it is Post 4's launch lock flooding: the boat leaving (E2 shows it) |
+| 7 | `v6_shaft_lights` | shaft6 | §4.7 — **exempt from spacing** (it carries F6 and `cp6_shaft`; only "once" and "calm" apply, S4) | the landing lamps below him pop one after the other — pop, pop, pop — then the ones above; only the nosing strips; and two red points climbing toward him from the bottom | `bulb_pop` × 5, `glass_tinkle` | lamps dead, `shaft6_emerg` on | L | CHOIR kills the mains (as 3c); the emergency strips are hard-wired; the unit is real (F6) |
+| 8 | `v6_well_eyes` | pool6 | the reveal (exempt from the boss rule **and from spacing**, S4; ends at the hostile start) | deep in the black well, past where the light goes, four faint cyan points, still, in two pairs by the walls | — (silent) | gone | | they are the units of W2, dormant at the ladder feet (cyan = powered standby); they climb out when the pin comes out |
 | 9 | `v6_window` | pool6 | after `l6_quiet`, feet in `t6_windows` or the windows in view ≤ 20 m for 2 s | outside, beyond the last of the light, something very large passes slowly across the windows and is gone; the marine snow swirls in its wake | `sea_groan` (sub-bass, far) | — | | something lives down here; it is not explained (later chapters) |
 
 Escalation (whatever the room order): a man walking away → a tent's draught → a voice → a machine turning by itself → the
 hull ringing → something leaving through the hull → darkness coming up to meet him → eyes in the water → the sea itself.
-At most one per room; never two loud ones within 90 s (the ring is exempt: it is the pull).
+At most one per room; never two loud ones within 90 s (exempt: the ring — it is the pull — and the beats that carry a
+fight or a checkpoint, `v6_shaft_lights` and `v6_well_eyes`). `--scares` asserts the shaft beat fires on the default
+route.
 
 ### 5.8 What forces what (R1)
 

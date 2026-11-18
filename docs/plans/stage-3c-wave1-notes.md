@@ -45,3 +45,21 @@
   `fan_loop`, `hook_creak`, `radio_on_click`, `radio_static_bed`. Others: `wheel_crank`, `hydraulic_release`,
   `hatch_unlatch`, `hatch_open`, `keypad_power_on`, `keypad_*`, `radio_squawk`. Test hook: `audio.debug.log`.
 - Voice fx: `radio` (lead 0.04 s), `radio:1`, `throat` (ref 5.5 m, −1.1 dB at 6.7 m).
+
+## Materials and screens (W5)
+- Materials: `hull_white`, `deck_grate` (alpha-tested, double-sided), `wet_steel` (transparent puddle overlay: UVs in metres,
+  ~2 × 2 m patches, 3–5 mm above the deck; `fx.wetPatch` uses it), `fatigue_navy`, `knit_black`, `helmet_navy`, `webbing`,
+  `rubber_mat`, plus `sub_coating`, `lino_navy`, `blanket_wool`, `hazard_deck`.
+- Wet floors read as wet only where the reflection probe has something bright to mirror — place lamps/lit surfaces so the
+  puddles catch them. Under a 3 cd red emergency light the dark floors go near-black away from the lamp: emergency lamp
+  placement is the dressing tasks' job (and the flashlight lasts 10 s). Grating at a grazing angle with nothing lit beneath
+  reads as sparse lines — put something lit under it (the crawlway's red light).
+- Screens (`src/materials/screens5.ts`, formats in its header): `keypad` (`off | ready | typing|n | rejected | accepted | open`;
+  `rejected` returns to ENTER CODE after 1.2 s), `launch` (`idle | running[|seconds] | complete`), `dock_status` (lines
+  split by `\n`; one line = a big wall board; a value ending `2d 14h 30m` counts up by itself), `onpost` (a new number rolls
+  in over 0.4 s). Palm plates: label `TITLE — rest`. Legible at: ON POST 1.2 × 0.6 m at 6 m; duty board 3 × 1.2 m at 7 m;
+  keypad 0.16 m wide at 0.9 m; launch console 0.6 m at 1 m; TERN board 4 × 1 m at 20 m; `aas_palm` 0.3 m at 1.8 m;
+  `gate_log` needs ≥ 0.55 m width or reading from ≤ 1.8 m.
+- Sign style `navy` exists (white stencil on a dark backing; a line like `2-34-0-L` is drawn as a boxed hull number).
+  Level-5 door lintels should use it (W4/IB: `level/doors.ts` draws lintels with `stencil` today).
+- On level 5 `terminal_idle` uses a navy log (no stock CHOIR lines).

@@ -690,6 +690,10 @@ export type ClinicalMaterialName =
  * exclusion).
  */
 export type NavyDockMaterialName =
+  | 'sub_coating'         // the submersible's anechoic hull coating (W5 extra)
+  | 'lino_navy'           // barracks linoleum (W5 extra)
+  | 'blanket_wool'        // issue blanket (W5 extra)
+  | 'hazard_deck'         // boot-worn hazard paint on deck (W5 extra)
   | 'hull_white'          // curved plate enamel, weld seams, rivets, condensation streaks
   | 'deck_grate'          // bar grating 30 × 5 mm at 40 mm, alpha-tested, double-sided, casts
   | 'wet_steel'           // overlay: roughness 0.06, ripple normal (wet patches)
