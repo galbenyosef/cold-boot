@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import type { LightHandle } from '../../core/types';
 import { EnemyBase, type EnemyWorld, type HitBurst } from '../ai';
+import { WADE } from '../nav';
 import type { FactoryOpts } from '../manager';
 import { hv, type HitVolume } from '../shared/hit';
 import { angleDiff, damp, noise1, smooth, solveLimb, spring, type Spring } from '../shared/ik';
@@ -18,7 +19,57 @@ import { WorkerProps } from './worker';
 import { Holo, holoMaterial, holoOverride } from '../shared/holo';
 
 type Mode = 'puppet' | 'dormant' | 'wake' | 'idle' | 'react' | 'chase' | 'windup' | 'strike' | 'recover' | 'stagger' | 'flail'
-  | 'topple' | 'crawl' | 'cwindup' | 'cstrike' | 'crecover' | 'writhe' | 'dying' | 'dead';
+  | 'topple' | 'crawl' | 'cwindup' | 'cstrike' | 'crecover' | 'writhe' | 'dying' | 'dead' | 'climb';
+
+/**
+ * Stage 3d D26 / §8.4 (W3c): `EnemySpawn.pose 'climb'` — up a level ladder out of the water, kinematic all the way.
+ * Ladders are level objects (`level.object(id).userData = { foot, top, exit, gate }`; points as Vector3 or [x, y, z],
+ * `gate.open(k)` 0 shut … 1 open); the climber takes the nearest within 6 m (plan view) of its spawn.
+ */
+const CLIMB = {
+  ladders: ['ladder6_w', 'ladder6_e'] as readonly string[],
+  /** m/s up the rungs; s over the coaming top; s down to the exit; m below the top at which the gate starts to open. */
+  speed: 1.0, over: 0.8, down: 0.6, gateLead: 0.9,
+  /** m of rise per full arm / leg cycle (two rungs). */
+  stride: 0.6,
+  /** m/s the body drifts off the ladder (into the well) when it is shot off it. */
+  fallDrift: 0.8,
+  /** m (plan view) a ladder may be from the spawn point. */
+  near: 6,
+} as const;
+/** Two alternating climbing keys (blended by the climb phase): right hand high / left knee up, and the mirror. */
+const CLIMB_POSES: Record<string, Parameters<typeof applySpec>[1]> = {
+  climbA: {
+    hips: { pos: [0, 0.95, -0.04], rot: [8, 0, 0] }, spine1: [6, 0, 0], spine2: [6, 0, 0], neck: [-14, 0, 0], head: [-18, 0, 0],
+    armL: [-82, 0, 10], elbowL: 96, armR: [-158, 0, 8], elbowR: 34,
+    legL: [-74, 0, 6], kneeL: 98, footL: -14, legR: [-12, 0, 4], kneeR: 20, footR: 6,
+    fingers: 70,
+  },
+  climbB: {
+    hips: { pos: [0, 0.95, -0.04], rot: [8, 0, 0] }, spine1: [6, 0, 0], spine2: [6, 0, 0], neck: [-14, 0, 0], head: [-18, 0, 0],
+    armL: [-158, 0, 8], elbowL: 34, armR: [-82, 0, 10], elbowR: 96,
+    legL: [-12, 0, 4], kneeL: 20, footL: 6, legR: [-74, 0, 6], kneeR: 98, footR: -14,
+    fingers: 70,
+  },
+};
+type LadderGate = { open(k: number): void };
+/** Several climbers share one gate: it opens as far as the most demanding of them. */
+const gateDemand = new WeakMap<LadderGate, Map<number, number>>();
+function demandGate(gate: LadderGate, id: number, k: number): void {
+  let m = gateDemand.get(gate);
+  if (!m) { m = new Map(); gateDemand.set(gate, m); }
+  if (k <= 0) m.delete(id); else m.set(id, k);
+  let mx = 0;
+  for (const v of m.values()) mx = Math.max(mx, v);
+  try { gate.open(mx); } catch (e) { console.warn('[husk] ladder gate open failed', e); }
+}
+function v3of(a: unknown): THREE.Vector3 | null {
+  if (a instanceof THREE.Vector3) return a.clone();
+  if (Array.isArray(a) && a.length >= 3) return new THREE.Vector3(+a[0], +a[1], +a[2]);
+  const o = a as { x?: unknown; y?: unknown; z?: unknown } | null;
+  if (o && typeof o.x === 'number' && typeof o.y === 'number' && typeof o.z === 'number') return new THREE.Vector3(o.x, o.y, o.z);
+  return null;
+}
 
 /** One hand of the legless crawl: planted in world space, swung forward when it falls behind. */
 interface Hand {
@@ -103,6 +154,8 @@ const STANDBY_MARK = 0.3;
 /** Dormant pose / puppet pose name → key pose. */
 const POSE_KEY: Record<string, string> = { slumped: 'slumped', rack: 'hang', standing: 'bent', ceiling: 'bent', tucked: 'slumped', under: 'slumped' };
 const keyCache = new WeakMap<HuskTemplate, Map<string, Float32Array>>();
+/** Stage 3d B6: a body dying where the floor is more than this under the water sinks (and makes no wreck box). */
+const WADE_DEEP = WADE.walker;
 
 export class Husk extends EnemyBase {
   readonly type = 'husk' as const;
@@ -239,9 +292,10 @@ export class Husk extends EnemyBase {
     let keys = keyCache.get(tpl);
     if (!keys) {
       keys = new Map();
-      for (const name of Object.keys(HUSK_POSES)) {
+      const specs = { ...HUSK_POSES, ...CLIMB_POSES };
+      for (const name of Object.keys(specs)) {
         this.rig.reset();
-        applySpec(this.rig, HUSK_POSES[name]);
+        applySpec(this.rig, specs[name]);
         keys.set(name, this.rig.capture(this.rig.newPose()));
       }
       this.rig.reset();
@@ -330,6 +384,8 @@ export class Husk extends EnemyBase {
       this.setEye(false);
       this.holdHidden = true;
       this.wakeDelay = Math.max(0, o.delay ?? 0);
+    } else if (pose === 'climb' && this.startClimb()) {
+      // stage 3d D26: climbing out of the water (startClimb set the mode)
     } else {
       this.mode = 'idle'; this.state = 'idle';
       this.awake = true;
@@ -418,7 +474,7 @@ export class Husk extends EnemyBase {
     this.setState(m === 'dormant' ? 'dormant' : m === 'idle' || m === 'puppet' ? 'idle' : m === 'wake' || m === 'react' ? 'alert' : m === 'chase' ? 'chase'
       : m === 'windup' || m === 'strike' || m === 'recover' || m === 'cwindup' || m === 'cstrike' || m === 'crecover' ? 'attack'
       : m === 'crawl' || m === 'writhe' ? 'chase'
-      : m === 'stagger' || m === 'flail' || m === 'topple' ? 'stagger' : 'dead');
+      : m === 'stagger' || m === 'flail' || m === 'topple' ? 'stagger' : m === 'climb' ? 'alert' : 'dead');
   }
 
   /** Start blending from the current bone state to whatever the following frames produce. */
@@ -502,12 +558,149 @@ export class Husk extends EnemyBase {
   update(dt: number): void {
     this.tickBody(dt);
     this.tickMarks(dt);
+    if (this.cl && this.cl.gateK > 0 && this.mode !== 'climb') this.closeGate(dt);
+  }
+
+  // ───────────────────────────────────────────────────────── stage 3d: the climb out of the well, deep water
+
+  private cl: {
+    foot: THREE.Vector3; top: THREE.Vector3; exit: THREE.Vector3; gate: LadderGate | null;
+    /** Unit plan-view vector from the ladder out over the coaming (toward the exit). */
+    out: THREE.Vector3;
+    from: THREE.Vector3; phase: 'rise' | 'over' | 'down'; t: number; cyc: number; gateK: number;
+    /** The water surface he climbs out of (−Infinity: no water volume there — the stub level). */
+    surface: number;
+    /** Debug / tests: world times of the head clearing the water and of the exit. */
+    clearedAt: number; exitAt: number; startAt: number;
+  } | null = null;
+  private deepT = 0;
+
+  /** Tests (check-soldier `climb`): the climb's phase and times, or null. */
+  get climbInfo(): { phase: string; startAt: number; clearedAt: number; exitAt: number; gateK: number; submerged: boolean } | null {
+    const c = this.cl;
+    return c ? { phase: this.mode === 'climb' ? c.phase : 'done', startAt: c.startAt, clearedAt: c.clearedAt, exitAt: c.exitAt, gateK: c.gateK, submerged: this.submerged } : null;
+  }
+
+  /** D26: find the ladder, start the kinematic climb. False = no ladder near (the caller spawns him normally). */
+  private startClimb(): boolean {
+    const w = this.world, p = this.body.position;
+    let best: { foot: THREE.Vector3; top: THREE.Vector3; exit: THREE.Vector3; gate: LadderGate | null } | null = null, bd: number = CLIMB.near;
+    for (const id of CLIMB.ladders) {
+      const ud = w.ctx.level?.object?.(id)?.userData as { foot?: unknown; top?: unknown; exit?: unknown; gate?: LadderGate } | undefined;
+      const foot = v3of(ud?.foot), top = v3of(ud?.top), exit = v3of(ud?.exit);
+      if (!foot || !top || !exit) continue;
+      const d = Math.hypot(foot.x - p.x, foot.z - p.z);
+      if (d < bd) { bd = d; best = { foot, top, exit, gate: ud?.gate && typeof ud.gate.open === 'function' ? ud.gate : null }; }
+    }
+    if (!best) { console.warn(`[husk] climb spawn at ${p.toArray().map((v) => v.toFixed(1))}: no ladder within ${CLIMB.near} m (${CLIMB.ladders.join(', ')})`); return false; }
+    const out = new THREE.Vector3(best.exit.x - best.foot.x, 0, best.exit.z - best.foot.z);
+    if (out.lengthSq() < 1e-6) out.set(0, 0, -1);
+    out.normalize();
+    const deep = this.deepWaterAt(best.foot.x, p.y, best.foot.z, 0, 50);
+    this.cl = { ...best, out, from: p.clone(), phase: 'rise', t: 0, cyc: 0, gateK: 0, surface: deep ? deep.vol.surface : -Infinity, clearedAt: -1, exitAt: -1, startAt: w.time };
+    this.mode = 'climb'; this.state = 'alert'; this.modeTime = 0;
+    this.awake = true;
+    this.ignoreSeparation = true;
+    this.body.gravityScale = 0; this.body.velocity.set(0, 0, 0); this.body.onGround = false;
+    this.yaw = Math.atan2(-out.x, -out.z);
+    this.lookW = 0;
+    this.setEye(true);
+    this.rig.apply(this.keys.get('climbA')!);
+    if (this.cl.surface === -Infinity || p.y + 1.75 >= this.cl.surface) this.cl.clearedAt = w.time;
+    return true;
+  }
+
+  /** Head (top of the skull) under the water he climbs out of: no round reaches him (R2 from the moment it clears). */
+  private get submerged(): boolean {
+    const c = this.cl;
+    if (!c || this.mode !== 'climb' || c.surface === -Infinity) return false;
+    return this.body.position.y + 1.75 < c.surface;
+  }
+
+  private tickClimb(dt: number): void {
+    const c = this.cl!, p = this.body.position, w = this.world;
+    c.t += dt;
+    this.lookW = 0;
+    const wasSub = this.submerged;
+    if (c.phase === 'rise') {
+      // onto the ladder line in the first 0.5 s (under water), then straight up at 1 m/s
+      const k = smooth(c.t / 0.5);
+      p.x = c.from.x + (c.foot.x - c.from.x) * k; p.z = c.from.z + (c.foot.z - c.from.z) * k;
+      p.y = Math.min(c.top.y, p.y + CLIMB.speed * dt);
+      c.cyc += (CLIMB.speed * dt) / CLIMB.stride;
+      const ph = 0.5 - 0.5 * Math.cos(c.cyc * Math.PI * 2);
+      this.rig.apply(this.keys.get('climbA')!);
+      this.rig.blendTo(this.keys.get('climbB')!, ph);
+      c.gateK = THREE.MathUtils.clamp((p.y - (c.top.y - CLIMB.gateLead)) / CLIMB.gateLead, 0, 1);
+      if (p.y >= c.top.y - 1e-4) { c.phase = 'over'; c.t = 0; c.from.copy(p); this.startBlend(0.35); }
+    } else if (c.phase === 'over') {
+      // over the coaming top: a low crouching step through the open gate, 0.5 m outward (or to `top` when it lies out)
+      const k = Math.min(1, c.t / CLIMB.over);
+      const reach = Math.max(0.5, (c.top.x - c.foot.x) * c.out.x + (c.top.z - c.foot.z) * c.out.z);
+      p.x = c.from.x + c.out.x * reach * smooth(k); p.z = c.from.z + c.out.z * reach * smooth(k);
+      p.y = c.top.y + Math.sin(k * Math.PI) * 0.12;
+      this.rig.apply(this.keys.get('crouch')!);
+      c.gateK = 1;
+      if (k >= 1) { c.phase = 'down'; c.t = 0; c.from.copy(p); this.startBlend(0.4); this.emit('enemy:step'); }
+    } else {
+      // down to the exit (the outer rungs are visual only): kinematic, the gate swings shut behind him
+      const k = Math.min(1, c.t / CLIMB.down);
+      p.x = c.from.x + (c.exit.x - c.from.x) * smooth(k); p.z = c.from.z + (c.exit.z - c.from.z) * smooth(k);
+      p.y = c.from.y + (c.exit.y - c.from.y) * smooth(k);
+      this.rig.apply(this.keys.get('stand')!);
+      c.gateK = 1 - k;
+    }
+    if (c.gate) demandGate(c.gate, this.id, c.gateK);
+    if (wasSub && !this.submerged) { c.clearedAt = w.time; this.startLoop('husk_loop', 0.8); this.addEyeLight(); }
+    if (c.phase === 'down' && c.t >= CLIMB.down) this.endClimb();
+  }
+
+  /** At the exit: a normal awake husk from here (rush / chase as the story says). */
+  private endClimb(): void {
+    const c = this.cl!, p = this.body.position;
+    p.copy(c.exit);
+    c.gateK = 0; c.exitAt = this.world.time;
+    if (c.gate) demandGate(c.gate, this.id, 0);
+    this.body.gravityScale = 1; this.body.velocity.set(0, 0, 0); this.body.onGround = true;
+    this.ignoreSeparation = false;
+    this.pose = '';
+    this.resetFeet();
+    this.hipsY = this.B.hips.position.y;
+    this.startLoop('husk_loop', 0.8);
+    this.addEyeLight();
+    this.directTimer = 0; this.replanTimer = 0;
+    this.emit('enemy:step');
+    this.emit('enemy:woke');
+    this.emit('enemy:alerted');
+    this.goChase();
+  }
+
+  /** The climber is gone (dead) with the gate still open: it swings shut over the down time. */
+  private closeGate(dt: number): void {
+    const c = this.cl!;
+    c.gateK = Math.max(0, c.gateK - dt / CLIMB.down);
+    if (c.gate) demandGate(c.gate, this.id, c.gateK);
+  }
+
+  /** B6 fail-safe: a LIVING husk (not climbing) whose floor is deeper than the water's `stand` drowns and sinks. */
+  private checkDeep(dt: number): void {
+    this.deepT -= dt;
+    if (this.deepT > 0) return;
+    this.deepT = 0.25;
+    const water = this.world.ctx.level?.water;
+    if (!water || water.length === 0) return;
+    const p = this.body.position;
+    const deep = this.deepWaterAt(p.x, p.y, p.z, WADE_DEEP);
+    if (!deep || deep.vol.surface - deep.floorY <= deep.vol.stand) return;
+    console.error(`[husk] ${this.id} (${this.group}) in deep water ${deep.vol.id} at ${p.toArray().map((v) => v.toFixed(2))}: sinks (B6 fail-safe)`);
+    this.die(_v.set(0, -1, 0));
   }
 
   private tickBody(dt: number): void {
     this.stateTime += dt; this.modeTime += dt;
     if (this.mode === 'puppet') { this.tickPuppet(dt); return; }
     if (this.mode === 'dormant') {
+      if (this.world.ctx.level?.water?.length) { this.checkDeep(dt); if (!this.alive) return; }
       if (this.wakeDelay >= 0) {
         this.wakeDelay -= dt;
         if (this.wakeDelay <= 0) this.beginWake(1);
@@ -521,6 +714,8 @@ export class Husk extends EnemyBase {
     if (this.rage > 0) this.rage -= dt;
     if (this.rushT > 0) this.rushT -= dt;
     if (this.recentT > 0) { this.recentT -= dt; if (this.recentT <= 0) this.recentDmg = 0; }
+    if (this.mode === 'climb') { this.tickClimb(dt); this.finishPose(dt); this.tickLoop(dt); return; }
+    if (this.mode !== 'dying') { this.checkDeep(dt); if (!this.alive && (this.mode as Mode) !== 'dying') return; }
     this.perceive(dt);
 
     switch (this.mode) {
@@ -1438,6 +1633,23 @@ export class Husk extends EnemyBase {
   private tickDying(dt: number): void {
     const w = this.world;
     this.lookW = 0;
+    if (this.sinkVol) {
+      // B6: falling / sinking in deep water — kinematic, no moveBody, no wreck box; gone 5.7 m under the surface
+      if (this.modeTime < 0.32) this.rig.apply(this.keys.get('buckle')!);
+      else { if (this.phase === 0) { this.phase = 1; this.startBlend(0.5); } this.rig.apply(this.keys.get(this.deadKey)!); }
+      if (this.eyeOn && this.modeTime > 0.25) {
+        const on = this.modeTime < 0.9 && Math.sin(this.modeTime * 70) > 0.2;
+        this.B.eye.scale.setScalar(on ? 1 : 1e-4); this.B.led.scale.setScalar(on ? 1 : 1e-4);
+        if (this.modeTime >= 0.9) { this.eyeOn = false; if (this.light) { this.light.remove(); this.light = null; } }
+      }
+      if (this.tickSink(dt)) {
+        this.mode = 'dead';
+        this.setEye(false);
+        if (this.light) { this.light.remove(); this.light = null; }
+        this.finishPose();
+      }
+      return;
+    }
     if (this.modeTime < 1.6) {
       this.body.velocity.x *= Math.exp(-4 * dt); this.body.velocity.z *= Math.exp(-4 * dt);
       w.ctx.physics.moveBody(this.body, dt);
@@ -1958,6 +2170,8 @@ export class Husk extends EnemyBase {
 
   applyDamage(vol: HitVolume, amount: number, point: THREE.Vector3, dir: THREE.Vector3): void {
     if (!this.alive) return;
+    // stage 3d D26: under water no round reaches him (the surface stops it; this holds where the level has no water quad)
+    if (this.submerged) return;
     const w = this.world;
     const mult = vol.part === 'head' ? 2 : vol.part === 'limb' ? 0.7 : 1;
     const dmg = amount * mult;
@@ -2097,6 +2311,20 @@ export class Husk extends EnemyBase {
     this.body.onGround = false;
     this.thrash = 0; this.atkWind = 0; this.atkStrike = 0; this.reach = 0; this.crawlAtk = 0;
     this.startBlend(this.pose === 'slumped' || this.crawler ? 0.5 : 0.3);
+    // stage 3d B6: shot off the ladder (or on the well side of the coaming) → back into the well; dying in deep water →
+    // sinks. Kinematic either way: no moveBody (the kill height never throws him to the roof), no wreck box.
+    const c = this.cl, climbing = this.mode === 'climb' && !!c;
+    if (climbing && (c!.phase === 'rise' || (c!.phase === 'over' && c!.t < CLIMB.over * 0.5))) {
+      const deep = this.deepWaterAt(c!.foot.x, c!.top.y - 1, c!.foot.z, WADE_DEEP, 50);
+      this.body.velocity.set(0, 0, 0);
+      if (deep) this.startSink(deep.vol, deep.floorY, _v2.copy(c!.out).multiplyScalar(-CLIMB.fallDrift));
+      else this.body.gravityScale = 1; // no water volume there (stub data): an ordinary fall
+    } else {
+      if (climbing) { this.body.gravityScale = 1; this.body.velocity.set(0, 0, 0); }
+      const p = this.body.position, deep = this.deepWaterAt(p.x, p.y, p.z, WADE_DEEP);
+      if (deep) this.startSink(deep.vol, deep.floorY);
+    }
+    this.ignoreSeparation = false;
     this.setMode('dying');
     if (this.pose === 'slumped' || this.crawler) this.modeTime = 0.33;
     this.stopLoop(0.4);

@@ -439,7 +439,10 @@ export class Sentry extends EnemyBase {
     try {
       fx.flash(_muz, 0xff3018, 5, 0.07, 5);
       if (hitPlayer) w.ctx.player.damage(DMG, this.body.position);
-      else if (hit) {
+      else if (hit && hit.surface === 'water') {
+        // stage 3d (W3c, coordinator): a bolt into water splashes, no scorch decal on the surface
+        (fx as unknown as { splash?(at: THREE.Vector3, size: number): void }).splash?.(hit.point, 0.4);
+      } else if (hit) {
         fx.sparks(hit.point, hit.normal, 9, 4);
         fx.decal('scorch', hit.point, hit.normal, 0.22);
         fx.flash(hit.point, 0xff5020, 3, 0.08, 3);

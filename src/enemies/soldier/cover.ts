@@ -1,7 +1,7 @@
 /**
  * Stage 3c §8.2.4 — cover choice for the taken soldier. Candidates: `Level.cover` points within 14 m of him, his own
  * `set` first (others × 0.6), unclaimed, nav-reachable (path ≤ 20 m), ≥ 7 m from the player, ≥ 3 m from any awake husk
- * (§8.2.7), ≥ 1.2 m from every other enemy. Score = safety (eye → chest AND eye → head at the point, crouched for low /
+ * (§8.2.7), ≥ 1.2 m from every other enemy, `enabled` (stage 3d: a lifted container's points are not). Score = safety (eye → chest AND eye → head at the point, crouched for low /
  * standing for high, blocked from the player's eye: required) × usefulness (from the peek position — standing for low,
  * 0.35 m lateral for high — a clear line to the player's eye: required) × range fit × advance × flank × novelty.
  * At most 24 rays per choice (candidates ranked by the cheap factors first).
@@ -81,6 +81,8 @@ export function chooseCover(world: EnemyWorld, dir: SoldierDirector, ask: CoverA
   const cands: Cand[] = [];
   for (const c of points) {
     const cp = c.position;
+    // stage 3d §8.1 / §8.4: a point whose object is gone (a container lifted off its slot) is never chosen
+    if (c.enabled === false) continue;
     if (Math.abs(cp.y - p.y) > 3) continue;
     const dMe = Math.hypot(cp.x - p.x, cp.z - p.z);
     if (ask.exclude === c.id) continue;

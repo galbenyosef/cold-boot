@@ -11,8 +11,9 @@
  * search → 'alert'; stagger → 'stagger'; dead → 'dead'.
  */
 import * as THREE from 'three';
-import type { CoverPoint, HitOwner, SoldierArms, SoldierDebug, Surface } from '../../core/types';
+import type { CoverPoint, EnemyManager, HitOwner, SoldierArms, SoldierDebug, Surface } from '../../core/types';
 import { EnemyBase, type EnemyWorld, type HitBurst } from '../ai';
+import { WADE } from '../nav';
 import type { FactoryOpts } from '../manager';
 import type { HitVolume } from '../shared/hit';
 import { angleDiff } from '../shared/ik';
@@ -29,6 +30,31 @@ export interface SoldierFactoryOpts extends FactoryOpts { rig: SoldierRigEx }
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _d = new THREE.Vector3();
 const _pc = new THREE.Vector3(), _pe = new THREE.Vector3(), _aim = new THREE.Vector3(), _end = new THREE.Vector3(), _end2 = new THREE.Vector3(), _cl = new THREE.Vector3();
 const yawOf = (x: number, z: number) => Math.atan2(-x, -z);
+
+/**
+ * Stage 3d D20 (W3c): "the player stands in a live flood's beam" — asked once per world frame for all soldiers. Source:
+ * `world.floodLit` when set (manager wiring / tests), else `ctx.enemies.boss(group).floodLit` of every living loader.
+ */
+const floodCache = { world: null as EnemyWorld | null, t: -1, v: false };
+const _fl = new THREE.Vector3();
+function floodLitPlayer(w: EnemyWorld): boolean {
+  if (floodCache.world === w && floodCache.t === w.time) return floodCache.v;
+  floodCache.world = w; floodCache.t = w.time;
+  const eh = w.playerEye.y - w.playerPos.y;
+  _fl.set(w.playerPos.x, w.playerPos.y + eh * 0.72, w.playerPos.z);
+  let v = false;
+  if (w.floodLit) v = !!w.floodLit(_fl);
+  else {
+    const mgr = w.ctx.enemies as EnemyManager | undefined;
+    for (const e of w.enemies) {
+      if (e.type !== 'loader' || !e.alive) continue;
+      const b = mgr?.boss?.(e.group);
+      if (b && !b.dead && b.floodLit(_fl)) { v = true; break; }
+    }
+  }
+  floodCache.v = v;
+  return v;
+}
 
 /** Test switches (`enemies.debug.soldier(id).debugSet({...})`). */
 export interface SoldierDebugSet {
@@ -144,6 +170,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   get holdingNow(): boolean { return this.alive && this.mode === 'hold'; }
   releaseHold(why: string): void {
     if (this.mode !== 'hold' || !this.alive) return;
+    this.patrolPts = null;
     if (this.holdWalk) { const d = this.holdWalk.done; this.holdWalk = null; d(); }
     this.mode = 'combat';
     this.becomeAware(this.world.playerPos, false);
@@ -157,6 +184,38 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     this.setLight(light);
     return new Promise((resolve) => { this.holdWalk = { to: to.clone(), speed, done: resolve }; });
   }
+  /**
+   * Stage 3d S8a (W3c; `EnemyManager.patrol` delegates here, W3b): walk `points` in order — nav, the `walk` pose at
+   * `o.speed` (default 1.4 m/s), the weapon light per `o.light` — and hold at the last point (`holdingNow`). A holding
+   * soldier (or an idle one that does not know of the player) only; an aware one is not pulled out of his fight. He
+   * leaves the walk as any holding soldier leaves hold (shot at, a near miss, sight within 6 m, `release`).
+   */
+  patrol(points: readonly THREE.Vector3[], o: { speed?: number; light?: boolean; end: 'hold' } = { end: 'hold' }): void {
+    if (!this.alive || points.length === 0) return;
+    if (this.mode === 'idle' && !this.aware) { this.mode = 'hold'; this.state = 'idle'; }
+    if (this.mode !== 'hold') { this.log('patrol_skip', { mode: this.mode }); return; }
+    this.patrolPts = null;
+    if (this.holdWalk) { const d = this.holdWalk.done; this.holdWalk = null; d(); }
+    this.patrolPts = points.map((p) => p.clone());
+    this.patrolIdx = 0;
+    this.patrolSpeed = o.speed ?? 1.4;
+    this.setLight(!!o.light);
+    this.log('patrol', { n: points.length, speed: this.patrolSpeed, light: !!o.light });
+    this.patrolLeg();
+  }
+  private patrolPts: THREE.Vector3[] | null = null;
+  private patrolIdx = 0;
+  private patrolSpeed = 1.4;
+  private patrolLeg(): void {
+    const pts = this.patrolPts;
+    if (!pts || this.mode !== 'hold' || !this.alive) return;
+    if (this.patrolIdx >= pts.length) { this.patrolPts = null; this.log('patrol_end', {}); return; }
+    const to = pts[this.patrolIdx++];
+    this.holdWalk = { to, speed: this.patrolSpeed, done: () => this.patrolLeg() };
+  }
+  /** Walking a patrol now (tests). */
+  get patrolling(): boolean { return !!this.patrolPts; }
+
   debugSet(o: SoldierDebugSet): SoldierDebugSet { this.dbg = { ...this.dbg, ...o }; if (o.aware) this.becomeAware(this.world.playerPos, false); return this.dbg; }
   debugRow(): SoldierDebug {
     const p = this.body.position;
@@ -216,8 +275,11 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     this.stateTime += dt;
     if (this.mode === 'dead') return;
     if (this.mode === 'dying') {
+      // stage 3d B6: dying in deep water — the body sinks (kinematic), gone 5.7 m under; no wreck box, no drop
+      if (this.sinkVol && this.tickSink(dt)) { this.place(); this.settle(); return; }
       this.place();
       this.rig.update(dt);
+      if (this.sinkVol) return;
       // settled = the keyed fall is over (rig.settled, 1.35–1.55 s) AND the Clasp's 'fail' pattern has run out (1.5 s);
       // then the manager stops updating him. A guard at 2.2 s.
       if ((this.rig.settled && this.rig.led === 'off') || this.world.time - this.diedAt >= 2.2) this.settle();
@@ -228,6 +290,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     this.dist = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z, (w.playerPos.y - p.y) * 0.6);
     // per-frame damage reactions (one shotgun shell = one "hit")
     if (this.frameDmg > 0) this.reactToHit();
+    if (this.checkDeep(dt)) return;
     this.flinchT = Math.max(0, this.flinchT - dt);
     this.staggerT = Math.max(0, this.staggerT - dt);
     // suppression decay; the no-peek window
@@ -304,7 +367,8 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     const eye = this.rig.eye;
     const d = eye.distanceTo(w.playerEye);
     this.seenDist = d;
-    const lit = this.dir!.lit;
+    // lit: the player fired within 1.5 s (3c D18) or stands in a live flood's beam (3d D20)
+    const lit = this.dir!.lit || floodLitPlayer(w);
     const darkOff = !lit && !pl.flashlightOn && this.inDark(w.playerPos);
     const range = darkOff ? T.sight.darkRange : T.sight.range;
     let vis = false;
@@ -381,6 +445,15 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
       }
     } else if (this.mode === 'standoff' && so < 0) {
       this.mode = 'combat'; this.standNode = -1; this.target = null; this.coverTimer = 0;
+    }
+    // stage 3d §8.4: his point (or the one he walks to) lost its object (a container lifted): re-choose now
+    if (!this.dbg.noMove && ((this.cover && this.cover.enabled === false) || (this.targetCover && this.targetCover.enabled === false))) {
+      this.log('cover_gone', { cover: this.cover?.id ?? null, target: this.targetCover?.id ?? null });
+      this.cancelCycle('cover_gone');
+      if (this.fire === 'reload') this.fire = 'none';
+      this.chooseCoverNow(true);
+      if ((this.cover && this.cover.enabled === false) || (this.targetCover && this.targetCover.enabled === false)) { this.leaveCover(); this.target = null; }
+      this.coverTimer = Math.max(this.coverTimer, 0.6);
     }
     this.setState(this.staggerT > 0 ? 'stagger' : this.fire === 'rise' || this.fire === 'aim' || this.fire === 'burst' || this.fire === 'after' ? 'attack' : this.mode === 'search' ? 'alert' : 'chase');
     // the fire cycle runs first: nothing moves while it does. A reload is broken off when his point is flanked (he
@@ -839,7 +912,9 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
       try { (w.ctx.fx as unknown as { tracer?(a: THREE.Vector3, b: THREE.Vector3): void }).tracer?.(muz, end); } catch { /* fx optional (W6) */ }
     }
     w.ctx.events.emit('enemy:fired', { id: this.id, type: this.type, origin: muz.clone(), point: end.clone(), hit });
-    if (impact) w.ctx.events.emit('bullet:impact', { point: end.clone(), normal: impact.normal.clone(), surface: impact.surface, owner: impact.owner });
+    // stage 3d (coordinator): a round into water splashes (fx.splash, W6) — no bullet:impact, so no decal on the water
+    if (impact && impact.surface === 'water') { try { (w.ctx.fx as unknown as { splash?(at: THREE.Vector3, size: number): void }).splash?.(end.clone(), 0.4); } catch { /* fx optional */ } }
+    else if (impact) w.ctx.events.emit('bullet:impact', { point: end.clone(), normal: impact.normal.clone(), surface: impact.surface, owner: impact.owner });
     this.log('shot', { hit, capped, first: this.firstMiss, d: +d.toFixed(2), p: +p.toFixed(3), end: [+end.x.toFixed(2), +end.y.toFixed(2), +end.z.toFixed(2)] });
   }
 
@@ -950,7 +1025,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     if (b.part !== 'torso') {
       _v.copy(b.dir).normalize();
       const hit = w.ctx.physics.raycast(b.point, _v, 2.5);
-      if (hit && hit.surface !== 'glass') fx.decal('blood_splat', hit.point, hit.normal, 0.3 + Math.min(0.3, b.amount / 100));
+      if (hit && hit.surface !== 'glass' && hit.surface !== 'water') fx.decal('blood_splat', hit.point, hit.normal, 0.3 + Math.min(0.3, b.amount / 100));
     }
   }
 
@@ -1005,9 +1080,12 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     this.dir?.dropToken(this.id);
     this.leaveCover();
     this.target = null;
+    this.patrolPts = null;
     if (this.holdWalk) { const d = this.holdWalk.done; this.holdWalk = null; d(); }
     this.mode = 'dying';
     this.setState('dead');
+    // stage 3d B6: in water deeper than 0.6 m the body sinks (kinematic) and is removed; no wreck box, no drop
+    { const p = this.body.position, deep = this.deepWaterAt(p.x, p.y, p.z, WADE.walker); if (deep) this.startSink(deep.vol, deep.floorY); }
     // keyed by the hit direction against his facing: from the front → back, from behind → forward, else side
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const along = (dir.x * fx + dir.z * fz) / (Math.hypot(dir.x, dir.z) || 1);
@@ -1025,10 +1103,13 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
 
   private settle(): void {
     if (this.mode !== 'dying') return;
+    // a sinking body settles only once it is gone (the rig's fall ends long before)
+    if (this.sinkVol && !this.sunk) return;
     const w = this.world, p = this.body.position;
     this.mode = 'dead';
     this.settled = true;
     if (this.rig.led !== 'off') this.rig.setLed('off');
+    if (this.sunk) { this.wreckBox = null; this.log('sunk', { y: +p.y.toFixed(2) }); return; }
     // the body: the rig's box round the lying body, made the manager's walkable 0.15 m box (check:wreck)
     this.object.updateMatrixWorld(true);
     const box = this.rig.corpseBox(new THREE.Box3());
@@ -1041,6 +1122,21 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   }
 
   override corpseChest(out: THREE.Vector3): THREE.Vector3 | null { return out.copy(this.rig.chest); }
+
+  private deepT = 0;
+  /** B6 fail-safe: a LIVING soldier whose floor is deeper than the water's `stand` drowns and sinks. True = he died. */
+  private checkDeep(dt: number): boolean {
+    this.deepT -= dt;
+    if (this.deepT > 0) return false;
+    this.deepT = 0.25;
+    if (!this.world.ctx.level?.water?.length) return false;
+    const p = this.body.position;
+    const deep = this.deepWaterAt(p.x, p.y, p.z, WADE.walker);
+    if (!deep || deep.vol.surface - deep.floorY <= deep.vol.stand) return false;
+    console.error(`[soldier] ${this.id} (${this.group}) in deep water ${deep.vol.id} at ${p.toArray().map((v) => v.toFixed(2))}: sinks (B6 fail-safe)`);
+    this.die(_v.set(0, -1, 0));
+    return true;
+  }
 
   override dispose(): void {
     this.setLight(false);

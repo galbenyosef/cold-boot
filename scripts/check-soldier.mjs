@@ -1,7 +1,7 @@
 // The taken soldier (stage 3c §8.2, §8.2.10; W3b, joined with W3a's body at the soldier-in-motion review). On a static
 // build (vite build + vite preview).
 //   node scripts/check-soldier.mjs [--url http://127.0.0.1:4173]
-//        [--only ttk,threat,first,hitrate,telegraph,cover,supp,misses,cap,death,perception,hold,exits,grating,actor,cost,dark]
+//        [--only ttk,threat,first,hitrate,telegraph,cover,supp,misses,cap,death,perception,hold,exits,grating,actor,cost,dark,level6]
 //        [--watch [--seconds 20] [--fp] [--dark] [--quality low|medium] [--out dir]] [--real]
 // Default: the TEST ARENA (`?level=5&nostory=1&soldierArena=1`: lane, cover yard with 10 cover points in the contract's
 // format, a crawl trench under a solid grating with one exit, a switchable dark region, lights-out; src/enemies/soldier/arena.ts).
@@ -38,6 +38,10 @@
 //  14 cost       5 soldiers + 4 husks fighting: enemies update ≤ 1.5 ms per frame (mean, in page)
 //  17 dark       lights out, lamp off: the Clasp red from behind, weapon light + glint and a muzzle flash from the front,
 //                at 8 / 15 / 25 m, read from the real frames
+//  18–23 level6 (stage 3d §8.4, W3c; stub water / ladder data injected on the arena): wade costs and exclusions (walker
+//                0.6 / skitter 0.1), a husk never in deep water; both climbers at their exits ≤ 6 / ≤ 7 s, the gate open then
+//                shut, not hurt under water; shot off the ladder → sinks 0.6 m/s, gone 5.7 m under, no wreck box; a patrol
+//                walks and holds, a near miss releases; flood-lit at 29 m in the dark; a disabled cover point left ≤ 0.5 s
 // Always: no soldier hit lands on a player he has no line to (checked on every `enemy:fired` hit).
 // --watch: real-time frame sequence (10 fps, shots/soldier/) of a soldier fighting a scripted player in the yard, seen
 //          from an observer camera beside him (`--fp`: the player's own view).
@@ -1147,6 +1151,187 @@ async function watch() {
   console.log(`  ${k} frames (log: ${dir}/log.txt); fps ${fps}`);
 }
 
+// ───────────────────────────────────────────────────────────── 18–23 level 6 (stage 3d §8.4, W3c) — on the arena
+// with STUB water / ladder data injected into the page (W4a / W4b / W7's level-6 geometry was not built when these were
+// written; the same rules run on the real data). Cases: wade (nav costs + exclusions, wading speed), climb (both
+// climbers' times, the gate, not shootable under water), sink (shot off the ladder: falls back, sinks 0.6 m/s, gone 5.7 m
+// under the surface, no wreck box, never thrown to the roof), patrol (walks, holds, a near miss releases), flood (lit by
+// a flood at 29 m in the dark, not without it), coverOff (a disabled point is left ≤ 0.5 s).
+async function caseLevel6() {
+  console.log('══════════ 18–23 level 6 (stub water / ladders) ══════════');
+  const r = await ev(() => {
+    const S = window.__S, g = window.__game, E = g.enemies, p = g.player, V = S.V, nav = E.world.nav;
+    const out = {};
+    const box = (x0, y0, z0, x1, y1, z1) => ({ min: new V(x0, y0, z0), max: new V(x1, y1, z1) });
+    const water0 = g.level.water;
+    // ── 18 wade: a knee pond (0.5) across the whole lane and a deep pond (0.8) beyond it with gaps at both lane edges
+    S.clear();
+    const shallow = { id: 'wat_t_shallow', room: 'arena', box: box(196, -1, -3, 208, 0.5, 1), surface: 0.5, stand: 1.25 };
+    const deep = { id: 'wat_t_deep', room: 'arena', box: box(199.5, -1, 6, 204.5, 0.8, 10), surface: 0.8, stand: 1.25 };
+    g.level.water = [shallow, deep];
+    nav.refreshWade();
+    const inB = (b, q) => q.x > b.min.x && q.x < b.max.x && q.z > b.min.z && q.z < b.max.z;
+    const start = nav.nearestNode(new V(202, 0, -12), true, nav.decks), goal = nav.nearestNode(new V(202, 0, 16), true, nav.decks);
+    const pathOf = (mw) => { const o = []; nav.findPath(start, goal, o, true, mw); return o.map((i) => nav.nodePos(i)); };
+    const pw = pathOf(0.6), ps = pathOf(0.1);
+    out.wade = {
+      nodesShallow: [...Array(nav.count).keys()].filter((i) => Math.abs(nav.wadeAt(i) - 0.5) < 1e-3).length,
+      nodesDeep: [...Array(nav.count).keys()].filter((i) => nav.wadeAt(i) > 0.6).length,
+      walkerDeep: pw.filter((q) => inB(deep.box, q)).length, walkerLen: pw.length,
+      skitterWet: ps.filter((q) => inB(deep.box, q) || inB(shallow.box, q)).length, skitterLen: ps.length,
+      walkDeep: nav.walkable(new V(202, 0, 4), new V(202, 0, 12), 0.35, true),
+      walkShallow: nav.walkable(new V(202, 0, -6), new V(202, 0, 4), 0.35, true),
+      skitterShallow: nav.walkable(new V(202, 0, -6), new V(202, 0, 4), 0.35, true, 0.1),
+    };
+    // a live husk walked to the player beyond both ponds: never in the deep one; slower in the knee water
+    S.place(202, 0, 16, Math.PI, 0);
+    const h = E.spawnPose('husk', new V(202, 0, -12), 0, 'tw_h');
+    S.step(2); h.alert();
+    let inDeep = 0, vIn = [], vOut = [];
+    S.secs(14, () => {
+      const q = h.position, v = Math.hypot(h.body.velocity.x, h.body.velocity.z);
+      if (inB(deep.box, q)) inDeep++;
+      if (v > 0.5) (inB(shallow.box, q) ? vIn : vOut).push(v);
+    });
+    const mean = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+    out.wadeLive = { inDeep, vIn: mean(vIn), vOut: mean(vOut), nIn: vIn.length, reached: Math.hypot(h.position.x - 202, h.position.z - 16) };
+    E.removeGroup('tw_h');
+    g.level.water = water0; nav.refreshWade();
+
+    // ── 19–20 climb / sink: a stub well (x 251 … 256, surface −0.3, 13.7 m) and ladder outside the arena
+    const gateLog = [];
+    const gate = { k: 0, open(k) { this.k = k; gateLog.push([E.world.time, k]); } };
+    const well = { id: 'wat_t_well', room: 'arena', box: box(251, -14, 7, 256, -0.3, 13), surface: -0.3, stand: 1.25 };
+    const ladder = { userData: { foot: new V(251.4, -14, 10), top: new V(251.4, 0.8, 10), exit: new V(249.9, 0, 10), gate } };
+    const obj0 = g.level.object;
+    g.level.object = (n) => (n === 'ladder6_w' ? ladder : obj0(n));
+    g.level.water = [well];
+    S.place(240, 0, 10, -Math.PI / 2, 0);
+    const c1 = E.spawnPose('husk', new V(251.9, -3.2, 10.4), 0, 'tw_c', 'climb');
+    let c2 = null;
+    const t0 = E.world.time;
+    let hurtUnder = null, maxGate = 0, atExit = null, stateAtExit = null;
+    S.secs(8, (i) => {
+      if (i === 0) c2 = E.spawnPose('husk', new V(251.9, -4.4, 9.6), 0, 'tw_c', 'climb');
+      maxGate = Math.max(maxGate, gate.k);
+      if (!atExit && c1.climbInfo.phase === 'done') { atExit = c1.position.clone(); stateAtExit = c1.state; }
+      if (hurtUnder === null && E.world.time - t0 > 0.6) { const hp = c1.health; c1.applyDamage(c1.volumes[1], 5, c1.position.clone(), new V(1, 0, 0)); hurtUnder = c1.health < hp; }
+    });
+    const i1 = c1.climbInfo, i2 = c2.climbInfo;
+    out.climb = {
+      t1: i1.exitAt - i1.startAt, t2: i2.exitAt - i2.startAt, clear1: i1.clearedAt - i1.startAt, clear2: i2.clearedAt - i2.startAt,
+      hurtUnder, maxGate, gateEnd: gate.k, state1: stateAtExit, pos1: atExit?.toArray().map((v) => +v.toFixed(2)),
+      exitErr: atExit ? Math.hypot(atExit.x - 249.9, atExit.y, atExit.z - 10) : 99,
+    };
+    // shootable once the head is clear (after the climb: a normal husk)
+    { const hp = c1.health; c1.applyDamage(c1.volumes[1], 5, c1.position.clone(), new V(1, 0, 0)); out.climb.hurtAfter = c1.health < hp; }
+    E.removeGroup('tw_c');
+    // shot off the ladder 1.8 s into the climb: falls back, sinks, removed
+    gate.k = 0;
+    const d1 = E.spawnPose('husk', new V(251.9, -3.2, 10.4), 0, 'tw_d', 'climb');
+    S.secs(2.2);
+    const atDeath = d1.position.y;
+    d1.applyDamage(d1.volumes[1], 999, d1.position.clone(), new V(1, 0, 0));
+    const ys = [];
+    S.secs(14, () => ys.push(d1.position.y));
+    out.sink = {
+      atDeath, maxAfter: Math.max(...ys), minY: Math.min(...ys), sunk: d1.sunk, visible: d1.object.visible, wreckBox: !!d1.wreckBox, wreckBody: !!d1.wreckBody,
+      alive: d1.alive, settled: d1.settled, gateEnd: gate.k,
+      // sink speed in the steady part (from 1 m under the surface down to 4 m under)
+      rate: (() => { const a = ys.findIndex((y) => y < -1.3), b = ys.findIndex((y) => y < -4.3); return a >= 0 && b > a ? 3.0 / ((b - a) * S.DT) : null; })(),
+    };
+    E.removeGroup('tw_d');
+    g.level.object = obj0; g.level.water = water0;
+
+    // ── 21 patrol: holding soldier walks two points down the lane and holds; a near miss releases him
+    S.clear();
+    S.place(202, 0, 20, 0, 0);   // 30 m behind, facing away
+    const sid = S.spawn(202, -16, Math.PI, { hold: true, arms: 'carbine', group: 'tw_p' });
+    const sol = S.sol(sid);
+    sol.patrol([new V(202, 0, -10), new V(204, 0, -4)], { speed: 1.4, light: false, end: 'hold' });
+    let maxV = 0;
+    const tp = E.world.time; let arrived = null;
+    S.secs(14, () => { maxV = Math.max(maxV, Math.hypot(sol.body.velocity.x, sol.body.velocity.z)); if (arrived === null && !sol.patrolling) arrived = E.world.time - tp; });
+    out.patrol = { arrived, err: Math.hypot(sol.position.x - 204, sol.position.z + 4), holding: E.holding('tw_p'), maxV, light: S.row(sid).light, state: S.row(sid).state };
+    // near miss (as case 15)
+    S.place(202, 0, 6, 0, 0);
+    S.secs(0.3);
+    const held = S.row(sid).holding;
+    p.give('pistol', 50); p.debug.switchTo('pistol'); S.secs(0.8);
+    const he = sol.rig.eye;
+    const [yw, pi] = S.lookYP(p.eye, new V(he.x + 1.0, he.y + 0.3, he.z));
+    p.teleport(p.position.clone(), yw, pi); S.step(2);
+    p.weapons.pistol.clip = 12; p.debug.fire(); S.secs(0.5);
+    out.patrol.nearMiss = { held, after: S.row(sid).holding };
+    E.removeGroup('tw_p');
+
+    // ── 22 flood-lit: dark lane, lamp off, 29 m, in front of him
+    S.clear();
+    S.A.dark(true);
+    S.place(202, 0, 14, 0, 0);
+    E.world.floodLit = () => true;
+    const f1 = S.spawn(202, -15, Math.PI, { group: 'tw_f' });
+    const tf = E.world.time; let seen = null;
+    S.secs(3, () => { if (seen === null && S.row(f1).aware) seen = E.world.time - tf; });
+    E.removeGroup('tw_f');
+    E.world.floodLit = () => false;   // the flood shot out
+    const f2 = S.spawn(202, -15, Math.PI, { group: 'tw_f2' });
+    S.secs(5);
+    out.flood = { seen, darkAware: S.row(f2).aware };
+    E.removeGroup('tw_f2');
+    delete E.world.floodLit;
+    S.A.dark(false);
+
+    // ── 23 cover enabled: he holds a yard point; its object goes → he leaves within 0.5 s
+    S.clear();
+    S.place(227, 0, 6, 0, 0);
+    const cid = S.spawn(227, -20, Math.PI, { arms: 'carbine', cover: 'yard', group: 'tw_c2' });
+    const cs = S.sol(cid);
+    let held2 = null;
+    for (let k = 0; k < 60 && !held2; k++) { S.secs(0.25, () => { cs.health = Math.max(cs.health, 60); }); const row = S.row(cid); if (row.cover && !row.moving) held2 = row.cover; }
+    out.coverOff = { held: held2, left: null, chose: null };
+    if (held2) {
+      const cp = g.level.cover.find((c) => c.id === held2);
+      cp.enabled = false;
+      const t3 = E.world.time;
+      for (let i = 0; i < 60 && out.coverOff.left === null; i++) { S.step(1); const row = S.row(cid); if (row.cover !== held2 && row.target !== held2) { out.coverOff.left = E.world.time - t3; out.coverOff.chose = row.target ?? row.cover; } }
+      // never chosen again while disabled
+      let back = 0;
+      S.secs(8, () => { const row = S.row(cid); if (row.cover === held2 || row.target === held2) back++; cs.health = Math.max(cs.health, 60); });
+      out.coverOff.back = back;
+      cp.enabled = true;
+    }
+    E.removeGroup('tw_c2');
+    return out;
+  });
+  const w = r.wade;
+  check(w.nodesShallow > 0 && w.nodesDeep > 0, `wade from Level.water: ${w.nodesShallow} nodes at 0.5 m, ${w.nodesDeep} deeper than 0.6`);
+  check(w.walkerLen > 0 && w.walkerDeep === 0, `husk / soldier path past the ponds: ${w.walkerLen} nodes, none in the 0.8 m water`);
+  check(w.skitterLen > 0 && w.skitterWet === 0, `skitter path: ${w.skitterLen} nodes, none in water deeper than 0.1`);
+  check(!w.walkDeep && w.walkShallow && !w.skitterShallow, `walkable: into 0.8 m no, through 0.5 m yes (walker), not for a skitter`);
+  check(r.wadeLive.inDeep === 0, `a husk chasing past the ponds never stands in the deep one (reached within ${fmt(r.wadeLive.reached)} m)`);
+  check(r.wadeLive.nIn > 0 && r.wadeLive.vIn <= r.wadeLive.vOut * 0.8, `wading: husk ${fmt(r.wadeLive.vIn)} m/s in the knee water (${r.wadeLive.nIn} frames) vs ${fmt(r.wadeLive.vOut)} m/s dry (× 0.7)`);
+  const c = r.climb;
+  check(c.t1 > 0 && c.t1 <= 6.0, `climber 1 (from −2.9 under the surface): at its exit in ${fmt(c.t1)} s (≤ 6)`);
+  check(c.t2 > 0 && c.t2 <= 7.0, `climber 2 (from −4.1): at its exit in ${fmt(c.t2)} s (≤ 7)`);
+  check(c.hurtUnder === false && c.hurtAfter === true, `not hurt while the head is under water (clears at ${fmt(c.clear1)} / ${fmt(c.clear2)} s), shootable after`);
+  check(c.maxGate >= 0.99 && c.gateEnd === 0, `the ladder gate opened (max ${fmt(c.maxGate)}) and is shut behind them (${c.gateEnd})`);
+  check(c.exitErr < 0.6 && c.state1 !== 'alert', `climber 1 at its exit is a normal husk (${c.state1}, ${JSON.stringify(c.pos1)})`);
+  const s = r.sink;
+  check(!s.alive && s.sunk && !s.visible && !s.wreckBox && !s.wreckBody && s.settled, `shot off the ladder: sunk, hidden, no wreck box (${JSON.stringify({ sunk: s.sunk, vis: s.visible, wreck: s.wreckBox })})`);
+  check(s.maxAfter <= s.atDeath + 0.05 && s.minY >= -6.1 && s.minY <= -5.9, `it falls back and down only (max ${fmt(s.maxAfter)} ≤ ${fmt(s.atDeath)}), gone at ${fmt(s.minY)} (surface − 5.7 = −6.0), never thrown to the roof`);
+  check(s.rate !== null && Math.abs(s.rate - 0.6) < 0.06, `sinks at ${fmt(s.rate)} m/s (0.6)`);
+  check(s.gateEnd === 0, `gate shut after the climber died on the ladder (${s.gateEnd})`);
+  const pt = r.patrol;
+  check(pt.arrived !== null && pt.err < 0.5 && pt.holding === 1 && pt.state === 'idle', `patrol: walked 2 points in ${fmt(pt.arrived)} s (err ${fmt(pt.err)} m), holding(group) ${pt.holding}`);
+  check(pt.maxV <= 1.5 && pt.light === false, `patrol walk ≤ 1.4 m/s (max ${fmt(pt.maxV)}), light off as asked`);
+  check(pt.nearMiss.held && !pt.nearMiss.after, `a near miss releases the patrolled soldier (${JSON.stringify(pt.nearMiss)})`);
+  check(r.flood.seen !== null && r.flood.seen <= 0.6 && r.flood.darkAware === false, `flood-lit at 29 m in the dark: noticed after ${fmt(r.flood.seen)} s; flood out: not noticed in 5 s`);
+  const co = r.coverOff;
+  check(co.held && co.left !== null && co.left <= 0.5 && co.back === 0, `cover point ${co.held} disabled: he leaves in ${fmt(co.left)} s (≤ 0.5) for ${co.chose}, never back while disabled (${co.back})`);
+  report.level6 = r;
+}
+
 // ───────────────────────────────────────────────────────────── --real (level 5 as built)
 async function real() {
   console.log('══════════ real level 5 ══════════');
@@ -1199,6 +1384,7 @@ else {
     const v = await ev(() => window.__S.violations);
     check(v.length === 0, `no soldier hit on a player he had no line to (${v.length})`);
     if (want('hold')) await caseHold();
+    if (want('level6')) await caseLevel6();
     writeJson('soldier', 5, report);
   }
 }

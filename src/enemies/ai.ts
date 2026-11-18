@@ -4,11 +4,11 @@
  * Per-type behaviour lives in husk/skitter/sentry.
  */
 import * as THREE from 'three';
-import type { CapsuleBody, DynamicBox, Enemy, EnemyType, GameContext, LoopHandle } from '../core/types';
+import type { CapsuleBody, DynamicBox, Enemy, EnemyType, GameContext, LoopHandle, WaterVolume } from '../core/types';
 import { volumeNormal, type HitVolume } from './shared/hit';
 import type { Rig } from './shared/rig';
 import { angleDiff } from './shared/ik';
-import type { NavGraph } from './nav';
+import { WADE, waterDepth, type NavGraph } from './nav';
 import type { Holo } from './shared/holo';
 import type { SoldierDirector } from './soldier/fire';
 
@@ -41,7 +41,22 @@ export interface EnemyWorld {
    * manager on first use (levels without soldiers never build it).
    */
   soldiers(): SoldierDirector;
+  /**
+   * Stage 3d D20 (W3c, optional override): is world point `p` inside a live flood's beam? When set (the manager may
+   * wire it to every living boss; tests set a stub) soldiers use it; when absent they ask
+   * `ctx.enemies.boss(group).floodLit(p)` for every living enemy of type 'loader'.
+   */
+  floodLit?(p: THREE.Vector3): boolean;
 }
+
+/**
+ * Stage 3d B6 (W3c): a body in DEEP water (floor more than `WADE.walker` = 0.6 m under the surface) sinks at 0.6 m/s,
+ * kinematic (no `moveBody`, so the kill height never throws it to the roof), and is gone 5.7 m under the surface
+ * (y −26 in level 6's well, surface −20.3). A body falling into it (a climber shot off its ladder) falls freely (g 19)
+ * and is slowed to the sink speed by the water.
+ */
+export const SINK = { speed: 0.6, gone: 5.7, g: 19 } as const;
+const DOWN = new THREE.Vector3(0, -1, 0);
 
 const _from = new THREE.Vector3(), _to = new THREE.Vector3();
 const _n = new THREE.Vector3(), _hn = new THREE.Vector3(), _mean = new THREE.Vector3();
@@ -161,6 +176,88 @@ export abstract class EnemyBase implements Enemy {
   /** Bodies with this set are skipped by the manager's separation pass (e.g. clinging to a wall). */
   ignoreSeparation = false;
   get hunting(): boolean { return this.alive && this.awake && (this.state === 'alert' || this.state === 'chase' || this.state === 'attack' || this.state === 'stagger'); }
+
+  /** Stage 3d §8.4 (W3c): the deepest water this type paths / walks into (skitters 0.1 m, every walker 0.6 m). */
+  protected get maxWade(): number { return this.type === 'skitter' ? WADE.skitter : WADE.walker; }
+
+  /** Water depth at the body's feet (0 = dry; levels without water: always 0). */
+  protected feetDepth(): number {
+    const water = this.world.ctx.level?.water;
+    if (!water || water.length === 0) return 0;
+    const p = this.body.position;
+    return waterDepth(water, p.x, p.y, p.z);
+  }
+
+  /**
+   * Stage 3d B6: the water volume whose floor at (x, z) lies more than `limit` under its surface (0.6 m: a body dying
+   * there sinks; `vol.stand` is the fail-safe for a LIVING body), with the point inside its plan box and below its
+   * surface + `above` — or null. `floorY` = the floor under the water (−Infinity: none above the box bottom). One
+   * `raycastSolid` down per volume the point is in.
+   */
+  protected deepWaterAt(x: number, y: number, z: number, limit: number = WADE.walker, above = 0.05): { vol: WaterVolume; floorY: number } | null {
+    const water = this.world.ctx.level?.water;
+    if (!water || water.length === 0) return null;
+    for (let i = 0; i < water.length; i++) {
+      const w = water[i], b = w.box;
+      if (x < b.min.x || x > b.max.x || z < b.min.z || z > b.max.z || y > w.surface + above) continue;
+      _from.set(x, w.surface + 0.02, z);
+      const hit = this.world.ctx.physics.raycastSolid(_from, DOWN, w.surface - b.min.y + 0.6);
+      const floorY = hit ? hit.point.y : -Infinity;
+      if (w.surface - floorY > limit) return { vol: w, floorY };
+    }
+    return null;
+  }
+
+  /** The body is sinking (B6): set by `startSink`; `tickSink` moves it. */
+  protected sinkVol: WaterVolume | null = null;
+  private sinkVy = 0;
+  private sinkTo = -Infinity;
+  private readonly sinkDrift = new THREE.Vector3();
+  /** Gone under water (hidden, settled; no wreck box ever). */
+  sunk = false;
+  /**
+   * Begin the kinematic fall / sink into `vol` (drift: horizontal m/s while still above the water, e.g. off a ladder).
+   * It is gone at 5.7 m under the surface, or on the floor under it when that is shallower (a 1 m channel).
+   */
+  protected startSink(vol: WaterVolume, floorY = -Infinity, drift?: THREE.Vector3): void {
+    if (this.sinkVol) return;
+    this.sinkVol = vol;
+    this.sinkTo = Math.max(vol.surface - SINK.gone, floorY + 0.05);
+    this.sinkVy = Math.min(0, this.body.velocity.y);
+    this.sinkDrift.set(drift?.x ?? 0, 0, drift?.z ?? 0);
+    this.body.velocity.set(0, 0, 0);
+    this.wreckBox = null;
+    if (this.wreckBody) { this.wreckBody.remove(); this.wreckBody = null; }
+  }
+  /** One step of the sink; true once the body is gone (5.7 m under the surface) — then it is hidden. */
+  protected tickSink(dt: number): boolean {
+    const vol = this.sinkVol;
+    if (!vol || this.sunk) return this.sunk;
+    const p = this.body.position;
+    const wasAbove = p.y > vol.surface - 0.2;
+    if (wasAbove) {
+      this.sinkVy -= SINK.g * dt;
+      p.x += this.sinkDrift.x * dt; p.z += this.sinkDrift.z * dt;
+    } else {
+      // the water takes the fall out within ~0.3 s, then a steady sink
+      this.sinkVy += (-SINK.speed - this.sinkVy) * Math.min(1, dt * 10);
+    }
+    p.y += this.sinkVy * dt;
+    if (wasAbove && p.y <= vol.surface - 0.2) {
+      _to.set(p.x, vol.surface, p.z);
+      try { (this.world.ctx.fx as unknown as { splash?(at: THREE.Vector3, size: number): void }).splash?.(_to, 1.0); } catch { /* fx optional (W6) */ }
+    }
+    this.object.position.copy(p);
+    if (p.y <= this.sinkTo) {
+      this.sunk = true;
+      this.settled = true;
+      this.wreckBox = null;
+      this.holdHidden = true;
+      this.object.visible = false;
+      this.stopLoop(0);
+    }
+    return this.sunk;
+  }
 
   abstract update(dt: number): void;
   /** Begin waking (dormant → alive). `delay` seconds from now. */
@@ -304,7 +401,7 @@ export abstract class EnemyBase implements Enemy {
       this.directTimer = 0.25 + w.rand() * 0.05;
       // straight line when the player is visible, near, on our level and the floor-level ray is clear
       this.direct = nav.count === 0 ||
-        (this.dist < 16 && Math.abs(w.playerPos.y - p.y) < 1.2 && this.seesPlayer && nav.walkable(p, w.playerPos, rayH));
+        (this.dist < 16 && Math.abs(w.playerPos.y - p.y) < 1.2 && this.seesPlayer && nav.walkable(p, w.playerPos, rayH, false, this.maxWade));
     }
     if (so >= 0) this.direct = false;
     if (this.direct) { this.waypoint.copy(w.playerPos); this.path.length = 0; return true; }
@@ -313,13 +410,13 @@ export abstract class EnemyBase implements Enemy {
       this.replanTimer = 0.6 + w.rand() * 0.4;
       const start = nav.nearestNode(p, true);
       const goal = so >= 0 ? so : nav.playerNode(w.time, w.playerPos);
-      nav.findPath(start, goal, this.path);
+      nav.findPath(start, goal, this.path, false, this.maxWade);
       this.pathIdx = 0;
       // skip the first node if we are already past it toward the second
       if (this.path.length > 1) {
         const a = nav.nodePos(this.path[0]), b = nav.nodePos(this.path[1]);
         const abx = b.x - a.x, abz = b.z - a.z;
-        if ((p.x - a.x) * abx + (p.z - a.z) * abz > 0 && nav.walkable(p, b, rayH)) this.pathIdx = 1;
+        if ((p.x - a.x) * abx + (p.z - a.z) * abz > 0 && nav.walkable(p, b, rayH, false, this.maxWade)) this.pathIdx = 1;
       }
     }
     if (this.path.length === 0) { if (so >= 0) return this.hold(); this.waypoint.copy(w.playerPos); return true; }
@@ -327,7 +424,7 @@ export abstract class EnemyBase implements Enemy {
     if (this.pullTimer <= 0) {
       this.pullTimer = 0.25;
       // string-pull: skip ahead while the following node is directly walkable
-      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH)) this.pathIdx++;
+      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH, false, this.maxWade)) this.pathIdx++;
     }
     let node = nav.nodePos(this.path[this.pathIdx]);
     if (Math.hypot(node.x - p.x, node.z - p.z) < 0.55) {
@@ -357,7 +454,7 @@ export abstract class EnemyBase implements Enemy {
     if (this.directTimer <= 0) {
       this.directTimer = 0.25 + w.rand() * 0.05;
       this.direct = nav.count === 0 ||
-        (this.dist < 16 && Math.abs(w.playerPos.y - p.y) < 1.2 && this.seesPlayer && nav.walkable(p, w.playerPos, rayH, walker));
+        (this.dist < 16 && Math.abs(w.playerPos.y - p.y) < 1.2 && this.seesPlayer && nav.walkable(p, w.playerPos, rayH, walker, this.maxWade));
     }
     if (so >= 0) this.direct = false;
     if (this.direct) { this.waypoint.copy(w.playerPos); this.path.length = 0; this.partial = false; return true; }
@@ -366,21 +463,21 @@ export abstract class EnemyBase implements Enemy {
       this.replanTimer = 0.6 + w.rand() * 0.4;
       const start = nav.nearestNode(p, true, walker);
       const goal = so >= 0 ? so : nav.playerNode(w.time, w.playerPos);
-      nav.findPath(start, goal, this.path, true);
+      nav.findPath(start, goal, this.path, true, this.maxWade);
       this.partial = nav.lastPartial;
       this.pathIdx = 0;
       // skip the first node if we are already past it toward the second (on its floor)
       if (this.path.length > 1) {
         const a = nav.nodePos(this.path[0]), b = nav.nodePos(this.path[1]);
         const abx = b.x - a.x, abz = b.z - a.z;
-        if ((p.x - a.x) * abx + (p.z - a.z) * abz > 0 && (!walker || Math.abs(a.y - p.y) < 1.0) && nav.walkable(p, b, rayH, walker)) this.pathIdx = 1;
+        if ((p.x - a.x) * abx + (p.z - a.z) * abz > 0 && (!walker || Math.abs(a.y - p.y) < 1.0) && nav.walkable(p, b, rayH, walker, this.maxWade)) this.pathIdx = 1;
       }
     }
     if (this.path.length === 0) return this.hold();
     this.pullTimer -= dt;
     if (this.pullTimer <= 0) {
       this.pullTimer = 0.25;
-      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH, walker)) this.pathIdx++;
+      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH, walker, this.maxWade)) this.pathIdx++;
     }
     let node = nav.nodePos(this.path[this.pathIdx]);
     if (Math.hypot(node.x - p.x, node.z - p.z) < 0.55 && (!walker || Math.abs(node.y - p.y) < 1.0)) {
@@ -404,7 +501,7 @@ export abstract class EnemyBase implements Enemy {
     if (this.directTimer <= 0 || this.navGoal.distanceToSquared(goal) > 1) {
       this.directTimer = 0.3 + w.rand() * 0.05;
       this.direct = nav.count === 0 ||
-        (Math.hypot(goal.x - p.x, goal.z - p.z) < 14 && Math.abs(goal.y - p.y) < 0.6 && nav.walkable(p, goal, rayH, ground) && nav.walkable(p, goal, 1.0));
+        (Math.hypot(goal.x - p.x, goal.z - p.z) < 14 && Math.abs(goal.y - p.y) < 0.6 && nav.walkable(p, goal, rayH, ground, this.maxWade) && nav.walkable(p, goal, 1.0));
     }
     if (this.direct) { this.waypoint.copy(goal); this.path.length = 0; this.navGoal.copy(goal); return true; }
     this.replanTimer -= dt;
@@ -413,20 +510,20 @@ export abstract class EnemyBase implements Enemy {
       this.navGoal.copy(goal);
       const start = nav.nearestNode(p, true, ground);
       const end = nav.nearestNode(goal, true, ground);
-      nav.findPath(start, end, this.path, true);
+      nav.findPath(start, end, this.path, true, this.maxWade);
       this.partial = nav.lastPartial;
       this.pathIdx = 0;
       if (this.path.length > 1) {
         const a = nav.nodePos(this.path[0]), b = nav.nodePos(this.path[1]);
-        if ((p.x - a.x) * (b.x - a.x) + (p.z - a.z) * (b.z - a.z) > 0 && Math.abs(a.y - p.y) < 1.0 && nav.walkable(p, b, rayH, ground)) this.pathIdx = 1;
+        if ((p.x - a.x) * (b.x - a.x) + (p.z - a.z) * (b.z - a.z) > 0 && Math.abs(a.y - p.y) < 1.0 && nav.walkable(p, b, rayH, ground, this.maxWade)) this.pathIdx = 1;
       }
     }
     if (this.path.length === 0) return false;
     this.pullTimer -= dt;
     if (this.pullTimer <= 0) {
       this.pullTimer = 0.25;
-      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH, ground)) this.pathIdx++;
-      else if (this.pathIdx === this.path.length - 1 && nav.walkable(p, goal, rayH, ground)) { this.waypoint.copy(goal); return true; }
+      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH, ground, this.maxWade)) this.pathIdx++;
+      else if (this.pathIdx === this.path.length - 1 && nav.walkable(p, goal, rayH, ground, this.maxWade)) { this.waypoint.copy(goal); return true; }
     }
     let node = nav.nodePos(this.path[this.pathIdx]);
     if (Math.hypot(node.x - p.x, node.z - p.z) < 0.5 && Math.abs(node.y - p.y) < 1.0) {
@@ -482,7 +579,7 @@ export abstract class EnemyBase implements Enemy {
           const l = _n.length();
           // (multi-deck levels: never through a balustrade / off a ledge — only toward a node on our floor in clear view)
           const nav = this.world.nav;
-          const safe = !nav.decks || (Math.abs(node.y - p.y) < 0.6 && nav.walkable(p, node, 0.35, this.type !== 'sentry') && nav.walkable(p, node, 1.0));
+          const safe = !nav.decks || (Math.abs(node.y - p.y) < 0.6 && nav.walkable(p, node, 0.35, this.type !== 'sentry', this.maxWade) && nav.walkable(p, node, 1.0));
           if (safe && l > 0.01 && l < 4) { p.addScaledVector(_n, Math.min(1, 0.6 / l)); p.y += 0.05; }
           this.stuckCount = 0;
         }
@@ -497,6 +594,8 @@ export abstract class EnemyBase implements Enemy {
   protected moveGround(dt: number, dx: number, dz: number, speed: number, accel: number): void {
     const v = this.body.velocity;
     if (this.holding) speed = 0; // stand-off (§8.10; never set on levels 1–2)
+    // stage 3d D13 (W3c): wading at ≥ 0.35 m slows every walker × 0.7 (levels without water: depth 0)
+    if (speed > 0 && this.feetDepth() >= WADE.slow) speed *= WADE.speed;
     const tx = dx * speed, tz = dz * speed;
     const k = Math.min(1, accel * dt);
     v.x += (tx - v.x) * k; v.z += (tz - v.z) * k;
@@ -526,10 +625,10 @@ export abstract class EnemyBase implements Enemy {
     return d - step;
   }
 
-  /** Ground height under a point (raycast down), or null. */
+  /** Ground height under a point (ray down through the MOVES set: a water surface is never a floor, S5), or null. */
   protected groundAt(x: number, y: number, z: number, maxDown = 3): number | null {
     _from.set(x, y, z); _to.set(0, -1, 0);
-    const h = this.world.ctx.physics.raycast(_from, _to, maxDown);
+    const h = this.world.ctx.physics.raycastSolid(_from, _to, maxDown);
     return h ? h.point.y : null;
   }
 }

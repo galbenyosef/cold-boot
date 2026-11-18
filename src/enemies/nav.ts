@@ -8,17 +8,33 @@
  * (to the reachable node nearest the goal) for standing off when the player cannot be reached.
  */
 import * as THREE from 'three';
-import type { Door, GameContext, NavNode } from '../core/types';
+import type { Door, GameContext, NavNode, WaterVolume } from '../core/types';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 const DOWN = new THREE.Vector3(0, -1, 0);
 /** Extra cost (m) of a drop link over its length: walking down a stair wins unless the drop saves more. */
 const DROP_PENALTY = 8;
 /**
- * Stage 3c S1n: level 5's crawl-exit walkway (the only route past the spine hatch) — no stand-off point inside it. Used
- * when the level declares no `regions.exit_keepout` (W4 may publish the box there instead; then that wins).
+ * Stage 3d §8.4 / D13 (W3c): wading. A node's `wade` is the water depth at it (`NavNode.wade` when the level gives it,
+ * else `Level.water`: surface − node floor inside a volume's box). Husks / soldiers pay × 1.4 on links INTO a node with
+ * wade ≥ 0.35 and never enter one deeper than 0.6 m; skitters never one deeper than 0.1 m (`maxWade` of the caller).
+ * Levels without water: every wade 0, every multiplier exactly 1 (paths and costs bit-identical to before).
  */
-const L5_WALKWAY = new THREE.Box3(new THREE.Vector3(36.2, -1, -15.4), new THREE.Vector3(38.6, 3, -14.2));
+export const WADE = { slow: 0.35, cost: 1.4, walker: 0.6, skitter: 0.1, speed: 0.7 } as const;
+
+/** Water depth at a FLOOR point (x, floorY, z): surface − floorY inside a volume's plan box, else 0. */
+export function waterDepth(water: readonly WaterVolume[] | undefined, x: number, floorY: number, z: number): number {
+  if (!water || water.length === 0) return 0;
+  let best = 0;
+  for (let i = 0; i < water.length; i++) {
+    const w = water[i], b = w.box;
+    if (x < b.min.x || x > b.max.x || z < b.min.z || z > b.max.z) continue;
+    if (floorY > w.surface + 0.02 || floorY < b.min.y - 0.3) continue;
+    const d = w.surface - floorY;
+    if (d > best) best = d;
+  }
+  return best;
+}
 
 export class NavGraph {
   readonly count: number;
@@ -46,6 +62,11 @@ export class NavGraph {
   private goalTime = -1;
   private nearest = new Int32Array(4);
   private nearestD = new Float32Array(4);
+  /** §8.4 (W3c): water depth per node and the cost factor of a link INTO it (1 dry, 1.4 at wade ≥ 0.35). */
+  private wade: Float32Array = new Float32Array(0);
+  private wadeMul: Float32Array = new Float32Array(0);
+  /** The level has water at any node (else every wade test is skipped). */
+  wet = false;
 
   constructor(private ctx: GameContext) {
     const nodes: readonly NavNode[] = ctx.level.nav ?? [];
@@ -94,6 +115,7 @@ export class NavGraph {
     this.g = new Float32Array(n); this.f = new Float32Array(n);
     this.parent = new Int32Array(n); this.stamp = new Int32Array(n); this.closed = new Int32Array(n); this.open = new Int32Array(n);
     this.dg = new Float32Array(n); this.dstamp = new Int32Array(n);
+    this.refreshWade();
     // Stage 3c D20: only a level with a `nav: false` floor (or a test arena that says so) ever targets exits
     const lv = ctx.level as unknown as { rooms?: readonly { floors?: readonly { nav?: boolean }[] }[]; navExits?: boolean } | undefined;
     this.exitsAware = !!lv?.navExits || !!lv?.rooms?.some((r) => r.floors?.some((f) => f.nav === false));
@@ -106,7 +128,7 @@ export class NavGraph {
   private dheap: Int32Array = new Int32Array(0);
   private dsearch = 0;
   /** Dijkstra (binary heap, lazy deletion) from `start` up to `maxCost` m (doors as findPath); read with `costTo`. */
-  pathCosts(start: number, maxCost: number): void {
+  pathCosts(start: number, maxCost: number, maxWade: number = WADE.walker): void {
     const s = ++this.dsearch;
     if (start < 0) return;
     const cap = this.count * 8 + 16;
@@ -143,12 +165,34 @@ export class NavGraph {
         const nb = adj[k];
         const di = doors[k];
         if (di >= 0) { const d = this.doors[di]; if (d.locked && !d.isOpen) continue; }
-        const ng = gk + cost[k];
+        if (this.wade[nb] > maxWade) continue;
+        const ng = gk + cost[k] * this.wadeMul[nb];
         if (ng > maxCost) continue;
         if (this.dstamp[nb] !== s || ng < this.dg[nb]) { this.dstamp[nb] = s; this.dg[nb] = ng; push(nb, ng); }
       }
     }
   }
+  /**
+   * §8.4 (W3c): (re)compute every node's `wade` from `NavNode.wade` (W4b's data, when present) or `Level.water`. Called
+   * once at build; tests that inject water call it again.
+   */
+  refreshWade(): void {
+    const nodes: readonly (NavNode & { wade?: number })[] = this.ctx.level?.nav ?? [];
+    const water = this.ctx.level?.water;
+    this.wade = new Float32Array(Math.max(1, this.count));
+    this.wadeMul = new Float32Array(Math.max(1, this.count)).fill(1);
+    this.wet = false;
+    for (let i = 0; i < this.count; i++) {
+      const q = this.pos[i];
+      const w = typeof nodes[i]?.wade === 'number' ? nodes[i].wade! : waterDepth(water, q.x, q.y, q.z);
+      this.wade[i] = w;
+      if (w > 0) this.wet = true;
+      if (w >= WADE.slow) this.wadeMul[i] = WADE.cost;
+    }
+  }
+  /** Water depth at node `i` (0 = dry). */
+  wadeAt(i: number): number { return i >= 0 && i < this.count ? this.wade[i] : 0; }
+
   /** Path cost to `node` from the last `pathCosts` start (Infinity = beyond its bound / unreachable). */
   costTo(node: number): number { return node >= 0 && this.dstamp[node] === this.dsearch ? this.dg[node] : Infinity; }
 
@@ -196,8 +240,8 @@ export class NavGraph {
     if (this.soExit && this.soExit.distanceToSquared(ex) < 1e-4) return;
     this.soExit = ex.clone();
     this.soTaken.clear();
-    const keep = [...(lv.regions?.exit_keepout ?? [])];
-    if (keep.length === 0 && this.ctx.levelId === 5) keep.push(L5_WALKWAY);
+    // stage 3d (W3c): the keep-out boxes are level data only (level 5 publishes its walkway as `regions.exit_keepout`)
+    const keep = lv.regions?.exit_keepout ?? [];
     const cands: { n: number; d: number }[] = [];
     for (let i = 0; i < this.count; i++) {
       const q = this.pos[i];
@@ -247,17 +291,30 @@ export class NavGraph {
   /**
    * Straight-line walk test (thin ray at shin height). With `ground` on a multi-deck level, every ~0.5 m of the
    * line must also have floor under it within 1.1 m of the line (no walking off a balcony / over a stairwell).
+   * Stage 3d S5 (W3c): both tests use `raycastSolid` (the MOVES set: rails and bar guards stop the line, a water surface
+   * is neither an obstacle nor a floor — levels without the flags: the same set as before). On a level with water, no
+   * point of the line (end included) may stand in water deeper than `maxWade` (0.6 m walkers, 0.1 m skitters).
    */
-  walkable(a: THREE.Vector3, b: THREE.Vector3, h = 0.35, ground = false): boolean {
+  walkable(a: THREE.Vector3, b: THREE.Vector3, h = 0.35, ground = false, maxWade: number = WADE.walker): boolean {
+    const phys = this.ctx.physics;
     _a.set(a.x, a.y + h, a.z); _b.set(b.x, b.y + h, b.z);
-    if (!this.ctx.physics.lineOfSight(_a, _b)) return false;
-    if (!ground || !this.decks) return true;
-    const len = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(len / 0.5);
-    for (let i = 1; i < n; i++) {
+    _c.subVectors(_b, _a);
+    const seg = _c.length();
+    if (seg >= 1e-4 && phys.raycastSolid(_a, _c.multiplyScalar(1 / seg), seg - 0.05) !== null) return false;
+    const water = this.wet ? this.ctx.level?.water : undefined;
+    if ((!ground || !this.decks) && !water) return true;
+    const len = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(len / 0.5));
+    for (let i = 1; i <= n; i++) {
       const t = i / n, y = a.y + (b.y - a.y) * t;
-      _c.set(a.x + (b.x - a.x) * t, y + 0.5, a.z + (b.z - a.z) * t);
-      const hit = this.ctx.physics.raycast(_c, DOWN, 1.6);
-      if (!hit || hit.normal.y < 0.5) return false;
+      const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+      let floor = y;
+      if (ground && this.decks && i < n) {
+        _c.set(x, y + 0.5, z);
+        const hit = phys.raycastSolid(_c, DOWN, 1.6);
+        if (!hit || hit.normal.y < 0.5) return false;
+        floor = hit.point.y;
+      }
+      if (water && waterDepth(water, x, floor, z) > maxWade) return false;
     }
     return true;
   }
@@ -275,7 +332,7 @@ export class NavGraph {
    * A*. Writes node indices start→goal into `out` and returns the length (0 if no path). With `partial`, an
    * unreachable goal yields the path to the explored node nearest it (3-D) instead (`lastPartial` = true).
    */
-  findPath(start: number, goal: number, out: number[], partial = false): number {
+  findPath(start: number, goal: number, out: number[], partial = false, maxWade: number = WADE.walker): number {
     out.length = 0;
     this.lastPartial = false;
     if (start < 0 || goal < 0) return 0;
@@ -301,7 +358,8 @@ export class NavGraph {
         if (this.closed[nb] === s) continue;
         const di = doors[k];
         if (di >= 0) { const d = this.doors[di]; if (d.locked && !d.isOpen) continue; }
-        const ng = this.g[cur] + cost[k];
+        if (this.wade[nb] > maxWade) continue;
+        const ng = this.g[cur] + cost[k] * this.wadeMul[nb];
         if (this.stamp[nb] !== s) {
           this.stamp[nb] = s; this.g[nb] = ng; this.f[nb] = ng + this.pos[nb].distanceTo(goalP); this.parent[nb] = cur;
           this.open[openN++] = nb;
