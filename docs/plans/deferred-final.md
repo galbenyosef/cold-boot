@@ -59,3 +59,14 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   far_lock_flood sub-bass on laptops; crank/pump bright; gallery-grate rule hard-coded y > −13.5 → level data.
   Contracts for others: ST re-emits `l6_quiet` on restore past the quiet; W3b plays loader ids itself, `loader_hum` via
   `loop()`, re-emits `boss:stage` on `boss.restore()`; W7/ST fire `ping_far`/`ping_near` from the ping6 machine.
+- 3d W5: `check:zfight --level 6` (screens, stencil quads); L1–5 screen frames (screens.ts `sizeFor` + `delete s.aux.key6`
+  touched shared paths, incl. level-5 navy boards); L6 bake time/memory LOW/MEDIUM; chamber perf with 2048 px boards
+  uploading; E1/E2 cutscene frames. Weak: tunnel_shotcrete repeat on 80 m tunnel A; dock_board rows just readable at
+  24–30 m (≤ 6 lines); wear not edge-aware; manifest re-types if rewritten off-screen mid-typing.
+- 3d W4b: `check:reach --level 6` all phases with stress + `check:nav --level 6` on the real level; `check:reach all` /
+  `check:nav all` (L1–5 unchanged: lowest point −5, no hazards, L1–2 nav hashes); `check:loader` with `target`.
+  Weak: `target` sees only `L.solids`; rotated ramps as AABB; jump-arc pass 35–55 s per phase; `extraCollider` wrapper is a
+  stopgap (needs a flagged-collider API in context.ts).
+- Coordinator: physics slope hold widened to n.y < 0.995 (≈ 5.7°+) for the 12.5° wet ramps — re-run `check:nav` ramp /
+  stair cases L3–5 and `check:physics`; `check-physics` "level 6 stub" case is stale (expects no water/dock) → rewrite
+  for the real level 6.
