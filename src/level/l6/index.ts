@@ -162,6 +162,199 @@ const PORTALS6: PortalSpec[] = [
   ['shaft6', 'pool6', 'd6_pool', false],
   ['pool6', 'stores6', 'd6_stores', false],
 ];
+/**
+ * Screen-space portal culling on top of the graph (IB6): the open frames, the trench's under-wall crossing and the
+ * `d6_he` porthole (a 0.3 m pane in a leaf: the door's width at its height) are the non-door openings; doors pass only
+ * while open. From tun6_a the graph reaches tun6_b through rep6, but tun6_b's mouth (x 9.7 … 14.3 at z −92) is out of
+ * line with tun6_a's (x ±2.3 at z −80) from anywhere north of z ≈ −72, so tun6_b (its dressing, pickups, lights) and
+ * the rooms behind it are drawn only from near the tunnel's end.
+ */
+const OPENINGS6: Opening6[] = [
+  { a: 'tun6_a', b: 'rep6', wall: 'z', at: -80, u0: -2.3, u1: 2.3, y0: 0, y1: 4.0 },
+  { a: 'rep6', b: 'tun6_b', wall: 'z', at: -92, u0: 9.7, u1: 14.3, y0: 0, y1: 4.0 },
+  // the crossing under the he6 / vault6 wall is seen only from the trench or from over its gratings near the wall (from
+  // anywhere else in either room it sits below the floor — portal culling is not occlusion, so it is gated by distance)
+  { a: 'he6', b: 'vault6', wall: 'x', at: 2.0, u0: -179.4, u1: -178.2, y0: -1.4, y1: -0.05, near: { x: 2.0, z: -178.8, r: 6.0 } },
+  { a: 'tun6_b', b: 'he6', wall: 'z', at: -160, u0: 11.2, u1: 12.8, y0: 1.45, y1: 1.75 },
+];
+
+/** A see-through opening between two rooms that is not a door: world rectangle in a wall plane. */
+interface Opening6 {
+  a: string; b: string; wall: 'x' | 'z'; at: number; u0: number; u1: number; y0: number; y1: number;
+  /** Counted only with the eye below the floor (y < −0.2) or within `r` m (plan) of (x, z). */
+  near?: { x: number; z: number; r: number };
+}
+
+/**
+ * Level 6's view culling on top of the level's portal graph — a COPY of level 4's `installPortalCull4` (kit4.ts; rule 9:
+ * copied, not shared) with one change: level 4 widens every portal's screen rectangle by 0.12 NDC, which compounds over
+ * a chain of distant openings (tun6_a → rep6 → tun6_b: both mouths ~80–90 m away are a few hundredths of the screen
+ * wide, so that margin passed tun6_b on from the whole of tun6_a). Here the turning margin is applied once, to the
+ * screen, and each opening is grown by PAD6 metres in the world instead (the parallax of a frame of movement and the
+ * view bob — large for a near opening, small for a far one). Walks the portals from the camera's room through openings
+ * whose screen rectangle overlaps the one it came through and moves every room-tagged group of the level root whose
+ * rooms it did not reach to the render's view-cull layer (30): `visible` stays the level's (checks and feeds walk it),
+ * probe captures and the feed pass still see them, shadow passes do not. Lights, enemies, pickups and fx volumes follow
+ * through `roomVisible`, narrowed to the same set. Only ever hides what the graph shows; never shows anything.
+ */
+function installPortalCull6(L: LevelBuild, openings: Opening6[]) {
+  const cam = L.ctx.camera;
+  const vp = new THREE.Matrix4();
+  type Portal = { a: number; b: number; pts: THREE.Vector3[]; door: { t: number; ajar?: number } | null; near?: Opening6['near'] };
+  let ready = false;
+  const portals: Portal[] = [];
+  let rooms: { id: string; x0: number; x1: number; z0: number; z1: number }[] = [];
+  let tagged: { obj: THREE.Object3D; ids: number[]; culled: boolean; masks: Map<THREE.Object3D, number> }[] = [];
+  const setCulled = (t: (typeof tagged)[number], on: boolean) => {
+    if (t.culled === on) return;
+    t.culled = on;
+    if (on) t.obj.traverse((o) => { if ((o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints) { t.masks.set(o, o.layers.mask); o.layers.mask = 1 << 30; } });
+    else { for (const [o, m] of t.masks) o.layers.mask = m; t.masks.clear(); }
+  };
+  let baseVisible: ((x: number, z: number) => boolean) | null = null;
+  const reached = new Uint8Array(64);
+  const rect = new Float32Array(64 * 4);
+  const SCREEN_MARGIN = 0.12; // NDC, once: one frame of turning at ~400°/s
+  const NDC_EPS = 0.01;
+  const PAD6 = 0.3; // m, per opening: a frame of movement + the view bob
+  const quad = (wall: 'x' | 'z', at: number, u0: number, u1: number, y0: number, y1: number) => {
+    u0 -= PAD6; u1 += PAD6; y0 -= PAD6; y1 += PAD6;
+    return wall === 'z'
+      ? [new THREE.Vector3(u0, y0, at), new THREE.Vector3(u1, y0, at), new THREE.Vector3(u0, y1, at), new THREE.Vector3(u1, y1, at)]
+      : [new THREE.Vector3(at, y0, u0), new THREE.Vector3(at, y0, u1), new THREE.Vector3(at, y1, u0), new THREE.Vector3(at, y1, u1)];
+  };
+  let active = false;
+  const setup = () => {
+    const level = L.ctx.level;
+    if (!level?.doors?.length || !L.root.userData.roomVisible) return false;
+    rooms = L.rooms.map((r) => ({ id: r.id, x0: r.bounds.min.x, x1: r.bounds.max.x, z0: r.bounds.min.z, z1: r.bounds.max.z }));
+    const idx = new Map(rooms.map((r, i) => [r.id, i]));
+    for (const d of level.doors) {
+      const root = L.objects.get(d.id);
+      const rs = root?.userData.rooms as string[] | undefined;
+      if (!root || !rs || rs.length !== 2 || !idx.has(rs[0]) || !idx.has(rs[1])) continue;
+      const impl = d as unknown as { width?: number; height?: number; t: number; ajar?: number };
+      const w = impl.width ?? 1.6, h = impl.height ?? 2.4, y = d.position.y;
+      const xWall = Math.abs(Math.sin(root.rotation.y)) > 0.5;
+      const c = xWall ? d.position.z : d.position.x;
+      portals.push({ a: idx.get(rs[0])!, b: idx.get(rs[1])!, pts: quad(xWall ? 'x' : 'z', xWall ? d.position.x : d.position.z, c - w / 2, c + w / 2, y, y + h), door: impl });
+    }
+    for (const o of openings) {
+      if (!idx.has(o.a) || !idx.has(o.b)) continue;
+      portals.push({ a: idx.get(o.a)!, b: idx.get(o.b)!, pts: quad(o.wall, o.at, o.u0, o.u1, o.y0, o.y1), door: null, near: o.near });
+    }
+    tagged = [];
+    for (const o of L.root.children) {
+      const rs = o.userData.rooms as string[] | undefined;
+      const ids = (rs ?? []).map((r) => idx.get(r)).filter((i): i is number => i !== undefined);
+      if (ids.length) tagged.push({ obj: o, ids, culled: false, masks: new Map() });
+    }
+    baseVisible = L.root.userData.roomVisible as (x: number, z: number) => boolean;
+    const roomAt = (x: number, z: number) => {
+      for (let i = 0; i < rooms.length; i++) { const r = rooms[i]; if (x > r.x0 + 0.05 && x < r.x1 - 0.05 && z > r.z0 + 0.05 && z < r.z1 - 0.05) return i; }
+      return -1;
+    };
+    L.root.userData.roomVisible = (x: number, z: number): boolean => {
+      if (!baseVisible!(x, z)) return false;
+      if (!active) return true;
+      const i = roomAt(x, z);
+      return i < 0 || reached[i] === 1;
+    };
+    return true;
+  };
+  /** Screen rectangle of a portal ∩ `r` (x0, y0, x1, y1 in NDC), or null; conservative near / behind the camera. */
+  const cv = [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()];
+  const NEAR_W = 0.05;
+  const clip = (p: Portal, r: number[]): number[] | null => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const add = (x: number, y: number, w: number) => {
+      const px = x / w, py = y / w;
+      if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py;
+    };
+    let behind = 0;
+    for (let k = 0; k < 4; k++) { const q = p.pts[k]; cv[k].set(q.x, q.y, q.z, 1).applyMatrix4(vp); if (cv[k].w < NEAR_W) behind++; }
+    if (behind === 4) {
+      // wholly behind the eye: invisible, unless the eye stands in the opening (then it passes the whole rectangle on)
+      const a = p.pts[0], d = p.pts[3], e = cam.position;
+      const dx = Math.max(Math.min(a.x, d.x) - e.x, 0, e.x - Math.max(a.x, d.x));
+      const dy = Math.max(Math.min(a.y, d.y) - e.y, 0, e.y - Math.max(a.y, d.y));
+      const dz = Math.max(Math.min(a.z, d.z) - e.z, 0, e.z - Math.max(a.z, d.z));
+      return dx * dx + dy * dy + dz * dz < 0.6 * 0.6 ? r.slice() : null;
+    }
+    const ring = [0, 1, 3, 2];
+    for (let k = 0; k < 4; k++) {
+      const A = cv[ring[k]], B = cv[ring[(k + 1) % 4]];
+      if (A.w >= NEAR_W) add(A.x, A.y, A.w);
+      if ((A.w >= NEAR_W) !== (B.w >= NEAR_W)) {
+        const t = (A.w - NEAR_W) / (A.w - B.w);
+        add(A.x + (B.x - A.x) * t, A.y + (B.y - A.y) * t, NEAR_W);
+      }
+    }
+    x0 = Math.max(x0 - NDC_EPS, r[0]); y0 = Math.max(y0 - NDC_EPS, r[1]); x1 = Math.min(x1 + NDC_EPS, r[2]); y1 = Math.min(y1 + NDC_EPS, r[3]);
+    return x0 < x1 && y0 < y1 ? [x0, y0, x1, y1] : null;
+  };
+  L.updaters.push(() => {
+    if (!ready) { ready = setup(); if (!ready) return; }
+    cam.updateMatrixWorld();
+    const p = cam.position;
+    let start = -1;
+    for (let i = 0; i < rooms.length; i++) { const r = rooms[i]; if (p.x >= r.x0 && p.x <= r.x1 && p.z >= r.z0 && p.z <= r.z1) { start = i; break; } }
+    // (check:fxleak's magenta mode tests that walls hide a mis-gated volume: the walls must all be there for it)
+    if ((L.ctx.fx as unknown as { volumesDebug?: boolean }).volumesDebug) start = -1;
+    reached.fill(0);
+    if (start < 0) { active = false; for (const t of tagged) setCulled(t, false); return; }
+    active = true;
+    vp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    const big = [-1 - SCREEN_MARGIN, -1 - SCREEN_MARGIN, 1 + SCREEN_MARGIN, 1 + SCREEN_MARGIN];
+    reached[start] = 1;
+    rect.set(big, start * 4);
+    const queue = [start];
+    let guard = 0;
+    while (queue.length && guard++ < 400) {
+      const i = queue.shift()!;
+      const r = [rect[i * 4], rect[i * 4 + 1], rect[i * 4 + 2], rect[i * 4 + 3]];
+      for (const q of portals) {
+        const j = q.a === i ? q.b : q.b === i ? q.a : -1;
+        if (j < 0 || !L.isVisible(rooms[j].id)) continue;
+        if (q.door && !(q.door.t > (q.door.ajar ?? 0) + 1e-3)) continue;
+        if (q.near && p.y >= -0.2 && (p.x - q.near.x) ** 2 + (p.z - q.near.z) ** 2 > q.near.r ** 2) continue;
+        const c = clip(q, r);
+        if (!c) continue;
+        if (reached[j]) {
+          const o = j * 4;
+          const n0 = Math.min(rect[o], c[0]), n1 = Math.min(rect[o + 1], c[1]), n2 = Math.max(rect[o + 2], c[2]), n3 = Math.max(rect[o + 3], c[3]);
+          if (n0 < rect[o] - 1e-3 || n1 < rect[o + 1] - 1e-3 || n2 > rect[o + 2] + 1e-3 || n3 > rect[o + 3] + 1e-3) { rect[o] = n0; rect[o + 1] = n1; rect[o + 2] = n2; rect[o + 3] = n3; queue.push(j); }
+        } else { reached[j] = 1; rect.set(c, j * 4); queue.push(j); }
+      }
+    }
+    for (const t of tagged) {
+      let mine = false;
+      for (const i of t.ids) if (reached[i]) { mine = true; break; }
+      setCulled(t, !mine);
+    }
+  });
+}
+
+/**
+ * The height mist's floor (render `post.ts` rule, IB6): each frame, the lowest floor of the room the camera stands in
+ * (`ROOMS6`: the main floor and every extra floor — the chamber's channel −21.3, the shaft's bottom −12, the trench −1.4)
+ * goes to `render.settings.mistFloor`; outside every room NaN (the feet rule). Replaces pool.ts's per-room override.
+ */
+function installMistFloor6(L: LevelBuild) {
+  const look = (L.ctx.render as unknown as { settings?: { mistFloor?: number } }).settings;
+  if (!look) return;
+  const rooms = ROOM_IDS6.map((id) => {
+    const r = ROOMS6[id];
+    return { x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1, low: Math.min(r.y0, ...(r.floors ?? []).map((f) => f.y)) };
+  });
+  L.updaters.push(() => {
+    const p = L.ctx.camera.position;
+    let low = NaN;
+    for (const r of rooms) if (p.x >= r.x0 && p.x <= r.x1 && p.z >= r.z0 && p.z <= r.z1) { low = r.low; break; }
+    look.mistFloor = low;
+  });
+}
+
 /** §2.7.4: the chamber's two doors share one frame zone; the rest one per room pair. */
 const POOL_DOORS = ['d6_pool', 'd6_stores'];
 const POOL_ZONE_ROOMS = ['pool6', 'shaft6', 'stores6'];
@@ -339,6 +532,8 @@ export async function createLevel6(ctx: GameContext): Promise<Level> {
     killY: -36,
     timings, t0,
   });
+  installPortalCull6(L, OPENINGS6);
+  installMistFloor6(L);
   installPhases6(ctx, level);
   // initial door state: the story starts in phase A; `?nostory=1` follows the nostory column (§3)
   applyPhaseTo6(ctx, level, (ctx.debug.noStory ? 'nostory' : 'A') as PhaseId6);

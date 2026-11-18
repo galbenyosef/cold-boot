@@ -11,6 +11,7 @@ import { buildPistol } from './viewmodels/pistol';
 import { buildShotgun } from './viewmodels/shotgun';
 import { buildCarbine, buildCarbineMag } from './viewmodels/carbine';
 import { buildShell, buildCasingGeo } from './viewmodels/props';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M, Parts, rbox, cylY, cylX, sweep } from './geom';
 
 export interface PickupHost {
@@ -37,6 +38,9 @@ interface Item {
 
 const PROMPTS: Partial<Record<PickupKind, string>> = { pistol: 'Take pistol', shotgun: 'Take shotgun', carbine: 'Take carbine', keycard: 'Take keycard', vest: 'Put on vest' };
 /** Kinds whose prop hangs from its spawn point (top at the point) instead of resting on it. */
+/** Pickups farther than this from the camera are not drawn (squared metres). */
+const FAR2 = 50 * 50;
+
 const HANGS: Partial<Record<PickupKind, true>> = { vest: true };
 
 /** Key name carried by a keycard pickup id: the id without its `p_` / `p2_` prefix. */
@@ -203,6 +207,7 @@ export class Pickups {
     const holder = new THREE.Group();
     g.position.y = HANGS[kind] ? -bb.max.y : -bb.min.y;
     holder.add(g);
+    flattenByMaterial(holder);
     holder.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     this.protos.set(kind, holder);
     return holder;
@@ -283,9 +288,14 @@ export class Pickups {
   private _d = new THREE.Vector3();
 
   update(dt: number, t: number, feet: THREE.Vector3, alive: boolean) {
+    const cam = this.ctx.camera.position;
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
       if (it.taken) { this.items.splice(i, 1); continue; }
+      // far pickups are not drawn (a 0.3 m box beyond 50 m is a few fogged pixels; stage 3d IB6: long straight runs)
+      const far = it.center.distanceToSquared(cam) > FAR2;
+      it.obj.visible = !far;
+      it.glint.visible = !far;
       // glint: brief soft twinkle every few seconds
       const cyc = (t * 0.32 + it.phase) % 1;
       const k = cyc < 0.12 ? Math.sin((cyc / 0.12) * Math.PI) : 0;
@@ -309,6 +319,53 @@ export class Pickups {
   has(id: string) { return this.items.some((i) => i.spawn.id === id && !i.taken); }
 
   get remaining() { return this.items.filter((i) => !i.taken).map((i) => i.spawn); }
+}
+
+/**
+ * A pickup prop is a static model: its meshes (a magazine is ~10 parts, a shell box ~24) are baked into ONE mesh per
+ * material (+ attribute layout + layers), so each lying pickup costs a draw call per material, not per part (stage 3d
+ * IB6: level 6 lays ~40 pickups along a straight run). The look is unchanged; anything that does not merge stays as is.
+ */
+function flattenByMaterial(holder: THREE.Group) {
+  holder.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(holder.matrixWorld).invert();
+  const groups = new Map<string, { mat: THREE.Material; layers: number; geos: THREE.BufferGeometry[]; src: THREE.Mesh[] }>();
+  holder.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || (mesh as unknown as THREE.InstancedMesh).isInstancedMesh || (mesh as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
+    if (Array.isArray(mesh.material) || mesh.geometry.groups.length > 0 || mesh.geometry.morphAttributes.position) return;
+    if (!mesh.visible) return;
+    let geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+    const attrs = Object.keys(geo.attributes).sort().map((k) => `${k}${geo.attributes[k].itemSize}`).join(',');
+    const key = `${mesh.material.uuid}|${mesh.layers.mask}|${attrs}`;
+    geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld));
+    if (mesh.matrixWorld.determinant() < 0) geo = flipWinding(geo);
+    let e = groups.get(key);
+    if (!e) groups.set(key, (e = { mat: mesh.material, layers: mesh.layers.mask, geos: [], src: [] }));
+    e.geos.push(geo);
+    e.src.push(mesh);
+  });
+  for (const e of groups.values()) {
+    if (e.src.length < 2) { for (const g of e.geos) g.dispose(); continue; }
+    const merged = mergeGeometries(e.geos, false);
+    for (const g of e.geos) g.dispose();
+    if (!merged) continue;
+    for (const m of e.src) m.removeFromParent();
+    const mesh = new THREE.Mesh(merged, e.mat);
+    mesh.layers.mask = e.layers;
+    holder.add(mesh);
+  }
+}
+
+/** A non-indexed geometry with every triangle's winding reversed (a mirrored part baked into an unmirrored mesh). */
+function flipWinding(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  for (const name of Object.keys(geo.attributes)) {
+    const a = geo.attributes[name] as THREE.BufferAttribute, n = a.itemSize, arr = a.array as Float32Array;
+    for (let t = 0; t + 2 < a.count; t += 3) for (let k = 0; k < n; k++) {
+      const i = (t + 1) * n + k, j = (t + 2) * n + k, v = arr[i]; arr[i] = arr[j]; arr[j] = v;
+    }
+  }
+  return geo;
 }
 
 /** Plate carrier on a hanger loop: front panel with MOLLE rows, shoulder straps, cummerbund flaps, drag handle. */

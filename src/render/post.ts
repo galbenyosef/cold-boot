@@ -28,6 +28,11 @@ export interface LookSettings {
   /** Stage 3d: the mist base follows the camera's feet downward (min(mistBase, feet)), for levels far below y 0
    *  (level 6's chamber at −20). Off by default: levels 1–5 keep the fixed base. A level turns it on. */
   mistFollow: boolean;
+  /** Stage 3d (IB6): with `mistFollow`, the floor below the camera as the level knows it (the lowest floor of the room
+   *  the camera is in — set each frame by the level; NaN = unknown): the base is min(mistBase, feet, mistFloor), so from
+   *  a gallery 8 m above a dock the mist sits on the dock, not at the gallery's feet. Levels that never set it keep the
+   *  feet rule. */
+  mistFloor: number;
   mistColor: THREE.Color;
 }
 
@@ -52,6 +57,7 @@ export function defaultLook(): LookSettings {
     mistFalloff: 1.3,
     mistBase: 0.0,
     mistFollow: true,
+    mistFloor: NaN,
     mistColor: new THREE.Color(0.006, 0.0095, 0.012),
   };
 }
@@ -456,7 +462,8 @@ export class PostChain implements PostFx {
       u.uMistDensity.value = look.mistDensity;
       u.uMistFalloff.value = look.mistFalloff;
       if (look.mistFollow) {
-        const feet = Math.min(look.mistBase, e[13] - 1.6);
+        const floor = look.mistFloor;
+        const feet = Math.min(look.mistBase, e[13] - 1.6, Number.isFinite(floor) ? floor : Infinity);
         this._mistFeet = Number.isFinite(this._mistFeet) ? this._mistFeet + (feet - this._mistFeet) * 0.1 : feet;
         u.uMistBase.value = this._mistFeet;
       } else u.uMistBase.value = look.mistBase;

@@ -241,8 +241,6 @@ function buildPool(L: LevelBuild) {
 
   // ── 10. the shear → the tether outside (cut), the festoon follows the bridge ──
   let cut = false, loader: THREE.Object3D | null = null, seek = 0, span = -1;
-  const look = (ctx.render as RenderSystemEx).settings;
-  let mistHeld = false, mistWas: { follow: boolean; base: number } | null = null;
   L.updaters.push((dt) => {
     if (!cut && fu?.state) {
       const s = fu.state();
@@ -253,14 +251,7 @@ function buildPool(L: LevelBuild) {
     const rig = loader?.userData.loaderRig as { bridgeZ?: number } | undefined;
     const want = rig && Number.isFinite(rig.bridgeZ) ? FEST.anchor - (rig.bridgeZ! + 1.7) : 0;
     if (Math.abs(want - span) > 0.005) { span = want; fest.set(want); }
-    // the height mist: in the chamber its base is the chamber's lowest floor, not the eye's feet (render's `mistFollow`
-    // puts the base at the feet: from a gallery 8 m above the dock the dock drowned in black mist) — see the report
-    const c = ctx.camera.position, inPool = c.x > -76 && c.x < -28 && c.z > -196 && c.z < -148 && c.y < 3;
-    if (inPool !== mistHeld) {
-      mistHeld = inPool;
-      if (inPool) { mistWas = { follow: look.mistFollow, base: look.mistBase }; look.mistFollow = false; look.mistBase = -21.4; }
-      else if (mistWas) { look.mistFollow = mistWas.follow; look.mistBase = mistWas.base; }
-    }
+    // (the height mist's base in the chamber: render's `mistFloor` rule, set by the level's index — IB6)
   });
 
   // ── 11. vignettes: beacons6 (hostile start), lights_out6 (stage 2) ──
