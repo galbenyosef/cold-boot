@@ -81,6 +81,11 @@ export interface LoaderRig {
   readonly jaws: Readonly<Record<JawId, number>>;
   /** Ram extension 0 … 1 (follows its jaws: e = e + n, w = w + s). */
   ramExtension(side: RamSide): number;
+  /**
+   * The rams' own target 0 … 1, independent of the jaws (eased like them); `side` omitted = both; null = follow the jaws
+   * again (the default: e = e + n, w = w + s). A burst ram always hangs extended.
+   */
+  setRams(k: number | null, side?: RamSide): void;
   /** Extended (≥ 0.5) and not burst: the window in which the ram takes damage (W3b applies the multiplier). */
   ramExtended(side: RamSide): boolean;
   /** The ram bursts: its glass goes dark, its two jaws hang open on their pins (ignore setJaws from now on). */
@@ -146,6 +151,14 @@ export interface LoaderRig {
   die(o: LoaderDeathOpts): Promise<void>;
   readonly dying: boolean;
   readonly dead: boolean;
+  /** Dead and the bridge has stopped in its buffer (keep calling `update` until then for the coast + `buffer` cue). */
+  readonly settled: boolean;
+  /**
+   * Checkpoint restore: every part whole again — floods (lens, light on, yoke up), rams (jaws free), cowl shut and
+   * all louvres back, the core dark, a running / finished death undone (grab back on its ropes, raised at the current
+   * bridge / trolley, ropes on their sheaves). Marks and ring are left as they are (the caller sets them).
+   */
+  repair(): void;
 
   /** Once per frame after the commands. `camera` (world) drives the rig's own LOD (34 / 30 m) unless managed. */
   update(dt: number, camera?: THREE.Vector3): void;
@@ -264,6 +277,8 @@ interface Death {
   floodAt: number[]; floodDone: boolean[];
   bridge: { v: number; a: number; to: number; hit: boolean; bounce: number; stopT: number };
   resolve: () => void;
+  /** `done` fired (dead); the bridge may still be coasting. */
+  done: boolean;
   lurchX: CraneAxis; lurchZ: CraneAxis; lift: CraneAxis;
 }
 
@@ -295,6 +310,9 @@ class LoaderRigImpl implements LoaderRig {
   private readonly jawV: Record<JawId, number> = { n: 0, s: 0, e: 0, w: 0 };
   readonly ramBroken: Record<RamSide, boolean> = { e: false, w: false };
   private cowlCur = 0; private cowlTgt = 0;
+  /** Ram extension (own state) and its target (null = follow its jaws). */
+  private readonly ramCur: Record<RamSide, number> = { e: 0, w: 0 };
+  private readonly ramTgt: Record<RamSide, number | null> = { e: null, w: null };
   private blown = false; private coreFlare = 0;
   private readonly bindQ = new Map<THREE.Bone, THREE.Quaternion>();
   private readonly bindP = new Map<THREE.Bone, THREE.Vector3>();
@@ -322,6 +340,8 @@ class LoaderRigImpl implements LoaderRig {
 
   // death
   dying = false; dead = false;
+  /** Dead AND the bridge has come to rest in its buffer (the death's epilogue is over; updates may stop). */
+  settled = false;
   private death: Death | null = null;
   private whip = 0;
   /** Death: where the grab was let go (it falls straight down there; the bridge coasts on without it). */
@@ -339,6 +359,7 @@ class LoaderRigImpl implements LoaderRig {
     this.lodRig = tpl.rig.instantiate();
     this.B = this.lodRig.byName;
     this.root.name = 'loader';
+    this.root.userData.loaderRig = this;   // tests / dev: the rig behind an adapter
     this.root.add(this.lodRig.root);
     this.managed = !!opts.managedLod;
     for (const b of this.lodRig.bones) { this.bindQ.set(b, b.quaternion.clone()); this.bindP.set(b, b.position.clone()); }
@@ -426,7 +447,11 @@ class LoaderRigImpl implements LoaderRig {
     for (const j of which) if (!this.jawDead(j)) this.jawTgt[j] = v;
   }
   get jaws(): Readonly<Record<JawId, number>> { return this.jawCur; }
-  ramExtension(side: RamSide): number { const [a, b] = RAM_JAWS[side]; return (this.jawCur[a] + this.jawCur[b]) / 2; }
+  ramExtension(side: RamSide): number { return this.ramCur[side]; }
+  private jawRam(side: RamSide): number { const [a, b] = RAM_JAWS[side]; return Math.min(1, (this.jawCur[a] + this.jawCur[b]) / 2); }
+  setRams(k: number | null, side?: RamSide): void {
+    for (const sd of side ? [side] : (['e', 'w'] as const)) this.ramTgt[sd] = k === null ? null : THREE.MathUtils.clamp(k, 0, 1);
+  }
   ramExtended(side: RamSide): boolean { return !this.ramBroken[side] && this.ramExtension(side) >= 0.5; }
   breakRam(side: RamSide): void {
     if (this.ramBroken[side]) return;
@@ -535,7 +560,7 @@ class LoaderRigImpl implements LoaderRig {
         fallV: 0, splashed: false, ropeT: -1,
         floodAt: [], floodDone: [false, false, false, false],
         bridge: { v: 0, a: 0, to: 0, hit: false, bounce: 0, stopT: -1 },
-        resolve,
+        resolve, done: false,
         lurchX: new CraneAxis(this.trolleyX, 4.5, 3.2, 3.6),
         lurchZ: new CraneAxis(this.bridgeZ, 4.5, 3.0, 3.4),
         lift: new CraneAxis(this.hoistY, 4.2, 6.0),
@@ -554,6 +579,32 @@ class LoaderRigImpl implements LoaderRig {
       for (const j of JAWS) this.jawTgt[j] = this.jawCur[j];
       this.cue('pod_blow', this.podCenter, { debris });
     });
+  }
+
+  repair(): void {
+    const B = this.B;
+    // death undone
+    this.death = null; this.dying = false; this.dead = false; this.settled = false;
+    this.fallAt = null; this.tails = null; this.whip = 0;
+    for (let i = 0; i < 4; i++) { const r = B[`rope_${i}`]; r.position.copy(this.bindP.get(r)!); }
+    if (this.hoistY < this.G.grabTop - 12) this.hoistY = this.G.grabTop;
+    this.holdTarget = 0; this.forced = null; this.sway.set(0, 0); this.swayV.set(0, 0);
+    // rams + jaws
+    this.ramBroken.e = this.ramBroken.w = false;
+    for (const j of JAWS) { this.jawV[j] = 0; this.jawTgt[j] = Math.min(1, this.jawCur[j]); this.jawCur[j] = Math.min(1, this.jawCur[j]); }
+    // cowl + pod
+    this.blown = false; this.coreFlare = 0; this.cowlTgt = 0; this.cowlCur = 0;
+    for (let i = 0; i < K.louvres; i++) B[`louvre_${i}`].scale.setScalar(1);
+    B.pod_core.scale.setScalar(OFF);
+    // floods
+    for (const f of this.floods) {
+      f.alive = true; f.flicker = -1; f.droopV = 0;
+      [f.yaw, f.pitch] = FLOOD_LIGHT.park[f.id];
+      f.lens.scale.setScalar(1);
+      if (f.light) f.light.intensityScale = 1;
+      this.setFloodOn(f.id, true);
+    }
+    this.snapNext = true;
   }
 
   lod(level: 0 | 1 | 'auto'): void { this.lodMode = level; if (level !== 'auto') this.lodRig.setLod(level); }
@@ -663,7 +714,14 @@ class LoaderRigImpl implements LoaderRig {
       bone.quaternion.copy(this.bindQ.get(bone)!).multiply(_q.setFromAxisAngle(AX_Z, this.jawCur[j] * JAW_MAX));
     }
     for (const side of ['e', 'w'] as const) {
-      const ext = THREE.MathUtils.clamp(this.ramExtension(side), 0, 1);
+      // a burst ram hangs extended with its jaws; otherwise its own target (eased like the jaws) or its jaws
+      const tgt = this.ramBroken[side] ? 1 : this.ramTgt[side];
+      if (tgt === null) this.ramCur[side] = this.jawRam(side);
+      else {
+        const d = tgt - this.ramCur[side], rate = (d > 0 ? 1 / GRAB_TIMING.jawOpen : 1 / GRAB_TIMING.jawClose) * dt;
+        this.ramCur[side] += THREE.MathUtils.clamp(d, -rate, rate);
+      }
+      const ext = THREE.MathUtils.clamp(this.ramCur[side], 0, 1);
       const rod = B[`ram_${side}_rod`];
       rod.position.copy(this.bindP.get(rod)!); rod.position.y -= K.ramStroke * ext;
       const glow = this.ramBroken[side] || this.dying ? 0 : THREE.MathUtils.smoothstep(ext, 0.25, 0.6);
@@ -898,13 +956,15 @@ class LoaderRigImpl implements LoaderRig {
         }
         if (tl.p[0].y < tl.water - 0.6) tl.gone = true;
       }
-      if (S.phase === 'sunk' && br.stopT >= 0.8 && !!this.tails?.gone && S.floodDone.every(Boolean) && this.floods.every((f) => f.flicker < 0) && this.whip <= 0) {
+      // DEAD once the grab is down, the floods are out and the ropes are gone (≈ 2.5 s after the brakes); the bridge's
+      // coast into its buffer is an epilogue that runs on while `update` is called (`settled` when it has stopped)
+      if (!S.done && S.phase === 'sunk' && !!this.tails?.gone && S.floodDone.every(Boolean) && this.floods.every((f) => f.flicker < 0) && this.whip <= 0) {
+        S.done = true;
         this.dead = true; this.dying = false;
         this.cue('done', this.grabBottom);
-        const r = S.resolve;
-        this.death = null;
-        r();
+        S.resolve();
       }
+      if (S.done && br.stopT >= 0.8) { this.settled = true; this.death = null; }
     }
   }
   private kickRaw(vx: number, vz: number): void { const L = Math.max(0.5, this.ropeLen()); this.swayV.x += vx / L; this.swayV.y += vz / L; }
