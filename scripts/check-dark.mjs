@@ -47,6 +47,26 @@
 // Views (§10.4): corr_w, corr_s, vivarium door, cold door, records door, scrub. On a level without them (K's stub, a
 // greybox without `lights_out4`), each missing room / door / vignette is a named failure; the stub's spawn view is still
 // measured as a pipeline smoke run (reported, not a pass).
+//
+// LEVEL 5 (`--level 5`, stage 3c §10.4, D16 / D18, §2.7.3) — after `lights_out5` + `dark5_on`, on LOW and MEDIUM:
+//   [views] spine ×2, crawl ×2 (crouched), magazine, berths, sub-bay floor ×2, west gallery, the wheel, bridge, dive —
+//          the plan's spawns, each asserted inside its room's interior (roomAt + 0.3 m inset) on a real floor; a spawn
+//          that is not (a corrected layout) moves to the nearest free spot of that room ≤ 1.5 m away and says so.
+//   LIGHT    `player.debug.torch(1)`, lamp on: the merged metric above (cone, detail, frame, strips, targets ≥ 0.12).
+//   NO-LIGHT `player.debug.torch(0)`, lamp off: the merged lamp-OFF rule (glow ≥ 1.5 %, frame ≥ 0.015) AND level 5's
+//            measure 1: frame mean ≥ 0.025, outer-ring strips ≥ 3 %, and every door frame, stair nosing (nav stair
+//            nodes), gallery edge (the open edges of every upper deck in `Room.floors`) and required interactable
+//            (wheel5, hatch5_spine, hatch5_mag, key5_duty) within 10 m in line of sight, in the central 60 %, p95 ≥ 0.10.
+//   [glow]   (`noenemies=0`) a soldier (pose `hold` where the manager offers `spawnPose`), a husk and a skitter at 10 /
+//            20 / 30 m in the dark sub bay (a clear 30 m lane found from the room's north end) and in the crawl (the
+//            distances that fit its length): each enemy's dark-room mark must add ≥ 3 px (a 2.2 px mark) of luma ≥ 0.5
+//            over a frame without it (lamp off), the soldier's red (R ≥ 1.5 × G and B) and never cyan; frames are taken
+//            over 2.2 s (his mark blinks 1 Hz, 0.12 s on).
+//   [run]    the dark run: the main route after V on the nav graph (spine at d5_key → d5_bay → the bridge (t5_bridge) →
+//            the west gallery → wheel5 → d5_tunnel), sampled every 2 m with the lamp off, measure 1 per sample; fails
+//            on > 4 consecutive failing samples (an unreadable stretch > 8 m).
+//   PNGs → shots/l5/dark/, numbers → shots/checks/dark-l5.json. Thresholds: §10.4 minimums (IA calibrates with
+//   `--measure` on real frames, never below these). Missing rooms / vignettes / groups are named failures (K's stub).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { launch, parseArgs } from './lib/check-common.mjs';
@@ -54,6 +74,7 @@ import { launch, parseArgs } from './lib/check-common.mjs';
 const args = parseArgs();
 const base = (args.url ?? process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'http://127.0.0.1:5173').replace(/\/$/, '');
 const QUALITIES = (args.quality ?? 'low,medium').split(',');
+const LEVEL = Number(args.level ?? 4);
 const W = 1280, H = 720;
 const T = { cone: 0.16, detail: 0.08, frame: 0.04, ringPx: 0.06, ringFrac: 0.03, target: 0.12, targetDist: 10, glowFrac: 0.015, darkFrame: 0.015 };
 /** §10.4 views: spawn = feet x, y, z, yaw° (+90 = −x), pitch°; `room` the plan room the view stands in; `door` faced. */
@@ -70,7 +91,7 @@ const VIEWS = [
 const want = args.views ? new Set(args.views.split(',')) : null;
 const views = VIEWS.filter((v) => !want || want.has(v.id));
 if (args.view) { const n = args.view.split(',').map(Number); views.push({ id: 'custom', spawn: n, room: null }); }
-const OUT = 'shots/l4/dark';
+const OUT = `shots/l${LEVEL}/dark`;
 mkdirSync(OUT, { recursive: true });
 
 const problems = [];
@@ -126,10 +147,10 @@ async function measure(png, kind = 'png', targets = []) {
 }
 const verdict = (m) => `cone ${f3(m.cone)} (≥ ${T.cone}) · detail ${f3(m.detail)} (≥ ${T.detail}) · frame ${f3(m.frame)} (≥ ${T.frame}) · ring lit ${(m.ringFrac * 100).toFixed(1)} % (≥ ${T.ringFrac * 100} %)`;
 
-async function boot(q, spawn) {
+async function boot(q, spawn, { enemies = false } = {}) {
   const s = spawn ? `&spawn=${spawn.join(',')}` : '';
   for (let i = 0; ; i++) {
-    try { await page.goto(`${base}/?level=4&nostory=1&noenemies=1&autostart=1&quality=${q}${s}`); break; } catch (e) { if (i >= 2) throw e; await wait(700); }
+    try { await page.goto(`${base}/?level=${LEVEL}&nostory=1${enemies ? '&god=1' : '&noenemies=1'}&autostart=1&quality=${q}${s}`); break; } catch (e) { if (i >= 2) throw e; await wait(700); }
   }
   await page.waitForFunction(() => window.__game && window.__game.ready, null, { timeout: 120000 });
   await wait(2000);
@@ -230,8 +251,340 @@ if (!args['no-selftest']) {
   report.selftest = { black: blk, grey, forcedBlack: real, unblacked: { frame: lit.frame } };
 }
 
+// ───────────────────────────────────────────────────────────── level 5 (stage 3c §10.4)
+/** The plan's views: spawn = feet x, y, z, yaw° (+90 = −x); `room` asserted; `crouch` for the crawl. */
+const VIEWS5 = [
+  { id: 'spine_w', spawn: [12, 0, -16, -90], room: 'spine5' },
+  { id: 'spine_e', spawn: [38, 0, -15, 90], room: 'spine5' },
+  { id: 'crawl_e', spawn: [34, -1.4, -16, 90], room: 'spine5', crouch: true },
+  { id: 'crawl_w', spawn: [20, -1.4, -16, 90], room: 'spine5', crouch: true },
+  { id: 'magazine', spawn: [17, -2.6, -24, 180], room: 'arm5' },
+  { id: 'berths', spawn: [18, 0, -8, 0], room: 'berths5' },
+  { id: 'bay_n', spawn: [34, 0, -22, 0], room: 'sub5' },
+  { id: 'bay_s', spawn: [30, 0, -46, -90], room: 'sub5' },
+  { id: 'gallery_w', spawn: [23.6, 4.8, -30, 0], room: 'sub5' },
+  { id: 'wheel', spawn: [23.6, 4.8, -50, 90], room: 'sub5' },
+  { id: 'bridge', spawn: [34, 4.8, -35, 0], room: 'sub5' },
+  { id: 'dive', spawn: [48, 0, -34, -90], room: 'dive5' },
+];
+const T5 = { frame: 0.025, ringFrac: 0.03, target: 0.10, markPx: 3, markLuma: 0.5, runFails: 4, step: 2 };
+const REQUIRED5 = ['wheel5', 'hatch5_spine', 'hatch5_mag', 'key5_duty'];
+const views5 = VIEWS5.filter((v) => !want || want.has(v.id));
+/** Page helpers for level 5 (free spot, floors, targets) — installed after each boot. */
+const install5 = () => ev(() => {
+  const g = window.__game, V = g.player.position.constructor, los = (a, b) => g.physics.lineOfSight(a, b);
+  const S = window.__D5 = {};
+  S.floors = (x, z) => { const r = g.level.roomAt(new V(x, 0, z)); if (!r) return []; const ys = [r.floor ?? r.y0 ?? 0]; for (const f of r.floors ?? []) if (x >= f.box[0] && x <= f.box[1] && z >= f.box[2] && z <= f.box[3]) ys.push(f.y); return ys; };
+  S.interior = (x, z, inset = 0.3) => { const r = g.level.roomAt(new V(x, 0, z)); if (!r) return null; const b = r.bounds, k = 0.2 + inset; return x >= b.min.x + k && x <= b.max.x - k && z >= b.min.z + k && z <= b.max.z - k ? r.id : null; };
+  S.free = (x, y, z, crouch) => {
+    if (los(new V(x, y + 0.35, z), new V(x, y - 0.35, z))) return false;
+    for (const h of crouch ? [0.35, 0.8] : [0.45, 1.25]) for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, o = new V(x + Math.cos(a) * 0.45, y + h, z + Math.sin(a) * 0.45), c = new V(x, y + h, z); if (!los(c, o) || !los(o, c)) return false; }
+    return los(new V(x, y + 0.4, z), new V(x, y + (crouch ? 1.12 : 1.85), z));
+  };
+  S.near = (x, y, z, room, maxR = 1.5, crouch = false) => {
+    for (let r = 0; r <= maxR; r += 0.25) { const n = r === 0 ? 1 : Math.max(8, Math.round(2 * Math.PI * r / 0.25)); for (let k = 0; k < n; k++) { const a = k * 2 * Math.PI / n, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; const rm = S.interior(px, pz); if (!rm || (room && rm !== room)) continue; if (!S.floors(px, pz).some((fy) => Math.abs(fy - y) < 0.05)) continue; if (S.free(px, y, pz, crouch)) return [px, y, pz]; } }
+    return null;
+  };
+  // the open edges of every upper deck (a floor ≥ 1 m above its room's main floor), one sample every 2 m
+  S.edges = () => {
+    const out = [];
+    for (const r of g.level.rooms) {
+      const main = r.floor ?? r.y0 ?? 0, b = r.bounds;
+      const ups = (r.floors ?? []).filter((f) => f.y >= main + 1);
+      for (const f of ups) {
+        const [x0, x1, z0, z1] = f.box;
+        const sides = [[[x0, z0], [x1, z0], [0, 0.1]], [[x0, z1], [x1, z1], [0, -0.1]], [[x0, z0], [x0, z1], [0.1, 0]], [[x1, z0], [x1, z1], [-0.1, 0]]];
+        for (const [a, c, inn] of sides) {
+          const L = Math.hypot(c[0] - a[0], c[1] - a[1]), n = Math.max(1, Math.floor(L / 2));
+          for (let i = 0; i <= n; i++) {
+            const x = a[0] + (c[0] - a[0]) * i / n + inn[0], z = a[1] + (c[1] - a[1]) * i / n + inn[1];
+            if (x < b.min.x + 0.7 || x > b.max.x - 0.7 || z < b.min.z + 0.7 || z > b.max.z - 0.7) continue;   // against a wall
+            const o = [x - inn[0] * 4, z - inn[1] * 4];   // just outside the edge: another deck there = not an open edge
+            if (ups.some((q) => q !== f && Math.abs(q.y - f.y) < 0.05 && o[0] >= q.box[0] && o[0] <= q.box[1] && o[1] >= q.box[2] && o[1] <= q.box[3])) continue;
+            out.push({ id: `${r.id}@${f.y}:${x.toFixed(1)},${z.toFixed(1)}`, p: [x, f.y, z] });
+          }
+        }
+      }
+    }
+    return out;
+  };
+  S.stairs = () => { const seen = []; for (const n of g.level.nav) if (n.stair && !seen.some((q) => q.p.distanceTo(n.position) < 1.0)) seen.push({ id: `stair@${n.position.x.toFixed(1)},${n.position.y.toFixed(1)},${n.position.z.toFixed(1)}`, p: n.position.clone() }); return seen.map((q) => ({ id: q.id, p: [q.p.x, q.p.y, q.p.z] })); };
+  return true;
+});
+/** Measure-1 targets: doors, stair nosings, gallery edges, required interactables (within D, LOS, central 60 %). */
+const targets5 = () => ev(([W, H, D, REQ]) => {
+  const g = window.__game, S = window.__D5, cam = g.camera, V = cam.position.constructor;
+  cam.updateMatrixWorld(); const eye = g.player.eye.clone();
+  const proj = (x, y, z) => { const v = new V(x, y, z).project(cam); return { sx: (v.x + 1) / 2 * W, sy: (1 - v.y) / 2 * H, front: v.z < 1 && v.z > -1 }; };
+  const out = [], far = [];
+  const right = new V().crossVectors(cam.getWorldDirection(new V()), new V(0, 1, 0)).normalize();
+  const add = (kind, id, p, rx, y0, y1) => {
+    const c = new V(p[0], (y0 + y1) / 2, p[2]), dist = c.distanceTo(eye), s = proj(c.x, c.y, c.z);
+    if (!s.front) return;
+    const central = s.sx > W * 0.2 && s.sx < W * 0.8 && s.sy > H * 0.2 && s.sy < H * 0.8;
+    const to = c.clone().add(eye.clone().sub(c).setLength(kind === 'door' ? 0.3 : 0.12));
+    const losOk = g.physics.lineOfSight(eye, to);
+    if (!central || !losOk || dist > D) { if (central && dist <= D + 6) far.push({ kind, id, dist: +dist.toFixed(1), los: losOk }); return; }
+    const pts = [[-rx, y0], [rx, y0], [-rx, y1], [rx, y1]].map(([dx, y]) => proj(p[0] + right.x * dx, y, p[2] + right.z * dx));
+    let x0 = Math.min(...pts.map((q) => q.sx)), x1 = Math.max(...pts.map((q) => q.sx)), yy0 = Math.min(...pts.map((q) => q.sy)), yy1 = Math.max(...pts.map((q) => q.sy));
+    if (x1 - x0 < 12) { const m = (x0 + x1) / 2; x0 = m - 6; x1 = m + 6; }
+    if (yy1 - yy0 < 12) { const m = (yy0 + yy1) / 2; yy0 = m - 6; yy1 = m + 6; }
+    out.push({ kind, id, dist: +dist.toFixed(1), x0: Math.round(x0), y0: Math.round(yy0), x1: Math.round(x1), y1: Math.round(yy1) });
+  };
+  for (const d of g.level.doors) { const y = d.y ?? 0; add('door', d.id, [d.position.x, y, d.position.z], 1.2, y + 0.2, y + 2.4); }
+  for (const id of REQ) { const i = g.interactables.get(id); if (i) add('use', id, [i.position.x, i.position.y, i.position.z], 0.25, i.position.y - 0.25, i.position.y + 0.25); }
+  for (const s of S.stairs()) add('stair', s.id, s.p, 0.5, s.p[1] - 0.05, s.p[1] + 0.2);
+  for (const e of S.edges()) add('edge', e.id, e.p, 0.3, e.p[1] - 0.05, e.p[1] + 0.25);
+  return { out, far };
+}, [W, H, T.targetDist, REQUIRED5]);
+/** lights_out5 + dark5_on (§2.7.3, §4.7 L), HUD hidden; the 1.2 s fade on game time. */
+async function dark5() {
+  const before = warnings.length;
+  await ev(() => { const g = window.__game; g.level.vignette('lights_out5'); g.level.vignette('dark5_on'); g.ui.setHudVisible(false); });
+  await page.waitForFunction((t0) => window.__game.time - t0 > 2.2, await ev(() => window.__game.time), { timeout: 20000, polling: 100 }).catch(() => {});
+  const unknown = warnings.slice(before).filter((w) => /unknown vignette "(lights_out5|dark5_on)"/.test(w)).map((w) => /"([^"]+)"/.exec(w)[1]);
+  const st = await ev(() => {
+    const g = window.__game, L = g.render.lights, names = L.groups instanceof Map ? [...L.groups.keys()] : Object.keys(L.groups ?? {});
+    const on = (n) => (names.includes(n) ? L.group(n).filter((h) => h.enabled && h.factor > 0.01).length : null);
+    return { spine: on('spine5'), sub: on('sub5'), se: on('spine5_emerg'), be: on('sub5_emerg'), dark: Object.keys(g.level.regions ?? {}).includes('dark') ? g.level.regions.dark.length : null };
+  });
+  return { unknown, ...st };
+}
+/** Lamp on at full charge / lamp off with an empty cell. */
+// (off: the cell recharges while off after a 0.25 s settle — it is emptied again after the fade so the lamp cannot be on)
+const lamp = (on) => ev(async (on) => { const p = window.__game.player; if (on) { p.debug.torch?.(1); p.debug.flashlight(true); } else { p.debug.flashlight(false); p.debug.torch?.(0); } const t0 = window.__game.time; while (window.__game.time - t0 < (on ? 0.15 : 1.0)) await new Promise((r) => setTimeout(r, 50)); if (on) p.debug.torch?.(1); else p.debug.torch?.(0); return p.debug.torch?.() ?? null; }, on);
+/** Stand at a view, validated against the room data; returns the spawn used (or null). */
+async function viewSpot5(q, v) {
+  await boot(q, v.spawn);
+  await install5();
+  const chk = await ev(([v]) => {
+    const g = window.__game, S = window.__D5, [x, y, z] = v.spawn;
+    const room = S.interior(x, z, 0.3), onFloor = S.floors(x, z).some((fy) => Math.abs(fy - y) < 0.05), free = onFloor && S.free(x, y, z, !!v.crouch);
+    if (room === v.room && free) return { ok: true, spawn: v.spawn };
+    const alt = S.near(x, y, z, v.room, 1.5, !!v.crouch);
+    return { ok: false, room, onFloor, free, alt, rooms: g.level.rooms.map((r) => r.id) };
+  }, [v]);
+  if (chk.ok) return v.spawn;
+  if (!chk.rooms?.includes(v.room)) { bad(`${q}/${v.id}: SKIPPED — room ${v.room} missing (W4 greybox not on this build?)`); return null; }
+  if (!chk.alt) { bad(`${q}/${v.id}: the plan's view (${v.spawn}) is not a free spot inside ${v.room}'s interior (room ${chk.room}, floor ${chk.onFloor}, free ${chk.free}) and no free spot within 1.5 m — layout vs plan`); return null; }
+  const sp = [...chk.alt.map((n) => +n.toFixed(2)), v.spawn[3], v.spawn[4] ?? 0];
+  console.log(`  note ${q}/${v.id}: the plan's view (${v.spawn.slice(0, 3)}) is not free inside ${v.room} (room ${chk.room}, floor ${chk.onFloor}, free ${chk.free}) — moved to (${sp.slice(0, 3)})`);
+  await boot(q, sp); await install5();
+  return sp;
+}
+const judge5 = (m, tg) => {
+  const tPass = tg.map((t, i) => ({ ...t, p95: m.targets[i]?.p95 ?? 0, pass: (m.targets[i]?.p95 ?? 0) >= T5.target }));
+  return { frame: m.frame >= T5.frame, ring: m.ringFrac >= T5.ringFrac, glow: m.passDark.glow, far: m.passDark.far, targets: tPass, ok: m.frame >= T5.frame && m.ringFrac >= T5.ringFrac && m.passDark.glow && m.passDark.far && tPass.every((t) => t.pass) };
+};
+async function runLevel5() {
+  for (const q of QUALITIES) {
+    console.log(`\n══════════ level 5 — quality ${q.toUpperCase()} ══════════`);
+    await boot(q, null);
+    const info = await levelInfo();
+    check(info.quality === q, `quality ${info.quality} (asked ${q})`);
+    await install5();
+    const d0 = await dark5();
+    for (const u of d0.unknown) bad(`vignette ${u} is not defined by the level (D2a / D3) — "[level] unknown vignette"`);
+    if (d0.se === null || d0.be === null) bad(`emergency groups missing: spine5_emerg ${d0.se === null ? 'missing' : d0.se}, sub5_emerg ${d0.be === null ? 'missing' : d0.be} (§2.7.1)`);
+    if (d0.spine || d0.sub) bad(`after lights_out5 the mains are still lit: spine5 ${d0.spine}, sub5 ${d0.sub} (the check would measure lights-on)`);
+    if (d0.dark === null) bad('regions.dark missing (W4, §2.7.3)');
+    // ── views: LIGHT and NO-LIGHT
+    for (const v of views5) {
+      const sp = await viewSpot5(q, v); if (!sp) continue;
+      await dark5();
+      if (v.crouch) { await ev(() => window.__game.player.debug.crouch(true)); await page.waitForFunction(() => window.__game.player.debug.state().crouched, null, { timeout: 4000, polling: 100 }).catch(() => bad(`${q}/${v.id}: could not crouch`)); }
+      const cell = await lamp(true);
+      if (cell && !(cell.on && cell.charge > 0.97)) bad(`${q}/${v.id}: the lamp is not on at full charge (${JSON.stringify(cell)})`);
+      const tgL = await targetsInView();
+      const m = await measure(await page.screenshot({ path: `${OUT}/${q}-${v.id}-light.png` }), 'png', tgL.out);
+      const lineL = `${q}/${v.id} LIGHT: ${verdict(m)}`;
+      if (Object.values(m.pass).every(Boolean)) ok(lineL); else for (const [k, p] of Object.entries(m.pass)) if (!p) bad(`${q}/${v.id} LIGHT: ${k.toUpperCase()} below threshold — ${verdict(m)}`);
+      for (const t of m.targets) (t.pass ? ok : bad)(`${q}/${v.id} LIGHT: ${t.kind} ${t.id} at ${t.dist} m: p95 ${f3(t.p95)} (≥ ${T.target})`);
+      const cellD = await lamp(false);
+      if (cellD && (cellD.on || cellD.charge > 0.05)) bad(`${q}/${v.id}: the lamp is not off with an empty cell (${JSON.stringify(cellD)})`);
+      const tg = await targets5();
+      const md = await measure(await page.screenshot({ path: `${OUT}/${q}-${v.id}-nolight.png` }), 'png', tg.out);
+      const j = judge5(md, tg.out);
+      const lineD = `${q}/${v.id} NO-LIGHT: frame ${f3(md.frame)} (≥ ${T5.frame}) · ring lit ${(md.ringFrac * 100).toFixed(1)} % (≥ ${T5.ringFrac * 100} %) · glow ${(md.glowFrac * 100).toFixed(2)} % (≥ ${T.glowFrac * 100} %) · ${j.targets.length} targets`;
+      if (j.ok) ok(lineD);
+      else bad(`${lineD} — ${[!j.frame && 'FRAME', !j.ring && 'STRIPS', !j.glow && 'GLOW', !j.far && 'FAR'].filter(Boolean).join(', ') || 'targets'} (followable without the lamp? strips / emergency pools — D2a / D3)`);
+      for (const t of j.targets) (t.pass ? ok : bad)(`${q}/${v.id} NO-LIGHT: ${t.kind} ${t.id} at ${t.dist} m: p95 ${f3(t.p95)} (≥ ${T5.target})`);
+      if (tg.far.length) console.log(`  (not judged: ${tg.far.slice(0, 12).map((t) => `${t.kind} ${t.id} ${t.dist} m${t.los ? '' : ' no LOS'}`).join(', ')}${tg.far.length > 12 ? ' …' : ''})`);
+      report.runs.push({ level: 5, quality: q, view: v.id, spawn: sp, light: m, noLight: md, judged: j });
+    }
+    if (!want) { await glow5(q); await darkRun5(q); }
+  }
+}
+/** [glow] each enemy type's dark-room mark at 10 / 20 / 30 m, lamp off. */
+async function glow5(q) {
+  console.log(`── ${q}: enemy dark-room marks (soldier red, never cyan)`);
+  // places from the room data: the sub bay — a clear 30 m lane along −z from its north end; the crawl — along −x
+  await boot(q, null, { enemies: true }); await install5();
+  const places = await ev(() => {
+    const g = window.__game, S = window.__D5, V = g.player.position.constructor, los = (a, b) => g.physics.lineOfSight(a, b), out = [];
+    const sub = g.level.rooms.find((r) => r.id === 'sub5');
+    if (sub) {
+      const b = sub.bounds, z0 = b.max.z - 2.5, y = sub.floor ?? 0;
+      for (let x = b.min.x + 1.5; x <= b.max.x - 1.5; x += 1) {
+        if (!S.free(x, y, z0, false)) continue;
+        const okAll = [10, 20, 30].every((dd) => z0 - dd > b.min.z + 0.6 && los(new V(x, y + 1.65, z0), new V(x, y + 1.0, z0 - dd)));
+        if (okAll) { out.push({ id: 'sub_bay', eye: [x, y, z0], dir: [0, -1], yaw: 0, crouch: false, room: 'sub5' }); break; }
+      }
+      if (!out.length) out.push({ id: 'sub_bay', err: 'no clear 30 m lane along −z in sub5 from its north end' });
+    } else out.push({ id: 'sub_bay', err: 'room sub5 missing' });
+    const sp = g.level.rooms.find((r) => r.id === 'spine5');
+    const crawl = (sp?.floors ?? []).filter((f) => f.nav === false).sort((a, c) => (c.box[1] - c.box[0]) - (a.box[1] - a.box[0]))[0];
+    if (crawl) { const z = (crawl.box[2] + crawl.box[3]) / 2; out.push({ id: 'crawl', eye: [crawl.box[1] - 0.6, crawl.y, z], dir: [-1, 0], yaw: 90, crouch: true, room: 'spine5', len: crawl.box[1] - crawl.box[0] - 1.2 }); }
+    else out.push({ id: 'crawl', err: 'no nav:false floor (the crawl) in spine5.floors' });
+    return out;
+  });
+  const real = await ev(() => typeof window.__game.enemies.debug?.soldiers === 'function');
+  if (!real) bad(`${q}: the soldier is K's placeholder (a husk) — enemies.debug.soldiers missing (W3b): his mark hue is not judged`);
+  for (const pl of places) {
+    if (pl.err) { bad(`${q}/glow ${pl.id}: SKIPPED — ${pl.err}`); continue; }
+    for (const dd of [10, 20, 30]) {
+      if (pl.len !== undefined && dd > pl.len) { console.log(`  (${pl.id} ${dd} m: beyond its ${pl.len.toFixed(1)} m length — not judged)`); continue; }
+      const types = pl.crouch ? [['soldier'], ['husk'], ['skitter']] : [['soldier', 'husk', 'skitter']];
+      for (const set of types) {
+        await boot(q, [...pl.eye, pl.yaw, 0], { enemies: true }); await install5(); await dark5();
+        if (pl.crouch) { await ev(() => window.__game.player.debug.crouch(true)); await page.waitForFunction(() => window.__game.player.debug.state().crouched, null, { timeout: 4000, polling: 100 }).catch(() => {}); }
+        await lamp(false);
+        const base = await page.screenshot();
+        const spawned = await ev(([pl, dd, set, real]) => {
+          const g = window.__game, S = window.__D5, V = g.player.position.constructor, out = [];
+          const lat = pl.dir[0] === 0 ? [1, 0] : [0, 1];
+          set.forEach((type, i) => {
+            const off = set.length === 1 ? 0 : (i - 1) * 1.8;
+            const x = pl.eye[0] + pl.dir[0] * dd + lat[0] * off, z = pl.eye[2] + pl.dir[1] * dd + lat[1] * off;
+            const p = S.near(x, pl.eye[1], z, pl.room, 1.2, pl.crouch) ?? [x, pl.eye[1], z];
+            const yaw = Math.atan2(pl.eye[0] - p[0], pl.eye[2] - p[2]);
+            const e = type === 'soldier' && real && g.enemies.spawnPose ? g.enemies.spawnPose(type, new V(...p), yaw, 'test_glow', 'hold') : g.enemies.spawn(type, new V(...p), yaw, 'test_glow');
+            out.push({ type, id: e.id, p });
+          });
+          return out;
+        }, [pl, dd, set, real]);
+        // frames over 2.2 s of game time (the soldier's mark blinks 1 Hz, 0.12 s on): the best frame per enemy
+        const best = Object.fromEntries(spawned.map((s) => [s.id, { n: 0, rgb: null, cyan: false }]));
+        const t0 = await ev(() => window.__game.time);
+        for (let i = 0; i < 30; i++) {
+          const rects = await ev(([ids, W, H]) => {
+            const g = window.__game, cam = g.camera, V = cam.position.constructor;
+            cam.updateMatrixWorld();
+            return ids.map((id) => {
+              const e = g.enemies.all.find((x) => x.id === id); if (!e || !e.alive) return { id, gone: true };
+              const p = e.position, h = e.type === 'skitter' ? 0.7 : 1.95, r = e.type === 'skitter' ? 0.6 : 0.5;
+              const pts = []; for (const dx of [-r, r]) for (const dz of [-r, r]) for (const y of [p.y, p.y + h]) { const v = new V(p.x + dx, y, p.z + dz).project(cam); pts.push([(v.x + 1) / 2 * W, (1 - v.y) / 2 * H, v.z]); }
+              if (pts.some((q2) => q2[2] > 1 || q2[2] < -1)) return { id, behind: true };
+              const vis = g.physics.lineOfSight(g.player.eye, new V(p.x, p.y + h * 0.7, p.z));
+              return { id, vis, x0: Math.max(0, Math.min(...pts.map((q2) => q2[0])) - 4), x1: Math.min(W, Math.max(...pts.map((q2) => q2[0])) + 4), y0: Math.max(0, Math.min(...pts.map((q2) => q2[1])) - 4), y1: Math.min(H, Math.max(...pts.map((q2) => q2[1])) + 4) };
+            });
+          }, [spawned.map((s) => s.id), W, H]);
+          const png = await page.screenshot();
+          const st = await markStats(png, base, rects);
+          for (const r of st) { const b = best[r.id]; if (!b) continue; if (r.n > b.n) { b.n = r.n; b.rgb = r.rgb; b.vis = r.vis; } if (r.n >= T5.markPx && r.rgb && r.rgb[1] > r.rgb[0] && r.rgb[2] > r.rgb[0]) b.cyan = true; }
+          const el = await ev((t0) => window.__game.time - t0, t0);
+          if (el > 2.2) break;
+        }
+        await page.screenshot({ path: `${OUT}/${q}-glow-${pl.id}-${dd}m-${set.join('_')}.png` });
+        for (const s of spawned) {
+          const b = best[s.id], tag = `${q}/glow ${pl.id} ${s.type} at ${dd} m`;
+          check(b.n >= T5.markPx, `${tag}: mark ${b.n} px of luma ≥ ${T5.markLuma} over the frame without it (≥ ${T5.markPx})${b.vis === false ? ' — no line of sight to it (placement)' : ''}`);
+          if (s.type === 'soldier' && real && b.rgb) {
+            check(b.rgb[0] >= 1.5 * b.rgb[1] && b.rgb[0] >= 1.5 * b.rgb[2], `${tag}: red (mean rgb of the mark ${b.rgb.map((c) => c.toFixed(2))})`);
+            check(!b.cyan, `${tag}: never cyan`);
+          }
+          report.runs.push({ level: 5, quality: q, glow: pl.id, type: s.type, dist: dd, mark: b });
+        }
+      }
+    }
+  }
+}
+/** Bright pixels added in each rect over the base frame (luma ≥ T5.markLuma now, < it in the base), mean rgb. */
+async function markStats(png, base, rects) {
+  return ev(async ([a, b, rects, W, H, LU]) => {
+    const dec = async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); const bmp = await createImageBitmap(new Blob([bin], { type: 'image/png' })); const c = new OffscreenCanvas(bmp.width, bmp.height); const x = c.getContext('2d'); x.drawImage(bmp, 0, 0); return x.getImageData(0, 0, bmp.width, bmp.height).data; };
+    const A = await dec(a), B = await dec(b);
+    const Y = (d, i) => (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+    return rects.map((r) => {
+      if (r.gone || r.behind) return { id: r.id, n: 0 };
+      let n = 0; const s = [0, 0, 0];
+      for (let y = Math.floor(r.y0); y < Math.ceil(r.y1); y++) for (let x = Math.floor(r.x0); x < Math.ceil(r.x1); x++) {
+        const i = (y * W + x) * 4; if (i < 0 || i >= A.length) continue;
+        if (Y(A, i) >= LU && Y(B, i) < LU) { n++; s[0] += A[i] / 255; s[1] += A[i + 1] / 255; s[2] += A[i + 2] / 255; }
+      }
+      return { id: r.id, n, vis: r.vis, rgb: n ? s.map((v) => v / n) : null };
+    });
+  }, [png.toString('base64'), base.toString('base64'), rects, W, H, T5.markLuma]);
+}
+/** [run] the main route after V on the nav graph, every 2 m, lamp off; > 4 consecutive failing samples fail. */
+async function darkRun5(q) {
+  console.log(`── ${q}: the dark run (spine → d5_bay → bridge → west gallery → wheel → d5_tunnel, lamp off, every ${T5.step} m)`);
+  await boot(q, null); await install5(); await dark5();
+  const path = await ev((step) => {
+    const g = window.__game, V = g.player.position.constructor, nav = g.level.nav;
+    if (!nav?.length) return { err: 'no nav graph' };
+    const door = (id) => g.level.doors.find((d) => d.id === id);
+    const trig = (id) => (g.__triggers ?? []).find((t) => t.id === id);
+    const sub = g.level.rooms.find((r) => r.id === 'sub5');
+    const westGal = (sub?.floors ?? []).filter((f) => f.y > 1).sort((a, b) => (a.box[0] + a.box[1]) - (b.box[0] + b.box[1]))[0];
+    const wheel = g.interactables.get('wheel5');
+    const pts = [];
+    const need = [];
+    const dk = door('d5_key'); if (dk) pts.push(['spine at d5_key', new V(dk.position.x + 1.2, 0, dk.position.z)]); else need.push('door d5_key');
+    const db = door('d5_bay'); if (db) pts.push(['d5_bay', new V(db.position.x, 0, db.position.z - 1.0)]); else need.push('door d5_bay');
+    const tb = trig('t5_bridge'); if (tb) pts.push(['bridge', new V((tb.x0 + tb.x1) / 2, 4.8, (tb.z0 + tb.z1) / 2)]); else need.push('trigger t5_bridge');
+    if (westGal) pts.push(['west gallery', new V((westGal.box[0] + westGal.box[1]) / 2, westGal.y, (westGal.box[2] + westGal.box[3]) / 2)]); else need.push('sub5 upper floors');
+    if (wheel) pts.push(['wheel5', wheel.position.clone()]); else need.push('wheel5');
+    const dt = door('d5_tunnel'); if (dt) pts.push(['d5_tunnel', new V(dt.position.x + 1.0, 0, dt.position.z)]); else need.push('door d5_tunnel');
+    if (need.length) return { err: `missing ${need.join(', ')}` };
+    const nearest = (p) => { let best = -1, bd = 1e9; for (let i = 0; i < nav.length; i++) { const n = nav[i].position, d = Math.hypot(n.x - p.x, n.z - p.z) + Math.abs(n.y - p.y) * 4; if (d < bd) { bd = d; best = i; } } return best; };
+    const idx = new Map(nav.map((n, i) => [n.id, i]));
+    const dij = (a, b) => {
+      const dist = new Float64Array(nav.length).fill(Infinity), prev = new Int32Array(nav.length).fill(-1), done = new Uint8Array(nav.length);
+      dist[a] = 0;
+      for (;;) {
+        let u = -1, du = Infinity; for (let i = 0; i < nav.length; i++) if (!done[i] && dist[i] < du) { du = dist[i]; u = i; }
+        if (u < 0 || u === b) break; done[u] = 1;
+        for (const l of nav[u].links) { const v = idx.get(l); if (v === undefined || done[v]) continue; const w = nav[u].position.distanceTo(nav[v].position); if (du + w < dist[v]) { dist[v] = du + w; prev[v] = u; } }
+      }
+      if (!Number.isFinite(dist[b])) return null;
+      const out = []; for (let v = b; v >= 0; v = prev[v]) out.unshift(v); return out;
+    };
+    let poly = [];
+    for (let i = 1; i < pts.length; i++) {
+      const seg = dij(nearest(pts[i - 1][1]), nearest(pts[i][1]));
+      if (!seg) return { err: `no nav path ${pts[i - 1][0]} → ${pts[i][0]}` };
+      poly = poly.concat(seg.map((k) => nav[k].position.clone()));
+    }
+    // resample every `step` m along the polyline
+    const out = []; let carry = 0;
+    for (let i = 1; i < poly.length; i++) {
+      const a = poly[i - 1], b = poly[i], L = a.distanceTo(b); if (L < 1e-6) continue;
+      for (let s = carry; s < L; s += step) { const p = a.clone().lerp(b, s / L); const yaw = Math.atan2(-(b.x - a.x), -(b.z - a.z)) * 180 / Math.PI; out.push([+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2), +yaw.toFixed(1)]); }
+      carry = (carry - L) % step; if (carry < 0) carry += step;
+    }
+    return { samples: out, legs: pts.map((p) => p[0]) };
+  }, T5.step);
+  if (path.err) { bad(`${q}/dark run: SKIPPED — ${path.err} (W4 greybox / nav)`); return; }
+  let run = 0, worst = 0, fails = 0;
+  const res = [];
+  for (const [i, s] of path.samples.entries()) {
+    await ev((s) => { const g = window.__game; g.player.teleport(new (g.player.position.constructor)(s[0], s[1], s[2]), s[3] * Math.PI / 180, -8 * Math.PI / 180); }, s);
+    await lamp(false);
+    const tg = await targets5();
+    const md = await measure(await page.screenshot({ path: `${OUT}/${q}-run-${String(i).padStart(3, '0')}.png` }), 'png', tg.out);
+    const j = judge5(md, tg.out);
+    res.push({ s, ok: j.ok, frame: md.frame, ring: md.ringFrac, bad: j.targets.filter((t) => !t.pass).map((t) => t.id) });
+    if (j.ok) run = 0; else { run++; fails++; worst = Math.max(worst, run); }
+  }
+  report.runs.push({ level: 5, quality: q, darkRun: res });
+  const failing = res.map((r, i) => (r.ok ? null : `${i}@(${r.s.slice(0, 3)}) f${f3(r.frame)} r${(r.ring * 100).toFixed(1)}%${r.bad.length ? ' ' + r.bad.slice(0, 3).join('/') : ''}`)).filter(Boolean);
+  check(worst <= T5.runFails, `${q}/dark run: ${path.samples.length} samples over ${path.legs.join(' → ')}; ${fails} failing, longest run ${worst} (≤ ${T5.runFails} = ≤ 8 m)${failing.length ? ' — ' + failing.slice(0, 10).join(', ') : ''}`);
+}
+
 // ───────────────────────────────────────────────────────────── the views
-for (const q of QUALITIES) {
+if (LEVEL === 5) await runLevel5();
+else for (const q of QUALITIES) {
   console.log(`\n══════════ quality ${q.toUpperCase()} ══════════`);
   await boot(q, null);
   const info = await levelInfo();
@@ -292,7 +645,7 @@ for (const q of QUALITIES) {
 }
 
 await browser.close();
-const jf = args.json ?? 'shots/checks/dark-l4.json';
+const jf = args.json ?? `shots/checks/dark-l${LEVEL}.json`;
 mkdirSync(dirname(jf), { recursive: true });
 writeFileSync(jf, JSON.stringify(report, null, 1));
 console.log(`\n  PNGs in ${OUT}/, numbers in ${jf}`);
