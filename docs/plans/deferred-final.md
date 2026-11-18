@@ -91,3 +91,9 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   rows ~37k tris each (thin first); deck-grate infill faint; tunnel ring plain alone; slack coil spring-like; hanging
   fitting doesn't sway; pawl small; container door label near the corner; tent work lamp hard to see; jointer bodies
   (J. Rød, M. Lie) not built — owner? (D2/ST). User listens: ratchet clacks, brake bang, bulb pop, grille drop.
+- 3d W3b: foreman playthrough / `play:l2` + L1–5 enemy checks (manager: cull by body position, half-rate skip, deep-water
+  wreck); `check:soldier` incl. patrol + flood-lit through `boss()`/`patrol()`; `check-loader` on the real chamber;
+  fairness at 100 trials; loader-in-motion review (frames of every attack); perf view (9). Untested §5.6.10 cases: 6b
+  (body on a container / grab top → wait then shove), 6 (C(6,4) flood-fill), 7 SWING, 11 (200 knock-backs vs guards),
+  1 (container occlusion of the slam). SHIFT across the dock ≈ 40 s at 1.6 m/s — maybe too slow. Optional contract:
+  `DockArena.well`. Chamber too dark to judge the look in the arena.
