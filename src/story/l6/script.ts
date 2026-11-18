@@ -151,8 +151,6 @@ export class ScriptL6 extends Scenes6 {
     this.w.setInteractable('he6_phone', false);
     this.w.setInteractable('vault6_loom', false);
     this.w.setInteractable('console6', false);
-    // K's stub end button (grey.ts, W4a's file) is not part of the level: never usable (removal requested in the report)
-    this.w.setInteractable('l6_stub_end', false);
     this.call('switch6', 'setProgress', 0);
     this.call('switch6', 'keyOut', 0);
     this.w.machine('ping6', 'idle');

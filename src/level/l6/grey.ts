@@ -521,9 +521,6 @@ export const SHELLS6: Record<RoomId6, Shell> = {
     L.marker('mk6_tube_panel', 1.2, 1.4, 0.22, 0);
     shelf(b, standin, 3.4, 1.0, 1.2, 0.4, 0.4);
     L.marker('mk6_start', 0, 0, 3.0, 0);
-    // K's story stub ends on this button (src/story/l6 stub listens for `l6_stub_end`); ST-a's story removes it
-    b.bx('trim_steel', -3.8, 1.0, 4.62, -3.76, 1.4, 4.98).bx('emissive_green', -3.76, 1.12, 4.72, -3.73, 1.28, 4.88);
-    L.interact('l6_stub_end', 'button', 'End of the level-6 build (placeholder)', -3.66, 1.2, 4.8, true, 1.6);
     roomLabel(b, 'HEAD-END TUBE', 3.8, 2.4, 3.0, '-x', 2.4);
   },
 
