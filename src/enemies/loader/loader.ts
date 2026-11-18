@@ -1059,10 +1059,17 @@ export class Loader extends EnemyBase {
           if (c === 'buffer') w.ctx.player.shake(0.15);
         } catch { /* */ }
         if (c === 'splash' && this.carried) { const h = this.carried; this.carried = null; this.carriedId = null; h.box.enabled = false; }
-      }).then(() => { this.removeB14(); this.mode = 'dead'; this.phaseT = 0; this.setState('dead'); this.logE('dead', {}); });
+        // the 'done' cue settles the loader synchronously (a promise `.then` cannot run inside a stepped test loop)
+        if (c === 'done') this.settleDead();
+      }).then(() => this.settleDead());
     }
     this.logE('died', {});
     w.onDeath(this);
+  }
+
+  private settleDead(): void {
+    if (this.mode !== 'dying') return;
+    this.removeB14(); this.mode = 'dead'; this.phaseT = 0; this.setState('dead'); this.logE('dead', {});
   }
 
   private tickDying(dt: number): void {
@@ -1070,7 +1077,7 @@ export class Loader extends EnemyBase {
     if (this.phase === 'rig') {
       if (this.rig.grabTopNow) this.top = this.rig.grabTopNow(_v).y;
       // the rig's death promise is the end; a fallback after 16 s (logged) so the loader always settles
-      if (this.phaseT > 16 && this.mode === 'dying') { this.logE('dead_timeout', {}); this.removeB14(); this.mode = 'dead'; this.phaseT = 0; this.setState('dead'); }
+      if (this.phaseT > 25 && this.mode === 'dying') { this.logE('dead_timeout', {}); this.removeB14(); this.mode = 'dead'; this.phaseT = 0; this.setState('dead'); }
       return;
     }
     // floods die one by one over 1.5 s

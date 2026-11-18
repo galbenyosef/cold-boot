@@ -104,7 +104,7 @@ export function adaptLoaderRig(ctx: GameContext, r: W3aRig): LoaderRig {
         r.setBridge(p.bridgeZ); r.setTrolley(p.trolleyX); r.setHoist(p.grab.y);
         r.setSwayHold(p.swayHold ?? 0);
         r.forceSway(p.forceSwayZ === undefined || p.forceSwayZ === null ? null : 0, p.forceSwayZ ?? undefined);
-        r.setJaws(p.jaws); r.setCowl(p.cowl);
+        r.setJaws(p.jaws); r.setRams(p.rams); r.setCowl(p.cowl);
         for (let i = 0; i < 4; i++) {
           if (!r.floodAlive(fid(i))) continue;
           r.aimFlood(fid(i), p.floodAim[i]);
@@ -135,7 +135,7 @@ export function adaptLoaderRig(ctx: GameContext, r: W3aRig): LoaderRig {
       if (part.startsWith('flood_')) { const i = +part.slice(6) as FloodId; if (r.floodAlive(i)) r.breakFlood(i); }
       else if (part === 'ram_e' || part === 'ram_w') { const sd = part === 'ram_e' ? 'e' : 'w'; if (!r.ramBroken[sd]) r.breakRam(sd); }
     },
-    reset() { /* W3a's rig has no un-break: restores run on a fresh loader (a page load) */ },
+    reset() { r.repair(); },
     dispose: () => r.dispose(),
     floodCovers: (i, p) => r.floodCovers(fid(i), p),
     floodInPool: (i) => r.floodInPool(fid(i)),
