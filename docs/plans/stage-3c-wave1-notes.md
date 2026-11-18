@@ -105,3 +105,27 @@
 - Sight passes through up to 3 glass panes but he fires only with a clear line; no sight or bullets through the grating.
 - `node scripts/check-soldier.mjs --url <url>` (`--real` on level 5 once the greybox has cover and `g5_s1`; `--watch
   [--seconds 24] [--fp]` records frames to `shots/soldier/`).
+
+## Soldier body (W3a, `src/enemies/soldier/{model,rig,actor}.ts`)
+- 9 draw calls / ≈ 22k triangles at LOD0, 5–6 calls / ≈ 7k beyond 12 m; 36 bones. Crouch eye ≈ 0.87 m, helmet top < 1.0 m.
+- Actor: `createSoldierActor(world, tpl, pos, yaw, { name, arms, pose })` — stands, looks, speaks, turns away, walks out;
+  the Clasp mark shows only from behind the neck (full within ±60° of behind) — frame the cutscene's nape shot accordingly.
+- A joint task is wiring body and behaviour together and tuning the threat; its result supersedes the numbers above.
+
+## Props kit (W8, `src/level/l5/kit5.ts`; index in the file header; kit4's conventions: origin, front +z, `b.at(...)`, options
+object, `collide: false`, attachment points returned in world space)
+- No prop calls audio or fx. **Scare triggers return timings; the VIGNETTE plays each sound once:** `trayStack.fall()` →
+  `impact` (`tray_crash`), `bin` (`cutlery_scatter`); `LockerDoor.rattle()` (`locker_rattle` at 0), `.bang()` → `impact`
+  (`locker_bang`); `looseHelmet.fall()` → `impact` (`helmet_roll`; call it 0.1 s after `bang()`); `bulkheadLamp.pop()` →
+  `out` (`bulb_pop` + `fx.bulbPop(lamp.point)`), `tinkle` (`glass_tinkle`); `oilskin.swing()` → `creak` (`hook_creak`);
+  `turnstile.click()` (`turnstile_click` at 0). Every scare prop has `snap()` (the `:snap` convention) and `at(t)`.
+- Cover heights are honest: crates 1.2 m (flat tops), equipment boxes 1.3 m, filing cabinets 1.3 m, parapets 1.1 m, lockers
+  2.0 m, risers full height, gas rack 1.8 m, forklift 2.2 m, watch desk 1.0 m + a 1.25 m log rail.
+- `lockerBank` with `len` 7 spaces doors 0.498 m apart: no door centre at z −31.5 — use −31.75 or −31.25 (or move
+  `mk5_locker_slam`); make the scare locker and its two neighbours `movable`. `ammoTinRack` has per-shelf colliders with the
+  front 0.12 m open: use `front(i, u)` for pickup points. `bulkheadLamp` takes the light as `bind` (the pop drives it).
+  `boothCounter` returns the palm-plate and monitor points; `boardFrame` the screen point; `sinkRow` spout points;
+  `frostedWindow` the clear-corner point for the oilskin. Strips: `setStrips5(L, 'emerg' | 'red' | 'amber', k)` — `emerg` is
+  off until lights-out; crawl strips use `red`, on from load.
+- Weak, fix while dressing if cheap: the 4 m bay stairs use the greybox's solid tread blocks (massive); `tripleBunk` uses one
+  fabric; fallen trays read as pale sheets from standing height.
