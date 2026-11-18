@@ -141,6 +141,7 @@ const STAND: Record<TrunkMaterialName, [MaterialName, Partial<THREE.MeshStandard
   tunnel_shotcrete: ['floor_concrete', { color: 0xa39f95, roughness: 0.96 }],
   cable_armour: ['steel_raw', { color: 0x9aa0a2, metalness: 0.7, roughness: 0.42 }],
   dock_steel: ['floor_plate', { color: 0x59636a }],
+  dock_steel_wet: ['floor_plate', { color: 0x4a545a, roughness: 0.3 }],
   crane_yellow: ['painted_yellow', { color: 0xe0a91c }],
   rope_wire: ['steel_raw', { color: 0x5a5d5f, metalness: 0.8, roughness: 0.38 }],
   container_navy: ['painted_white', { color: 0x2b3b54, roughness: 0.62 }],
