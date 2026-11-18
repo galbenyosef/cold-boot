@@ -237,10 +237,13 @@ const berths5: RoomDress = {
       serviceRun(b, L, { along: 'z', a: -13.8, b: -2.2, c: 19.9, ceil, hangers: st, pipes: [[0.06, 0, 0.03, 'lagged']], tray: { w: 0.3, c: 0.3, drop: 0.08 } });
     }
     // ── lights (§2.7.1: 2 red points all + the reading lamp medium+) ──
+    // (IB5c: the reds hang 0.4 m below the deckhead's beams (2.85 − 0.4 ≈ 2.05 under the domes' pools, no hot disc on the
+    // plating) and a dim third red between them, every quality, so the aisle between the two pools does not go black)
     const [r1, r2, reading] = lights(L, [
-      { group: 'berths5', type: 'point', p: [18, 2.45, -11], color: RED, i: 7.5, d: 11 },
-      { group: 'berths5', type: 'point', p: [18, 2.45, -5], color: RED, i: 7.5, d: 11 },
+      { group: 'berths5', type: 'point', p: [18, 2.05, -11], color: RED, i: 7.5, d: 11 },
+      { group: 'berths5', type: 'point', p: [18, 2.05, -5], color: RED, i: 7.5, d: 11 },
       { group: 'berths5', type: 'point', p: [14.05, 1.5, -8.0], color: 0xffd8a0, i: 2.2, d: 4, min: 'medium' },
+      { group: 'berths5', type: 'point', p: [18, 2.1, -8.0], color: RED, i: 2.6, d: 6.5, prio: 0.7 },
     ]);
     redDome(b, L, r1, 18, 3.0, -11);
     redDome(b, L, r2, 18, 3.0, -5);
@@ -351,7 +354,7 @@ const heads5: RoomDress = {
     // the sink counter's collider: a base to 0.72 + the rim strips (see header) instead of the slab to 0.9
     dropCollider(L, [12.2, 0, -1.0, 12.8, 0.9, 3.0]);
     let sinks!: { spouts: THREE.Vector3[]; light: THREE.MeshStandardMaterial };
-    b.at(12.2, 0, 1.0, PI / 2, () => { sinks = sinkRow(b, L, { n: 4, pitch: 0.85, d: 0.6, top: 0.9, collide: false }); });
+    b.at(12.2, 0, 1.0, PI / 2, () => { sinks = sinkRow(b, L, { n: 4, pitch: 0.85, d: 0.6, top: 0.9, spoutH: 0.3, collide: false }); });
     b.collide(12.2, 0, -1.0, 12.8, 0.72, 3.0, 'metal', true);
     b.collide(12.2, 0.72, -1.0, 12.34, 0.9, 3.0, 'metal', false);
     b.collide(12.64, 0.72, -1.0, 12.8, 0.9, 3.0, 'metal', false);
@@ -375,17 +378,24 @@ const heads5: RoomDress = {
     const wet: Box6[] = [[17.0, 0, -0.8, 18.35, 0.005, 3.0], [12.85, 0, 0.0, 13.9, 0.005, 1.9]];
     for (const w of wet) { fx.wetPatch(box3(w), ['heads5'], { id: 'fx5_wet_heads', seenFrom: ['berths5'] }); addWet(L, w); }
     // ── the four tap streams (fx5_taps): built now (registered), off until v5_water ──
-    const bounds = box3([12.2, 0.74, -0.75, 12.85, 1.15, 2.75]);
+    const bounds = box3([12.2, 0.74, -0.75, 12.85, 1.3, 2.75]);
     const taps = sinks.spouts.map((p) => {
       const e = fx.emitter('stream', p.clone(), V(0, -1, 0), 50, { bounds, rooms: ['heads5'], id: 'fx5_taps', seenFrom: ['berths5'] });
       e.enabled = false;
       return e;
     });
-    // the water columns themselves (the streak streams are thin at 3 m): one translucent part, shown while the taps run
+    // the water columns themselves (the streak streams are thin at 3 m): one translucent part, shown while the taps run.
+    // IB5c: swan-neck taps (spouts 0.3 over the counter) so 0.3 m of each column stands clear of the counter front, a
+    // thicker column, and a splash crown spraying up out of each basin over the rim (read at 4 m)
     const colMat = new THREE.MeshStandardMaterial({ color: 0xe6f1f7, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.7, depthWrite: false, emissive: 0xb8d0de, emissiveIntensity: 0.5 });
     colMat.name = 'd2b_tap_water';
     const cp = L.part('fx5_tap_columns');
-    for (const p of sinks.spouts) { const len = p.y - 0.74; cp.cyl(colMat, p.x, p.y - len / 2, p.z, 0.011, len, 'y', 6, 0.008); }
+    for (const p of sinks.spouts) {
+      const len = p.y - 0.74;
+      cp.cyl(colMat, p.x, p.y - len / 2, p.z, 0.016, len, 'y', 8, 0.012);
+      cp.cyl(colMat, p.x, 0.915, p.z, 0.03, 0.05, 'y', 12, 0.075);   // the splash crown (opens upward)
+      cp.cyl(colMat, p.x, 0.95, p.z, 0.075, 0.025, 'y', 12, 0.1);    // its spray lip
+    }
     const cols = cp.build();
     const colMount = new THREE.Group();
     colMount.userData.rooms = ['heads5'];
@@ -468,11 +478,11 @@ const mess5: RoomDress = {
     b.at(30.0, 1.0, -2.5, PI, () => {
       trays = trayStack(b, L, { n: 30, stacks: 2, edge: 0.3, floor: -1.0, area: [-1.9, 0.5, 1.9, 3.0], keepOut: [[-1.9, 2.3, -0.1, 4.7]], seed: 23, name: 'trays5' });
     });
-    // (kit note "fallen trays read as … sheets": on the floor they read as dark tiles — a paler brushed steel with some
-    // sheen so each tray catches the lamps; trays only)
+    // (IB5c: the pale body read as blank sheets on the deck — the body is now a darker, worn steel and the kit's bright
+    // rolled rims (`k5_tray_rim`) frame each tray; tray bodies only)
     const trayMesh = trays.group.children.find((c) => c.name.endsWith(':trays')) as THREE.Mesh | undefined;
     if (trayMesh) {
-      const tm = L.ctx.materials.clone('stainless', { color: 0xd4dadd, roughness: 0.32, metalness: 0.55 });
+      const tm = L.ctx.materials.clone('stainless', { color: 0x7d878d, roughness: 0.48, metalness: 0.55 });
       tm.name = 'd2b_tray_steel';
       trayMesh.material = tm;
     }
@@ -595,8 +605,13 @@ const galley5: RoomDress = {
     const fx = fxOf(L);
     const [main, cold] = lights(L, [
       // (bounded to the galley side of the window: the coat behind the frost stays a silhouette)
-      { group: 'galley5', type: 'point', p: [33, 2.65, 1], color: WARM, i: 10, d: 9, bounds: [27.9, -0.1, -2.1, 37.9, 3.1, 4.1] },
-      { group: 'galley5', type: 'point', p: [39.05, 1.7, 1.0], color: 0xcfe4ff, i: 3, d: 3, min: 'medium', bounds: [37.7, 0, -0.3, 39.5, 2.3, 2.3] },
+      // (IB5c: brighter — the deck read near-black on LOW)
+      { group: 'galley5', type: 'point', p: [33, 2.65, 1], color: WARM, i: 13, d: 10, bounds: [27.9, -0.1, -2.1, 37.9, 3.1, 4.1] },
+      // the cold room's glow, every quality (IB5c): it stands just inside the galley (x 37.85 < 37.95 — a point beyond
+      // x 38 is in no room, so the portal pass never culls it) and its bounds keep it to the window reveal + the cold room
+      // (from x 38.3: neither the galley face of the wall nor the coat on its hook (x 38.1) gets any — the coat stays a
+      // silhouette against the lit back of the cold room)
+      { group: 'galley5', type: 'point', p: [37.85, 1.6, 1.0], color: 0xcfe4ff, i: 3.2, d: 3.4, prio: 0.6, bounds: [38.3, 0, -0.3, 39.5, 2.3, 2.3] },
     ]);
     tubeFitting(b, L, main, 33, 3.0 - 0.152, 1.0, true, 'emissive_white');
     // ── the hull (B1): three frames across the galley (the range end wall and the cold-room wall are bulkheads) ──

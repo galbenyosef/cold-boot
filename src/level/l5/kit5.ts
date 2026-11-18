@@ -86,8 +86,8 @@ const oilskinMat = (L: LevelBuild) => tint5(L, 'oilskin', 'plastic_white', 0xc99
 
 interface StripDef { color: number; lens: number; on: number }
 const STRIPS: Record<string, StripDef> = {
-  /** Emergency (photoluminescent-style yellow-green): OFF until `lights_out5` → `setStrips5(L, 'emerg', 1)`. */
-  emerg: { color: 0xa8ff6a, lens: 0xd6e6c8, on: 0 },
+  /** Emergency (IB5b B2: the bay's red, one channel for the whole level): OFF until the emergency groups → `setStrips5(L, 'emerg', k)`. */
+  emerg: { color: 0xff2a14, lens: 0x8a3a32, on: 0 },
   /** Crawlway / magazine stair red LED strips: ON from load. */
   red: { color: 0xff2a14, lens: 0xc89a94, on: 1.0 },
   /** Amber (stair nosings that must read in the lit level too). */
@@ -96,7 +96,7 @@ const STRIPS: Record<string, StripDef> = {
 export type StripChannel = 'emerg' | 'red' | 'amber';
 /**
  * Strip lens material of a channel — ONE material per channel per level, so every strip of the channel switches
- * together. `emerg` (yellow-green, off) for the spine/bay strips that light at `lights_out5`; `red` (on, ≈ 1.2) for
+ * together. `emerg` (red, off) for the spine / bay / dive-locker strips that light with the emergency groups; `red` (on, ≈ 1.2) for
  * the crawl and magazine strips; `amber` (off) spare.
  */
 export function stripMat5(L: LevelBuild, ch: StripChannel = 'emerg'): THREE.MeshStandardMaterial {
@@ -1571,22 +1571,35 @@ export interface TrayStack { group: THREE.Group; readonly state: 'stacked' | 'fa
  * debris (no colliders). Each tray slides to the edge, tips nose-down and tumbles off, slaps the deck, hops and skids to
  * a seeded rest pose inside `area` (local [x0, z0, x1, z1], default [−1.8, edge + 0.2, 1.8, edge + 2.8]) avoiding
  * `keepOut` rectangles (table footprints) and each other (trays that cannot find room lie tilted on another — never two
- * flat trays coplanar). The bin tips over and the cutlery sprays out when it lands. Calls: 2 (stainless, instanced:
- * trays · bin + cutlery), static none.
+ * flat trays coplanar). The bin tips over and the cutlery sprays out when it lands. Calls: 3 (instanced:
+ * tray bodies (stainless) · tray rims (`k5_tray_rim`, same matrices) · bin + cutlery), static none.
  */
 export function trayStack(b: Builder, L: LevelBuild, o: { n?: number; stacks?: number; edge?: number; floor?: number; area?: [number, number, number, number]; keepOut?: [number, number, number, number][]; seed?: number; name?: string } = {}): TrayStack {
   const n = o.n ?? 30, ns = o.stacks ?? 2, edge = o.edge ?? 0.3, floor = o.floor ?? -1.0, R = srand(o.seed ?? 17), g = 9.81;
   const area = o.area ?? [-1.8, edge + 0.2, 1.8, edge + 2.8], keep = o.keepOut ?? [];
   const P = 0.0275, TH = 0.013, TW = 0.42, TD = 0.3;
   // geometry: tray centred (y −0.013 … 0.013), cutlery / bin panel = unit box
+  // IB5c: the tray body (base + compartment walls) and its RIM (side walls + a rolled lip) are two instanced meshes on
+  // ONE matrix buffer: a darker body, a bright rim — on the deck each tray reads as a framed tray, not a pale sheet
+  const RW = 0.009, LIP = 0.006;
   const tp = L.part('tray5');
-  tp.bx('stainless', -TW / 2, -TH, -TD / 2, TW / 2, -TH + 0.01, TD / 2); // (1 cm base: never within the depth tolerance of what it lies on)
-  tp.bx('stainless', -TW / 2, -TH + 0.01, TD / 2 - 0.004, TW / 2, TH, TD / 2).bx('stainless', -TW / 2, -TH + 0.01, -TD / 2, TW / 2, TH, -TD / 2 + 0.004);
-  tp.bx('stainless', -TW / 2, -TH + 0.01, -TD / 2 + 0.004, -TW / 2 + 0.004, TH, TD / 2 - 0.004).bx('stainless', TW / 2 - 0.004, -TH + 0.01, -TD / 2 + 0.004, TW / 2, TH, TD / 2 - 0.004);
-  tp.bx('stainless', -TW / 2 + 0.004, -TH + 0.01, 0.028, TW / 2 - 0.004, TH - 0.006, 0.032);
-  tp.bx('stainless', -0.072, -TH + 0.01, -TD / 2 + 0.004, -0.068, TH - 0.006, 0.028);
+  tp.bx('stainless', -TW / 2 + RW, -TH, -TD / 2 + RW, TW / 2 - RW, -TH + 0.01, TD / 2 - RW); // (1 cm base: never within the depth tolerance of what it lies on)
+  tp.bx('stainless', -TW / 2 + RW, -TH + 0.01, 0.028, TW / 2 - RW, TH - 0.006, 0.032);
+  tp.bx('stainless', -0.072, -TH + 0.01, -TD / 2 + RW, -0.068, TH - 0.006, 0.028);
   const trayGeo = tp.bake();
+  const rp = L.part('tray5_rim');
+  rp.bx('stainless', -TW / 2, -TH, TD / 2 - RW, TW / 2, TH - LIP, TD / 2).bx('stainless', -TW / 2, -TH, -TD / 2, TW / 2, TH - LIP, -TD / 2 + RW);
+  rp.bx('stainless', -TW / 2, -TH, -TD / 2 + RW, -TW / 2 + RW, TH - LIP, TD / 2 - RW).bx('stainless', TW / 2 - RW, -TH, -TD / 2 + RW, TW / 2, TH - LIP, TD / 2 - RW);
+  // the rolled lip: 6 mm proud of the walls all round (stays inside the 2.6 cm a tray occupies in its stack)
+  rp.bx('stainless', -TW / 2 - LIP, TH - LIP, TD / 2 - RW, TW / 2 + LIP, TH, TD / 2 + LIP).bx('stainless', -TW / 2 - LIP, TH - LIP, -TD / 2 - LIP, TW / 2 + LIP, TH, -TD / 2 + RW);
+  rp.bx('stainless', -TW / 2 - LIP, TH - LIP, -TD / 2 + RW, -TW / 2 + RW, TH, TD / 2 - RW).bx('stainless', TW / 2 - RW, TH - LIP, -TD / 2 + RW, TW / 2 + LIP, TH, TD / 2 - RW);
+  const rimGeo = rp.bake();
   const mat = L.ctx.materials.get('stainless');
+  const rimMat = mat4(L, 'k5_tray_rim', () => {
+    const m = L.ctx.materials.clone('stainless', { color: 0xe4e9ec, roughness: 0.22, metalness: 0.7 });
+    m.name = 'k5_tray_rim';
+    return m;
+  });
   const group = new THREE.Group();
   group.name = o.name ?? 'trays5';
   worldOf(b, 0, 0, 0).decompose(group.position, group.quaternion, group.scale);
@@ -1594,9 +1607,12 @@ export function trayStack(b: Builder, L: LevelBuild, o: { n?: number; stacks?: n
   L.root.add(group);
   const trays = new THREE.InstancedMesh(trayGeo, mat, n);
   trays.name = `${group.name}:trays`;
+  const rims = new THREE.InstancedMesh(rimGeo, rimMat, n);
+  rims.name = `${group.name}:rims`;
+  rims.instanceMatrix = trays.instanceMatrix; // one buffer: every pose write moves both
   const NC = 36, small = new THREE.InstancedMesh(unitBox(), mat, NC + 5);
   small.name = `${group.name}:cutlery`;
-  for (const m of [trays, small]) { m.castShadow = true; m.receiveShadow = true; group.add(m); }
+  for (const m of [trays, rims, small]) { m.castShadow = true; m.receiveShadow = true; group.add(m); }
   const inArea = (x: number, z: number) => x > area[0] && x < area[2] && z > area[1] && z < area[3] && !keep.some((k) => x > k[0] - 0.25 && x < k[2] + 0.25 && z > k[1] - 0.25 && z < k[3] + 0.25);
   interface Item { x0: number; y0: number; z0: number; yaw0: number; d: number; ts: number; vx: number; v: number; T: number; px: number; pz: number; rx: number; rz: number; tk: number; ry: number; spin: number; w: number; fin: number; pile: number; tilt: number; end: number }
   const rests: [number, number][] = [];
@@ -1687,8 +1703,8 @@ export function trayStack(b: Builder, L: LevelBuild, o: { n?: number; stacks?: n
     trays.instanceMatrix.needsUpdate = true; small.instanceMatrix.needsUpdate = true;
     state = t <= 0 ? 'stacked' : t >= dur ? 'down' : 'falling';
     const moving = state === 'falling';
-    trays.frustumCulled = small.frustumCulled = !moving;
-    if (!moving) { trays.computeBoundingSphere(); small.computeBoundingSphere(); trays.computeBoundingBox(); small.computeBoundingBox(); }
+    trays.frustumCulled = rims.frustumCulled = small.frustumCulled = !moving;
+    if (!moving) for (const m of [trays, rims, small]) { m.computeBoundingSphere(); m.computeBoundingBox(); }
   };
   pose(0);
   const tl = timeline(L, dur, pose);
@@ -1936,14 +1952,15 @@ export function oilskin(b: Builder, L: LevelBuild, o: { name?: string } = {}): O
 /**
  * Sinks with mirror (§2.6 heads5: 4 sinks + mirror on the west wall; `mk5_taps` (12.4, 1.0, 1.0)). Wall prop (back at z
  * 0), `n` (4) basins at `pitch` (0.85) in a stainless counter `d` (0.55) at `top` (0.85) with a front apron, waste
- * traps under, pillar taps whose spouts end 0.15 above the counter over each basin, a full-width mirror (chrome)
+ * traps under, pillar taps whose spouts end `spoutH` (0.13; IB5c: a tall swan-neck tap at 0.3 — its stream reads over the
+ * counter front from across the room) above the counter over each basin, a full-width mirror (chrome)
  * 1.15 … 1.95, and the mirror's LIGHT STRIP above it (its own emissive, 0.35 — flicker it for `v5_water`, or pass
  * `light`). Returns `spouts` (world tip of each tap) and `light`. Calls: 2 (stainless + chrome) + 1 (light strip).
  * Collider: the counter (`collide`).
  */
-export function sinkRow(b: Builder, L: LevelBuild, o: { n?: number; pitch?: number; d?: number; top?: number; light?: THREE.MeshStandardMaterial; collide?: boolean } = {}): { spouts: THREE.Vector3[]; light: THREE.MeshStandardMaterial } {
+export function sinkRow(b: Builder, L: LevelBuild, o: { n?: number; pitch?: number; d?: number; top?: number; spoutH?: number; light?: THREE.MeshStandardMaterial; collide?: boolean } = {}): { spouts: THREE.Vector3[]; light: THREE.MeshStandardMaterial } {
   const n = o.n ?? 4, p = o.pitch ?? 0.85, d = o.d ?? 0.55, top = o.top ?? 0.85, S: Mat = 'stainless', C: Mat = 'chrome', len = n * p;
-  const bw = 0.42, bd = 0.3, bz0 = 0.14, bz1 = bz0 + bd, t = 0.03;
+  const bw = 0.42, bd = 0.3, bz0 = 0.14, bz1 = bz0 + bd, t = 0.03, e = Math.max(0, (o.spoutH ?? 0.13) - 0.13);
   const xs = Array.from({ length: n }, (_, i) => -len / 2 + (i + 0.5) * p);
   b.bx(S, -len / 2, top - t, 0, len / 2, top, bz0);
   b.bx(S, -len / 2, top - t, bz1, len / 2, top, d);
@@ -1964,13 +1981,13 @@ export function sinkRow(b: Builder, L: LevelBuild, o: { n?: number; pitch?: numb
       b.torus(C, x, top - 0.43, (bz0 + bz1) / 2 - 0.05, 0.05, 0.018, 'x', 10);
       b.rod(C, x, top - 0.43, (bz0 + bz1) / 2 - 0.1, x, top - 0.43, 0.0, 0.02, 8);
       // pillar tap behind the bowl, spout arching forward over it
-      b.cyl(C, x, top + 0.06, 0.07, 0.018, 0.12, 'y', 10);
-      b.rod(C, x, top + 0.12, 0.07, x, top + 0.17, 0.12, 0.012, 6);
-      b.rod(C, x, top + 0.17, 0.12, x, top + 0.15, 0.24, 0.011, 6);
-      b.cyl(C, x, top + 0.14, 0.24, 0.013, 0.02, 'y', 8);
+      b.cyl(C, x, top + (0.12 + e) / 2, 0.07, 0.018, 0.12 + e, 'y', 10);
+      b.rod(C, x, top + 0.12 + e, 0.07, x, top + 0.17 + e, 0.12, 0.012, 6);
+      b.rod(C, x, top + 0.17 + e, 0.12, x, top + 0.15 + e, 0.24, 0.011, 6);
+      b.cyl(C, x, top + 0.14 + e, 0.24, 0.013, 0.02, 'y', 8);
       for (const s of [-1, 1]) b.rbox(C, x + s * 0.07, top + 0.11, 0.07, 0.07, 0.015, 0.02, 0, 0, s * 0.3);
     });
-    spouts.push(b.world(x, top + 0.13, 0.24));
+    spouts.push(b.world(x, top + 0.13 + e, 0.24));
   }
   b.bx(C, -len / 2 + 0.05, 1.15, 0, len / 2 - 0.05, 1.95, 0.012);
   const light = o.light ?? newLens(L, 'white', 0.35);

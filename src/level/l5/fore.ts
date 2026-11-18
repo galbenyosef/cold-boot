@@ -13,7 +13,7 @@
  *    (3.0 × 2.8, rises 2.4 s) that plays its own `gate_open_heavy` / `gate_close_heavy` (DoorSpec.sounds).
  *  - gate5: the guard booth stand-ins (kerb x 2.4 … 2.6 with the west ledge x 2.25 … 2.6 at y 1.0, south face,
  *    roof solid 2.6 … 3.4, inner counter x 4.4 … 5.6), the booth glass (x 2.485 … 2.515, y 1.0 … 2.4, `mk5_glass`
- *    pane `booth`), screens `aas_palm` (4.6, 1.1, −2.0) −x, `gate_log` (4.38, 1.35, −1.1) −x and `onpost` (−4.0, 2.6,
+ *    pane `booth`), screens `aas_palm` (4.6, 1.1, −2.0) −x, `gate_log` 0.56 × 0.36 (4.38, 1.35, −1.1) −x and `onpost` (−4.0, 2.6,
  *    −0.22) −z; the turnstile line (tripods x −3.0 … −2.1 / −2.0 … −1.1 h 1.0, fences x 1.2 … 2.4 / −5.8 … −3.0 h 1.2,
  *    z −5.15 … −4.85), the clearing barrel (−5.2, −8.6), a shelf under `p5_gate_med`; interactable `note5_visitors`;
  *    markers `mk5_gate_panel`, `mk5_aas_palm`, `mk5_onpost`. The booth's back door is yours (a prop into solid).
@@ -300,11 +300,12 @@ function buildGate(L: LevelBuild): GateParts {
   // Aas's palm plate: a pedestal behind the `aas_palm` screen (0.22 × 0.28 at (4.6, 1.1, −2.0), facing −x)
   b.bx(N, 4.61, top, -2.14, 4.84, 1.27, -1.86);
   b.detail(() => b.bx(K, 4.605, 1.245, -2.13, 4.61, 1.265, -1.87));
-  // the monitor round the shell's `gate_log` screen (0.42 × 0.3 at (4.38, 1.35, −1.1), facing −x)
-  b.bx(K, 4.386, 1.175, -1.335, 4.46, 1.525, -0.865);
-  b.bx(K, 4.46, 1.2, -1.125, 4.5, 1.32, -1.075);
-  b.bx(K, 4.46, top, -1.22, 4.66, top + 0.012, -0.98);
-  b.bx(K, 4.46, top + 0.012, -1.12, 4.5, 1.2, -1.08);
+  // the monitor round the shell's `gate_log` screen (0.56 × 0.36 at (4.38, 1.35, −1.1), facing −x; IA5): a 3 cm bezel
+  // (y 1.14 … 1.56, z −1.41 … −0.79), its back box, a short neck to the foot on the counter
+  b.bx(K, 4.386, 1.14, -1.41, 4.46, 1.56, -0.79);
+  b.bx(K, 4.46, 1.18, -1.2, 4.52, 1.46, -1.0);
+  b.bx(K, 4.46, top, -1.25, 4.68, top + 0.012, -0.95);
+  b.bx(K, 4.47, top + 0.012, -1.12, 4.51, 1.18, -1.08);
   b.detail(() => {
     b.rbox(K, 5.25, top + 0.035, -0.75, 0.2, 0.07, 0.22, 0, 0.2, 0); // desk phone
     b.rbox(K, 5.2, top + 0.08, -0.78, 0.06, 0.04, 0.21, 0, 0.2, 0);
