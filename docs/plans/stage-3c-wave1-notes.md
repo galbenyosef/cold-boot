@@ -76,3 +76,19 @@
   mode. `node scripts/check-dark.mjs --url <url> --level 5` judges lamp-on, lamp-off (frame ≥ 0.025, edge strips ≥ 3 %,
   doors / stair nosings / gallery edges / required interactables at p95 ≥ 0.10), enemy glow at 10/20/30 m (the soldier's
   mark red, never cyan) and a dark run of the route sampled every 2 m.
+
+## Set pieces (W7, `src/level/l5/setpieces.ts`; every function's doc comment gives size, origin, facing, colliders, calls, API)
+- `tern(L, o)` → object + machine `tern`: boat (bow faces −z, toward the lock; hull z −27…−43), cradle with ten clamp arms,
+  rails. `userData`: `check()` (19.4 s; cues `TERN_CUES`: power, lights, floods, ballast, ballast_end, dog, hatch_open, clang,
+  thrusters, clamps, clamps_home, hatch_shut, latch, complete), `snap()`, `setTime(t)`, `onCue(cb)`, `clamps(k)`, `hatch(k)`,
+  `dog(k)`; points `vents` (8 points + directions: **D3 places `emitter('mist', …)` there**), `drips`, `soundPoints` (the doc
+  maps each cue to its sound — the vignette `v5_sub_check` plays them; no set piece plays a sound). The boat's own two lights
+  are in light group `tern`, NOT `sub5`: `lights_out5` leaves them on. 11 draw calls + 1 cradle.
+- `launchLockDoor(L, b)` (5 m round door, 0.6 m port, `userData.pane`), `cmdDoor(L, b)` (`look(on)`,
+  `tally('red'|'amber'|'white'|'off')`, `watch(p)`, `pulse(on)`, `lineGlow(k)`; the yellow line at x 42.5), `gateLook(L, 'd5_gate')`
+  (dog ring; `d5_gate_dogs.userData.set(k)`), `hatchLid(L, b, HATCH5_SPINE | HATCH5_MAG)` (south hinge; one dynamic box;
+  `open(k)`, `dogs(k)`, `lamp()`; registers `hatch5_spine` / `hatch5_mag` — **if the greybox made lids under the same names,
+  keep ONE**), `wheel5(L, b)` (`spin(t)` over 4 s), `launchConsole(L, b)` (screens `launch`, `launch5_palm`;
+  `userData.palmPoint`), `boothBackDoor(L, b)` (`set(k)`, `settle(1.2, onLatch)`).
+- `mk5_launch` is the console's back edge; the operator looks north over it at the sail.
+- For integration (look): the boat uses private hull paint — swap in `sub_coating` keeping its self-light shader patch.
