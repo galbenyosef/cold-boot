@@ -160,3 +160,11 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   otherwise. Weak: well reads as lit teal pool not 13.7 m of black water (water env reflection, darker well fx); high-bay
   hot spots on upper walls; festoon brackets 0.36 m off the wall; stairs without handrails; no drips (`fx6_drips_pool`);
   reveal drama relies on floods without volumetric beams; dock-steel chips large up close.
+- 3d D2: PERF view (5) `14,0,-168,90` 231 LOW / 267 MEDIUM calls (budget ≤ 230 incl. enemies; greybox base 175) — check
+  whether level-6 pickups are room-culled (214 visible pickup meshes, §2.7.4); split T-c dressing into its own zone.
+  Fixes for others: W7 `beachJoint6` astragal box → `T + 0.0095, …, 0.011` and west leaf width `leaf − 0.004`; floor
+  guide from y 0.002; W8 `hatchLid6` curb z1 bar on the pit wall + top ≥ 8 mm proud, walkable while shut + stopper
+  built in (D2's `fixLid` patches it now). reach/nav/dark/fxleak (`fx6_vault_dust`, `fx6_drips_trench`)/decals/doors L6;
+  `play:l6` + `--scares` owner audit; perf (5),(6) with F4/F5 on HIGH. User listens: ping_far/near, v6_ring layering,
+  v6_thud 8 m under, drum_rumble + ratchet_run. Weak: vault dark (enclosure spot weak, reward body flashlight-only); dust
+  motes untuned; he6 rack backs flat black; ring/thud light dips unseen in motion.
