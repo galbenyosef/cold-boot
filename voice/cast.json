@@ -201,6 +201,14 @@
       "fx": "screen",
       "why": "Provisional (stage 3b W8): halting video-log voice; candidates in voice/auditions/sunde for the user to pick."
     },
+    "aas": {
+      "name": "LT. L. AAS",
+      "describe": "male, middle-aged, moderate pitch, whispering",
+      "seed": 8,
+      "refText": "Hello?... Is somebody there... They've got me walking. I can't... I can't stop my hands.",
+      "fx": "phone",
+      "why": "DESIGNED whisper (stage 3d W9, 2026-11-18; measurement only, nobody listened): audition 18 of voice/auditions/aas (B 'male, middle-aged, moderate pitch, whispering' seed 8). 20 takes (A low-pitch young adult, B middle-aged; seeds 1-10): ref ASR passed on 6 (A1, A8, A9, B1, B8, B9), failed on the rest (too faint / not transcribable). Of those 6, 18 is the most whispered: voiced 0.64 (ref 0.57), HNR 0.5 dB, centroid 1854 Hz, ASR 1.0 on both samples. Envelope similarity to tomas.whisper 0.32, hale.whisper 0.07, halvorsen.whisper 0.33, reyes 0.03, choir 0.30, halvorsen 0.53 (all <= 0.6). Runner-ups: 19 (B seed 9: ASR 0.95, max sim 0.30, voiced 0.74), 12 (A seed 8: max sim 0.38, voiced 0.69). Not whispered enough to match tomas.whisper (0.42 voiced); the phone band-pass will hide some of that."
+    },
     "kessler": {
       "name": "CDR M. KESSLER",
       "describe": "female, middle-aged, low pitch",

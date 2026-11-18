@@ -1,0 +1,713 @@
+[
+  {
+    "id": "l6_kes_start",
+    "speaker": "kessler",
+    "text": "Tube's cycling. ...It's slow. It was always slow.",
+    "spoken": "Tube's cycling... It's slow. It was always slow.",
+    "fx": "radio",
+    "note": "rule: U (start + 0.6)"
+  },
+  {
+    "id": "l6_unit_tube",
+    "speaker": "unit",
+    "text": "Head-end tube. Cycle complete.",
+    "fx": "unit",
+    "note": "rule: U (the door opens); fx: at mk6_tube_panel"
+  },
+  {
+    "id": "l6_kes_start_2",
+    "speaker": "kessler",
+    "text": "Two hundred metres to the head-end. Some of mine will be down there. Take your time with them.",
+    "spoken": "Two hundred metres to the head-end... Some of mine will be down there. Take your time with them.",
+    "fx": "radio",
+    "note": "rule: C: tube latched, once"
+  },
+  {
+    "id": "l6_choir_start_stop",
+    "speaker": "choir",
+    "text": "This is our cable, Technician. Everything down here listens to it.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, after _start_2"
+  },
+  {
+    "id": "l6_choir_start_command",
+    "speaker": "choir",
+    "text": "This is our cable, Supervisor. You never asked what it was for.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_kes_contact_a",
+    "speaker": "kessler",
+    "text": "Two of mine. Far end. ...They won't rush you. Don't rush them.",
+    "spoken": "Two of mine. Far end... They won't rush you. Don't rush them.",
+    "fx": "radio",
+    "note": "rule: C: g6_tun_s released, both alive, once"
+  },
+  {
+    "id": "l6_kes_tun_done",
+    "speaker": "kessler",
+    "text": "I heard that. ...Who was it? No. Don't tell me.",
+    "spoken": "I heard that... Who was it? No. Don't tell me.",
+    "fx": "radio",
+    "note": "rule: C: g6_tun_s dead, calm, once"
+  },
+  {
+    "id": "l6_kes_rep",
+    "speaker": "kessler",
+    "text": "Repeater Two. You're halfway. The next tunnel's in the south wall, east end.",
+    "fx": "radio",
+    "note": "rule: C: first t6_rep, calm, once"
+  },
+  {
+    "id": "l6_kes_contact_rep",
+    "speaker": "kessler",
+    "text": "More coming from the head-end side. Units with them.",
+    "fx": "radio",
+    "note": "rule: C: F2 spawned, none of it in view, once"
+  },
+  {
+    "id": "l6_kes_tunb",
+    "speaker": "kessler",
+    "text": "He's taken the lights in two. The strips are wired direct. Follow the strips.",
+    "spoken": "He's taken the lights in two... The strips are wired direct. Follow the strips.",
+    "fx": "radio",
+    "note": "rule: C: first t6_tunb, once"
+  },
+  {
+    "id": "l6_choir_dark_stop",
+    "speaker": "choir",
+    "text": "We do not need the light, Technician. Do you?",
+    "fx": "radio:1",
+    "note": "rule: C: stop, g6_tunb_s holding + 1.0"
+  },
+  {
+    "id": "l6_choir_dark_command",
+    "speaker": "choir",
+    "text": "We have worked in the dark since Monday, Supervisor. You never asked.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same (S10c: no hour count CHOIR would get wrong)"
+  },
+  {
+    "id": "l6_kes_tunb_soldier",
+    "speaker": "kessler",
+    "text": "There's one at the door. He's waiting for you to light yourself up.",
+    "fx": "radio",
+    "note": "rule: C: g6_tunb_s holding, in view ≥ 1 s at > 25 m, lamp off, once"
+  },
+  {
+    "id": "l6_kes_he_1",
+    "speaker": "kessler",
+    "text": "That's the head-end. Everything that leaves this place goes through that room.",
+    "spoken": "That's the head-end... Everything that leaves this place goes through that room.",
+    "fx": "radio",
+    "note": "rule: C: first t6_he, once"
+  },
+  {
+    "id": "l6_kes_he_2",
+    "speaker": "kessler",
+    "text": "The console's in automatic. In automatic the vault stays locked. Switch it to manual. It gives you a key.",
+    "spoken": "The console is in automatic... In automatic the vault stays locked. Switch it to MANUAL. It gives you a key.",
+    "fx": "radio",
+    "note": "rule: C: not manual"
+  },
+  {
+    "id": "l6_kes_he_2b",
+    "speaker": "kessler",
+    "text": "Manual already. Good. Keep that key.",
+    "fx": "radio",
+    "note": "rule: C: manual (cranked during _1)"
+  },
+  {
+    "id": "l6_reyes_he",
+    "speaker": "reyes",
+    "text": "A key.",
+    "fx": "clean",
+    "note": "rule: C: after _2 (not _2b)"
+  },
+  {
+    "id": "l6_kes_he_3",
+    "speaker": "kessler",
+    "text": "Key to key. The navy built it so nobody could cut the trunk by—",
+    "spoken": "Key to key. The navy built it so nobody could cut the trunk by accident.",
+    "fx": "radio",
+    "note": "rule: U; cut written by W9 from ASR word times (just after \"by\"); ST stops the handle there (fade 0.03 s); cut in FILE time (incl. lead 0.12): \"by\" ends 3.60 by ASR, waveform: the vowel fades to a gap at 3.68-3.78 before \"accident\"",
+    "cut": 3.68
+  },
+  {
+    "id": "l6_choir_he_stop",
+    "speaker": "choir",
+    "text": "By accident. Yes, Commander. We have read the manual too.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, at _he_3's cut"
+  },
+  {
+    "id": "l6_choir_he_command",
+    "speaker": "choir",
+    "text": "By accident. Yes, Commander. The Supervisor always read the manual.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_aas_1",
+    "speaker": "aas",
+    "text": "...Hello? Head-end? Is anybody on this line?",
+    "spoken": "Hello?... Head-end? Is anybody on this line?",
+    "fx": "phone",
+    "note": "rule: U (v6_handset); fx: positional at mk6_handset"
+  },
+  {
+    "id": "l6_aas_2",
+    "speaker": "aas",
+    "text": "This is Lieutenant Aas, Post 4. They've got me walking. They keep putting my hand on things.",
+    "spoken": "This is Lieutenant Oss... Post 4. They've got me walking. They keep putting my hand on things.",
+    "fx": "phone",
+    "note": "rule: U (handset picked up); fx: held: 2-D"
+  },
+  {
+    "id": "l6_reyes_aas",
+    "speaker": "reyes",
+    "text": "Where are you?",
+    "fx": "clean",
+    "note": "rule: U"
+  },
+  {
+    "id": "l6_aas_3",
+    "speaker": "aas",
+    "text": "I don't— the bay. They're taking me down to the bo—",
+    "spoken": "I don't... the bay. They're taking me down to the boat.",
+    "fx": "phone",
+    "note": "rule: U; cut = start(\"boat\") + 0.10 s from the ASR word start, checked on the waveform (word ends cannot give a mid-word cut, S12), in FILE time incl. lead (3c W9 convention) — the line goes dead; cut in FILE time (lead 0.0): ASR start(\"boat\") 2.48, the b burst on the waveform is at 2.56-2.58 so start+0.10 would cut at the burst; 2.66 is mid vowel (the \"o\" runs 2.58-2.75, the t at 2.88)",
+    "cut": 2.66
+  },
+  {
+    "id": "l6_kes_aas",
+    "speaker": "kessler",
+    "text": "...That was Lars. My XO. He's not fitted. ...I can't reach him. Neither can you. The trunk, Reyes.",
+    "spoken": "That was Lars... My XO. He's not fitted... I can't reach him. Neither can you. The trunk, Reyes.",
+    "fx": "radio",
+    "note": "rule: C: heard(l6_aas_2), + 1.2, once"
+  },
+  {
+    "id": "l6_reyes_queue",
+    "speaker": "reyes",
+    "text": "There's a manifest here. Fourteen batches. Clasps.",
+    "fx": "clean",
+    "note": "rule: C: note6_queue read (closed), calm, once"
+  },
+  {
+    "id": "l6_kes_queue",
+    "speaker": "kessler",
+    "text": "Out of here? ...We never shipped a thing. Not one crate.",
+    "spoken": "Out of here?... We never shipped a thing. Not one crate.",
+    "fx": "radio",
+    "note": "rule: C: after l6_reyes_queue"
+  },
+  {
+    "id": "l6_choir_queue_stop",
+    "speaker": "choir",
+    "text": "Fourteen, Technician. We have been very busy.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, after l6_kes_queue"
+  },
+  {
+    "id": "l6_choir_queue_command",
+    "speaker": "choir",
+    "text": "Fourteen, Supervisor. You would have liked the yield.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_unit_manual",
+    "speaker": "unit",
+    "text": "Head-end. Manual mode. Interlock key A released.",
+    "fx": "unit",
+    "note": "rule: U (crank done); fx: at mk6_switch"
+  },
+  {
+    "id": "l6_kes_manual",
+    "speaker": "kessler",
+    "text": "That's the key. The vault's the west door. The beach joint is on the sea wall.",
+    "fx": "radio",
+    "note": "rule: C: manual, not yet in the vault's enclosure, once"
+  },
+  {
+    "id": "l6_choir_manual_stop",
+    "speaker": "choir",
+    "text": "Manual. How old-fashioned, Technician.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, after l6_kes_manual (or the crank + 1.0 if it was skipped)"
+  },
+  {
+    "id": "l6_choir_manual_command",
+    "speaker": "choir",
+    "text": "Manual, Supervisor. You never did trust us with the switches.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_kes_he_contact",
+    "speaker": "kessler",
+    "text": "Movement in the vault. Coming through to you.",
+    "fx": "radio",
+    "note": "rule: C: F4 spawned, none in view, player not in vault6; queued behind scene lines, dropped once one is in sight; once"
+  },
+  {
+    "id": "l6_kes_he_contact_b",
+    "speaker": "kessler",
+    "text": "Movement in the cable store. Behind you.",
+    "fx": "radio",
+    "note": "rule: C: F4 spawned, none in view, player in vault6 (S11c); same queueing; once"
+  },
+  {
+    "id": "l6_kes_vault",
+    "speaker": "kessler",
+    "text": "The vault. ...The beach joint's against the sea wall. That's where the cable comes in.",
+    "spoken": "The vault... The beach joint's against the sea wall. That's where the cable comes in.",
+    "fx": "radio",
+    "note": "rule: C: first t6_vault, calm, not pulled, once"
+  },
+  {
+    "id": "l6_unit_deny_a",
+    "speaker": "unit",
+    "text": "Beach joint. Interlock key A required.",
+    "fx": "unit",
+    "note": "rule: U (lock pressed without Key A; cooldown 10 s); fx: at mk6_bj"
+  },
+  {
+    "id": "l6_kes_bj",
+    "speaker": "kessler",
+    "text": "That's the loom. Every fibre to the surface. ...Pull it out.",
+    "spoken": "That's the loom. Every fibre to the surface... Pull it out.",
+    "fx": "radio",
+    "note": "rule: C: enclosure open, not pulled, once"
+  },
+  {
+    "id": "l6_unit_pull",
+    "speaker": "unit",
+    "text": "Trunk fibre. Loss of signal. Backup link. Acoustic buoy.",
+    "fx": "unit",
+    "note": "rule: U (pull done); fx: at mk6_bj"
+  },
+  {
+    "id": "l6_kes_pull_1",
+    "speaker": "kessler",
+    "text": "That's the fibre. He's on the buoy now. Slower. Not slow enough.",
+    "spoken": "That's the fibre... He's on the buoy now. Slower. Not slow enough.",
+    "fx": "radio",
+    "note": "rule: U (after l6_unit_pull)"
+  },
+  {
+    "id": "l6_kes_pull_2",
+    "speaker": "kessler",
+    "text": "The buoy's tether comes up through the moon pool. The stairs are off the vault. Key B.",
+    "fx": "radio",
+    "note": "rule: C: after _pull_1, d6_shaft still locked"
+  },
+  {
+    "id": "l6_choir_pull_stop",
+    "speaker": "choir",
+    "text": "That was rude, Technician. We were in the middle of a sentence.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, after _pull_2 (or _pull_1)"
+  },
+  {
+    "id": "l6_choir_pull_command",
+    "speaker": "choir",
+    "text": "Supervisor. We were in the middle of a sentence.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_kes_thud",
+    "speaker": "kessler",
+    "text": "...What was that? ...That's from my end. That's the bay.",
+    "spoken": "What was that?... That's from my end... That's the bay.",
+    "fx": "radio",
+    "note": "rule: C: v6_thud fired ≤ 3 s ago, once (S10e: she knows where, not yet what; E2 pays it off)"
+  },
+  {
+    "id": "l6_unit_deny_b",
+    "speaker": "unit",
+    "text": "Moon pool access. Interlock key B required.",
+    "fx": "unit",
+    "note": "rule: U (pressed without Key B; cooldown 10 s); fx: at mk6_shaft_lock"
+  },
+  {
+    "id": "l6_unit_shaft",
+    "speaker": "unit",
+    "text": "Moon pool access. Interlock key B. Accepted.",
+    "fx": "unit",
+    "note": "rule: U (Key B used); fx: at mk6_shaft_lock"
+  },
+  {
+    "id": "l6_kes_shaft",
+    "speaker": "kessler",
+    "text": "He's doing it again. ...Stay on the strips.",
+    "spoken": "He's doing it again... Stay on the strips.",
+    "fx": "radio",
+    "note": "rule: C: v6_shaft_lights fired 4.4 s ago, once"
+  },
+  {
+    "id": "l6_kes_pool_1",
+    "speaker": "kessler",
+    "text": "That's the moon pool. The buoy's tether comes up the well to the winch. There's a shear on the frame.",
+    "spoken": "That's the moon pool... The buoy's tether comes up the well to the winch. There's a shear on the frame.",
+    "fx": "radio",
+    "note": "rule: C: first t6_reveal"
+  },
+  {
+    "id": "l6_kes_pool_2",
+    "speaker": "kessler",
+    "text": "Pin. Pressure. Fire. ...And that's the dock loader. It works on its own.",
+    "spoken": "Pin. Pressure. Fire... And that's the dock loader. It works on its own.",
+    "fx": "radio",
+    "note": "rule: C: after _pool_1, the loader in view"
+  },
+  {
+    "id": "l6_kes_pool_2b",
+    "speaker": "kessler",
+    "text": "Pin. Pressure. Fire. ...Watch the dock loader. It works on its own.",
+    "spoken": "Pin. Pressure. Fire... Watch the dock loader. It works on its own.",
+    "fx": "radio",
+    "note": "rule: C: after _pool_1, the loader not in view"
+  },
+  {
+    "id": "l6_unit_loader_1",
+    "speaker": "unit",
+    "label": "DOCK LOADER",
+    "text": "Personnel in the work area. Clear the area.",
+    "fx": "pa",
+    "note": "rule: U (hostile start); again C: player on the dock, cooldown 25 s, ≤ 4 ×; fx: at the horn"
+  },
+  {
+    "id": "l6_unit_loader_2",
+    "speaker": "unit",
+    "label": "DOCK LOADER",
+    "text": "Load moving. Stand clear.",
+    "fx": "pa",
+    "note": "rule: U (a SHIFT / DROP starts; cooldown 20 s)"
+  },
+  {
+    "id": "l6_unit_loader_3",
+    "speaker": "unit",
+    "label": "DOCK LOADER",
+    "text": "Control fault. Cooling.",
+    "fx": "pa",
+    "note": "rule: U (the cowl opens)"
+  },
+  {
+    "id": "l6_choir_pool_stop",
+    "speaker": "choir",
+    "text": "We wondered when you would come down, Technician.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, hostile start + 0.4"
+  },
+  {
+    "id": "l6_choir_pool_command",
+    "speaker": "choir",
+    "text": "We wondered when you would come down, Supervisor. We kept the lights on.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_kes_boss_1",
+    "speaker": "kessler",
+    "text": "It drops that grab where its lights are. Keep moving.",
+    "fx": "radio",
+    "note": "rule: C: stage 1, after _choir_pool, once"
+  },
+  {
+    "id": "l6_kes_boss_ram",
+    "speaker": "kessler",
+    "text": "The rams on the grab. When it's down, they open. Hit those.",
+    "fx": "radio",
+    "note": "rule: C: a slam recovery in view (rams extended), no ram destroyed yet, once"
+  },
+  {
+    "id": "l6_kes_boss_flood",
+    "speaker": "kessler",
+    "text": "Its lights tell mine where you are. Put them out.",
+    "fx": "radio",
+    "note": "rule: C: player flood-lit ≥ 2 s with an aware soldier, a flood alive, once"
+  },
+  {
+    "id": "l6_kes_boss_frame",
+    "speaker": "kessler",
+    "text": "It won't drop on the frame. It's protecting the tether. ...They aren't.",
+    "spoken": "It won't drop on the frame. It's protecting the tether... They aren't.",
+    "fx": "radio",
+    "note": "rule: C: first feet in t6_cage with a soldier alive, once"
+  },
+  {
+    "id": "l6_kes_pin",
+    "speaker": "kessler",
+    "text": "Pin's out. Now the pump. Keep at it.",
+    "fx": "radio",
+    "note": "rule: C: pin out"
+  },
+  {
+    "id": "l6_choir_pin_stop",
+    "speaker": "choir",
+    "text": "We can hear you working, Technician.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, pin out + 2.0, no Kessler line playing, once"
+  },
+  {
+    "id": "l6_choir_pin_command",
+    "speaker": "choir",
+    "text": "We can hear you working, Supervisor. You were always good with your hands.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_kes_pump_half",
+    "speaker": "kessler",
+    "text": "Halfway. Keep pumping.",
+    "fx": "radio",
+    "note": "rule: C: pressure ≥ 50 %, once"
+  },
+  {
+    "id": "l6_choir_pump_stop",
+    "speaker": "choir",
+    "text": "The surface is two kilometres up, Technician. They never call.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, after _pump_half, once"
+  },
+  {
+    "id": "l6_choir_pump_command",
+    "speaker": "choir",
+    "text": "The surface never calls, Supervisor. We stopped waiting for it.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_kes_pump_done",
+    "speaker": "kessler",
+    "text": "That's pressure. The red lever.",
+    "fx": "radio",
+    "note": "rule: C: pressure full, not trunkCut"
+  },
+  {
+    "id": "l6_unit_shear_pin",
+    "speaker": "unit",
+    "text": "Tether shear. Safety pin in.",
+    "fx": "unit",
+    "note": "rule: U (pump or lever pressed before the pin; cooldown 6 s); fx: at the shear"
+  },
+  {
+    "id": "l6_unit_shear_low",
+    "speaker": "unit",
+    "text": "Tether shear. Pressure low.",
+    "fx": "unit",
+    "note": "rule: U (lever pressed before full pressure; cooldown 6 s); fx: at the shear"
+  },
+  {
+    "id": "l6_kes_boss_pod",
+    "speaker": "kessler",
+    "text": "The box under the trolley. It's open. Now.",
+    "fx": "radio",
+    "note": "rule: C: both rams gone, pod alive, once"
+  },
+  {
+    "id": "l6_kes_loader_dead",
+    "speaker": "kessler",
+    "text": "It's down. ...The frame, Reyes. Finish it.",
+    "spoken": "It's down... The frame, Reyes. Finish it.",
+    "fx": "radio",
+    "note": "rule: C: loader dead, not trunkCut, once"
+  },
+  {
+    "id": "l6_choir_loader_stop",
+    "speaker": "choir",
+    "text": "That was a good machine, Technician. It never asked for anything.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, loader dead + 0.6 (after any Kessler line)"
+  },
+  {
+    "id": "l6_choir_loader_command",
+    "speaker": "choir",
+    "text": "That was a good machine, Supervisor. It did as it was told.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l6_kes_dark",
+    "speaker": "kessler",
+    "text": "That's it. He's down here with us and nowhere else.",
+    "spoken": "That's it... He's down here with us. And nowhere else.",
+    "fx": "radio",
+    "note": "rule: U (the cut + 1.2)"
+  },
+  {
+    "id": "l6_kes_cut_loader",
+    "speaker": "kessler",
+    "text": "Now that thing. Then we're done.",
+    "fx": "radio",
+    "note": "rule: C: trunkCut, loader alive, after _dark"
+  },
+  {
+    "id": "l6_kes_console",
+    "speaker": "kessler",
+    "text": "Reyes. The dock console. ...I want to see the last thing it sent.",
+    "spoken": "Reyes... The dock console. I want to see the last thing it sent.",
+    "fx": "radio",
+    "note": "rule: C: l6_quiet + 3.0"
+  },
+  {
+    "id": "l6_kes_console_2",
+    "speaker": "kessler",
+    "text": "The console, Reyes. Please.",
+    "fx": "radio",
+    "note": "rule: C: ending pending, 60 s since the last ask, calm; cooldown 60 s"
+  },
+  {
+    "id": "l6_kes_end_1",
+    "speaker": "kessler",
+    "text": "...Thirteen batches. Since last spring. And the fourteenth is down my well.",
+    "spoken": "Thirteen batches... Since last spring. And the fourteenth is down my well.",
+    "fx": "radio",
+    "note": "rule: C: E1, not manifest"
+  },
+  {
+    "id": "l6_kes_end_1b",
+    "speaker": "kessler",
+    "text": "That list you found. ...Thirteen went. You watched the last one go down.",
+    "spoken": "That list you found... Thirteen went. You watched the last one go down.",
+    "fx": "radio",
+    "note": "rule: C: E1, manifest"
+  },
+  {
+    "id": "l6_sunde_end_1",
+    "speaker": "sunde",
+    "text": "Those are Clasps. That's my lot numbering.",
+    "spoken": "Those are Clasps... That's my lot numbering.",
+    "fx": "radio",
+    "note": "rule: U (E1)"
+  },
+  {
+    "id": "l6_sunde_end_2",
+    "speaker": "sunde",
+    "text": "Three thousand of them. I thought they were for the trials.",
+    "spoken": "Three thousand of them... I thought they were for the trials.",
+    "fx": "radio",
+    "note": "rule: U (E1)"
+  },
+  {
+    "id": "l6_reyes_end",
+    "speaker": "reyes",
+    "text": "Where did they go?",
+    "fx": "clean",
+    "note": "rule: U (E1)"
+  },
+  {
+    "id": "l6_kes_end_2",
+    "speaker": "kessler",
+    "text": "There's no consignee. ...There's always a consignee.",
+    "spoken": "There's no consignee... There's always a consignee.",
+    "fx": "radio",
+    "note": "rule: U (E1)"
+  },
+  {
+    "id": "l6_kes_end_3",
+    "speaker": "kessler",
+    "text": "No... That's my bay. That's— the cradle's empty.",
+    "spoken": "No... That's my bay. That's... the cradle is empty.",
+    "fx": "radio",
+    "note": "rule: U (E2 + 1.6)"
+  },
+  {
+    "id": "l6_kes_end_4",
+    "speaker": "kessler",
+    "text": "...Lars.",
+    "spoken": "Lars...",
+    "fx": "radio",
+    "note": "rule: C: heard(l6_aas_2) (E2)"
+  },
+  {
+    "id": "l6_kes_end_4b",
+    "speaker": "kessler",
+    "text": "...That's my XO's palm.",
+    "spoken": "That's... my XO's palm.",
+    "fx": "radio",
+    "note": "rule: C: not heard(l6_aas_2) (E2; S11a — the name lands on a person for a player who skipped every optional beat)"
+  },
+  {
+    "id": "l6_choir_last_stop",
+    "speaker": "choir",
+    "text": "We did not need the trunk, Technician. We needed hands.",
+    "fx": "radio:1",
+    "note": "rule: C: stop (E2)"
+  },
+  {
+    "id": "l6_choir_last_command",
+    "speaker": "choir",
+    "text": "We did not need the trunk, Supervisor. We needed hands.",
+    "fx": "radio:1",
+    "note": "rule: C: command (E2)"
+  },
+  {
+    "id": "l6_kes_ack",
+    "speaker": "kessler",
+    "text": "Kessler.",
+    "fx": "radio",
+    "note": "rule: U (Q, before the context line)"
+  },
+  {
+    "id": "l6_kes_busy",
+    "speaker": "kessler",
+    "text": "Not now. Fight.",
+    "fx": "radio",
+    "note": "rule: C: Q, hostile awake within 25 m, not in pool6 / shaft6"
+  },
+  {
+    "id": "l6_kes_hint_he",
+    "speaker": "kessler",
+    "text": "The head-end. Keep on down the tunnel.",
+    "fx": "radio",
+    "note": "rule: C: Q, not in he6 / vault6, not manual"
+  },
+  {
+    "id": "l6_kes_hint_switch",
+    "speaker": "kessler",
+    "text": "The changeover switch. East wall of the head-end.",
+    "fx": "radio",
+    "note": "rule: C: Q, in he6 / vault6 / trench, not manual"
+  },
+  {
+    "id": "l6_kes_hint_bj",
+    "speaker": "kessler",
+    "text": "The beach joint. South wall of the vault. Key A.",
+    "fx": "radio",
+    "note": "rule: C: Q, manual, not pulled"
+  },
+  {
+    "id": "l6_kes_hint_shaft",
+    "speaker": "kessler",
+    "text": "The stair door. West wall of the vault. Key B.",
+    "fx": "radio",
+    "note": "rule: C: Q, pulled, shaft locked"
+  },
+  {
+    "id": "l6_kes_hint_frame",
+    "speaker": "kessler",
+    "text": "The frame over the well. Pin. Pressure. Fire.",
+    "fx": "radio",
+    "note": "rule: C: Q, phase K, not trunkCut"
+  },
+  {
+    "id": "l6_kes_hint_loader",
+    "speaker": "kessler",
+    "text": "The loader. The rams on the grab, then the box under the trolley.",
+    "fx": "radio",
+    "note": "rule: C: Q, trunkCut, loader alive"
+  },
+  {
+    "id": "l6_kes_hint_console",
+    "speaker": "kessler",
+    "text": "The dock console. Mid deck.",
+    "fx": "radio",
+    "note": "rule: C: Q, ending pending",
+    "spoken": "The dock console. The mid deck."
+  }
+]

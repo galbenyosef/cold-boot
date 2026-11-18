@@ -1,0 +1,14 @@
+{
+  "describe": "male, middle-aged, moderate pitch, whispering",
+  "seed": 8,
+  "refText": "Hello?... Is somebody there... They've got me walking. I can't... I can't stop my hands.",
+  "language": "en",
+  "source": "audition 18",
+  "sha": "262e98654b747ec9",
+  "duration": 4.88,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "hello is somebody there theyve got me walking i cant i cant stop my hands"
+  }
+}
