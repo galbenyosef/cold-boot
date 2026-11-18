@@ -38,7 +38,14 @@ export interface MoveInput {
   noSprint: boolean;
   /** Speed cap (m/s) on top of walk / crouch (aiming down the sights). Optional. */
   maxSpeed?: number;
+  /**
+   * Stage 3d D13: wading — multipliers on the walk / crouch speed (`walk`) and the sprint speed (`sprint`, 0 = no
+   * sprint), on the jump HEIGHT (`jump`, 0 = no jump), and whether a crouch is allowed. Absent = dry.
+   */
+  wade?: WadeCaps;
 }
+
+export interface WadeCaps { walk: number; sprint: number; jump: number; crouch: boolean }
 
 export interface MoveEvents {
   footstep(running: boolean): void;
@@ -93,27 +100,42 @@ export class Controller {
 
   get grounded() { return this.body.onGround; }
 
-  /** True when nothing blocks the capsule growing back to standing height. */
+  /**
+   * True when nothing blocks the capsule growing back to standing height. Stage 3d S5: a HEADROOM query — on
+   * `raycastSolid` (a move-only bar overhead stops him standing into it; a water surface never does).
+   */
   private canStand(): boolean {
     const p = this.body.position;
     const r = MOVE.radius * 0.7;
     const offs = [0, 0, r, 0, -r, 0, 0, r, 0, -r];
     for (let i = 0; i < offs.length; i += 2) {
       _o.set(p.x + offs[i], p.y + MOVE.crouchHeight - 0.15, p.z + offs[i + 1]);
-      if (this.physics.raycast(_o, UP, MOVE.height - MOVE.crouchHeight + 0.2)) return false;
+      if (this.physics.raycastSolid(_o, UP, MOVE.height - MOVE.crouchHeight + 0.2)) return false;
     }
     return true;
   }
 
+  /** Stage 3d D13: set when a crouch was asked for in water too deep for it (the caller toasts); cleared by the caller. */
+  crouchRefused = false;
+
   update(dt: number, inp: MoveInput | null, yaw: number, ev: MoveEvents) {
     const b = this.body;
     if (dt <= 0) return;
+    const wade = inp?.wade;
     // ── crouch state
     if (inp) {
-      if (inp.crouchToggle) this.crouchToggled = !this.crouchToggled;
+      if (inp.crouchToggle) {
+        // D13: too deep to crouch — the toggle is refused (and a held crouch below stands him up)
+        if (wade && !wade.crouch && !this.crouchToggled) this.crouchRefused = true;
+        else this.crouchToggled = !this.crouchToggled;
+      }
       if (inp.jump && this.crouchToggled) this.crouchToggled = false; // jump stands you up
+      if (wade && !wade.crouch) {
+        if (inp.crouchHold && !this.crouched) this.crouchRefused = true;
+        this.crouchToggled = false;
+      }
     }
-    const wantCrouch = !!inp && (this.crouchToggled || inp.crouchHold);
+    const wantCrouch = !!inp && (this.crouchToggled || inp.crouchHold) && !(wade && !wade.crouch);
     if (wantCrouch && !this.crouched) {
       this.crouched = true;
       b.height = MOVE.crouchHeight;
@@ -130,9 +152,10 @@ export class Controller {
     let fwd = inp ? inp.fwd : 0, strafe = inp ? inp.strafe : 0;
     const len = Math.hypot(fwd, strafe);
     if (len > 1) { fwd /= len; strafe /= len; }
-    const sprintOk = !!inp && inp.sprint && fwd > 0.3 && !this.crouched && !inp.noSprint && (b.onGround || this.sprinting);
+    const sprintOk = !!inp && inp.sprint && fwd > 0.3 && !this.crouched && !inp.noSprint && (b.onGround || this.sprinting) && !(wade && wade.sprint <= 0);
     this.sprinting = sprintOk;
     let speed = this.crouched ? MOVE.crouch : sprintOk ? MOVE.sprint : MOVE.walk;
+    if (wade) speed *= sprintOk ? wade.sprint : wade.walk;
     if (inp?.maxSpeed !== undefined) speed = Math.min(speed, inp.maxSpeed);
     if (fwd < 0) speed *= MOVE.backMul + (1 - MOVE.backMul) * (1 - Math.abs(fwd));
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
@@ -151,8 +174,9 @@ export class Controller {
     // ── jump (coyote + buffer)
     this.coyote = b.onGround ? 0.1 : Math.max(0, this.coyote - dt);
     this.jumpBuffer = inp && inp.jump ? 0.12 : Math.max(0, this.jumpBuffer - dt);
+    if (wade && wade.jump <= 0) this.jumpBuffer = 0;
     if (this.jumpBuffer > 0 && this.coyote > 0 && !this.crouched) {
-      v.y = Math.sqrt(2 * -this.physics.gravity * MOVE.jumpHeight);
+      v.y = Math.sqrt(2 * -this.physics.gravity * MOVE.jumpHeight * (wade ? wade.jump : 1));
       b.onGround = false;
       this.coyote = 0; this.jumpBuffer = 0;
       ev.jump();

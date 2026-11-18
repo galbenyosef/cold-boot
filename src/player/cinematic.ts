@@ -47,7 +47,7 @@ export function settle(c: Controller, physics: Physics): void {
   if (!b.onGround) {
     _o.set(b.position.x, b.position.y + 0.3, b.position.z);
     let hit: ReturnType<Physics['raycast']> = null;
-    try { hit = physics.raycast(_o, DOWN, 4.3); } catch { /* ignore */ }
+    try { hit = physics.raycastSolid(_o, DOWN, 4.3); } catch { /* ignore */ } // stage 3d S5: a ground query
     if (hit && hit.normal.y > 0.5) c.teleport(new THREE.Vector3(b.position.x, hit.point.y + 0.002, b.position.z));
   }
   p.airTime = 0;

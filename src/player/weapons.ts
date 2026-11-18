@@ -78,6 +78,8 @@ const _p = new THREE.Vector3();
 const _imp = new THREE.Vector3();
 const _muz = new THREE.Vector3();
 const _end = new THREE.Vector3();
+const _miss = new THREE.Vector3();
+const _dirN = new THREE.Vector3();
 // fixed 9-pellet pattern (unit disc) — jittered per shot
 const PATTERN: [number, number][] = [[0, 0], [0.55, 0], [-0.55, 0], [0, 0.55], [0, -0.55], [0.75, 0.62], [-0.75, 0.62], [0.72, -0.66], [-0.72, -0.66]];
 
@@ -123,6 +125,30 @@ export class Weapons {
   readonly aimDelta = { pitch: 0, yaw: 0 };
   /** Debug (check-weapons): every shot goes exactly at this point, no spread. */
   aimLock: THREE.Vector3 | null = null;
+  /**
+   * Stage 3d H18 (`player.debug.hitRate`): with `aimLock` set, this fraction of the shots hits the locked point and the
+   * rest pass it 0.5 m off (deterministic: an accumulator, so 0.5 = every other shot). null = every shot at the point.
+   */
+  hitRate: number | null = null;
+  private hitAcc = 0;
+  /** Aim-lock direction for one shot (H18 applied) into `out`. */
+  private lockDir(origin: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    const t = this.aimLock!;
+    out.copy(t).sub(origin);
+    if (this.hitRate !== null) {
+      this.hitAcc += this.hitRate;
+      if (this.hitAcc >= 1 - 1e-9) this.hitAcc -= 1;
+      else {
+        // a miss: 0.5 m off the point, perpendicular to the line of fire, in a random direction
+        const len = out.length() || 1;
+        _miss.set(out.z, 0, -out.x);
+        if (_miss.lengthSq() < 1e-8) _miss.set(1, 0, 0);
+        _miss.normalize().applyAxisAngle(_dirN.copy(out).multiplyScalar(1 / len), Math.random() * Math.PI * 2);
+        out.addScaledVector(_miss, 0.5);
+      }
+    }
+    return out.normalize();
+  }
   /** One pooled muzzle light for the carbine, held through a burst (created on the first shot). */
   private muzzleLight: LightHandle | null = null;
   private muzzleT = 0;
@@ -544,7 +570,7 @@ export class Weapons {
     const ads = (A.baseSpread + walk * A.moving + (aim.airborne ? A.airborne : 0) + this.bloom * (A.bloomCap / st.bloomCap)) * (aim.crouched ? st.crouch : 1);
     const spread = this.aimLock ? 0 : hip + (ads - hip) * k;
     this.bloom = Math.min(st.bloomCap, this.bloom + st.bloom);
-    if (this.aimLock) _d.copy(this.aimLock).sub(origin).normalize();
+    if (this.aimLock) this.lockDir(origin, _d);
     else {
       // uniform in the disc
       const r = Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
@@ -632,7 +658,8 @@ export class Weapons {
       this.cooldown = st.interval;
       const spread = (st.baseSpread + aim.moving * 0.018 + (aim.airborne ? 0.03 : 0) + this.bloom) * (aim.crouched ? 0.7 : 1);
       this.bloom = Math.min(0.05, this.bloom + st.bloom);
-      this.spreadDir(aim, spread, Math.random() * 2 - 1, Math.random() * 2 - 1, _d);
+      if (this.aimLock) this.lockDir(origin, _d); // stage 3d H18: the aim lock (and its hit rate) holds for the pistol too
+      else this.spreadDir(aim, spread, Math.random() * 2 - 1, Math.random() * 2 - 1, _d);
       this.vm.pistol.muzzleWorld(_muz);
       _end.copy(origin).addScaledVector(_d, this.ray(origin, _d, st.range, st.damage));
       this.tracers.spawn(_muz, _end, 0.014, 7, 4.2, 1.8);
@@ -687,6 +714,10 @@ export class Weapons {
       this.onHit(dmg);
       return eh.distance;
     } else if (wh) {
+      // stage 3d D14: a water surface (a `rayOnly` quad) stops the round — nobody under it is hit. The splash is the
+      // weapon's (fx.splash, W6; absent until then); the decal is none (fx has no 'water' case) and `impact_water` is
+      // audio's from this event (IMPACT_ID.water, W2b) — not played here (one owner).
+      if (wh.surface === 'water') (ctx.fx as unknown as { splash?(p: THREE.Vector3, size: number): void }).splash?.(wh.point, 0.6);
       ctx.events.emit('bullet:impact', { point: wh.point, normal: wh.normal, surface: wh.surface, owner: wh.owner });
       return wh.distance;
     }

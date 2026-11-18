@@ -13,9 +13,12 @@ import { Pickups } from './pickups';
 import { Viewmodel, type RigMotion } from './viewmodels/rig';
 import { resolveMats } from './viewmodels/mats';
 import { setVmLight, setVmNear } from './viewmodels/vmlight';
-import { clamp, damp, wrapAngle } from './math';
+import { clamp, damp, smooth01, wrapAngle } from './math';
 import { PalmHand } from './palm';
 import { LOWER_CINEMATIC, LOWER_SAFE, clearJump, settle, standNow } from './cinematic';
+import { GripHands } from './grip';
+import { WADE, depthAt, wadeCaps, type DepthInfo } from './water';
+import { KEY_NAMES, keyName } from './keys';
 
 const SENSITIVITY = 0.0022;
 /** Aimed: viewmodel parts nearer than this (view depth, m) are not drawn — the stock under the cheek (vmlight). */
@@ -23,6 +26,7 @@ const VM_NEAR_ADS = 0.1;
 const PITCH_LIMIT = THREE.MathUtils.degToRad(88);
 const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
+const DEG = Math.PI / 180;
 
 export interface PlayerExtras {
   revive(health?: number): void;
@@ -39,6 +43,8 @@ export interface PlayerExtras {
   readonly view: { readonly position: THREE.Vector3; readonly quaternion: THREE.Quaternion; readonly fov: number };
   /** §8.2: true while `cinematic(true)` holds. */
   readonly inCinematic: boolean;
+  /** Stage 3d §8.3: the HUD key strip's name of a key id (`key6_a` → `KEY A — HEAD-END`; data in player/keys.ts). */
+  keyName(id: string): string;
   debug: Record<string, (...a: any[]) => any>;
 }
 
@@ -101,8 +107,9 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
   const _camP = new THREE.Vector3(), _camQ = new THREE.Quaternion();
   /** One owner of the weapon's stow: the strongest reason wins (a scene, the safe state, a palm scan). */
   function syncStow() {
-    const level = cine ? (cine.vm === 'hidden' ? 1 : LOWER_CINEMATIC) : safe ? LOWER_SAFE : palmStow || strapStow ? 1 : -1;
-    if (level >= 0) weapons.setStowed(true, (palmStow || strapStow) && !cine ? Math.max(level, 1) : level);
+    const handsBusy = palmStow || strapStow || gripStow;
+    const level = cine ? (cine.vm === 'hidden' ? 1 : LOWER_CINEMATIC) : safe ? LOWER_SAFE : handsBusy ? 1 : -1;
+    if (level >= 0) weapons.setStowed(true, handsBusy && !cine ? Math.max(level, 1) : level);
     else weapons.setStowed(false);
   }
   const isDown = (c: string) => !consumed.has(c) && ctx.input.down(c);
@@ -141,7 +148,11 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     headUp = alive && pitch < p.pitch0 - 0.12 ? { by: p.pitch0 - pitch, t: 0, k: 0 } : null;
     p.resolve(result);
   }
-  ctx.events.on('game:state', (e) => { if (palm && e.state !== 'playing') endPalm('cancelled'); });
+  ctx.events.on('game:state', (e) => {
+    if (e.state === 'playing') return;
+    if (palm) endPalm('cancelled');
+    if (grip) endGrip('cancelled');
+  });
 
   // The story flips state to 'dead' on player:died, which stops main-loop updates; keep the
   // collapse animating with a private rAF loop while the main loop isn't ticking us.
@@ -174,8 +185,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     footstep(running: boolean) {
       const p = ctrl.body.position;
       const o = new THREE.Vector3(p.x, p.y + 0.3, p.z);
-      const hit = ctx.physics.raycast(o, DOWN, 0.7);
-      const surface: Surface = hit ? hit.surface : 'metal';
+      // stage 3d S5: a GROUND query — `raycastSolid` finds the floor under a water surface; in water ≥ 0.1 m the
+      // step is a wade (surface 'water'; audio picks `wade_shallow` / `wade` by `player.wading`)
+      const hit = ctx.physics.raycastSolid(o, DOWN, 0.7);
+      const surface: Surface = wet.d >= WADE.wet ? 'water' : hit ? hit.surface : 'metal';
       ctx.events.emit('player:footstep', { position: p.clone(), surface, running });
     },
     land(speed: number) {
@@ -283,28 +296,165 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     if (on !== undefined) flash.set(on);
   }
 
-  // ── K placeholder (stage 3d §8.3, W1 replaces this block): the grip stub
-  type StubGrip = { o: GripOpts; progress: number; resolve: (r: 'done' | 'cancelled') => void; handle: GripHandle };
-  let stubGrip: StubGrip | null = null;
-  function stubGripEnd(r: 'done' | 'cancelled') { const g = stubGrip; stubGrip = null; g?.resolve(r); }
-  function stubGripStart(o: GripOpts): GripHandle {
-    if (stubGrip) stubGripEnd('cancelled');
+  // ── stage 3d D7 / §8.3: the grip — both hands on a handle; hold E to work it (see Player.grip)
+  const GRIP_DIST = 1.3;
+  /** Look input while the hands work (fraction that still reaches the view), and how the view is drawn to the handle. */
+  const GRIP_LOOK = 0.4, GRIP_EASE = 0.4, GRIP_PULL = 9;
+  /** A hit pauses the work this long; a released hold grip takes the hands off after this long. */
+  const GRIP_FLINCH = 0.3, GRIP_LETGO = 0.3;
+  type GripRun = {
+    o: GripOpts; point: THREE.Vector3; normal: THREE.Vector3; seconds: number; maxDist: number;
+    progress: number; resolve: (r: 'done' | 'cancelled') => void; handle: GripHandle;
+    /** The work advanced this frame (E held, near, not flinching). */
+    advancing: boolean;
+    /** The hands are (or are going) on the handle. */
+    engaged: boolean;
+    /** Within maxDist this frame. */
+    near: boolean;
+    flinch: number; idle: number; easeT: number;
+  };
+  let grip: GripRun | null = null;
+  let gripStow = false;
+  let dbgGripHold = false;
+  const gripHands = new GripHands(worldMats);
+  ctx.scene.add(gripHands.root);
+  const gripDist = (g: GripRun) => { const p = ctrl.body.position; return Math.hypot(p.x - g.point.x, p.z - g.point.z); };
+  /** E held for the grip: the raw key (a grip owns E while it runs) or the test hook. */
+  const gripKey = () => dbgGripHold || ctx.input.down('KeyE');
+  function gripEngage(g: GripRun, on: boolean) {
+    if (g.engaged === on) return;
+    g.engaged = on;
+    if (on) {
+      gripHands.begin(g.point, g.normal, g.o.motion, yaw);
+      g.easeT = 0;
+      look.active = false; headUp = null;
+      weapons.cancelReload();
+      weapons.clearQueued();
+      weapons.resetAim();
+    } else gripHands.release();
+    gripStow = on;
+    syncStow();
+  }
+  function endGrip(r: 'done' | 'cancelled') {
+    const g = grip;
+    if (!g) return;
+    grip = null;
+    if (r === 'done') g.progress = 1;
+    if (alive) gripHands.release(); else gripHands.hide();
+    gripStow = false;
+    syncStow();
+    // E is the grip's while it runs: whatever is still held does not reach `interact` until it is released
+    if (ctx.input.down('KeyE')) consumed.add('KeyE');
+    g.resolve(r);
+  }
+  function startGrip(o: GripOpts): GripHandle {
+    if (grip) endGrip('cancelled');
     let resolve!: (r: 'done' | 'cancelled') => void;
     const done = new Promise<'done' | 'cancelled'>((r) => { resolve = r; });
-    const g: StubGrip = {
-      o, progress: clamp(o.start ?? 0, 0, 1), resolve,
-      handle: { get progress() { return g.progress; }, get holding() { return stubGrip === g; }, done, cancel: () => { if (stubGrip === g) stubGripEnd('cancelled'); } },
+    const g: GripRun = {
+      o, point: o.point.clone(), normal: o.normal.clone(), seconds: Math.max(0.05, o.seconds), maxDist: o.maxDist ?? GRIP_DIST,
+      progress: clamp(o.start ?? 0, 0, 1), resolve, advancing: false, engaged: false, near: true, flinch: 0, idle: 0, easeT: 0,
+      handle: {
+        get progress() { return g.progress; },
+        get holding() { return grip === g && g.advancing; },
+        done,
+        cancel: () => { if (grip === g) endGrip('cancelled'); },
+      },
     };
-    if (!alive) { resolve('cancelled'); return g.handle; }
-    stubGrip = g;
+    if (g.normal.lengthSq() > 1e-8) g.normal.normalize();
+    // starts only alive, in control, playing, near and on the front side of the face
+    const p = ctrl.body.position;
+    const nh = Math.hypot(g.normal.x, g.normal.z);
+    const front = nh < 0.3 ? 1 : (p.x - g.point.x) * g.normal.x + (p.z - g.point.z) * g.normal.z;
+    if (!alive || cine || !controlsEnabled || ctx.state !== 'playing' || gripDist(g) > g.maxDist || front <= 0) {
+      resolve('cancelled');
+      return g.handle;
+    }
+    // the hands are needed: a palm scan or a vest strap in progress gives way
+    if (palm) endPalm('cancelled');
+    if (strap) endStrap(false);
+    grip = g;
+    gripEngage(g, true);
     return g.handle;
   }
-  function stubGripTick(dt: number) {
-    if (!stubGrip) return;
-    if (!alive) { stubGripEnd('cancelled'); return; }
-    if (ctx.state !== 'playing') return;
-    stubGrip.progress = Math.min(1, stubGrip.progress + dt / Math.max(0.01, stubGrip.o.seconds));
-    if (stubGrip.progress >= 1) stubGripEnd('done');
+  /** Per frame, before look / movement. `active` = in control and playing. */
+  function gripTick(dt: number, active: boolean) {
+    const g = grip;
+    if (!g) return;
+    if (!alive || cine || noteOpen()) { endGrip('cancelled'); return; }
+    g.near = gripDist(g) <= g.maxDist;
+    if (!g.o.hold && !g.near) { endGrip('cancelled'); return; }
+    const want = active && g.near && (g.o.hold ? gripKey() : true);
+    g.flinch = Math.max(0, g.flinch - dt);
+    g.advancing = want && g.flinch <= 0;
+    if (want) { g.idle = 0; gripEngage(g, true); }
+    else { g.idle += dt; if (g.idle >= GRIP_LETGO || !g.near) gripEngage(g, false); }
+    if (g.advancing) {
+      g.progress = Math.min(1, g.progress + dt / g.seconds);
+      if (g.progress >= 1) endGrip('done');
+    }
+  }
+
+  // ── stage 3d D12 / D13: water at the feet, the deep-water hold and the rescue
+  const wet: DepthInfo = { d: 0, vol: null, deep: false };
+  let wakeT = 0, swayP = 0, swayY = 0, swayW = 0, crouchToastT = 0;
+  /** Held under: seconds in deep water; `black` > 0 while the rescue's black runs (its remaining time). */
+  const rescue = { under: 0, black: -1, faded: false, from: new THREE.Vector3() };
+  type FxWater = { wake?(p: THREE.Vector3, r: number): void; splash?(p: THREE.Vector3, size: number): void };
+  const fxw = ctx.fx as unknown as FxWater;
+  const _wp = new THREE.Vector3();
+  function rescueTarget(from: THREE.Vector3): { p: THREE.Vector3; yaw: number } {
+    let best: THREE.Object3D | null = null, bestD = Infinity;
+    for (const id of WADE.exits) {
+      const o = ctx.level.object?.(id);
+      if (!o) continue;
+      const w = o.getWorldPosition(_wp);
+      const d = w.distanceToSquared(from);
+      if (d < bestD) { bestD = d; best = o; }
+    }
+    if (best) return { p: best.getWorldPosition(new THREE.Vector3()), yaw: best.rotation.y };
+    return { p: ctx.level.spawn.position.clone(), yaw: ctx.level.spawn.yaw };
+  }
+  function underEnd() {
+    if (rescue.faded) { ctx.render.post.fade(0, 0.35); try { ctx.audio.setMuffle(0); } catch { /* ignore */ } }
+    rescue.faded = false;
+    rescue.under = 0;
+  }
+  /** Per frame after movement: depth, the deep hold's clock, the rescue's black. */
+  function waterTick(dt: number) {
+    if (rescue.black >= 0) {
+      rescue.black -= dt;
+      if (rescue.black < 0) {
+        const to = rescueTarget(rescue.from);
+        player.teleport(to.p, to.yaw, 0);
+        ctrl.body.velocity.set(0, 0, 0);
+        ctrl.body.gravityScale = undefined;
+        if (alive) health = Math.max(1, health - WADE.cost);
+        ctx.render.post.setLowHealth(lowHealthAmount());
+        ctx.render.post.fade(0, 0.45);
+        try { ctx.audio.setMuffle(0); } catch { /* ignore */ }
+        rescue.faded = false; rescue.under = 0;
+        ctx.events.emit('story:toast', { text: WADE.toastRescue });
+        ctx.events.emit('player:rescued', { from: rescue.from.clone(), to: to.p.clone() });
+        console.error('[player] deep-water rescue', [+rescue.from.x.toFixed(2), +rescue.from.y.toFixed(2), +rescue.from.z.toFixed(2)], '→', [+to.p.x.toFixed(2), +to.p.y.toFixed(2), +to.p.z.toFixed(2)]);
+        depthAt(ctx.level.water, ctrl.body.position, wet);
+      }
+      return;
+    }
+    if (wet.deep && alive && !cine) {
+      rescue.under += dt;
+      if (!rescue.faded) {
+        rescue.faded = true;
+        ctx.render.post.fade(WADE.underFade, 0.4);
+        try { ctx.audio.setMuffle(WADE.muffle); } catch { /* ignore */ }
+      }
+      if (rescue.under >= WADE.holdFor) {
+        rescue.from.copy(ctrl.body.position);
+        rescue.black = WADE.black;
+        ctx.render.post.fade(1, 0.12);
+        if (grip) endGrip('cancelled');
+      }
+    } else if (rescue.under > 0 || rescue.faded) underEnd();
   }
 
   const player: Player & PlayerExtras = {
@@ -369,9 +519,13 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       }
       camRig.damage(side, front, amount);
       if (palm) endPalm('cancelled');
+      // §8.3: a hit flinches the grip (a short pause), never cancels it
+      if (grip) grip.flinch = GRIP_FLINCH;
       if (health <= 0) {
         alive = false;
         palmHand.hide();
+        if (grip) endGrip('cancelled');
+        gripHands.hide();
         weapons.resetAim();
         weapons.holster();
         camRig.die();
@@ -405,16 +559,17 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     addKey: (k: string) => { keys.add(k); },
     // stage 3d §8.3 / §7.1: a trapped interlock key leaves the key strip (real, not a placeholder)
     removeKey: (k: string) => { keys.delete(k); },
-    // K placeholder (stage 3d, W1): the grip stub — no hands, no input, 'done' after seconds × (1 − start) of game time
-    grip: (o: GripOpts) => stubGripStart(o),
-    get gripProgress() { return stubGrip ? stubGrip.progress : -1; }, // K placeholder (W1)
-    get wading() { return 0; }, // K placeholder (stage 3d, W1): the depth at the feet from level.water
+    grip: (o: GripOpts) => startGrip(o),
+    get gripProgress() { return grip ? grip.progress : -1; },
+    get wading() { return wet.d; },
+    keyName,
     teleport(p: THREE.Vector3, y?: number, pi?: number) {
       ctrl.teleport(p);
       if (y !== undefined) yaw = y;
       if (pi !== undefined) pitch = clamp(pi, -PITCH_LIMIT, PITCH_LIMIT);
       look.active = false;
       if (palm) endPalm('cancelled');
+      if (grip) endGrip('cancelled');
       headUp = null;
     },
     palm(plate: PalmPlate, seconds: number): Promise<PalmResult> {
@@ -440,6 +595,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         if (first) {
           if (palm) endPalm('cancelled');
           palmHand.hide();
+          if (grip) endGrip('cancelled');
+          gripHands.hide();
           unstowIn = -1; palmStow = false;
           look.active = false; headUp = null;
           weapons.cancelReload();
@@ -572,10 +729,12 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     update(dt: number) {
       lastMainUpdate = performance.now();
       time += dt;
-      stubGripTick(dt); // K placeholder (stage 3d): W1's grip replaces the stub clock
       const inp = ctx.input;
-      const active = controlsEnabled && alive && ctx.state === 'playing' && !cine;
+      const active = controlsEnabled && alive && ctx.state === 'playing' && !cine && rescue.black < 0;
       if (consumed.size) releaseConsumed();
+      gripTick(dt, active);
+      /** The hands are on a handle: look damped, feet planted while E is held, no interact. */
+      const gripOn = !!grip && grip.engaged;
 
       // ── look
       lastLookX = 0; lastLookY = 0;
@@ -587,7 +746,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       if (unstowIn >= 0 && !palm) { unstowIn -= dt; if (unstowIn < 0) { palmStow = false; syncStow(); } }
       if (active) {
         // aimed: the zoomed view turns slower on screen by as much as it is magnified
-        const k = (palm ? PALM_LOOK : 1) * camRig.zoomScale;
+        const k = (palm ? PALM_LOOK : gripOn ? GRIP_LOOK : 1) * camRig.zoomScale;
         const dx = inp.mouseDX * SENSITIVITY * k, dy = inp.mouseDY * SENSITIVITY * k;
         if (dx || dy) { look.active = false; headUp = null; }
         yaw -= dx;
@@ -625,6 +784,25 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         lastLookX += ny - yaw; lastLookY += np - pitch;
         yaw = ny; pitch = np;
       }
+      if (grip && gripOn && grip.easeT < GRIP_EASE && dt > 0) {
+        // §8.3: the view eased toward the handle over the first 0.4 s of each hold
+        grip.easeT += dt;
+        const tx = grip.point.x - eye.x, ty = grip.point.y - eye.y, tz = grip.point.z - eye.z;
+        const k = (1 - Math.exp(-GRIP_PULL * dt)) * (1 - smooth01(grip.easeT / GRIP_EASE) * 0.6);
+        const ny = yaw + wrapAngle(Math.atan2(-tx, -tz) - yaw) * k;
+        const np = pitch + (clamp(Math.atan2(ty, Math.hypot(tx, tz)), -PITCH_LIMIT, PITCH_LIMIT) - pitch) * k;
+        lastLookX += ny - yaw; lastLookY += np - pitch;
+        yaw = ny; pitch = np;
+      }
+      // D13: a slow sway of the view in waist water (moves the real aim, like recoil — the crosshair stays true)
+      {
+        const want = wet.d >= WADE.waist && alive && !cine ? 1 : 0;
+        swayW = damp(swayW, want, 1.5, dt);
+        const A = WADE.swayDeg * DEG * swayW, w = (Math.PI * 2) / WADE.swayPeriod;
+        const np = A * Math.sin(time * w), ny = A * 0.6 * Math.sin(time * w * 0.73 + 1.1);
+        if (active) { pitch = clamp(pitch + np - swayP, -PITCH_LIMIT, PITCH_LIMIT); yaw += ny - swayY; lastLookY += np - swayP; lastLookX += ny - swayY; }
+        swayP = np; swayY = ny;
+      }
       // carbine recoil: the climb (and its recovery) moves the real aim
       if (weapons.aimDelta.pitch || weapons.aimDelta.yaw) {
         const np = clamp(pitch + weapons.aimDelta.pitch, -PITCH_LIMIT, PITCH_LIMIT);
@@ -655,10 +833,33 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         moveIn.noSprint = noSprintT > 0 || weapons.reloading || weapons.firedRecently > 0 || !!strap || aimWant;
         const adsK = weapons.ads;
         moveIn.maxSpeed = adsK > 0 ? MOVE.walk * (1 - (1 - ADS.move) * adsK) : undefined;
+        // D13: wading caps by the depth at the feet (this frame's, measured before the move)
+        moveIn.wade = wadeCaps(wet.d);
+        // §8.3: the feet are planted while E works a hold grip
+        if (grip && grip.o.hold && grip.advancing) { moveIn.fwd = 0; moveIn.strafe = 0; moveIn.jump = false; moveIn.sprint = false; }
         dbgMove.jump = false;
       }
+      // D12: deep water holds him — no gravity, the sink held to 0.5 m/s (the rescue follows)
+      if (wet.deep) {
+        ctrl.body.gravityScale = 0;
+        const v = ctrl.body.velocity;
+        if (v.y < -WADE.sink || !ctrl.grounded) v.y = Math.max(-WADE.sink, Math.min(v.y, 0));
+      } else if (ctrl.body.gravityScale === 0) ctrl.body.gravityScale = undefined;
       ctrl.update(dt, active ? moveIn : null, yaw, ev);
       const feet = ctrl.body.position;
+      depthAt(ctx.level.water, feet, wet);
+      waterTick(dt);
+      if (ctrl.crouchRefused) {
+        ctrl.crouchRefused = false;
+        if (time - crouchToastT > 2) { crouchToastT = time; ctx.events.emit('story:toast', { text: WADE.toastCrouch }); }
+      }
+      // D13: wake rings while moving in water (fx.wake, W6; absent until then)
+      wakeT -= dt;
+      if (wet.d >= WADE.wet && wet.vol && ctrl.speed > 0.4 && wakeT <= 0) {
+        wakeT = WADE.wakeEvery;
+        _wp.set(feet.x, wet.vol.surface, feet.z);
+        fxw.wake?.(_wp, 0.35 + Math.min(0.5, ctrl.speed * 0.12));
+      }
       eye.set(feet.x, feet.y + ctrl.eyeHeight, feet.z);
 
       // ── camera
@@ -682,12 +883,14 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       cam.updateMatrixWorld();
       computeBasis();
       palmHand.update(dt, ctx.camera, yaw);
+      if (grip) gripHands.progress = grip.progress;
+      gripHands.update(dt, ctx.camera, yaw, grip?.advancing ? dt : 0);
 
       // ── wall proximity (viewmodel pull-back), throttled
       wallCheck -= dt;
       if (wallCheck <= 0) {
         wallCheck = 0.05;
-        const hit = ctx.physics.raycast(eye, forward, 0.95);
+        const hit = ctx.physics.raycastSolid(eye, forward, 0.95); // a water surface is not a wall to pull the gun back from
         wallT = hit ? clamp((0.95 - hit.distance) / 0.6, 0, 1) : 0;
       }
 
@@ -753,7 +956,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       setVmLight(flash.level);
 
       // ── interaction
-      focus = alive && !palm && !cine && !strap ? pickVisible() : null;
+      // §8.3: while a grip is near its handle E is the grip's (it never re-triggers `interact`); a hold grip left
+      // beyond its reach is paused, and E works the world again (using the handle anew re-grips it)
+      const gripOwnsE = !!grip && (grip.near || !grip.o.hold);
+      focus = alive && !palm && !cine && !strap && !gripOwnsE ? pickVisible() : null;
       if (active && focus && isPressed('KeyE')) ctx.interactables.use(focus);
 
       // ── pickups + HUD state
@@ -812,6 +1018,53 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     tracerSpeed: (v = 190) => { weapons.tracers.speed = v; return v; },
     tracers: () => ({ visible: weapons.tracers.mesh.visible, count: weapons.tracers.mesh.geometry.drawRange.count / 6, layer: weapons.tracers.mesh.layers.mask }),
     grips: () => ({ pistol: vm.pistol.report, shotgun: vm.shotgun.report, carbine: vm.carbine.report }),
+    /**
+     * Stage 3d §8.3: the grip. No argument: its state. 'done' completes the running grip at once, 'abandon' cancels it.
+     */
+    grip: (cmd?: 'done' | 'abandon') => {
+      if (cmd === 'done' && grip) endGrip('done');
+      else if (cmd === 'abandon' && grip) endGrip('cancelled');
+      const g = grip;
+      return g ? {
+        id: g.o.id, motion: g.o.motion, hold: g.o.hold, progress: +g.progress.toFixed(4), advancing: g.advancing, engaged: g.engaged,
+        near: g.near, dist: +gripDist(g).toFixed(3), flinch: +g.flinch.toFixed(3), hands: gripHands.mode, handsS: +gripHands.s.toFixed(3),
+        grasp: gripHands.grasp.map((v) => v.toArray().map((x) => +x.toFixed(3))), lower: +weapons.lower.toFixed(2), stowed: weapons.isStowed,
+      } : null;
+    },
+    /** Stage 3d §8.3: hold / release E for the grip (as the key). */
+    gripHold: (on = true) => { dbgGripHold = on; return on; },
+    /** Stage 3d H18: the fraction k of aim-locked shots that hit the locked point (the rest miss it by 0.5 m); null = off. */
+    hitRate: (k: number | null = null) => { weapons.hitRate = k === null || !Number.isFinite(k) ? null : clamp(k, 0, 1); return weapons.hitRate; },
+    /** Stage 3d D12 / D13: the water at the feet, the hold and the rescue. */
+    water: () => ({
+      d: +wet.d.toFixed(3), vol: wet.vol?.id ?? null, deep: wet.deep, under: +rescue.under.toFixed(3), black: +rescue.black.toFixed(3),
+      caps: wadeCaps(wet.d) ?? null, gravityScale: ctrl.body.gravityScale ?? 1, vy: +ctrl.body.velocity.y.toFixed(3),
+    }),
+    wadeConst: () => JSON.parse(JSON.stringify({ ...WADE, move: MOVE, keyNames: KEY_NAMES })),
+    /**
+     * Stage 3d B3 (check-water): a headless bot — a fresh capsule from feet (x, y, z) walking (`sprint` asked) along
+     * `heading` (yaw) under this module's wading caps at a fixed 60 Hz for up to `maxT` s, on the live physics and
+     * `level.water`. Stops once on dry floor (depth < 0.1, grounded) for 0.2 s. The player is not touched.
+     */
+    walkOut: (x: number, y: number, z: number, heading: number, maxT = 10, sprint = true) => {
+      const c = new Controller(ctx.physics, new THREE.Vector3(x, y, z));
+      const DTS = 1 / 60, info: DepthInfo = { d: 0, vol: null, deep: false };
+      const inp: MoveInput = { fwd: 1, strafe: 0, sprint, jump: false, crouchToggle: false, crouchHold: false, noSprint: false };
+      const nop = { footstep() {}, land() {}, jump() {} };
+      let t = 0, dryT = 0, maxD = 0;
+      depthAt(ctx.level.water, c.body.position, info);
+      for (; t < maxT; t += DTS) {
+        inp.wade = wadeCaps(info.d);
+        c.body.gravityScale = info.deep ? 0 : undefined;
+        if (info.deep && c.body.velocity.y < -WADE.sink) c.body.velocity.y = -WADE.sink;
+        c.update(DTS, inp, heading, nop);
+        depthAt(ctx.level.water, c.body.position, info);
+        maxD = Math.max(maxD, info.d);
+        if (info.d < WADE.wet && c.grounded) { dryT += DTS; if (dryT >= 0.2) break; } else dryT = 0;
+      }
+      const p = c.body.position;
+      return { t: +t.toFixed(3), dry: dryT >= 0.2, end: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)], maxD: +maxD.toFixed(3) };
+    },
     /** REVISION 6.1: the palm scan — its clock, the hand's state, and the solved clearance (mm) of the flat pose over the plate. */
     palm: () => ({
       active: !!palm, t: palm ? +palm.t.toFixed(3) : 0, progress: palm ? +(palm.t / palm.dur).toFixed(3) : -1,
