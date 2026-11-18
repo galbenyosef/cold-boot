@@ -32,3 +32,10 @@ Stage 3d wave 1 starts after K6 merges; wave 2 after wave 1 (same test policy un
 W1 (minus `player/viewmodels/**`), W2a, W2b, W3a, W4a, W4b, W5 (new files + registration lines only), W6 (new files +
 minimal fx edits), W7, W8 — ports 4321–4330. **Held until IA5 merges** (they own IA5's files): W3b (`enemies/index.ts`,
 `manager.ts`), W3c (`enemies/nav.ts`, `ai.ts`, husk, soldier).
+
+## State at the usage-limit stop (2026-11-18)
+Merged: all of 3c finish (IA5, IB5a, IB5b, IB5c) and 3d K, W1, W2a, W2b, W3a (+ follow-up), W3b, W3c, W4b, W5, W6, W8, W9.
+Still running / unmerged at the stop: **W4a** (greybox, worktree agent-ab148b3f00163b184) and **W7** (set pieces,
+worktree agent-ad05c77a7c4e86e06) — merge their patches restricted to their rows when they report.
+Next: resolve the below-y-0 lighting question (deferred list, W6), then wave 2 (D1, D2, D3a, D3b, ST-a, T → ST-b), then
+IA/IB of 3d, then the whole deferred list.

@@ -97,3 +97,9 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   (body on a container / grab top → wait then shove), 6 (C(6,4) flood-fill), 7 SWING, 11 (200 knock-backs vs guards),
   1 (container occlusion of the slam). SHIFT across the dock ≈ 40 s at 1.6 m/s — maybe too slow. Optional contract:
   `DockArena.well`. Chamber too dark to judge the look in the arena.
+- 3d W6: `check:fxleak` L3–5 (shared fx edits) + `--level 6 --selftest` after W4a/D3a; perf (8)–(10); `check:weapons`
+  impacts L1–5 (floorPlane on raycastSolid). OPEN (blocks D3a): "lighting fails below y ≈ 0" — W6 saw scenes at level-6
+  heights render black (fine with `&lift=40`). First suspect: the floor mist (fixed base 0, clamp exp(1.3·4)); retest
+  `src/fx/dev/trunk.html` with `render.settings.mistFollow = true` (or mistBase −40) before touching lights.ts.
+  Weak: well floor reads as a crisp rectangle from above; wake rings perfect circles; heavy splash smoky; marine snow
+  faint; spray not seen in motion. D3a: keep the well's surface quad opaque; aim outside floods at the tether.
