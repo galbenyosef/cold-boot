@@ -19,6 +19,11 @@
  *                      The new ids themselves: `mode=sounds&filter=<rev9 ids>` (see SOUNDS.md → Level 4).
  *   l5               — level 5 (stage 3c): room presets normal / lights-out with `tray_crash`; &live=1 event wiring + the
  *                      play log; &voice=1 the radio / radio:1 / throat chains and their levels (see modeL5).
+ *   l6               — level 6 (stage 3d W2b): room presets normal / lights_out6 / quiet with `loader_impact`; &live=1 the
+ *                      event wiring (wading, enemy wading, the loader silent to audio, rescue, boss stages, l6_quiet);
+ *                      &voice=1 the `phone` / `pa` chains over the l6 lines and their levels (handset 0.8 / 3 m, held,
+ *                      the loader's PA at 10 / 30 m); &music=1 combat + the boss layer stages 1 → 3 offline (click to hear).
+ *                      The ids themselves: `mode=sounds&filter=<rev11 ids>` (SOUNDS.md → Level 6).
  * Results on window.__audioReport; window.__game = { ready: true } when done.
  */
 import * as THREE from 'three';
@@ -481,6 +486,175 @@ async function modeL5() {
   head.textContent = `l5: ${Object.keys(ROOMS_L5).length} level-5 rooms (normal / lights-out) — click to hear the tray crash in the room`;
 }
 
+/** Level 6 (stage 3d W2b) — see the header. */
+async function modeL6() {
+  const { ROOMS_L6, presetFor } = await import('../impulses');
+  const hit = (await renderDef(SOUND_MAP.get('loader_impact')!))[0];
+  const rows: Record<string, unknown> = {};
+  if (q.get('rooms') !== '0') for (const id of Object.keys(ROOMS_L6)) {
+    for (const [tag, cold, after] of [['', false, false], [':dark', true, false], [':quiet', false, true]] as const) {
+      const p = presetFor(id, 6, cold, after);
+      if (tag && p === presetFor(id, 6, false, false)) continue;
+      const oc = new OfflineAudioContext(1, Math.ceil((hit.duration + 5) * SR), SR);
+      const src = oc.createBufferSource(); src.buffer = hit;
+      const dry = oc.createGain(); dry.gain.value = 0.5;
+      const conv = oc.createConvolver(); conv.buffer = makeIR(p.ir, SR);
+      const wet = oc.createGain(); wet.gain.value = p.wet * 0.5;
+      src.connect(dry); dry.connect(oc.destination); src.connect(conv); conv.connect(wet); wet.connect(oc.destination);
+      src.start();
+      const r = await oc.startRendering();
+      const st = stats(chansOf(r), SR);
+      rows[id + tag] = { ir: p.ir, wet: p.wet, bed: p.bed, quiet: !!p.quiet, events: Object.keys(p.events), local: (p.local ?? []).map((e) => e.id), tailMs: st.tailMs };
+      const cv = cell(`${id}${tag.toUpperCase()}  ir=${p.ir} wet=${p.wet}${p.quiet ? ' quiet' : ''}\nbed ${JSON.stringify(p.bed)}\ntail ${st.tailMs}ms`, 340, 80);
+      draw(cv, chansOf(r), SR);
+      cv.style.cursor = 'pointer';
+      cv.onclick = () => audition(r, false, 1);
+    }
+  }
+  report.rooms = rows;
+  if (q.get('music')) {
+    const bank = await loadMusicBank();
+    const T = 48;
+    const oc = new OfflineAudioContext(2, T * SR, SR);
+    const out = oc.createGain(); out.gain.value = 0.5; out.connect(oc.destination);
+    const music = new Music(oc, out, null, (id) => bank.get(id));
+    let r = 777; music.rnd = () => { r = (r * 16807) % 2147483647; return r / 2147483647; };
+    const seq: Array<[number, () => void]> = [[0, () => music.set('combat', 0)], [8, () => music.setBoss(1, 8)], [20, () => music.setBoss(2, 20)], [32, () => music.setBoss(3, 32)], [44, () => music.setBoss(0, 44)]];
+    let si = 0;
+    for (let t = 0; t < T; t += 0.1) { while (si < seq.length && seq[si][0] <= t + 1e-6) { seq[si][1](); si++; } music.tick(t); }
+    const buf = await oc.startRendering();
+    const ch = chansOf(buf);
+    const st: Record<string, unknown> = {};
+    for (const [a, b, k] of [[2, 8, 'combat'], [10, 20, 'boss1'], [22, 32, 'boss2'], [34, 44, 'boss3'], [45, 48, 'off']] as const) st[k] = stats(ch, SR, a * SR, b * SR);
+    report.music = st;
+    const cv = cell('combat 0 · boss 1 @8 · 2 @20 · 3 @32 · off @44 (click to hear)', 1580, 200, true);
+    draw(cv, ch, SR, [8, 20, 32, 44]);
+    cv.style.cursor = 'pointer'; cv.onclick = () => audition(buf, false, 1);
+  }
+  if (q.get('live') || q.get('voice')) {
+    const ctx = fakeCtx() as unknown as GameContext & { levelId: number; level: any; player: any; events: ReturnType<typeof createEvents> };
+    (ctx as any).levelId = 6;
+    const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) => new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1));
+    const rooms = [
+      { id: 'tun6_a', name: 'TUNNEL', bounds: box(-2.5, 2.5, -0.5, 4, -80, 0) },
+      { id: 'vault6', name: 'VAULT', bounds: box(-22, 2, -1.9, 6, -180, -148) },
+      { id: 'pool6', name: 'MOON POOL', bounds: box(-76, -28, -20.5, 2, -196, -148) },
+    ];
+    ctx.level = {
+      rooms, regions: {}, water: [{ id: 'wat6_wet', room: 'pool6', box: box(-70, -34, -21, -19.4, -195, -184), surface: -19.4, stand: 1.0 }],
+      roomAt: (p: THREE.Vector3) => rooms.find((r) => r.bounds.containsPoint(p)) ?? null,
+      object: () => undefined,
+    };
+    ctx.player.wading = 0;
+    (ctx.physics as any).lineOfSight = () => true;
+    const audio = await createAudio(ctx);
+    await audio.unlock();
+    const dbg = (audio as any).debug;
+    const eng = dbg.engine;
+    const played: string[] = [];
+    const orig = eng.play.bind(eng);
+    eng.play = (id: string, p?: { variant?: number; retry?: boolean }) => { if (!p?.retry) played.push(p?.variant !== undefined ? `${id}#${p.variant}` : id); orig(id, p as never); };
+    const tick = async (ms: number) => { const end = performance.now() + ms; while (performance.now() < end) { ctx.camera.updateMatrixWorld(); audio.update(0.016); await new Promise((r) => setTimeout(r, 16)); } };
+    const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+    const E = ctx.events;
+    const out: Record<string, unknown> = { level: eng.level };
+    const take = (k: string) => { out[k] = played.splice(0); };
+    E.emit('game:state', { state: 'playing', prev: 'menu' });
+    await tick(300); take('setup');
+    if (q.get('live')) {
+      const at = async (x: number, y: number, z: number) => { ctx.player.position.set(x, y, z); await tick(600); return { room: eng.roomId, ir: eng.room.ir, bed: eng.room.bed }; };
+      out.rooms = { tunnel: await at(0, 0, -40), vault: await at(-10, 0, -170), trench: await at(-12.4, -1.4, -170), pool: await at(-52, -20, -186), undercroft: await at(-52, -20, -160), gallery: await at(-30, -12, -166) };
+      played.length = 0;
+      ctx.player.position.set(-52, -20, -190); ctx.player.wading = 0.2;
+      E.emit('player:footstep', { position: V(-52, -20, -190), surface: 'water', running: false }); await tick(80);
+      ctx.player.wading = 0.5;
+      E.emit('player:footstep', { position: V(-52, -20, -190), surface: 'water', running: true }); take('playerWade_shallow_deep');
+      E.emit('player:footstep', { position: V(-30, -12, -166), surface: 'metal', running: false }); take('galleryGrate');
+      E.emit('bullet:impact', { point: V(-50, -19.4, -190), normal: V(0, 1, 0), surface: 'water' }); take('impactWater');
+      E.emit('enemy:step', { id: 3, type: 'husk', position: V(-50, -19.6, -190) }); await tick(60);
+      E.emit('enemy:step', { id: 3, type: 'husk', position: V(-50, -20.2, -190) }); await tick(60);
+      E.emit('enemy:step', { id: 3, type: 'husk', position: V(-50, -12, -160) }); take('huskWade_shallow_deep_dry');
+      const lp = V(-52, -8, -176);
+      E.emit('enemy:woke', { id: 9, type: 'loader', position: lp }); E.emit('enemy:alerted', { id: 9, type: 'loader', position: lp });
+      E.emit('enemy:attack', { id: 9, type: 'loader', position: lp, kind: 'melee' } as never);
+      E.emit('enemy:damaged', { id: 9, type: 'loader', point: lp, direction: V(0, 0, 1), amount: 14 } as never);
+      E.emit('enemy:step', { id: 9, type: 'loader', position: lp }); take('loaderEventsSilent');
+      E.emit('player:rescued', { from: V(-52, -24, -176), to: V(-30, -12, -166) }); take('rescued');
+      ctx.player.position.set(-52, -20, -186); await tick(400);
+      audio.setMusic('combat');
+      E.emit('boss:stage', { group: 'g6_loader', stage: 1 }); await tick(300);
+      out.stage1 = { boss: dbg.music.bossStage, bed: eng.room.bed, cold: eng.cold };
+      E.emit('boss:stage', { group: 'g6_loader', stage: 2 }); await tick(300);
+      out.stage2 = { boss: dbg.music.bossStage, bed: eng.room.bed, cold: eng.cold };
+      E.emit('enemy:died', { id: 9, type: 'loader', position: lp, group: 'g6_loader' } as never); take('loaderDied');
+      out.afterDeath = { boss: dbg.music.bossStage };
+      E.emit('story:beat', { id: 'l6_quiet' }); await tick(300);
+      out.quiet = { music: dbg.musicMode, bed: eng.room.bed, after: eng.after };
+      out.log = dbg.log.slice(-10);
+      out.bank = ['wade', 'wade_shallow', 'impact_water', 'amb_pool', 'loader_hum', 'soldier_carbine_fire', 'ping_far', 'grip_tick'].map((id) => `${id}:${eng.buffers(id) ? 'ready' : 'missing'}`);
+      report.live = out;
+    }
+    if (q.get('voice')) {
+      const table = loadVoiceTable();
+      const ids = (q.get('ids') ?? 'l6_aas_1,l6_aas_2,l6_aas_3,l6_unit_loader_1').split(',');
+      const dec = new OfflineAudioContext(1, 1, FX_SR);
+      const base = (import.meta as any).env?.BASE_URL ?? '/';
+      const vres: Record<string, unknown> = {};
+      for (const id of ids) {
+        const e = table.get(id);
+        if (!e?.generated) { vres[id] = 'not generated'; continue; }
+        const bufs = await Promise.all(e.files.map((f) => fetch(base + f).then((r) => r.arrayBuffer()).then((a) => dec.decodeAudioData(a))));
+        const row: Record<string, unknown> = {};
+        for (const fx of [e.fx, 'clean']) {
+          const b = await renderVoiceFx(fx, bufs, id, e.lead);
+          const ch = chansOf(b);
+          const st = stats(ch, b.sampleRate);
+          row[fx] = { dur: st.dur, srcDur: +(bufs[0].duration - e.lead).toFixed(3), peakDb: st.peakDb, speechRms: +speechRms(ch).toFixed(4), clip: st.clip, centroid: st.centroid };
+          const cv = cell(`${id} → ${fx}\n${st.dur}s pk ${st.peakDb}dB cen ${st.centroid}`, 520, 100);
+          draw(cv, ch, b.sampleRate);
+          cv.style.cursor = 'pointer'; cv.onclick = () => audition(b, false, 1);
+        }
+        vres[id] = row;
+      }
+      report.voiceFx = vres;
+      const ac: AudioContext = eng.ctx;
+      const cap: Float32Array[] = [];
+      const spn = ac.createScriptProcessor(4096, 2, 2);
+      const mute = ac.createGain(); mute.gain.value = 0;
+      eng.buses.voice.connect(spn); spn.connect(mute); mute.connect(ac.destination);
+      let on = false;
+      spn.onaudioprocess = (ev) => { if (on) { const l = ev.inputBuffer.getChannelData(0), r = ev.inputBuffer.getChannelData(1); const m = new Float32Array(l.length); for (let i = 0; i < l.length; i++) m[i] = Math.sqrt((l[i] * l[i] + r[i] * r[i]) / 2); cap.push(m); } };
+      const measure = async (id: string, o?: { position?: THREE.Vector3; fx?: string }) => {
+        if (!table.get(id)?.generated) return NaN;
+        await audio.preloadVoice([id]);
+        cap.length = 0; on = true;
+        const h = audio.say(id, o as never);
+        await h.done; await tick(200); on = false;
+        const all = cap.flatMap((a2) => Array.from(a2));
+        const hop = 480, fr: number[] = [];
+        for (let i = 0; i + hop <= all.length; i += hop) { let s2 = 0; for (let k = 0; k < hop; k++) s2 += all[i + k] ** 2; fr.push(Math.sqrt(s2 / hop)); }
+        const p95 = [...fr].sort((a2, b2) => a2 - b2)[Math.floor(fr.length * 0.95)] ?? 0;
+        let s2 = 0, n = 0; for (const v of fr) if (v > 0.25 * p95) { s2 += v * v; n++; }
+        return Math.sqrt(s2 / Math.max(1, n));
+      };
+      ctx.camera.position.set(0, 1.65, 0); ctx.camera.lookAt(0, 1.65, -5); ctx.camera.updateMatrixWorld();
+      await tick(100);
+      const ref = await measure('l3_choir_pa_residents');
+      const dB = (x: number) => (Number.isFinite(x) ? +(20 * Math.log10(x / ref)).toFixed(1) : null);
+      report.voiceLevel = {
+        refRms: +ref.toFixed(4),
+        phone_held_2D_dB: dB(await measure('l6_aas_2')),
+        phone_0_8m_dB: dB(await measure('l6_aas_1', { position: V(0, 1.65, -0.8) })),
+        phone_3m_dB: dB(await measure('l6_aas_1', { position: V(0, 1.65, -3) })),
+        pa_dock_10m_dB: dB(await measure('l6_unit_loader_1', { position: V(0, 6, -10) })),
+        pa_dock_30m_dB: dB(await measure('l6_unit_loader_1', { position: V(0, 6, -30) })),
+      };
+      report.voiceTrace = dbg.voice.trace.slice(-6).map((t: any) => ({ id: t.id, fx: t.fx, dist: t.dist, distGain: t.distGain }));
+    }
+  }
+  head.textContent = `l6: ${Object.keys(ROOMS_L6).length} level-6 rooms (normal / dark / quiet) — click to hear the grab's impact in the room`;
+}
+
 async function loadMusicBank(): Promise<Map<string, AudioBuffer[]>> {
   const m = new Map<string, AudioBuffer[]>();
   for (const d of ALL_SOUNDS.filter((x) => x.id.startsWith('mus_'))) m.set(d.id, await renderDef(d));
@@ -870,6 +1044,7 @@ async function modeVoice() {
     else if (mode === 'hab') await modeHab();
     else if (mode === 'l4') await modeL4();
     else if (mode === 'l5') await modeL5();
+    else if (mode === 'l6') await modeL6();
     else await modeSounds();
   } catch (e) {
     report.error = String((e as Error)?.stack ?? e);

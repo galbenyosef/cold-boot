@@ -5,7 +5,7 @@
 import { mulberry } from './synth/core';
 
 export type IrName = 'padded' | 'corridor' | 'hall' | 'machine' | 'shaft' | 'plate' | 'dead' | 'cistern' | 'clean'
-  | 'office' | 'tiled' | 'atrium' | 'lock' | 'whiteroom' | 'tube';
+  | 'office' | 'tiled' | 'atrium' | 'lock' | 'whiteroom' | 'tube' | 'tunnel' | 'chamber';
 
 interface IrSpec {
   len: number;
@@ -49,6 +49,12 @@ const SPECS: Record<IrName, IrSpec> = {
   // level 4 transfer tube: 40 m of curved glass between steel ribs — long, bright, a strong short flutter (the
   // cylinder), the ribs ringing low
   tube: { len: 3.8, rt: [2.8, 2.6, 1.6], predelay: 0.006, early: 18, earlyWin: 0.05, earlyGain: 0.55, flutter: 0.0118, flutterGain: 0.4, ring: [143, 389, 1210], ringGain: 0.045, build: 0.03, gain: 1 },
+  // level 6 cable tunnel: 80 m of concrete and steel trays, 4.6 m wide — a long low tail, the cross-tunnel flutter
+  // (2 × 4.6 m / 343 m/s), the trays ringing
+  tunnel: { len: 3.2, rt: [2.4, 1.9, 0.9], predelay: 0.006, early: 18, earlyWin: 0.04, earlyGain: 0.55, flutter: 0.0268, flutterGain: 0.3, ring: [180, 470, 960], ringGain: 0.035, build: 0.025, gain: 1 },
+  // level 6 moon-pool chamber (48 × 48 × 22 m of steel and water): the 3.5 s steel-hall tail (§8.12), late first
+  // reflections, a slow build, the structure's low modes
+  chamber: { len: 5.2, rt: [3.9, 3.5, 2.0], predelay: 0.04, early: 24, earlyWin: 0.22, earlyGain: 0.45, ring: [61, 97, 158, 243], ringGain: 0.035, build: 0.2, gain: 1.1 },
   plate: { len: 3.2, rt: [2.4, 2.8, 2.2], predelay: 0.012, early: 0, earlyWin: 0.01, earlyGain: 0, build: 0.005, gain: 1 },
 };
 
@@ -127,6 +133,8 @@ export interface RoomPreset {
   /** Level 3: the habitat after the takeover; level 4: the clean side after lights-out (engine.setMood(true)). Fields given
    *  here replace the normal ones. */
   cold?: Partial<Omit<RoomPreset, 'cold'>>;
+  /** Stage 3d: level 6 after the quiet (engine.after, `story:beat l6_quiet`) — wins over `cold`. */
+  after?: Partial<Omit<RoomPreset, 'cold' | 'after'>>;
 }
 
 export interface LocalEvent {
@@ -301,7 +309,56 @@ export const ROOMS_L5: Record<string, RoomPreset> = {
     local: [{ id: 'drip', every: [2, 6], vol: [0.2, 0.5], y: [1.5, 2.5] }],
   },
 };
-const LEVEL_ROOMS: Record<number, Record<string, RoomPreset>> = { 3: ROOMS_L3, 4: ROOMS_L4, 5: ROOMS_L5 };
+// ── level 6 "THE TRUNK" (stage 3d, plan §2.1). Room ids are the plan's, plus acoustic sub-rooms the engine resolves by
+// height (index.ts subRoom): `trench6` (vault6 / he6 below the floor: the cable trench) and `under6` (pool6's undercroft
+// under the mid deck). `cold` = lights_out6 (boss stage ≥ 2): only the chamber and its rooms change; `after` = the quiet
+// (story:beat `l6_quiet`). As level 5: no far_steps / drag / breath (the enemies here are real).
+const NAVY6 = { hull_creak: 1.2, metal_groan: 0.8, pipe_tick: 1, dist_knock: 0.6, drip: 0.5 };
+const DARK6 = { hull_creak: 1.4, metal_groan: 1.0, pipe_tick: 0.8, drip: 0.7, dist_knock: 0.4 };
+const POOL6 = { hull_creak: 1.4, metal_groan: 1.2, dist_clank: 0.6, water_slosh: 1, drip: 1 };
+const STILL6 = { hull_creak: 1.2, water_slosh: 0.8, drip: 1, metal_groan: 0.5 };
+export const ROOMS_L6: Record<string, RoomPreset> = {
+  lock6: { ir: 'lock', wet: 0.5, bed: { amb_tunnel_dark: 0.5, amb_tunnel: 0.35 }, events: NAVY6 },
+  tun6_a: { ir: 'tunnel', wet: 0.6, bed: { amb_tunnel: 1 }, events: NAVY6, quiet: true },
+  rep6: { ir: 'machine', wet: 0.55, bed: { amb_tunnel: 0.7, amb_headend: 0.35 }, events: NAVY6, quiet: true },
+  tun6_b: {
+    ir: 'tunnel', wet: 0.62, bed: { amb_tunnel_dark: 1 }, events: DARK6, quiet: true,
+    local: [{ id: 'drip', every: [3, 9], vol: [0.2, 0.5], y: [3.0, 3.8] }],
+  },
+  bay6: { ir: 'lock', wet: 0.45, bed: { amb_tunnel_dark: 0.6, amb_tunnel: 0.2 }, events: DARK6, quiet: true },
+  he6: { ir: 'machine', wet: 0.45, bed: { amb_headend: 1 }, events: NAVY6, quiet: true },
+  trench6: {
+    ir: 'lock', wet: 0.45, bed: { amb_trench: 1 }, events: { pipe_tick: 1, drip: 1, dist_knock: 0.4 }, quiet: true,
+    local: [{ id: 'drip', every: [2.5, 7], vol: [0.2, 0.5], y: [-1.0, -0.6] }],
+  },
+  vault6: { ir: 'machine', wet: 0.6, bed: { amb_vault: 1 }, events: NAVY6, quiet: true },
+  hold6: { ir: 'dead', wet: 0.3, bed: { amb_vault: 0.6 }, events: NAVY6, quiet: true },
+  shaft6: {
+    ir: 'shaft', wet: 0.65, bed: { amb_shaft: 1 }, events: { hull_creak: 1.2, metal_groan: 0.8, drip: 1, pipe_tick: 0.6 }, quiet: true,
+    local: [{ id: 'drip', every: [2, 6], vol: [0.2, 0.55], y: [-11.5, -10] }],
+  },
+  pool6: {
+    ir: 'chamber', wet: 0.8, bed: { amb_pool: 1 }, events: POOL6,
+    local: [
+      { id: 'drip', every: [1.2, 4], vol: [0.25, 0.65], y: [-19.5, -16] },
+      { id: 'tube_groan', every: [18, 40], vol: [0.4, 0.8], y: [-4, 0] }, // the hull taking the sea, far up
+    ],
+    cold: { bed: { amb_pool_dark: 1 }, events: { ...POOL6, metal_groan: 1.4 }, wet: 0.85 },
+    after: { bed: { amb_pool_quiet: 1 }, events: STILL6, quiet: true, wet: 0.82, local: [{ id: 'drip', every: [1.5, 5], vol: [0.25, 0.6], y: [-19.5, -16] }] },
+  },
+  under6: {
+    ir: 'machine', wet: 0.5, bed: { amb_pool: 0.6, amb_trench: 0.3 }, events: POOL6,
+    local: [{ id: 'drip', every: [1.5, 5], vol: [0.25, 0.6], y: [-17, -16.5] }],
+    cold: { bed: { amb_pool_dark: 0.6, amb_trench: 0.3 } },
+    after: { bed: { amb_pool_quiet: 0.7 }, events: STILL6, quiet: true },
+  },
+  stores6: {
+    ir: 'dead', wet: 0.3, bed: { amb_pool: 0.35, amb_vault: 0.3 }, events: NAVY6, quiet: true,
+    cold: { bed: { amb_pool_dark: 0.35 } }, after: { bed: { amb_pool_quiet: 0.35 }, events: STILL6 },
+  },
+  feed6: { ir: 'hall', wet: 0.6, bed: {}, events: {} }, // the sealed feed set: never a listener's room
+};
+const LEVEL_ROOMS: Record<number, Record<string, RoomPreset>> = { 3: ROOMS_L3, 4: ROOMS_L4, 5: ROOMS_L5, 6: ROOMS_L6 };
 export const DEFAULT_ROOM: RoomPreset = { ir: 'corridor', wet: 0.5, bed: { amb_room: 0.8 }, events: ROOM_EVENTS };
 
 /** Unknown / renamed room ids fall back to the closest known preset by name, then to DEFAULT_ROOM. */
@@ -313,11 +370,17 @@ const ALIASES: Array<[RegExp, string]> = [
 ];
 const resolved = new Map<string, RoomPreset>();
 const coldCache = new WeakMap<RoomPreset, RoomPreset>();
-export function presetFor(id: string, level = 0, cold = false): RoomPreset {
+const afterCache = new WeakMap<RoomPreset, RoomPreset>();
+export function presetFor(id: string, level = 0, cold = false, after = false): RoomPreset {
   const table = LEVEL_ROOMS[level];
   if (table) {
     const p = table[id];
     if (p) {
+      if (after && p.after) {
+        let a = afterCache.get(p);
+        if (!a) { a = { ...p, ...p.after, cold: undefined, after: undefined }; afterCache.set(p, a); }
+        return a;
+      }
       if (!cold || !p.cold) return p;
       let c = coldCache.get(p);
       if (!c) { c = { ...p, ...p.cold, cold: undefined }; coldCache.set(p, c); }

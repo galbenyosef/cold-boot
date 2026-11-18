@@ -1076,7 +1076,8 @@ export const rev10Sounds: SoundDef[] = [
 
   // ═════════ story: the body's radio squawks (static burst before l5_kes_squawk_*)
   {
-    id: 'radio_squawk', variants: 3, dur: 0.7, vol: 0.6, ref: 2, rolloff: 1.0, send: 0.6, maxVoices: 1, minInterval: 0.3, priority: 3, when: 'idle', levels: L5,
+    id: 'radio_squawk', variants: 3, dur: 0.7, vol: 0.6, ref: 5, rolloff: 1.0, // 3d coordinator: ref 2 → 5 (it guides the player to the body at 6–12 m)
+    send: 0.6, maxVoices: 1, minInterval: 0.3, priority: 3, when: 'idle', levels: L5,
     render(s) {
       const spk = s.gain(1);
       s.chain(spk, s.hp(420), s.pk(1900, 1, 6), s.shaper('tanh', 3), s.lp(3000), s.out);

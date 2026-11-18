@@ -327,3 +327,38 @@ keypad, `turnstile_click`, `counter_tick`, `gate_close_heavy` idle; the other sc
 Dev: `/dev/audio.html?mode=l5` (every room normal / dark with the tray crash; `&live=1` the event wiring and the play log;
 `&voice=1` the three chains and their levels), `?mode=sounds&filter=^(tray_|hull_groan|helmet|locker_rattle|…)` (click a
 spectrogram to hear it).
+
+## Level 6 — THE TRUNK (stage 3d, `sounds/rev11.ts`)
+
+**Owners (plan §8.12, D25 — the owner is who plays it; never play an id another owner plays):**
+
+| who plays | ids |
+|---|---|
+| level vignettes / set pieces (fired by the story) | `tarp_flap` · `phone_howler` (**one call = the three buzzes**: 0.0–0.9, 1.5–2.4, 3.0–3.9 s, ends 4.0 s) · `phone_dead_click` · `line_hiss` (3 s, fades) · `handset_drop` · `ratchet_run` + `drum_rumble` (together, 4.6 s) → `drum_brake` · `ping_close` + `hull_ring` + `dust_sift` (v6_ring) · `far_lock_flood` (11 s: thud at 0, water from 1.2 s) + `lights_dip` · `sea_groan` (8 s) · `castell_turn` (bolt at 0.66 s) · `bj_doors` (stops at 1.3 s) · `fibre_strain` (bj6_strain 0.3 / 0.7) · `fibre_rip` · `crank_turn` (**one turn**, 0.6 s — play per turn) · `mode_clunk` · `pin_draw` · `pump_stroke` (one stroke) · `gauge_tick` · `shear_fire` (§4.8.1 0.05 s) · `tether_whip` (0.25 s; carries the drum's free spin to 1.4 s) · `winch_brake` (**at 1.4 s**) · `splash_big` · `gate_squeal` · existing `lamp_creak` `bulb_pop` `glass_tinkle` `lights_out_dock` `alarm_beacon` `sump_lift` `vent_grille` |
+| level machine `ping6` | `ping_far` (20 s rate, at the hull transducer; ref 6) · `ping_near` (4 s rate, at the well; ref 8) |
+| enemies (the loader) | `loader_hum` (**loop**, at the trolley) · `loader_travel` (one move ≈ 2.6 s; overlap for long runs) · `loader_track` · `loader_jaws` · `loader_brake` · `loader_impact` · `loader_squeal` · `loader_hoist` · `flood_pop` · `ram_hit` · `ram_burst` · `cowl_open` · `loader_death` (7 s composite: blast, failing drive to 2.3 s, brakes off, ropes 2.3–3.6 s, buffer screech, stops at 6.5 s — the plunge's `splash_big` is separate) · `rope_whip` · `armour_clank` (×0 hits; minInterval 0.3 s) |
+| UI (W2a) | `interlock_deny`, `grip_tick` (2-D, UI bus) |
+| audio itself | `wade_shallow` / `wade` (player:footstep surface `water`, by `player.wading` < / ≥ 0.35), `wade_enemy` (enemy:step inside `level.water`, ≥ 0.1 m), `impact_water` (bullet:impact surface `water`), `drown_rescue` (player:rescued), the beds |
+
+**Automatic on level 6:** audio plays NOTHING for enemy type `loader` (spawned / woke / alerted / attack / damaged / died /
+step). `boss:stage` → the boss music layer (over `combat` only) + stage ≥ 2 = lights_out6 → the chamber's dark beds;
+`enemy:died` loader → boss layer off; `story:beat l6_quiet` → music silence + the chamber's quiet beds (re-emit on restore
+past it). Footsteps on the shaft and the chamber's galleries (y > −13.5) are `step_grate`.
+
+**Rooms** (`ROOMS_L6`; new IRs `tunnel` — 80 m concrete run, cross flutter — and `chamber` — the 3.5 s steel hall):
+lock6 lock · tun6_a / tun6_b tunnel · rep6, he6, vault6 machine · bay6 lock · hold6, stores6 dead · shaft6 shaft · pool6
+chamber · sub-rooms `trench6` (vault6 / he6 below −0.7 m) and `under6` (the undercroft). Beds `amb_tunnel`,
+`amb_tunnel_dark`, `amb_headend`, `amb_vault`, `amb_trench`, `amb_shaft`, `amb_pool` → `amb_pool_dark` (cold) →
+`amb_pool_quiet` (after). Room state precedence: after > cold > normal (`engine.setMood(cold, after)`).
+
+**Music:** `combat` + the boss layer: a low ostinato on combat's 16th grid, entering on the next bar with `mus_boom` —
+stage 1 E (8ths), stage 2 F (+16th pickups, octave), stage 3 G (16ths + a high tremolo cluster).
+
+**Voice fx `phone`** (§6.1): sound-powered handset — no squelch, no hiss bed; 350–2,600 Hz, carbon honk, soft clip 2.4,
+crackle −32 dB, slight pumping, chain −6 dB; fxLead 0. Positional `POS.phone` ref 0.8, rolloff 1.2, send 0.1 (hanging);
+2-D (held) × 2 (+6 dB). **`pa_dock`**: a positional `pa` line on level 6 (or fx `pa_dock`) uses POS ref 12, rolloff 0.6,
+send 1.6, gain 1.3. **`radio`** POS ref 2 → 5 (3d coordinator: the body's squawk must guide the player at 6–12 m;
+`radio_squawk` ref 2 → 5 likewise).
+
+Dev: `/dev/audio.html?mode=l6` (rooms normal / dark / quiet; `&live=1` the wiring; `&voice=1` phone / pa levels;
+`&music=1` the boss layer), `?mode=sounds&filter=^(loader_|ping_|phone_|wade)` (click a spectrogram to hear it).

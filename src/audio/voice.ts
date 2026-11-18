@@ -94,16 +94,24 @@ const POS: Record<string, { ref: number; rolloff: number; send: number; gain?: n
   door: { ref: 2, rolloff: 1.3, send: 0.3 }, // behind a sealed cabin door
   // stage 3c §6.1: Kessler's radio — 2-D (the HUD radio) at conversation level (the chain's output RMS, no POS gain);
   // positioned (the radio on the first soldier's body) a small speaker: ref 2 m, rolloff 1.0, normal occlusion
-  radio: { ref: 2, rolloff: 1.0, send: 0.3 },
+  // (stage 3d coordinator: ref 2 → 5 — the squawk on the first soldier's body was −12.5 dB at 6 m; it must guide the
+  // player to the corpse: ≈ −1.6 dB at 6 m, −7.6 dB at 12 m by the distance law. Only level 5 plays a positioned radio.)
+  radio: { ref: 5, rolloff: 1.0, send: 0.3 },
   // CHOIR through a taken soldier, at his head: ref 5.5 m (S5: 5.5 / 6.7 = −1.7 dB at the cutscene distance), with the
   // in-room gain of `clean` (the HRTF panner's loss against the in-ear reference, measured for `clean`) so that −1.7 dB
   // is what arrives (§8.13: ≥ −3 dB at 6.7 m). The occlusion probes (OCC_PROBES) clear his own capsule.
   throat: { ref: 5.5, rolloff: 1.0, send: 0.25, gain: 1.3 },
-  // K placeholder (stage 3d §6.1, W2b): the head-end handset — a copy of `headset` until measured (§8.14)
-  phone: { ref: 1.5, rolloff: 1.0, send: 0.3 },
+  // stage 3d §6.1: the head-end handset hanging on its cord (plan: ref 0.8, rolloff 1.2, send 0.1 — audible within ≈ 4 m;
+  // the chain is −6 dB). Held (2-D) it gets PHONE_HELD_GAIN instead.
+  phone: { ref: 0.8, rolloff: 1.2, send: 0.1 },
+  // stage 3d §6.1: the dock loader's PA horn (`pa` positional on level 6, or fx `pa_dock`): a big horn in the chamber's
+  // long reverb — ref 12 m, a heavy send (§8.14: ≥ −6 dB of the reference at 10 m, intelligible at 30 m)
+  pa_dock: { ref: 12, rolloff: 0.6, send: 1.6, gain: 1.3 },
 };
 /** fx whose rendering already IS the barrier (a voice through a sealed door): no run-time occlusion on top of it. */
 const NO_OCCLUDE = new Set(['door']);
+/** Stage 3d §6.1: the handset held to the ear — 2-D close, +6 dB over the (−6 dB) chain = conversation level. */
+const PHONE_HELD_GAIN = 2;
 /**
  * Occlusion probes above the mouth (m). A voice is occluded only when the line of sight to the mouth AND to points
  * above it is blocked: the speaker's own body collider (it contains the head) and furniture between two people in
@@ -437,7 +445,8 @@ export class VoiceBank {
     fade.gain.value = Math.max(0, opts?.volume ?? 1);
     src.connect(fade);
     const nodes: AudioNode[] = [src, fade];
-    const P = POS[fx] ?? POS.clean;
+    const raw = String(opts?.fx || e.fx).toLowerCase();
+    const P = (raw.startsWith('pa_dock') || (fx === 'pa' && this.eng.level === 6) ? POS.pa_dock : POS[fx]) ?? POS.clean;
     if (h.pos) {
       const dist = h.pos.distanceTo(this.eng.listener);
       const occluded = NO_OCCLUDE.has(fx) ? false : this.occluded(h.pos);
@@ -460,6 +469,7 @@ export class VoiceBank {
       const sg = c.createGain(); sg.gain.value = 0.3 * P.send * (0.5 + Math.min(dist, 20) / 20) * (occluded ? 1.4 : 1);
       fade.connect(sg); sg.connect(this.eng.reverbIn); nodes.push(sg);
     } else {
+      if (fx === 'phone') fade.gain.value *= PHONE_HELD_GAIN;
       fade.connect(this.eng.buses.voice);
       const sg = c.createGain();
       sg.gain.value = fx === 'choir' ? 0.5 : fx === 'pa' ? 0.4 : 0.12 * P.send;

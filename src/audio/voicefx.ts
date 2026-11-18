@@ -25,6 +25,11 @@
  *             low-pass (an unintelligible murmur from the next room)
  *   door      (level 3) a voice from behind a sealed cabin door: two-pole low-pass at 900 Hz, panel/wood body
  *             resonances (~150 / 330 Hz) and a resonant thump path, a faint air-gap leak, −6 dB relative
+ *   phone     (stage 3d §6.1) the head-end's sound-powered handset (Aas): no electronics, so no squelch and no hiss bed;
+ *             band 350 … 2,600 Hz (two-pole each side), a carbon-mic honk (+4 dB at 1.1 kHz, +2 dB at 1.9 kHz for the
+ *             whisper's consonants), soft clipping 2.4, a granular carbon crackle at −32 dB (no 60 Hz), slight level
+ *             pumping (2.3 / 3.7 Hz, ±8 %), output −6 dB (very low level). fxLead 0. Positional: POS.phone; held (2-D):
+ *             +6 dB in voice.ts.
  *
  * Output: a 24 kHz AudioBuffer (stereo for choir, mono otherwise) normalised so active speech sits at
  * the same RMS for every chain (OUT_RMS), peak ≤ 0.95.
@@ -39,12 +44,13 @@ export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 
 // `screen` (stage 3b D17): a monitor's speaker playing a recording = the `recorder` DSP chain (chainOf); only its
 // position profile differs (voice.ts POS.screen: ref 4 m, rolloff 0.7)
 // stage 3c §6.1: `radio` and `throat` are names of their own (no longer the alias radio → headset)
-// stage 3d §6.1: `phone` (the head-end's sound-powered handset) parses as its own name; it renders as `headset` (chainOf)
+// stage 3d §6.1: `phone` (the head-end's sound-powered handset) is a chain of its own; `pa_dock` (the loader's horn) parses
+// as `pa` — voice.ts picks its POS profile from the raw name (and from `pa` on level 6)
 export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door', 'screen', 'radio', 'throat', 'phone'];
 
 export function parseFx(fx: string | undefined | null): { name: VoiceFxName; arg: number | null } {
   const [raw, a] = String(fx ?? 'clean').toLowerCase().split(':');
-  const alias: Record<string, VoiceFxName> = { handset: 'headset', speaker: 'pa', staff: 'unit', tape: 'recorder', desk: 'room', cabin: 'door' };
+  const alias: Record<string, VoiceFxName> = { handset: 'headset', speaker: 'pa', staff: 'unit', tape: 'recorder', desk: 'room', cabin: 'door', pa_dock: 'pa' };
   const n = (alias[raw] ?? raw) as VoiceFxName;
   const arg = a !== undefined && a !== '' && Number.isFinite(+a) ? +a : null;
   return { name: FX_NAMES.includes(n) ? n : 'clean', arg };
@@ -249,8 +255,7 @@ function lightChoir(base: Float32Array): Float32Array {
 
 /** The DSP chain an fx name renders through: `screen` is an alias of `recorder` (stage 3b D17); the rest are their own. */
 export function chainOf(name: VoiceFxName): VoiceFxName {
-  // K placeholder (stage 3d, W2b): `phone` → its own chain (and POS profile in voice.ts)
-  return name === 'screen' ? 'recorder' : name === 'phone' ? 'headset' : name;
+  return name === 'screen' ? 'recorder' : name;
 }
 
 /** Seconds an fx chain puts before the voice by design (squelch, tape clunk, speaker click) — the sync point is there. */
@@ -271,7 +276,7 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
   const dur = base.length / FX_SR;
   const stereo = name === 'choir';
   const lead = fxLead(parsed);
-  const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'radio' ? 0.24 : name === 'throat' ? 0.1 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : 0.01;
+  const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'radio' ? 0.24 : name === 'throat' ? 0.1 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : name === 'phone' ? 0.06 : 0.01;
   const longest = Math.max(...src.map((d) => d.length)) / FX_SR + (name === 'foreman' ? 0.22 : 0);
   const len = Math.ceil((lead + longest + tail) * FX_SR);
   const c = new OfflineAudioContext(stereo ? 2 : 1, len, FX_SR);
@@ -459,6 +464,25 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
     chain(spk, gain(c, 0.16), fbIn); chain(fbIn, fd, filt(c, 'lowpass', 2400), fg, fbIn); chain(fbIn, gain(c, 0.7), out);
     play(c, base, t0, first);
     if (!arg) click(c, 0.004, 0.04, out); // a speaker coming alive
+  } else if (name === 'phone') {
+    // a sound-powered handset: the voice drives the line with no amplifier — narrow, gritty, a little unsteady
+    const first = gain(c, 1);
+    const pump = gain(c, 1);
+    for (const [f, dpt] of [[2.3, 0.08], [3.7, 0.06]] as const) {
+      const o = c.createOscillator(); o.frequency.value = f; const og = gain(c, dpt); o.connect(og); og.connect(pump.gain); o.start(0);
+    }
+    chain(first, filt(c, 'highpass', 350), filt(c, 'highpass', 350), filt(c, 'peaking', 1100, 1.1, 4), filt(c, 'peaking', 1900, 1.4, 2),
+      shaper(c, 2.4), filt(c, 'lowpass', 2600), filt(c, 'lowpass', 2600), pump, out);
+    play(c, base, t0, first);
+    // the carbon granules: sparse crackle shaped by the speech itself (louder while he speaks), band-limited (no hum)
+    const all = lead + dur + 0.05;
+    const cr = new Float32Array(Math.ceil(all * FX_SR));
+    for (let i = 0; i < cr.length; i++) if (rnd() < 260 / FX_SR) { const a = (rnd() * 2 - 1); for (let k = 0; k < 6 && i + k < cr.length; k++) cr[i + k] += a * (1 - k / 6); }
+    const env = speechEnvelope(base, lead, cr.length);
+    for (let i = 0; i < cr.length; i++) cr[i] *= 0.3 + 0.7 * env[i];
+    const crBp = filt(c, 'bandpass', 1500, 0.7);
+    play(c, cr, 0, crBp);
+    chain(crBp, filt(c, 'highpass', 300), gain(c, 0.025), out); // ≈ −32 dB under the voice
   } else if (name === 'door') {
     // a voice through a sealed cabin door: nothing above ~1 kHz, the panel itself rings low
     const first = gain(c, 1);
@@ -479,8 +503,18 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
   // keep the take's own level relative to the generator's TARGET_RMS (0.12): a whisper stays quieter
   const inRms = speechRms([base]);
   const rel = inRms > 1e-5 ? Math.max(0.3, Math.min(1.5, inRms / 0.12)) : 1;
-  normalise(chans, OUT_RMS * rel * (name === 'door' ? 0.5 : 1));
+  normalise(chans, OUT_RMS * rel * (name === 'door' || name === 'phone' ? 0.5 : 1));
   return rendered;
+}
+
+/** 0 … 1 speech envelope of `d` (20 ms RMS, normalised to its peak) at `lead` s offset, `len` samples long. */
+function speechEnvelope(d: Float32Array, lead: number, len: number): Float32Array {
+  const out = new Float32Array(len), hop = 480, off = Math.floor(lead * FX_SR);
+  let pk = 1e-6;
+  const fr: number[] = [];
+  for (let i = 0; i < d.length; i += hop) { let e = 0; for (let k = i; k < Math.min(d.length, i + hop); k++) e += d[k] * d[k]; const r = Math.sqrt(e / hop); fr.push(r); pk = Math.max(pk, r); }
+  for (let i = 0; i < len; i++) { const j = Math.floor((i - off) / hop); out[i] = j >= 0 && j < fr.length ? fr[j] / pk : 0; }
+  return out;
 }
 
 /** Drop the take's lead-in (manifest `lead`, s: near-silence before the first word) with a 5 ms fade-in. */

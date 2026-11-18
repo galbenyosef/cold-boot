@@ -28,13 +28,13 @@ export interface AudioDebug {
 
 const STEP_ID: Record<Surface, string> = {
   metal: 'step_metal', concrete: 'step_concrete', rubber: 'step_rubber', glass: 'step_glass', robot: 'step_metal', flesh: 'step_rubber',
-  water: 'step_concrete', // K placeholder (stage 3d): W2b — `wade_shallow` / `wade` by depth (§8.12)
+  water: 'wade_shallow', // stage 3d §8.3: by player.wading — `wade_shallow` (< 0.35 m) / `wade` (see player:footstep)
 };
 const IMPACT_ID: Record<Surface, string> = {
   metal: 'impact_metal', concrete: 'impact_concrete', rubber: 'impact_rubber', glass: 'impact_glass', robot: 'impact_robot', flesh: 'impact_flesh',
-  water: 'impact_concrete', // K placeholder (stage 3d): W2b — `impact_water` (§8.12)
+  water: 'impact_water', // stage 3d §8.3 / §8.12
 };
-// K placeholder (stage 3d): `loader: 6` (the trolley's height over the dock is the enemy's; W2b / W3b set the real value)
+// (the loader plays every sound of its own — enemies-owned, §8.12; its entry is only for completeness)
 const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9, soldier: 1.55, loader: 6 };
 const GRATE_ROOMS = new Set(['corr_a', 'elevator']);
 /** Level 3 (habitat): the floor under the player's feet by room id — the contract's `Surface` has no carpet/tile, so
@@ -64,7 +64,7 @@ const SOLDIER_BURST_GAP = 0.42;
 /** carbine_tail variant by the room's reverb: 0 small, 1 medium, 2 large. */
 const TAIL_SIZE: Record<string, number> = {
   dead: 0, padded: 0, office: 0, lock: 0, whiteroom: 1, tiled: 1, corridor: 1, machine: 1,
-  hall: 2, shaft: 2, cistern: 2, atrium: 2, clean: 2, tube: 2,
+  hall: 2, shaft: 2, cistern: 2, atrium: 2, clean: 2, tube: 2, tunnel: 2, chamber: 2,
 };
 /** Seconds without a carbine round after which the burst's room tail plays (the carbine fires every 0.1 s). */
 const BURST_GAP = 0.11;
@@ -72,6 +72,13 @@ const BURST_GAP = 0.11;
 const WARM_L4 = ['amb_hab_cold', 'amb_lock', 'step_tile', 'hull_creak', 'pipe_tick', 'far_steps'];
 /** Level 5: ids of other levels it uses (beds' events, footsteps, the drains / vents, the beacon). */
 const WARM_L5 = ['step_tile', 'hull_creak', 'pipe_tick', 'metal_groan', 'tube_groan', 'sump_lift', 'vent_grille', 'alarm_beacon', 'locker_bang'];
+/** Level 6 (stage 3d): ids of other levels it uses — the taken soldiers (3c, `levels: [5]`: first, so the first shot is
+ *  never late), the beds' events, the 3c vignette sounds the plan reuses (§8.12). */
+const WARM_L6 = ['soldier_carbine_fire', 'soldier_pistol_fire', 'soldier_fire_tail', 'bullet_whiz', 'bullet_crack', 'soldier_step', 'soldier_hit_vest',
+  'soldier_aim_click', 'soldier_light_on', 'soldier_reload', 'soldier_fall', 'clasp_fail', 'step_wet',
+  'hull_creak', 'tube_groan', 'water_slosh', 'lamp_creak', 'bulb_pop', 'glass_tinkle', 'lights_out_dock', 'alarm_beacon', 'sump_lift', 'vent_grille'];
+/** Level 6: rooms whose floor is grating (the shaft's stairs and landings, the chamber's galleries / mid deck / cage). */
+const GRATE_L6 = new Set(['shaft6']);
 
 function silentVoice(duration: number): VoiceHandle {
   return { duration, done: new Promise<void>((r) => setTimeout(r, duration * 1000)), setPosition() {}, stop() {} };
@@ -108,6 +115,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   if (level.powerOnAtLoad) amb.powerOn = true;
   if (level.id === 4) setTimeout(() => { for (const id of WARM_L4) void eng.ensure(id); }, 2500);
   if (level.id === 5) setTimeout(() => { for (const id of WARM_L5) void eng.ensure(id); }, 2500);
+  if (level.id === 6) setTimeout(() => { for (const id of WARM_L6) void eng.ensure(id); }, 1200);
   // this level's voice files: fetch the bytes in the background (decode stays lazy)
   setTimeout(() => { try { voice.prefetchLevel(level.id); } catch { /* ignore */ } }, 1500);
   const musicTimer = setInterval(() => { if (eng.running) music.tick(); }, 100);
@@ -312,6 +320,12 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   }
   /** Level 5: the crawlway (spine5 / arm5 below the main floor) and the magazine (arm5, deeper) are their own rooms. */
   function subRoom(id: string, p: THREE.Vector3): string {
+    if (level.id === 6) {
+      // the cable trench under the vault / head-end floors; the undercroft under the chamber's mid deck (§2.1 regions)
+      if ((id === 'vault6' || id === 'he6') && p.y < -0.7) return 'trench6';
+      if (id === 'pool6' && p.y < -16.3 && p.x >= -72.8 && p.x <= -31.2 && p.z >= -166 && p.z <= -148.2) return 'under6';
+      return id;
+    }
     if (level.id !== 5) return id;
     if (id === 'spine5' && p.y < -0.5) return 'crawl5';
     if (id === 'arm5' && p.y < -0.5) return p.y < -2.0 ? 'mag5' : 'crawl5';
@@ -324,6 +338,23 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     if (b === undefined) b = ctx.level?.rooms?.find((r) => r.id === id)?.bounds ?? null;
     amb.applyRoom(b);
     bedStarted = true;
+  }
+
+  /** Level 6: depth of water at a foot position (0 when dry / no water volumes). */
+  function waterDepth(p: THREE.Vector3): number {
+    const w = level.id === 6 ? ctx.level?.water : undefined;
+    if (!w) return 0;
+    for (const v of w) {
+      const b = v.box;
+      if (p.x >= b.min.x && p.x <= b.max.x && p.z >= b.min.z && p.z <= b.max.z && p.y < v.surface && p.y >= b.min.y - 0.3) return v.surface - p.y;
+    }
+    return 0;
+  }
+
+  /** Level 6: the quiet after the cut (rooms with an `after` form switch; the bed crossfades over ~2 s). */
+  function setAfter(on: boolean) {
+    if (!eng.setMood(eng.cold, on)) return;
+    if (bedStarted) amb.applyRoom(undefined, 2.0);
   }
 
   /** Level 3: warm bed ↔ cold bed (rooms re-resolve to their `cold` preset; the bed crossfades over ~1.2 s). */
@@ -403,6 +434,12 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   });
 
   ev.on('player:footstep', ({ position, surface, running }) => {
+    if (surface === 'water') {
+      // stage 3d §8.3: wading — by the depth at his feet (player.wading)
+      const d = ctx.player?.wading ?? 0;
+      eng.play(d >= 0.35 ? 'wade' : 'wade_shallow', { volume: running ? 1.15 : 0.85, pitch: running ? 1.03 : 1 });
+      return;
+    }
     let id = STEP_ID[surface] ?? 'step_metal';
     if (surface === 'metal' && GRATE_ROOMS.has(eng.roomId)) id = 'step_grate';
     if (level.id === 3 && surface !== 'glass' && surface !== 'flesh' && surface !== 'robot') id = FLOOR_L3[eng.roomId] ?? id;
@@ -411,6 +448,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
       const k = position ? surfaceL5(position) : 'deck';
       id = k === 'wet' ? 'step_wet' : k === 'grate' ? 'step_grate' : FLOOR_L5[eng.roomId] ?? id;
     }
+    if (level.id === 6 && surface === 'metal' && (GRATE_L6.has(eng.roomId) || (eng.roomId === 'pool6' && (position?.y ?? -20) > -13.5))) id = 'step_grate';
     eng.play(id, { volume: running ? 1.2 : 0.75, pitch: running ? 1.03 : 1 });
     if (running && Math.random() < 0.6) eng.play('gear_rattle', { volume: 0.8 });
   });
@@ -428,6 +466,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     }
   });
   ev.on('player:died', () => eng.play('player_death'));
+  // stage 3d D12 / §8.3: the deep-water fail-safe placed him back on the deck (audio owns the sound; W1 plays none)
+  ev.on('player:rescued', () => eng.play('drown_rescue'));
   // stage 3c coordinator 5a (every level): the cell ran flat → its own death; a switch press on a flat cell → a dry click
   ev.on('player:flashlight', ({ on, cause }) => eng.play(cause === 'empty' ? 'flashlight_die' : cause === 'refused' ? 'flashlight_dead' : on ? 'flashlight_on' : 'flashlight_off'));
 
@@ -454,12 +494,15 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   });
 
   ev.on('enemy:spawned', ({ type, position }) => {
+    if (type === 'loader') return;
     if (type === 'skitter') eng.play('skitter_chitter', { position: lift(position, ENEMY_Y.skitter), volume: 0.7 });
   });
   // soldiers (stage 3c §8.11): the enemies module plays every soldier sound itself; audio plays only soldier_step on
   // enemy:step (the surface by position) and the burst's room tail — so none of the husk / sentry / robot sounds below
+  // stage 3d §8.12: the dock loader likewise plays every sound of its own (loader_*, flood_pop, ram_*, cowl_open,
+  // armour_clank, loader_death) — audio adds nothing for type `loader`
   ev.on('enemy:woke', ({ type, position }) => {
-    if (type === 'soldier') return;
+    if (type === 'soldier' || type === 'loader') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'husk') eng.play('husk_wake', { position: p });
     else if (type === 'foreman') { eng.play('husk_wake', { position: p, pitch: 0.7 }); eng.play('foreman_step', { position: lift(position, 0.05, tmpC), delay: 0.3 }); }
@@ -467,7 +510,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     else eng.play('sentry_wake', { position: p });
   });
   ev.on('enemy:alerted', ({ type, position }) => {
-    if (type === 'soldier') return;
+    if (type === 'soldier' || type === 'loader') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'skitter') eng.play('skitter_screech', { position: p });
     else if (type === 'husk') eng.play('husk_vocal', { position: p });
@@ -479,7 +522,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     } else eng.play('sentry_alert', { position: p });
   });
   ev.on('enemy:attack', ({ type, position, kind }) => {
-    if (type === 'soldier') return;
+    if (type === 'soldier' || type === 'loader') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'foreman') { eng.play(kind === 'melee' ? 'foreman_slam' : 'arm_reach', { position: p }); return; }
     if (type === 'skitter') eng.play('skitter_attack', { position: p });
@@ -487,7 +530,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     else eng.play('sentry_fire', { position: p });
   });
   ev.on('enemy:damaged', ({ type, point }) => {
-    if (type === 'soldier') return;
+    if (type === 'soldier' || type === 'loader') return;
     eng.play('impact_robot', { position: point });
     const r = Math.random();
     if (type === 'skitter' && r < 0.6) eng.play('skitter_hurt', { position: point });
@@ -496,6 +539,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     else if (type === 'foreman' && r < 0.4) eng.play('husk_hurt', { position: point, pitch: 0.8 });
   });
   ev.on('enemy:died', ({ type, position }) => {
+    if (type === 'loader') { music.setBoss(0); return; }
     if (type === 'soldier') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'foreman') {
@@ -506,8 +550,11 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     eng.play(`${type}_death`, { position: p });
   });
   ev.on('enemy:step', ({ type, position }) => {
-    if (type === 'sentry') return;
+    if (type === 'sentry' || type === 'loader') return;
     const p = lift(position, 0.05);
+    // stage 3d §8.4: a step in water (level.water) is a wading step, by depth (variants 0–2 shallow, 3–5 deep)
+    const wd = waterDepth(position);
+    if (wd >= 0.1) { eng.play('wade_enemy', { position: p, variant: (wd >= 0.35 ? 3 : 0) + Math.floor(Math.random() * 3), volume: type === 'skitter' ? 0.5 : 1 }); return; }
     if (type === 'soldier') { eng.play('soldier_step', { position: p, variant: soldierStepVariant(position) }); return; }
     if (type === 'skitter') eng.play('skitter_step', { position: p });
     else if (type === 'foreman') eng.play('foreman_step', { position: p });
@@ -549,6 +596,15 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
       // level 5 (§4.7 L): lights_out5 — spine5 / sub5 go to amb_dark (the level plays lights_out_dock itself); emitted
       // again when a checkpoint restores past it (§7 cp5_door)
       case 'l5_dark': if (level.id === 5) setMood(true); break;
+      // level 6 (§4.8): the quiet after the cut and the loader — music to silence, the chamber's beds to their `after`
+      // form (amb_pool_quiet). Emit it again when restoring cp6_quiet.
+      case 'l6_quiet':
+        if (level.id === 6) {
+          music.setBoss(0);
+          requested = 'silence'; requestedAt = eng.now; autoCombat = false; aftermathUntil = 0; refreshMusic();
+          setAfter(true);
+        }
+        break;
       case 'choir_speaks':
         eng.play('glitch', { volume: 0.8 });
         break;
@@ -563,6 +619,13 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
         eng.play('elevator_start');
         break;
     }
+  });
+
+  // stage 3d §8.12: the boss layer over combat (stage 1 … 3, rising); stage ≥ 2 = lights_out6 on level 6 → the chamber's
+  // dark beds (the level plays lights_out_dock itself). A restore re-emits boss:stage (BossControl.restore).
+  ev.on('boss:stage', ({ stage }) => {
+    music.setBoss(stage);
+    if (level.id === 6 && stage >= 2) setMood(true);
   });
 
   ev.on('game:state', ({ state, prev }) => {

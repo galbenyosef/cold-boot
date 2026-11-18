@@ -78,6 +78,9 @@ export class AudioEngine {
   level = 0;
   /** Habitat mood: false = warm bed, true = cold bed (the plant AI has taken over). Only level-3 presets have a cold form. */
   cold = false;
+  /** Stage 3d: level 6's last state — the quiet after the cut and the loader (`story:beat l6_quiet`). Rooms with an
+   *  `after` form use it (it wins over `cold`). */
+  after = false;
 
   private bank = new Map<string, AudioBuffer[]>();
   private pending = new Map<string, Promise<void>>();
@@ -379,17 +382,18 @@ export class AudioEngine {
   setRoom(id: string): void {
     if (id === this.roomId) return;
     this.roomId = id;
-    const preset = presetFor(id, this.level, this.cold);
+    const preset = presetFor(id, this.level, this.cold, this.after);
     this.room = preset;
     this.setReverb(preset.ir, preset.wet);
   }
 
   /** Switch the warm/cold mood and re-resolve the current room. Returns true if anything changed. */
-  setMood(cold: boolean): boolean {
-    if (cold === this.cold) return false;
+  setMood(cold: boolean, after = this.after): boolean {
+    if (cold === this.cold && after === this.after) return false;
     this.cold = cold;
+    this.after = after;
     if (!this.roomId) return true;
-    const preset = presetFor(this.roomId, this.level, this.cold);
+    const preset = presetFor(this.roomId, this.level, this.cold, this.after);
     if (preset === this.room) return true;
     this.room = preset;
     this.setReverb(preset.ir, preset.wet);

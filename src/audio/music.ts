@@ -213,8 +213,8 @@ const RIFFS: Array<Array<[number, number, number]>> = [
 ];
 
 class Combat extends Layer {
-  private step = 0;
-  private stepT: number;
+  step = 0;
+  stepT: number;
   private kick = KICKS[0];
   private riff = RIFFS[0];
   private readonly droneG: GainNode;
@@ -286,6 +286,89 @@ class Combat extends Layer {
   }
 }
 
+// ─────────────────────────────────────────── the boss layer (stage 3d §8.12)
+
+/**
+ * The dock loader's layer over `combat` (from `boss:stage`): a low ostinato on combat's own 16th grid, rising per stage —
+ * stage 1 E (8ths, E E E F), stage 2 F (8ths + 16th pickups, an octave double), stage 3 G (driving 16ths, the octave,
+ * a high tremolo cluster). Each stage enters on the next bar line with a `mus_boom`.
+ */
+const BOSS_PAT: Array<Array<number | null>> = [
+  // semitones over the stage root, per 16th (null = rest)
+  [0, null, 0, null, 0, null, 1, null, 0, null, 0, null, 0, null, 1, null],
+  [0, null, 0, 0, 12, null, 1, null, 0, null, 0, 0, 13, null, 1, 3],
+  [0, 0, 12, 0, 0, 1, 0, 13, 0, 0, 12, 0, 3, 1, 0, 1],
+];
+const BOSS_ROOT = [0, 1, 3];
+
+class Boss extends Layer {
+  private stepT: number;
+  private step = 0;
+  private readonly bus: GainNode;
+  constructor(m: Music, t: number, readonly stage: number, grid: { stepT: number; step: number } | null) {
+    super(m, t, [0.42, 0.5, 0.58][stage - 1] ?? 0.5, 0.4);
+    // align to the combat layer's next bar line
+    if (grid) {
+      let st = grid.stepT, n = grid.step;
+      while (st < t + 0.02 || n % 16 !== 0) { st += STEP; n++; }
+      this.stepT = st; this.step = 0;
+    } else this.stepT = t + 0.05;
+    this.bus = this.gain(1);
+    const sh = m.ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = (i / 1023) * 2 - 1; curve[i] = Math.tanh(x * 2.2) / Math.tanh(2.2); }
+    sh.curve = curve;
+    const lp = this.filt('lowpass', 700 + 250 * stage, 0.8);
+    this.bus.connect(sh); sh.connect(lp); lp.connect(this.out);
+    if (this.m.plate) { const sg = this.gain(0.12); lp.connect(sg); sg.connect(this.m.plate); }
+    if (stage >= 3) {
+      // the high tremolo cluster: E5 / F5 / A#5 saws, a 16th gate, quiet
+      const hp = this.filt('bandpass', 1400, 0.7);
+      const trem = this.gain(0.0);
+      const lfo = this.osc('square', 1 / (STEP * 2), t); const lg = this.gain(0.018); lfo.connect(lg); lg.connect(trem.gain);
+      trem.gain.setValueAtTime(0.02, t);
+      hp.connect(trem); trem.connect(this.out);
+      for (const f of [659.3, 698.5, 932.3]) { const o = this.osc('sawtooth', f, t); o.detune.value = this.r(-8, 8); o.connect(hp); }
+    }
+  }
+  private note(at: number, semi: number, steps: number) {
+    if (at < this.m.lastNow - 0.08) return;
+    const c = this.m.ctx;
+    const f = E1 * 2 * Math.pow(2, (BOSS_ROOT[this.stage - 1] + semi) / 12);
+    const dur = steps * STEP * 0.85;
+    const env = this.gain(0);
+    env.gain.setValueAtTime(0, at);
+    env.gain.linearRampToValueAtTime(0.32, at + 0.006);
+    env.gain.setTargetAtTime(0.18, at + 0.02, 0.06);
+    env.gain.setTargetAtTime(0, at + dur, 0.03);
+    env.connect(this.bus);
+    const parts: Array<[OscillatorType, number, number, number]> = [['sawtooth', 1, -6, 0.5], ['sawtooth', 1, 6, 0.5], ['sine', 0.5, 0, 0.6]];
+    if (this.stage >= 2) parts.push(['square', 2, 0, 0.12]);
+    parts.forEach(([type, mul, det, lv], i) => {
+      const o = c.createOscillator(); o.type = type; o.frequency.value = f * mul; o.detune.value = det;
+      const g = this.gain(lv);
+      o.connect(g); g.connect(env);
+      o.start(at); o.stop(at + dur + 0.2);
+      o.onended = () => { o.disconnect(); g.disconnect(); if (i === 0) env.disconnect(); };
+    });
+  }
+  schedule(until: number) {
+    while (this.stepT < until) {
+      const t = this.stepT, n = this.step, s = n % 16;
+      if (n === 0) this.hit('mus_boom', t, 0.5 + 0.1 * this.stage, 0.9 - 0.05 * this.stage, 0, 0.5);
+      const pat = BOSS_PAT[this.stage - 1] ?? BOSS_PAT[0];
+      const v = pat[s];
+      if (v !== null) {
+        let len = 1; while (len < 4 && pat[(s + len) % 16] === null && s + len < 16) len++;
+        this.note(t, v, len);
+      }
+      if (this.stage >= 2 && s === 12 && Math.floor(n / 16) % 4 === 3) this.hit('mus_metal', t, 0.35, 0.5, 0, 0.5);
+      this.step++;
+      this.stepT += STEP;
+    }
+  }
+}
+
 // ─────────────────────────────────────────── aftermath
 
 class Aftermath extends Layer {
@@ -348,6 +431,9 @@ class Menu extends Layer {
 export class Music {
   mode: MusicMode = 'silence';
   private layers: Layer[] = [];
+  /** Stage 3d: the boss stage (0 = no boss layer); played over `combat` only. */
+  bossStage = 0;
+  private boss: Boss | null = null;
   rnd: () => number = Math.random;
   lastNow = 0;
   constructor(readonly ctx: BaseAudioContext, readonly out: AudioNode, readonly plate: AudioNode | null, readonly buf: BufGetter) {}
@@ -371,6 +457,29 @@ export class Music {
       case 'silence': break;
     }
     if (layer) { this.layers.push(layer); layer.schedule(at + LOOKAHEAD); }
+    this.boss = null;
+    this.refreshBoss(at);
+  }
+
+  /** Stage 3d (`boss:stage`): the boss layer's stage, 0 = off. Takes effect at once while `combat` plays. */
+  setBoss(stage: number, at = this.ctx.currentTime): void {
+    stage = Math.max(0, Math.min(3, Math.floor(stage) || 0));
+    if (stage === this.bossStage) return;
+    this.bossStage = stage;
+    this.lastNow = Math.max(this.lastNow, at);
+    this.refreshBoss(at);
+  }
+
+  private refreshBoss(at: number): void {
+    const want = this.mode === 'combat' ? this.bossStage : 0;
+    if (this.boss && !this.boss.dead && this.boss.stage === want) return;
+    if (this.boss) { this.boss.kill(at, want ? 0.35 : 0.8); this.boss = null; }
+    this.layers = this.layers.filter((l) => !l.dead);
+    if (!want) return;
+    const combat = this.layers.find((l): l is Combat => l instanceof Combat && !l.dead) ?? null;
+    this.boss = new Boss(this, at, want, combat);
+    this.layers.push(this.boss);
+    this.boss.schedule(at + LOOKAHEAD);
   }
 
   tick(now = this.ctx.currentTime): void {
