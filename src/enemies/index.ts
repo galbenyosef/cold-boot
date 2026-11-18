@@ -29,12 +29,19 @@ import { buildSoldierArena } from './soldier/arena';
 import { buildSoldierTemplate, type SoldierTemplate } from './soldier/model';
 import { createSoldierRig } from './soldier/rig';
 import { SoldierActor, createSoldierActor } from './soldier/actor';
+import { Loader } from './loader/loader';
+import { StubLoaderRig, adaptLoaderRig, buildLoaderArena, type LoaderArena, type LoaderRig } from './loader/stubrig';
+import { LOADER_GEOM, buildLoaderTemplate, type LoaderTemplate } from './loader/model';
+import { createLoaderRig } from './loader/rig';
 
 export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const t0 = performance.now();
   // stage 3c §8.2.10: scripts/check-soldier.mjs's test arena (cover points, nav grid, a crawl trench) — tests only
   let arena: ReturnType<typeof buildSoldierArena> | null = null;
   try { if (new URLSearchParams(location.search).has('soldierArena')) arena = buildSoldierArena(ctx); } catch (e) { console.warn('[enemies] soldier arena failed', e); }
+  // stage 3d §5.6.10: scripts/check-loader.mjs's greybox chamber (a DockArena) — only on a level without a dock of its own
+  let loaderArena: LoaderArena | null = null;
+  try { if (new URLSearchParams(location.search).has('loaderArena')) loaderArena = buildLoaderArena(ctx); } catch (e) { console.warn('[enemies] loader arena failed', e); }
   const huskTpl = buildHuskTemplate(ctx);
   const skitterTpl = buildSkitterTemplate(ctx);
   const sentryTpl = buildSentryTemplate(ctx);
@@ -122,12 +129,25 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
     const rig = createSoldierRig(ctx, getSoldier(), { arms, seed: ++soldierSeed * 7.13 + 0.37, managedLod: true });
     return new Soldier(world, group, position, yaw, { ...o, arms, rig });
   };
-  // K placeholder (stage 3d D8, W3b): the loader is a sentry (with one warning) until W3b registers the real one
-  let loaderWarned = false;
-  const loader: EnemyFactory = (world, group, position, yaw, o) => {
-    if (!loaderWarned) { loaderWarned = true; console.warn('[enemies] loader not built yet (K placeholder): a sentry stands in'); }
-    return sentry(world, group, position, yaw, o);
+  // stage 3d D8 / §5.6 (W3b): the dock loader — W3b's behaviour (loader/loader.ts) on W3a's body (loader/{model,rig}.ts)
+  // through `adaptLoaderRig`; `?loaderStub=1` = the boxes of `StubLoaderRig` (behaviour tests without the body).
+  let loaderTpl: LoaderTemplate | null = null;
+  let stubLoader = false;
+  try { stubLoader = new URLSearchParams(location.search).has('loaderStub'); } catch { /* no location */ }
+  const getLoader = () => {
+    if (loaderTpl) return loaderTpl;
+    const r = ctx.level?.dock?.rails;
+    const geom = r ? { ...LOADER_GEOM, xMin: r.xMin, xMax: r.xMax, zMin: r.zMin, zMax: r.zMax, railY: r.railY, bindX: (r.xMin + r.xMax) / 2, bindZ: (r.zMin + r.zMax) / 2 } : LOADER_GEOM;
+    return (loaderTpl = buildLoaderTemplate(ctx, geom));
   };
+  const makeLoaderRig = (actor: boolean): LoaderRig => {
+    if (stubLoader) {
+      const r = ctx.level?.dock?.rails;
+      return new StubLoaderRig(ctx, r ? { railXW: r.xMin - 4.4, railXE: r.xMax + 4.4, railY: r.railY } : {});
+    }
+    return adaptLoaderRig(ctx, createLoaderRig(ctx, getLoader(), actor ? { floodsOn: false, marks: 'off' } : {}));
+  };
+  const loader: EnemyFactory = (world, group, position, yaw, o) => new Loader(world, group, position, yaw, o, makeLoaderRig(!!o.actor));
   const manager = createManager(ctx, { husk, skitter, sentry, foreman, soldier, loader }, extra);
   // §8.8: route ActorOpts.who to the human factory and expose Halvorsen's props on his handle (`prop?(name, value)`).
   {
@@ -152,10 +172,21 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   if (humanTpl) templates.human = humanTpl;
   if (halvTpl) templates.halvorsen = halvTpl;
   if (soldierTpl) templates.soldier = soldierTpl;
+  if (loaderTpl) templates.loader = loaderTpl;
   for (const [k, t] of huskSkins) templates['husk_' + k] = t;
   for (const [k, t] of sentrySkins) templates['sentry_' + k] = t;
   (manager as any).templates = templates;
   if (arena) (manager as any).debug.arena = arena;
+  if (loaderArena) {
+    const la = loaderArena;
+    (manager as any).debug.loaderArena = () => la;
+    // the arena's falling containers (the real dock animates its own)
+    const baseUpdate = manager.update.bind(manager);
+    manager.update = (dt: number) => { baseUpdate(dt); la.tick(dt * ((manager as any).timeScale ?? 1)); };
+    // tests: spawn the loader in the arena (`pose` 'working' or hostile)
+    (manager as any).debug.spawnLoader = (group = 'ga_loader', pose?: string, x = -52, z = -180) =>
+      (manager as any).spawnPose('loader', new THREE.Vector3(x, -20, z), 0, group, pose);
+  }
   // Pre-warm: one hidden, never-updated puppet per type stays in the scene so render.prepare() compiles every
   // enemy program (hero LOD, distance LOD, shadow proxy, glow) even when no machine of that type exists yet —
   // actors / spawn groups created later then reuse those programs (no first-sight compile hitch).
@@ -173,6 +204,8 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
     warm.push((world, _g, position, yaw, o) => createSoldierActor(world, tpl, position, yaw, { ...o, arms: 'carbine' }));
     warm.push((world, _g, position, yaw, o) => createSoldierActor(world, tpl, position, yaw, { ...o, arms: 'pistol' }));
   }
+  // stage 3d §8.2: the loader's template / programs are warmed whenever the level's spawns hold a loader (or the arena)
+  if ((ctx.level?.enemySpawns ?? []).some((s) => s.type === 'loader') || loaderArena) warm.push(loader);
   for (const { type, skin } of skinned) {
     const f = type === 'husk' ? husk : sentry;
     warm.push((world, group, position, yaw, o) => f(world, group, position, yaw, { ...o, skin }));
@@ -183,6 +216,7 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
     e.object.visible = false;
     e.object.traverse((o) => { o.frustumCulled = false; });
   }
+  if (loaderTpl) templates.loader = loaderTpl;
   if (ctx.debug.verbose) {
     const d = (t: { rig: { triangles: number; drawCalls: number; lod1Triangles: number; lod1: unknown[]; shadowTriangles: number } }) =>
       `${t.rig.triangles} tris / ${t.rig.drawCalls} draws (lod1 ${t.rig.lod1Triangles} / ${t.rig.lod1.length}, shadow ${t.rig.shadowTriangles})`;

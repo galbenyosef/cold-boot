@@ -3,7 +3,7 @@
  * separation between bodies, update LOD, corpse cap.
  */
 import * as THREE from 'three';
-import type { ActorLook, ActorType, Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySkin, EnemySpawn, EnemyType, GameContext, SoldierArms, SoldierDebug } from '../core/types';
+import type { ActorLook, ActorType, BossControl, Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySkin, EnemySpawn, EnemyType, GameContext, SoldierArms, SoldierDebug } from '../core/types';
 import { EnemyBase, type EnemyWorld } from './ai';
 import { NavGraph } from './nav';
 import { raycastVolumes, volumeNormal, type HitVolume, type VolumeHit } from './shared/hit';
@@ -35,6 +35,25 @@ interface SoldierLike extends EnemyBase {
   debugRow(): SoldierDebug;
 }
 const isSoldier = (e: EnemyBase): e is SoldierLike => e.type === 'soldier' && typeof (e as Partial<SoldierLike>).releaseHold === 'function';
+
+/**
+ * Stage 3d (W3b): what the manager needs from the loader (loader/loader.ts) for `boss()` — duck-typed as the soldier.
+ */
+interface LoaderLike extends EnemyBase {
+  readonly stage: number;
+  readonly dead: boolean;
+  cue(name: 'lower'): void;
+  setStage(s: 1 | 2 | 3): void;
+  partHp(part: string): number;
+  floodLit(p: THREE.Vector3): boolean;
+  snapshot(): import('../core/types').BossState;
+  restore(s: import('../core/types').BossState): void;
+  debugRow(): Record<string, unknown>;
+  readonly log: unknown[];
+}
+const isLoader = (e: EnemyBase): e is LoaderLike => e.type === 'loader' && typeof (e as Partial<LoaderLike>).floodLit === 'function';
+/** Stage 3d S8a (W3c's walk in soldier.ts): a soldier that can walk a patrol path and hold at its end. */
+interface PatrolLike { patrol(points: THREE.Vector3[], o: { speed?: number; light?: boolean; end: 'hold' }): void }
 
 /**
  * REVISION 5 — what `enemies.actor()` returns beyond the contract's EnemyActor (holograms):
@@ -192,6 +211,35 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     }
   };
   const handles = new Map<EnemyBase, ActorHandle>();
+  // stage 3d (W3b): BossControl per loader
+  const controls = new WeakMap<EnemyBase, BossControl>();
+  const controlOf = (e: LoaderLike): BossControl => {
+    let c = controls.get(e);
+    if (c) return c;
+    c = {
+      get id() { return e.id; },
+      get stage() { return e.stage; },
+      get dead() { return e.dead; },
+      cue: (n) => e.cue(n),
+      wake: () => e.wake(0),
+      setStage: (s) => e.setStage(s),
+      partHp: (p) => e.partHp(p),
+      floodLit: (p) => all.includes(e) && e.floodLit(p),
+      snapshot: () => e.snapshot(),
+      restore: (s) => e.restore(s),
+      removeSilently: () => manager.removeGroup(e.group),
+    };
+    controls.set(e, c);
+    return c;
+  };
+  /**
+   * Stage 3d D20 (extra on the enemies' world, for W3c's soldier): `p` (the player's feet) is lit by a live flood of any
+   * loader. Soldiers may read `world.floodLit?.(p)` or the contract's `enemies.boss(group).floodLit(p)`.
+   */
+  (world as unknown as { floodLit(p: THREE.Vector3): boolean }).floodLit = (p) => {
+    for (let i = 0; i < all.length; i++) { const e = all[i]; if (e.alive && isLoader(e) && e.floodLit(p)) return true; }
+    return false;
+  };
 
   if (!ctx.debug.noEnemies) {
     for (const s of ctx.level.enemySpawns ?? []) {
@@ -218,7 +266,8 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
   const camPos = new THREE.Vector3();
   const cullOne = (e: EnemyBase) => {
     const o = e.object;
-    const d = o.position.distanceTo(camPos);
+    // the loader's rig is authored in world space (object at the origin): measure from its body (the pod)
+    const d = (e.type === 'loader' ? e.position : o.position).distanceTo(camPos);
     const inert = !e.awake || e.settled;
     // Stage 3a §8.4: in a room a live feed shows → stays drawable and fully animated whatever the main view; the main
     // pass still hides it (render's occludeForeign asks `roomVisible`), the feed pass draws it.
@@ -253,6 +302,18 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     for (let i = 0; i < actors.length; i++) cullOne(actors[i]);
   };
 
+  // stage 3d B6 (W3b): the body's floor (its wreck box's bottom) under a water volume's surface by more than 0.6 m
+  const deepWater = (b: THREE.Box3): boolean => {
+    const water = ctx.level?.water ?? [];
+    if (!water.length) return false;
+    const cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2;
+    for (const w of water) {
+      if (cx < w.box.min.x || cx > w.box.max.x || cz < w.box.min.z || cz > w.box.max.z) continue;
+      if (b.min.y < w.box.min.y - 1 || b.min.y > w.surface) continue;
+      if (w.surface - b.min.y > 0.6) return true;
+    }
+    return false;
+  };
   // ── wreck collision: a low box over each corpse, unless it would plug a doorway or trap the player
   let wreckTimer = 0;
   const wrecks = (dt: number) => {
@@ -271,6 +332,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         if (Math.hypot(cx - dp.x, cz - dp.z) < 1.2 && Math.abs(dp.y - b.min.y) < 2) blocked = true;
       }
       if (blocked) { e.wreckChecked = -1; continue; } // never: a corpse in a doorway stays walk-through
+      if (deepWater(b)) { e.wreckChecked = -1; continue; } // stage 3d B6: a body in water deeper than 0.6 m makes no wreck box
       // the player (capsule r ≈ 0.35) standing in / on it: try again later
       const pp = world.playerPos, r = 0.38;
       if (pp.x > b.min.x - r && pp.x < b.max.x + r && pp.z > b.min.z - r && pp.z < b.max.z + r && pp.y < b.max.y + 0.05 && pp.y > b.min.y - 1.8) continue;
@@ -356,13 +418,23 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       if (e.wreckBox) out.y = Math.max(out.y, e.wreckBox.max.y + 0.08);
       return out;
     },
-    // K placeholder (stage 3d §8.1, W3b): no boss exists until the loader is registered
-    boss(_group) { return null; },
-    // K placeholder (stage 3d S8a, W3b manager line + W3c walk): every living soldier of `group` is put at the last point (no walk)
-    patrol(group, points, _o) {
+    // stage 3d §8.1 (W3b): the loader of `group` (alive or dead, while it is in `all`); one cached control per loader
+    boss(group) {
+      for (let i = 0; i < all.length; i++) { const e = all[i]; if (e.group === group && isLoader(e)) return controlOf(e); }
+      return null;
+    },
+    // stage 3d S8a (W3b manager line; the walk is W3c's `patrol(points, o)` on the soldier). A soldier build without the
+    // walk: put at the last point (the K stub's behaviour).
+    patrol(group, points, o) {
       const last = points[points.length - 1];
       if (!last) return;
-      for (let i = 0; i < all.length; i++) { const e = all[i]; if (e.group === group && e.alive && e.type === 'soldier') { e.body.position.copy(last); e.body.velocity.set(0, 0, 0); } }
+      for (let i = 0; i < all.length; i++) {
+        const e = all[i];
+        if (e.group !== group || !e.alive || e.type !== 'soldier') continue;
+        const pl = e as unknown as Partial<PatrolLike>;
+        if (typeof pl.patrol === 'function') pl.patrol(points.map((p) => p.clone()), o);
+        else { e.body.position.copy(last); e.body.velocity.set(0, 0, 0); }
+      }
     },
     hitscan(origin, direction, maxDistance) {
       best.t = maxDistance; best.volume = null;
@@ -506,6 +578,12 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       soldier(id: number) { return all.find((e) => e.id === id && e.type === 'soldier') ?? null; },
       director() { return world.soldiers(); },
       tuning() { return JSON.parse(JSON.stringify(SOLDIER_TUNING)); },
+      /** Stage 3d §8.2 (W3b): the first loader's debug row (`{ stage, mode, parts: { id: { hp, pos, mult } }, … }`), or null. */
+      loader(group?: string) { const e = all.find((q) => isLoader(q) && (!group || q.group === group)) as LoaderLike | undefined; return e ? e.debugRow() : null; },
+      /** The loader's event log (lock / impact / outline / setdown / stage / …); `clear` empties it. */
+      loaderLog(clear = false) { const e = all.find((q) => isLoader(q)) as LoaderLike | undefined; if (!e) return []; const l = e.log.slice(); if (clear) e.log.length = 0; return l; },
+      /** The loader object itself (tests). */
+      loaderObj() { return all.find((q) => isLoader(q)) ?? null; },
     },
     update(dt) {
       dt *= manager.timeScale;
@@ -526,7 +604,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         if (e.settled) continue;
         e.lodAcc += dt;
         // far-away machines tick at half rate
-        if (e.dist > 28 && e.awake && ((frame + e.id) & 1) === 0) continue;
+        if (e.dist > 28 && e.awake && e.type !== 'loader' && ((frame + e.id) & 1) === 0) continue;
         e.update(Math.min(e.lodAcc, 0.1));
         e.lodAcc = 0;
       }
