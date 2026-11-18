@@ -25,6 +25,9 @@ export interface LookSettings {
   mistDensity: number;
   mistFalloff: number;
   mistBase: number;
+  /** Stage 3d: the mist base follows the camera's feet downward (min(mistBase, feet)), for levels far below y 0
+   *  (level 6's chamber at −20). Off by default: levels 1–5 keep the fixed base. A level turns it on. */
+  mistFollow: boolean;
   mistColor: THREE.Color;
 }
 
@@ -48,6 +51,7 @@ export function defaultLook(): LookSettings {
     mistDensity: 0.02,
     mistFalloff: 1.3,
     mistBase: 0.0,
+    mistFollow: false,
     mistColor: new THREE.Color(0.006, 0.0095, 0.012),
   };
 }
@@ -165,6 +169,7 @@ export class PostChain implements PostFx {
   private grainTime = 0;
 
   private readonly _fwd = new THREE.Vector3();
+  private _mistFeet = NaN;
   private readonly _right = new THREE.Vector3();
   private readonly _up = new THREE.Vector3();
   private readonly _black = new THREE.Color(0, 0, 0);
@@ -450,7 +455,11 @@ export class PostChain implements PostFx {
       u.uCamForward.value.copy(this._fwd);
       u.uMistDensity.value = look.mistDensity;
       u.uMistFalloff.value = look.mistFalloff;
-      u.uMistBase.value = look.mistBase;
+      if (look.mistFollow) {
+        const feet = Math.min(look.mistBase, e[13] - 1.6);
+        this._mistFeet = Number.isFinite(this._mistFeet) ? this._mistFeet + (feet - this._mistFeet) * 0.1 : feet;
+        u.uMistBase.value = this._mistFeet;
+      } else u.uMistBase.value = look.mistBase;
       drawFullscreen(r, this.mergeMat, this.hdr);
     }
 
