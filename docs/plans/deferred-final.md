@@ -120,3 +120,8 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   DESIGN at IA: trench treads 0.35, tent 0.8 m south, shaft guard on L2 north edge dropped, cover moves (COVER6_NOTES).
 - Run gates 3/4 of the 3d plan (loader-in-motion review on the chamber, perf view (9) with loader + six enemies) were
   NOT run before wave 2 (user's test rule) — do them at 3d IA/IB; D3a measures its own views meanwhile.
+- 3d F1: zfight L6 19 → 8 ERROR. Remaining: loader `model.ts` `authorBridge` girder × flange lips coplanar at y=h/0
+  (shorten girder body 0.04 per end, rails from h+0.02), trolley beams × end beams < 5 mm, flood glow × loader_dark
+  7–9 mm; `bj6_leafW` × `bj6_leafE` (vault6 −12, 1.03, −178.5) and a bj6 floor face at y 0 (find the owner: W7
+  beachJoint6 / D2); grey guard-vs-deck 3–6 mm and pool6/tun6_b wall WARNs. Decide: cap `galleryRun` parapets (9 cm
+  flat static top at 1.1 m)? Re-run `check:reach`/nav L6 (stopper, walkable, rail caps); play a hatch shut → open.
