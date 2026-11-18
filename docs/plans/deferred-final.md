@@ -45,3 +45,10 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   geometric; tray bodies maybe too dark; berths ceiling over the first dome brightest.
 - Coordinator look (f0204a6, level-5 start view): a faint second sign text "POST 4 — GATE LOCK" shows through/above the
   "POST 4 — PRESSURE GATE — NAVAL ACCESS ONLY" sign on the lock wall — two signs overlap; keep one.
+- 3d W1: `check:water --part level` once W4b water is in (B3 walk-out from every 0.5 m cell of `wat6_wet` ≤ 10 s, rescue
+  onto real exit markers, sight from `mk6_boss_safe` under the well's surface), then full `check:water`; `check:weapons`
+  L1–5 (aimLock now also steers the pistol; wall pull-back on raycastSolid); palm-scan cases L1–5 + `check:soldier`;
+  `check:physics`; `play:l4`/`play:l5` (crouch/stand); `play:l6` real grips; frames of grips with the HUD meter; user
+  listens: wading steps, rescue muffle/fade. Weak: grip hands small / arms long at 0.9–1.3 m (shoulder lean), crank+pin
+  hands share a knob, no lean-back on pull, no bubbles, grounded flicker in deep water; `keyName` not on the Player
+  contract (W2a reads `hasKey` + its own names — dedupe with `src/player/keys.ts`).
