@@ -27,3 +27,9 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `check:cards`; grip ring live with real `gripProgress`; loader pips with real `part-destroyed` / 0-damage `part`
   (assumes `enemy:damaged` carries `part`); HUD unchanged on L1–5 (`check:weapons`); W2b must define `grip_tick`;
   subtitles `phone` class matches speaker labels AAS / LT. AAS / HANDSET — check the story's label.
+- 3c IB5b: `check:dark` L3–5; `check:fxleak` L4 + L5 (portal culling now on level 5: duty-room feed, crawl turn, sub-bay
+  doors pop-in); zfight on set pieces; `play:l5` `cmd5_port_look`, rounds through the port, magazine hatch walkable,
+  vent grille drop, checkpoint restore of strips/emergency; `play:l3`/`play:l4` + a look at smoke/fog/puffs on L1–4
+  (IBL feedback change + fxLight hemisphere-0 fix make fx darker where spuriously lit); re-shoot L3 kitchen + ring_e glows
+  after takeover; perf §10.6 LOW/MEDIUM/HIGH. Still weak: ADS receiver still dark; bay beacons bright on end walls; dive
+  locker mostly red.
