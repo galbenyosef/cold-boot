@@ -86,3 +86,8 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   rows ~37k tris each (thin first); deck-grate infill faint; tunnel ring plain alone; slack coil spring-like; hanging
   fitting doesn't sway; pawl small; container door label near the corner; tent work lamp hard to see; jointer bodies
   (J. Rød, M. Lie) not built — owner? (D2/ST). User listens: ratchet clacks, brake bang, bulb pop, grille drop.
+- 3d W8: in-situ zfight per room (pool6, tunnels ~16–18 mm tolerance; gallery strip/fascia, runway buffers, wall backs
+  at 10–16 mm); perf views (1)–(11) with the kit placed; `check:reach`/`check:nav` L6 with move-only boxes. Weak: OLT
+  rows ~37k tris each (thin first); deck-grate infill faint; tunnel ring plain alone; slack coil spring-like; hanging
+  fitting doesn't sway; pawl small; container door label near the corner; tent work lamp hard to see; jointer bodies
+  (J. Rød, M. Lie) not built — owner? (D2/ST). User listens: ratchet clacks, brake bang, bulb pop, grille drop.
