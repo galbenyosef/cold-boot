@@ -18,3 +18,8 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `check:doors`, `check:wreck`, `check:weapons`; full `check:chain` re-run with the final allow-list.
 - To-dos from K: `src/enemies/nav.ts:200` per-level branch (`levelId === 5`) → level data; patrol stub only teleports;
   check-chain's two `LEVELS[5].next === null` cases rewritten when 5 → 6 goes live; rayOnly/moveOnly on dynamic boxes.
+- 3c IB5a: `check:zfight` level 5 rooms + kit5 dev `&zroom=bay`; `check:nav`/`check:reach` for the mess tea-counter
+  collider (x 37.18–37.8, z −9.27…−6.73); `check-dark --level 5` fore/quarters (lights moved, lighter walls); `play:l5`
+  `v5_body` + snap with the new body; `check-soldier` death poses; soldier perf at LOD0 with 3 soldiers in the bay
+  (+2–3k tris each); perf MEDIUM/HIGH berths + galley. To-dos: plan §2.6 "catering contractor" → "navy cook"; locker
+  aisles in the ready room plain; lino/mess floors pale and glossy.
