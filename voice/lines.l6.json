@@ -709,5 +709,53 @@
     "fx": "radio",
     "note": "rule: C: Q, ending pending",
     "spoken": "The dock console. The mid deck."
+  },
+  {
+    "id": "l6_sol_frame_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "Step away from the frame, Technician.",
+    "fx": "throat",
+    "note": "rule: C: choice, player in t6_cage, speaker has sight <= 30 m, bark gate; stop"
+  },
+  {
+    "id": "l6_sol_frame_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "Step away from the frame, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: choice, player in t6_cage, speaker has sight <= 30 m, bark gate; command"
+  },
+  {
+    "id": "l6_sol_reach_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "You cannot cut what you cannot reach, Technician.",
+    "fx": "throat",
+    "note": "rule: C: choice, phase K, pin not out, speaker has sight at >= 15 m, bark gate; stop"
+  },
+  {
+    "id": "l6_sol_reach_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "You cannot cut what you cannot reach, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: choice, phase K, pin not out, speaker has sight at >= 15 m, bark gate; command"
+  },
+  {
+    "id": "l6_sol_lost_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "We know where you went, Technician.",
+    "fx": "throat",
+    "note": "rule: C: choice, the speaker lost sight >= 3 s with a last-known position, bark gate; stop"
+  },
+  {
+    "id": "l6_sol_lost_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "We know where you went, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: choice, the speaker lost sight >= 3 s with a last-known position, bark gate; command"
   }
 ]
