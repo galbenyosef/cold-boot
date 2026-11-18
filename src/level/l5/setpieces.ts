@@ -1264,7 +1264,7 @@ export function launchLockDoor(L: LevelBuild, b: Builder, o: LockDoorOpts = {}):
   // hinge (+x): two knuckles, pin, hydraulic actuator
   for (const dy of [-1.3, 1.3]) b.box(frameMat, X + R + 0.62, Y + dy, face + 0.32, 0.4, 0.5, 0.36);
   b.cyl(steel, X + R + 0.7, Y, face + 0.38, 0.09, 3.2, 'y', 14);
-  b.box(leafMat, X + R + 0.28, Y, lf + 0.02, 0.5, 3.0, 0.12);
+  b.box(leafMat, X + R + 0.28, Y, lf + 0.03, 0.5, 3.0, 0.14); // (front lf + 0.10: 2 cm proud of the dog at 3 o'clock — was coplanar)
   b.rod(steel, X + R + 0.85, Y - 1.9, face + 0.12, X + R + 0.85, Y - 0.6, face + 0.42, 0.06, 10);
   b.cyl(dark, X + R + 0.85, Y - 2.15, face + 0.1, 0.1, 0.55, 'y', 12);
   // port: bezel, bolts, bore (inside), glass
@@ -1279,7 +1279,8 @@ export function launchLockDoor(L: LevelBuild, b: Builder, o: LockDoorOpts = {}):
   // sill with rail gates + floor hazard band
   b.bx(frameMat, X - 3.0, 0, face, X + 3.0, 0.5, face + 0.5);
   b.bx('hazard_stripes', X - 3.0, 0.5, face + 0.3, X + 3.0, 0.505, face + 0.5);
-  for (const rx of TERN5.rails.x) b.bx(steel, rx - 0.14, 0.15, face + 0.0, rx + 0.14, 0.5, face + 0.505);
+  // rail gates stand 1 cm over the sill top and 1.5 cm proud of its face (they sat on the sill top, under the hazard band)
+  for (const rx of TERN5.rails.x) b.bx(steel, rx - 0.14, 0.15, face + 0.0, rx + 0.14, 0.51, face + 0.515);
   b.detail(() => b.bx('hazard_stripes', X - 3.0, 0, face + 0.5, X + 3.0, 0.004, face + 0.9));
   if (o.collide !== false) {
     b.collide(X - 3.0, 0.5, face, X + 3.0, Y + R + 0.5, face + 0.5, 'metal', true);
@@ -1310,7 +1311,8 @@ export interface CmdDoorOpts {
  * face. Door camera above-left (z −17.4, y 2.85) with a tally (red / amber / white); intercom grille right (z −14.5,
  * y 1.45); text panel `door5_cmd_panel` left (z −17.5, y 1.75, `terminal_idle`). The yellow stand line x 42.5 across
  * the spine floor (z −17.8 … −14.2, 0.12 wide), emissive paint.
- * Collider: the opening x 43.55 … 44.2, z −17.25 … −14.75, y 0 … 3.0 (nav). W4 carves the 2.5 × 3.0 opening.
+ * Collider: the opening x 43.55 … 44.2, z −17.25 … −14.75, y 0 … 3.0 (nav), with a 0.3 × 0.3 hole in front of the
+ * port down to x 43.83 (the level puts the `port` glass pane collider there). W4 carves the 2.5 × 3.0 opening.
  * Draw calls: own — back box (1), silhouette (1, alpha-tested), port glass (1, transparent), line (1), camera head
  * (2, mover-free group), lamps (1) + halos (1); zone — `navy_grey`, `painted_dark`, `steel_raw`, `trim_steel`,
  * `hazard_stripes`. `userData`: `look(on)` (`cmd5_port_look`), `tally(s)`, `watch(p | null)` (the camera head turns
@@ -1420,8 +1422,17 @@ export function cmdDoor(L: LevelBuild, b: Builder, o: CmdDoorOpts = {}): THREE.O
   lamps.halo(1, new THREE.Vector3(X - 0.28, 1.66, Z + 1.5), 0.04, 2.0);
   lamps.finish(rooms);
   L.screen('door5_cmd_panel', 'terminal_idle', 0.42, 0.28, X - 0.205, 1.75, Z - 1.52, '-x', { text: o.panel ?? 'COMMAND MODULE\nSHIELDED\nSEALED FROM INSIDE' });
-  // collider across the opening
-  b.collide(X - 0.45, 0, Z - 1.25, X + 0.2, 3.0, Z + 1.25, 'metal', true);
+  // collider across the opening, with the port left open in front of the pane (x X − 0.17 … X − 0.14 is the level's
+  // `mk5_glass` `port` pane, a glass collider the level adds): a round fired through the port reaches the glass, a
+  // sight ray reaches the pane — the frame no longer covers it (was one box from X − 0.45)
+  b.collide(X - 0.14, 0, Z - 1.25, X + 0.2, 3.0, Z + 1.25, 'metal', true);
+  {
+    const x0 = X - 0.45, x1 = X - 0.17, y0 = PY - 0.15, y1 = PY + 0.15, z0 = Z - 0.15, z1 = Z + 0.15;
+    b.collide(x0, 0, Z - 1.25, x1, y0, Z + 1.25, 'metal', true);
+    b.collide(x0, y1, Z - 1.25, x1, 3.0, Z + 1.25, 'metal', true);
+    b.collide(x0, y0, Z - 1.25, x1, y1, z0, 'metal', true);
+    b.collide(x0, y0, z1, x1, y1, Z + 1.25, 'metal', true);
+  }
 
   // runtime: silhouette track, camera watch, line pulse, tally
   let lookOn = false, lookK = 0, pulseOn = false, base = 0.12, t = 0;
@@ -1547,7 +1558,7 @@ export const HATCH5_MAG: HatchSpec = { name: 'hatch5_mag', x0: 20.4, x1: 21.6, z
  * mover: decals ride it), a flush angle-iron curb round the opening, hinge knuckles, the dog wheel (`dogs(k)` turns
  * it 1.25 turns: 0 dogged … 1 free) on the top or underside, a canvas top (non-slip, yellow / black border, the
  * stencil), an optional status lamp (`lamp('red' | 'green' | 'off')`). Physics: ONE dynamic box (`userData.box`)
- * following the lid — closed = the slab (walkable), open = the standing lid, in between = the moving lid's bounds.
+ * following the lid — closed = the slab (`walkable` while k < 0.5), open = the standing lid, in between = the moving lid's bounds.
  * No static collider (W4's pit / opening is empty below). Draw calls: lid body `navy_grey` + top canvas + steel
  * wheel/hinges (3), + lamp (1) if any; curb in the zone (`steel_raw`). `L.objects[name].userData`: `open(k)`,
  * `dogs(k)`, `lamp(s)`, `k`, `box`, `spec`, `underside` (world point at the lid's underside centre).
@@ -1556,10 +1567,11 @@ export function hatchLid(L: LevelBuild, b: Builder, s: HatchSpec): THREE.Object3
   const y = s.y ?? 0, w = s.x1 - s.x0, d = s.z1 - s.z0, T = 0.08, xc = (s.x0 + s.x1) / 2;
   const rooms = s.rooms ?? b.rooms.slice();
   const body: Mat = libOr(L, 'navy_grey', 'wall_panel_dark'), steel: Mat = 'steel_raw';
-  // curb (flush, 5 mm proud) round the opening
-  const c = 0.06;
-  b.bx(steel, s.x0 - c, y - 0.1, s.z0 - c, s.x1 + c, y + 0.005, s.z0).bx(steel, s.x0 - c, y - 0.1, s.z1, s.x1 + c, y + 0.005, s.z1 + c);
-  b.bx(steel, s.x0 - c, y - 0.1, s.z0, s.x0, y + 0.005, s.z1).bx(steel, s.x1, y - 0.1, s.z0, s.x1 + c, y + 0.005, s.z1);
+  // deck curb round the opening, 1 cm outside it (its inner faces on the pit walls z-fought them) — a flat bar 1 cm
+  // thick whose top is 2 mm under the shut lid's top (the lid is laid `y` proud of the deck: pass y 0.008 over a stair)
+  const c = 0.07, g = 0.01, cy0 = y - 0.012, cy1 = y - 0.002;
+  b.bx(steel, s.x0 - c, cy0, s.z0 - c, s.x1 + c, cy1, s.z0 - g).bx(steel, s.x0 - c, cy0, s.z1 + g, s.x1 + c, cy1, s.z1 + c);
+  b.bx(steel, s.x0 - c, cy0, s.z0 - g, s.x0 - g, cy1, s.z1 + g).bx(steel, s.x1 + g, cy0, s.z0 - g, s.x1 + c, cy1, s.z1 + g);
   // top canvas
   const topMat = mat5(L, `sp5_hatch_top_${s.name}`, () => {
     const pxW = 512, pxH = Math.round(512 * d / w);
@@ -1601,15 +1613,23 @@ export function hatchLid(L: LevelBuild, b: Builder, s: HatchSpec): THREE.Object3
     p.cyl(steel, 0, s.wheel === 'top' ? -0.04 : 0.04, 0, 0.035, 0.08, 'y', 8);
     // dog bars (rotate with the wheel)
     for (const a of [0, PI]) p.rbox(steel, Math.cos(a) * 0.32, s.wheel === 'top' ? -0.07 - T : 0.0, Math.sin(a) * 0.32, 0.5, 0.025, 0.06, 0, -a, 0);
+    // a hatch dogged from below: a red luminous band on the rim and the hub (IB5b B6 — the underside read black from
+    // the magazine floor before the lamp popped; the way out must read without the flashlight)
+    if (s.wheel === 'bottom') {
+      const lume = mat5(L, 'sp5_hatch_lume', () => new THREE.MeshStandardMaterial({ name: 'hatch_lume', color: 0x5a1a14, emissive: 0xff2a14, emissiveIntensity: 1.1, roughness: 0.5 }));
+      p.torus(lume, 0, -0.01, 0, 0.152, 0.008, 'y', 24);
+      p.cyl(lume, 0, -0.045, 0, 0.022, 0.012, 'y', 10);
+    }
   }, false);
   L.root.remove(wg.mount);
   lid.pivot.add(wg.mount);
   wg.mount.position.set(0, wheelY, wheelZ);
-  // hinge knuckles on the curb (static)
-  for (const x of [-w / 2 + 0.25, w / 2 - 0.25]) b.bx(steel, xc + x - 0.12, y - 0.12, s.z0 - 0.07, xc + x + 0.12, y + 0.005, s.z0 + 0.01);
+  // hinge knuckles on the south curb (static; they stood in the pit wall)
+  for (const x of [-w / 2 + 0.25, w / 2 - 0.25]) b.bx(steel, xc + x - 0.11, cy1, s.z0 - 0.065, xc + x + 0.11, y + 0.042, s.z0 - g - 0.004);
   // physics
   const box = L.ctx.physics.addBox(new THREE.Box3(), 'metal');
   box.owner = lid.mount;
+  const walk = box as unknown as { walkable: boolean };
   const corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   let k = 0, dk = 0;
   const apply = () => {
@@ -1621,6 +1641,7 @@ export function hatchLid(L: LevelBuild, b: Builder, s: HatchSpec): THREE.Object3
     for (const xx of [-w / 2, w / 2]) for (const yy of [0, T]) for (const zz of [0, d]) corners[i++].set(xx, yy, zz).applyMatrix4(mw);
     box.box.setFromPoints(corners);
     if (k > 0.98) { box.box.min.z = s.z0 - T; box.box.max.z = s.z0; }
+    walk.walkable = k < 0.5; // the shut lid is deck (the player and the nav stand on it)
   };
   apply();
   const root = lid.mount;
@@ -1736,8 +1757,10 @@ export function launchConsole(L: LevelBuild, b: Builder, o: ConsoleOpts = {}): T
   const D = 0.5, Wd = 1.4, hf = 0.95, hb = 1.1, slope = Math.atan2(hb - hf, D - 0.08);
   b.push(X, Y, Z, ry);
   // pedestal (back at local z 0, front at z D)
-  b.bx(body, -Wd / 2, 0, 0, Wd / 2, hf - 0.02, D);
-  b.bx(dark, -Wd / 2 + 0.05, 0, D - 0.12, Wd / 2 - 0.05, 0.12, D + 0.001); // toe kick
+  // (the toe kick is a 6 cm recess under the pedestal with side plinths — it stood 1 mm proud of the front: z-fight)
+  b.bx(body, -Wd / 2, 0.12, 0, Wd / 2, hf - 0.02, D);
+  b.bx(body, -Wd / 2, 0, 0, -Wd / 2 + 0.05, 0.12, D).bx(body, Wd / 2 - 0.05, 0, 0, Wd / 2, 0.12, D);
+  b.bx(dark, -Wd / 2 + 0.05, 0, 0, Wd / 2 - 0.05, 0.12, D - 0.06); // toe kick
   b.bx(body, -Wd / 2, hf - 0.02, 0, Wd / 2, hb, 0.08);
   // sloped desk top
   b.push(0, (hf + hb) / 2, (D + 0.08) / 2, 0, slope);

@@ -22,7 +22,10 @@ vec3 fxLight(vec3 p, float g, out vec3 domDir) {
   vec3 c;
   IncidentLight L;
 #if NUM_HEMI_LIGHTS > 0
-  for (int i = 0; i < NUM_HEMI_LIGHTS; i++) total += 0.5 * (hemisphereLights[i].skyColor + hemisphereLights[i].groundColor);
+  // only hemisphere light 0 is a light: #1 … are the render module's data lights (probe boxes, per-slot light boxes —
+  // world centres and half extents in their colours, render/patch.ts). Summing them lit fx volumes by coordinates
+  // (IB5b: the cold store's floor fog glowed with every light out).
+  total += 0.5 * (hemisphereLights[0].skyColor + hemisphereLights[0].groundColor);
 #endif
 #if NUM_DIR_LIGHTS > 0
   for (int i = 0; i < NUM_DIR_LIGHTS; i++) {

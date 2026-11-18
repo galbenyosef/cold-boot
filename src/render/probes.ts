@@ -7,7 +7,11 @@ interface Probe {
   pmrem: THREE.WebGLCubeRenderTarget | null;
   box: THREE.Box3 | null;
   dirty: boolean;
+  /** Static light in the probe's room when it was last captured (LightPool.boxSignature), -1 = unknown. */
+  roomSig: number;
 }
+/** A box no fragment is inside (its IBL weight is 0): the far side of a feedback-scaled capture. */
+const NOWHERE = new THREE.Box3(new THREE.Vector3(1e7, 1e7, 1e7), new THREE.Vector3(1e7, 1e7, 1e7));
 
 export interface RoomBox { bounds: THREE.Box3 }
 
@@ -71,6 +75,9 @@ export class Probes {
   private blendTick = 0;
 
   private recapFace = -1;
+  /** IBL weight inside the probe's room while it is re-captured (1 = the live environment bounces in full). */
+  private recapIbl = 1;
+  private recapSig = -1;
   private signature = NaN;
   private sigTimer = 0;
   private settle = 0;
@@ -164,7 +171,7 @@ export class Probes {
     this.mix = 1;
     this.finishing = false;
     this.recapFace = -1;
-    for (const pos of positions) this.probes.push({ position: pos.clone(), pmrem: null, box: this.roomOf(pos), dirty: false });
+    for (const pos of positions) this.probes.push({ position: pos.clone(), pmrem: null, box: this.roomOf(pos), dirty: false, roomSig: -1 });
     if (this.probes.length === 0) return;
 
     this.blendPass(null, null, 0);
@@ -190,6 +197,7 @@ export class Probes {
     this.cubeCamera.update(this.renderer, this.scene);
     p.pmrem = this.pmrem.fromCubemap(this.cubeRT.texture, p.pmrem);
     p.dirty = false;
+    p.roomSig = p.box ? this.lights.boxSignature(p.box) : -1;
   }
 
   private pick(camPos: THREE.Vector3): number {
@@ -306,13 +314,24 @@ export class Probes {
     const r = this.renderer;
     if (this.recapFace < 6) {
       const cam = this.cubeCamera;
-      if (this.recapFace === 0) { cam.position.copy(cur.position); cam.updateMatrixWorld(true); }
+      if (this.recapFace === 0) {
+        cam.position.copy(cur.position); cam.updateMatrixWorld(true);
+        // IB5b (3b B8): the capture sees the room lit by the LIVE environment — the old capture. When the room's own
+        // lights went out (lights-out: 5 % emergency left) that old, lit IBL fed back into the new capture and the
+        // room kept reading lit (white walls ≈ 64 % per bounce, one re-capture per change). The environment's share is
+        // scaled by how much of the room's light is left (unchanged rooms: 1, exactly as before).
+        this.recapSig = cur.box ? this.lights.boxSignature(cur.box) : -1;
+        this.recapIbl = cur.box && cur.roomSig > 1e-4 && this.recapSig >= 0 ? Math.min(1, this.recapSig / cur.roomSig) : 1;
+      }
       this.lights.applyBake(true);
       this.onCapture?.(true);
+      const scaled = this.recapIbl < 0.999 && !!cur.box;
+      if (scaled) this.lights.setProbeBoxes(cur.box, NOWHERE, 1 - this.recapIbl);
       const prev = r.getRenderTarget();
       r.setRenderTarget(this.cubeRT, this.recapFace);
       r.render(this.scene, cam.children[this.recapFace] as THREE.Camera);
       r.setRenderTarget(prev);
+      if (scaled) this.lights.setProbeBoxes(cur.box, cur.box, 0);
       this.onCapture?.(false);
       this.lights.applyBake(false);
       this.recapFace++;
@@ -320,6 +339,7 @@ export class Probes {
       this.onHeavyFrame?.();
       this.scratch = this.pmrem.fromCubemap(this.cubeRT.texture, this.scratch);
       cur.dirty = false;
+      cur.roomSig = this.recapSig;
       this.recapFace = -1;
       this.startTransition(this.scratch.texture, cur.box, this.current, true);
     }

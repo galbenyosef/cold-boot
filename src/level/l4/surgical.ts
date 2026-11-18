@@ -609,7 +609,7 @@ export const SURGICAL_DRESS: Partial<Record<RoomId4, RoomDress>> = {
     lights: [
       { group: 'scrub', type: 'point', p: [0, 7.55, -40], color: CLEAN, i: 6, d: 8 },
       { group: 'scrub', type: 'point', p: [-2, 7.55, -38.5], color: CLEAN, i: 3, d: 6, min: 'medium' },
-      em('scrub', [0, 7.55, -40], 1.4, 8),
+      em('scrub', [3.3, 7.4, -42.5], 0.9, 6), // IB5b (B8): in the corner, off the room's probe (was at it: the IBL lit the room)
     ],
   },
   store4: {

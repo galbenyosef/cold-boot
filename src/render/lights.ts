@@ -372,6 +372,25 @@ export class LightPool implements LightManager {
    * A cheap signature of the *static* lighting state (enabled / scale / colour of lights that never moved).
    * When it changes, reflection probes are stale.
    */
+  /**
+   * IB5b: how much static light stands in (or within `margin` m of) a box — Σ intensity × scale × mean flicker of the
+   * switched-on, unmoved lights there. The probes compare it before / after a re-capture (see probes.ts).
+   */
+  boxSignature(box: THREE.Box3, margin = 0.5): number {
+    let sig = 0;
+    const hs = this.handles;
+    for (let i = 0; i < hs.length; i++) {
+      const h = hs[i];
+      if (h.moved || (h.desc.priority ?? 1) >= 50) continue;
+      if (!h.enabled || h.intensityScale <= 0) continue;
+      if (this.belowQuality(h)) continue;
+      const q = h.position;
+      if (q.x < box.min.x - margin || q.x > box.max.x + margin || q.y < box.min.y - margin || q.y > box.max.y + margin || q.z < box.min.z - margin || q.z > box.max.z + margin) continue;
+      sig += h.desc.intensity * h.intensityScale * FLICKER_MEAN[h.flicker.mode];
+    }
+    return sig;
+  }
+
   staticSignature(): number {
     let sig = 0;
     const hs = this.handles;

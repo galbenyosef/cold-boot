@@ -405,7 +405,9 @@ const canteen: RoomDress = {
 const kitchen: RoomDress = {
   label: false,
   look: { floor: 'tile_ceramic', wall: 'tile_ceramic', ceiling: 'painted_white' },
-  lights: [],
+  // IB5b (3b carry-over B8): pitch black after the takeover with the lamp off — the night strip under the shelf
+  // gives a dim pool, on the canteen's emergency circuit (the story switches `canteen_emerg` at the takeover)
+  lights: [{ group: 'canteen_emerg', type: 'point', p: [-21.0, 1.45, -47.45], color: 0xffc890, i: 0.9, d: 4, prio: 0.4, off: true }],
   build(L) {
     const b = L.builder('kitchen_dress');
     const R = rng(3851);
@@ -757,7 +759,8 @@ const bio_lock: RoomDress = {
 const ring_e: RoomDress = {
   label: false,
   look: { floor: 'carpet', wall: 'plaster_warm', ceiling: 'plaster_warm' },
-  lights: [],
+  // IB5b (3b carry-over B8): the red strip now throws a dim red pool after the takeover (`quarters_emerg`)
+  lights: [{ group: 'quarters_emerg', type: 'point', p: [29.6, 2.75, -31.0], color: 0xff3020, i: 1.1, d: 5, prio: 0.4, off: true }],
   build(L) {
     const b = L.builder('ring_e_dress');
     // the ring goes on east behind a lowered fire shutter; a red emergency strip is the only light

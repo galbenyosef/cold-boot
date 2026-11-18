@@ -41,10 +41,12 @@ import {
 import type { RoomDress } from './index';
 import {
   ammoTinRack, bulkheadLamp, cableTray, cageRack, crawlJoists, fireBoard, fireHoseBox, grating, hullNumber, hullRib,
-  issueDesk, navySign, openShelf, pipeBundle, pipeRiser, rail, setStrips5, stairDressing, strip5, stripMat5, wallShelf,
+  issueDesk, navyBody, navySign, openShelf, pipeBundle, pipeRiser, rail, stairDressing, strip5, stripMat5, wallShelf,
   type BulkheadLamp,
 } from './kit5';
 import { HATCH5_MAG, HATCH5_SPINE, cmdDoor, hatchLid, minJerk } from './setpieces';
+import { emergStrips5 } from './bay';
+import { installPortalCull4 } from '../l4/kit4';
 
 const PI = Math.PI;
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -139,21 +141,8 @@ function swingLid(L: LevelBuild, lid: THREE.Object3D, at: THREE.Vector3, onOpen?
   L.after(0.45, () => { L.sfx('hatch_open', at.x, at.y + 0.3, at.z, 1.0); onOpen?.(); });
   L.tween(0.45, 1.2, (k) => ud.open(minJerk(k)), () => ud.open(1));
 }
-/** W7 lid + the walkable flag the greybox lid had (walkable while shut). */
-function lidOf(L: LevelBuild, b: Builder, spec: typeof HATCH5_SPINE): THREE.Object3D {
-  // the set piece's static curb + hinge knuckles go into a builder that is never built (their inner faces lie on the
-  // pit walls: z-fight); this file draws a deck curb 1 cm outside the opening instead
-  const lid = hatchLid(L, L.part(`${spec.name}_unused`), spec);
-  const { x0, x1, z0, z1 } = spec, c = 0.07, g = 0.01, S: Mat = 'steel_raw';
-  b.bx(S, x0 - c, -0.004, z0 - c, x1 + c, 0.006, z0 - g).bx(S, x0 - c, -0.004, z1 + g, x1 + c, 0.006, z1 + c);
-  b.bx(S, x0 - c, -0.004, z0 - g, x0 - g, 0.006, z1 + g).bx(S, x1 + g, -0.004, z0 - g, x1 + c, 0.006, z1 + g);
-  for (const x of [(x0 + x1) / 2 - (x1 - x0) / 2 + 0.25, (x0 + x1) / 2 + (x1 - x0) / 2 - 0.25]) b.bx(S, x - 0.11, 0.006, z0 - 0.065, x + 0.11, 0.05, z0 - g - 0.004);
-  const ud = lid.userData as { k: number; open(k: number): void; box: { walkable: boolean } };
-  ud.box.walkable = true;
-  const open0 = ud.open;
-  ud.open = (k: number) => { open0(k); ud.box.walkable = ud.k < 0.5; };
-  return lid;
-}
+/** W7 lid (its deck curb sits outside the opening and its box is walkable while shut — IB5b moved both into the set piece). */
+function lidOf(L: LevelBuild, b: Builder, spec: typeof HATCH5_SPINE): THREE.Object3D { return hatchLid(L, b, spec); }
 
 // ───────────────────────────────────────────────────────────── spine5 + the crawl
 
@@ -172,10 +161,18 @@ const spine: RoomDress = {
     restyle(L, 'spine5_grey', isStandin, null);
     restyle(L, 'spine5_grey', (m) => m.name === 'grey_dark' || m.name === 'grey_yellow_line' || m === L.doubleSided('floor_grate'), null);
 
+    // ── view culling (IB5b B6): level 4's portal culling on level 5's portal graph — rooms behind the walls of the
+    // graph's set are not drawn and their lights score as hidden (on LOW the armoury's and the magazine's lamps took
+    // slots from the spine through the shut d5_arm, which the graph keeps for the crawl turn). The one non-door
+    // opening is that turn under the armoury floor.
+    installPortalCull4(L, [{ a: 'spine5', b: 'arm5', wall: 'z', at: -18, u0: 16.4, u1: 17.6, y0: -1.4, y1: -0.07 }]);
+
     // ── lights (§2.7.1) ──
     const sp = [13, 25, 37].map((x) => lightRow(L, { group: 'spine5', type: 'point', p: [x, 2.68, -16], color: WARM, i: 9.5, d: 12, bounds: SPINE_B }));
     const gspot = lightRow(L, { group: 'spine5', type: 'spot', p: [28, 3.02, -16], t: [28, -1.4, -16], color: WARM, i: 9, d: 6.5, angle: 0.75, cast: true, prio: 0.6, min: 'medium', bounds: GRATE_SPOT_B });
-    const em = [[16, -16.9], [34, -15.1]].map(([x, z]) => lightRow(L, { group: 'spine5_emerg', type: 'point', p: [x, 2.85, z], color: RED, i: 3.2, d: 11, off: true, bounds: SPINE_B }));
+    // (IB5b B6: + a third over the stand line — Kessler's door read black after lights-out, the nearest pool 10 m away)
+    const EM: [number, number][] = [[16, -16.9], [34, -15.1], [42.0, -17.3]];
+    const em = EM.map(([x, z], i) => lightRow(L, { group: 'spine5_emerg', type: 'point', p: [x, 2.85, z], color: RED, i: i === 2 ? 2.4 : 3.2, d: i === 2 ? 7 : 11, off: true, bounds: SPINE_B }));
     const cr = [22, 32].map((x) => lightRow(L, { group: 'crawl5', type: 'point', p: [x, -0.42, -15.7], color: RED, i: 2.6, d: 7.5, prio: 1.3, bounds: CRAWL_B }));
 
     // fittings: fluorescent tubes on the deckhead centre line, each lens bound to the nearest main (dies with it)
@@ -190,7 +187,7 @@ const spine: RoomDress = {
     b.cyl(glens, 28, 3.04, -16, 0.11, 0.02, 'y', 16);
     // emergency fittings (red lens, dark until lights-out) and the crawl's wall LEDs
     em.forEach((h, i) => {
-      const m = L.glow(h, 'emissive_red', 1.0), [x, z] = i === 0 ? [16, -16.9] : [34, -15.1];
+      const m = L.glow(h, 'emissive_red', 1.0), [x, z] = EM[i];
       b.bx('navy_grey', x - 0.16, 3.12, z - 0.1, x + 0.16, 3.2, z + 0.1);
       b.bx(m, x - 0.12, 3.1, z - 0.06, x + 0.12, 3.12, z + 0.06);
     });
@@ -214,7 +211,8 @@ const spine: RoomDress = {
     grating(b, L, { x0: 16.4, z0: -16.6, x1: 36.2, z1: -15.4, frame: ['-x', '+z', '-z'], collide: false });
     b.at(26.3, -0.03, -16.0, 0, () => crawlJoists(b, L, { len: 19.7, w: 1.14, every: 1.2 }));
 
-    // ── emergency strips along both walls (photoluminescent channel `emerg`, off until lights_out5) ──
+    // ── emergency strips along both walls (channel `emerg`, the level's one red: a trim while lit, bright at lights-out) ──
+    emergStrips5(L);
     const runs = (z: number, cuts: [number, number][]) => {
       let a = 8.35;
       for (const [c0, c1] of [...cuts, [43.65, 99] as [number, number]]) { if (c0 - a > 0.2) strip5(b, L, a, z, c0, z, { ch: 'emerg', channel: 'navy_grey' }); a = c1; }
@@ -270,11 +268,8 @@ const spine: RoomDress = {
     // ── Kessler's door (W7): hardened leaf, the port, the camera + tally, the intercom, the yellow line ──
     const door = cmdDoor(L, b, {});
     const du = door.userData as { look(on: boolean): void; tally(s: 'red' | 'amber' | 'white' | 'off'): void; watch(p: THREE.Vector3 | null): void; pulse(on: boolean): void; lineGlow(k: number): void };
-    // the set piece closes its opening with one metal box from x 43.55: re-cut it so the port is the `mk5_glass` pane
-    // (`port`, x 43.83 … 43.86) — a round from the line through the port stars the glass, not the frame
-    dropCollider(L, [43.55, 0, -17.25, 44.2, 3.0, -14.75]);
-    b.collide(43.86, 0, -17.25, 44.2, 3.0, -14.75, 'metal', true);
-    for (const c of [[0, -17.25, 1.47, -14.75], [1.77, -17.25, 3.0, -14.75], [1.47, -17.25, 1.77, -16.15], [1.47, -15.85, 1.77, -14.75]] as const) b.collide(43.6, c[0], c[1], 43.83, c[2], c[3], 'metal', true);
+    // the set piece's collider leaves the port open in front of the `mk5_glass` pane (`port`, x 43.83 … 43.86): the
+    // pane's glass collider goes in it — a round from the line through the port stars the glass, not the frame
     { const p = PANES5.find((q) => q.id === 'port')!.box; b.collide(p[0], p[1], p[2], p[3], p[4], p[5], 'glass', false); }
     // where to stand: the line (glowing, under the rib arch at x 42.5, the camera turning to it) and a deck stencil
     b.detail(() => b.sign('STOP AT LINE', 'stencil', 41.7, 0.006, -16.0, 1.6, 0.26, '+y', -PI / 2));
@@ -299,8 +294,14 @@ const spine: RoomDress = {
       grille.userData.rooms = ['spine5'];
       // a dark louvred grille (a grating texture aliases away at 3 m): the panel dark, steel louvres under it
       grille.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = ctx.materials.get('painted_dark'); });
-      // pivot about its own centre (its geometry is in world x / z)
-      for (const c of grille.children) c.position.set(-30, 0, 16);
+      // pivot about its own centre: the greybox panel's geometry is in world x / z about an origin at (0, y, 0) — shift
+      // it by whatever offset it has from the grille's origin (0 once grey.ts builds it centred, as reported to IA5)
+      {
+        grille.updateMatrixWorld(true);
+        const bb = new THREE.Box3().setFromObject(grille);
+        const dx = (bb.min.x + bb.max.x) / 2 - grille.position.x, dz = (bb.min.z + bb.max.z) / 2 - grille.position.z;
+        if (Number.isFinite(dx) && Number.isFinite(dz)) for (const c of grille.children) { c.position.x -= dx; c.position.z -= dz; }
+      }
       grille.position.set(30, 3.2, -16);
       const lv = L.part('vent5_spine_louvres');
       lv.bx('steel_raw', -0.4, -0.025, -0.4, 0.4, 0, -0.36).bx('steel_raw', -0.4, -0.025, 0.36, 0.4, 0, 0.4);
@@ -340,9 +341,10 @@ const spine: RoomDress = {
       smear.decal('blood_smear', v, (ax + bx2) / 2, 0, (az + bz) / 2, len, w, '+y', Math.atan2(-dz, dx), 0.007);
     };
     drag(18.1, -14.62, 16.9, -15.25, 0.4, 0);
-    drag(16.9, -15.25, 15.4, -16.25, 0.4, 1);
-    drag(15.4, -16.25, 14.55, -16.8, 0.36, 2);
-    smear.decal('blood_smear', 3, 14.2, 0, -16.9, 0.9, 0.55, '+y', 0.3, 0.008);   // B: under the body
+    drag(16.9, -15.25, 16.0, -16.3, 0.4, 1);
+    drag(16.0, -16.3, 15.4, -16.85, 0.36, 2);
+    // B: under the body (the navy body lies at B x 13.0 … 15.4, z −16.9, head east — dragged feet first, west)
+    smear.decal('blood_smear', 3, 14.25, 0, -16.9, 2.3, 0.5, '+y', 0, 0.008);
     drag(19.6, -14.75, 21.2, -14.8, 0.22, 2);                                       // the trail they came by (east)
     drag(23.6, -14.85, 24.6, -14.9, 0.16, 0);
     const smearG = smear.build();
@@ -368,12 +370,13 @@ const spine: RoomDress = {
     };
     let spineOut = 0;
     const spineHalf = (instant: boolean) => {
-      if (instant) { out({ off: 'spine5', emerg: 'spine5_emerg' }, true); setStrips5(L, 'emerg', 1); du.lineGlow(1); spineOut = 2; return; }
+      // (the strips follow the emergency groups — `emergStrips5`, one driver for the level)
+      if (instant) { out({ off: 'spine5', emerg: 'spine5_emerg' }, true); du.lineGlow(1); spineOut = 2; return; }
       if (spineOut) return;
       spineOut = 1;
       L.sfx('lights_out_dock', 33, 2.8, -16, 1.0);
       out({ off: 'spine5', emerg: 'spine5_emerg' }, false);
-      L.tween(LIGHTS_OUT5.dim + 0.1, 0.5, (k) => { setStrips5(L, 'emerg', k); du.lineGlow(k); }, () => { spineOut = 2; });
+      L.tween(LIGHTS_OUT5.dim + 0.1, 0.5, (k) => du.lineGlow(k), () => { spineOut = 2; });
     };
     // the bay's half only while nobody else owns lights_out5 (the greybox did both halves)
     const bayFallback = (instant: boolean) => out({ off: 'sub5', emerg: 'sub5_emerg' }, instant);
@@ -432,10 +435,25 @@ const arm: RoomDress = {
     red(17.5, -18.05, 17.5, -19.95);
     shipTreads(b, STAIR5_MAG_IN, 'navy_grey', false);
     nosings(b, L, STAIR5_MAG_IN, false);
+    // B4 (IB5a's navy body): the dead hand on the stair — a sailor prone at the foot of the crawl stair, head north,
+    // arms reaching for the first tread (the flashlight finds the hands coming down from the crawl). (`navyHand` on the
+    // second tread was tried: on this closed stair its forearm floats over the tread below — the body alone reads.)
+    b.at(17.0, -2.6, -22.6, PI, () => navyBody(b, L, { seed: 5211 }));
     red(16.5, -21.5, 17.5, -21.5, -2.6);
     shipTreads(b, STAIR5_MAG_OUT, 'navy_grey', true);
     nosings(b, L, STAIR5_MAG_OUT, true);
-    stairDressing(b, L, { stair: STAIR5_MAG_OUT, nosing: null, rails: '-x', stringers: true });
+    // (the kit's handrail ran 1 m over the nosing line to the top tread: its top post and rail stood up through the shut
+    // lid — the rail here stops at the 5th tread, under the coaming, and a grab bar under the coaming takes the hand on)
+    stairDressing(b, L, { stair: STAIR5_MAG_OUT, nosing: null, rails: 'none', stringers: true });
+    {
+      const s = STAIR5_MAG_OUT, y0 = s.y0 ?? 0, xr = s.x0 + 0.05, zAt = (k: number) => s.z0 + s.dir * s.tread * (k + 0.5), top = (k: number) => y0 + s.rise * (k + 1);
+      for (const k of [0, 4]) b.cyl('navy_grey', xr, top(k) + 0.5, zAt(k), 0.022, 1.0, 'y', 8);
+      b.rod('navy_grey', xr, top(0) + 1.0, zAt(0), xr, top(4) + 1.0, zAt(4), 0.024, 8);
+      b.rod('navy_grey', xr, top(0) + 0.5, zAt(0), xr, top(4) + 0.5, zAt(4), 0.016, 6);
+      const xg = s.x0 - 0.12; // under the coaming's slab edge, not in the opening (west of the outline strip)
+      b.rod('steel_raw', xg, -0.22, zAt(4) + 0.1, xg, -0.22, s.z0 + s.tread * 8.5, 0.018, 8);
+      for (const z of [zAt(4) + 0.1, s.z0 + s.tread * 8.5]) b.bx('steel_raw', xg - 0.02, -0.22, z - 0.015, xg + 0.02, -0.1, z + 0.015);
+    }
     red(20.5, -27.1, 21.5, -27.1, -2.6);
 
     // ── the magazine: racks with per-shelf colliders (the stand-in blocks' colliders go), issue ledges at the faces ──
@@ -472,6 +490,11 @@ const arm: RoomDress = {
     // reads from the magazine floor without a lamp
     b.bx(stripMat5(L, 'red'), 20.45, -0.15, -27.09, 21.55, -0.125, -27.06);
     b.bx('navy_grey', 20.42, -0.125, -27.11, 21.58, -0.1, -27.04);
+    // (IB5b B6: and along both long sides of the opening — the hatch's outline reads from the floor before the pop)
+    for (const [x0, x1] of [[20.33, 20.36], [21.64, 21.67]] as const) {
+      b.bx(stripMat5(L, 'red'), x0, -0.15, -26.95, x1, -0.125, -24.45);
+      b.bx('navy_grey', x0 - 0.02, -0.125, -26.97, x1 + 0.02, -0.1, -24.43);
+    }
     // the flooded corner (3 cm of water in front of the exit stair) + drips (§2.9 fx5_drips_mag)
     const wet: Box6 = [18.7, -2.6, -27.75, 20.35, -2.59, -26.3];
     fx.wetPatch(box3(wet), ['arm5'], { id: 'wet5_mag' });

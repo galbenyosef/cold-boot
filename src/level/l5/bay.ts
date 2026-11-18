@@ -34,7 +34,7 @@ import { GAL, ROOMS5, STAIR5_E, STAIR5_W, addWet, box3, type RoomId5 } from './g
 import type { RoomDress } from './index';
 import {
   cableTray, crateStack, decompressionChamber, diveSuits, drainGrille, equipmentBox, forklift, galleryDeck, gasBottleRack,
-  hullNumber, lampLens5, navySign, rail, rotBeacon, stairDressing, strip5, stripMat5, trunkCable, wallShelf, type Beacon, type SumpHatch,
+  hullNumber, lampLens5, navySign, rail, rotBeacon, setStrips5, stairDressing, strip5, stripMat5, trunkCable, wallShelf, type Beacon, type SumpHatch,
 } from './kit5';
 import { TERN5, TERN_CHECK_LEN, launchConsole, launchLockDoor, tern, wheel5, WHEEL5, type TernCue } from './setpieces';
 
@@ -45,8 +45,6 @@ type B6 = [number, number, number, number, number, number];
 // ───────────────────────────────────────────────────────────── shared state (per level build)
 
 interface BayState {
-  /** The bay's red edge / nosing strips (private: 'amber' channel restyled to it). */
-  strip: THREE.MeshStandardMaterial;
   beacons: Beacon[];
   drains: Partial<Record<'drain5_a' | 'drain5_b', SumpHatch>>;
   mist: { stop(): void; enabled: boolean }[];
@@ -55,17 +53,40 @@ interface BayState {
 const STATE = new WeakMap<LevelBuild, BayState>();
 function st(L: LevelBuild): BayState {
   let s = STATE.get(L);
-  if (!s) {
-    const m = L.ctx.materials.clone('plastic_white', { map: null, normalMap: null, roughnessMap: null, metalnessMap: null, aoMap: null, color: 0x8a3a32, roughness: 0.3, metalness: 0 });
-    m.emissive = new THREE.Color(0xff2a14);
-    m.emissiveIntensity = STRIP_LIT;
-    m.name = 'd3_bay_strip';
-    STATE.set(L, (s = { strip: m, beacons: [], drains: {}, mist: [], jets: [] }));
-  }
+  if (!s) STATE.set(L, (s = { beacons: [], drains: {}, mist: [], jets: [] }));
   return s;
 }
-/** Red edge strips: a faint trim while the bay is lit, bright once the emergency lighting is on. */
-const STRIP_LIT = 0.12, STRIP_DARK = 1.5;
+
+// ───────────────────────────────────────────────────────────── emergency strips (B2: one colour, one driver)
+
+/** `setStrips5(L, 'emerg', k)`: a faint trim while the level is lit, bright once any emergency group is on. */
+const STRIP_LIT = 0.1, STRIP_DARK = 1.25;
+const STRIP_DRIVEN = new WeakSet<LevelBuild>();
+/**
+ * IB5b (integration B2): every emergency strip of level 5 — spine walls, bay decks / nosings / exits, dive locker —
+ * is ONE material, the kit's `emerg` channel, in the bay's red (the crawl / magazine / berths keep the `red` channel,
+ * same red, on from load). One driver for the whole level: `setStrips5(L, 'emerg', …)` follows the emergency groups
+ * (`spine5_emerg`, `sub5_emerg`) whoever switched them — the vignette halves, a snap, a checkpoint restore. Idempotent;
+ * the spine and the bay both call it. (kit5's `STRIPS.emerg` is still yellow-green: recoloured here until IB5a's
+ * kit change lands — then the recolour is a no-op.)
+ */
+export function emergStrips5(L: LevelBuild) {
+  const m = stripMat5(L, 'emerg');
+  m.color.setHex(0x8a3a32);
+  m.emissive.setHex(0xff2a14);
+  if (STRIP_DRIVEN.has(L)) return;
+  STRIP_DRIVEN.add(L);
+  const lm = L.ctx.render.lights;
+  let k = 0;
+  setStrips5(L, 'emerg', STRIP_LIT);
+  L.updaters.push((dt) => {
+    const on = lm.group('spine5_emerg').some((h) => h.enabled) || lm.group('sub5_emerg').some((h) => h.enabled);
+    const k2 = Math.max(0, Math.min(1, k + (on ? dt / 0.5 : -dt / 0.3)));
+    if (k2 === k) return;
+    k = k2;
+    setStrips5(L, 'emerg', STRIP_LIT + (STRIP_DARK - STRIP_LIT) * k);
+  });
+}
 
 // ───────────────────────────────────────────────────────────── helpers
 
@@ -96,7 +117,7 @@ const SUB_SEEN = ['spine5', 'arm5', 'dive5', 'lockacc5', 'tunnel5'];
 
 /** Bay red strip from a to b (on the floor / a deck at y). */
 function bayStrip(b: Builder, L: LevelBuild, ax: number, az: number, bx: number, bz: number, y = 0) {
-  strip5(b, L, ax, az, bx, bz, { y, ch: 'amber', channel: 'navy_grey' });
+  strip5(b, L, ax, az, bx, bz, { y, ch: 'emerg', channel: 'navy_grey' });
 }
 
 /** A parapet plate exactly over the shell's (h 1.1 from the deck, colliding there): plate, capping channel, stiffeners. */
@@ -161,8 +182,10 @@ function buildSub(L: LevelBuild) {
   const PEND: [number, number, number, number][] = [[29.4, 9.2, -26.0, 95], [38.6, 9.2, -26.0, 95], [29.4, 9.2, -47.0, 85], [38.6, 9.2, -47.0, 85]];
   const pend = PEND.map(([x, y, z, i]) => L.point('sub5', x, y, z, WARM, i, 22, { bounds: SUB_B }));
   // sub5_emerg: beacons (alarm) N / S, the red point over the tunnel door (all, S5), red pools at the two stair feet (medium+)
-  const bcN = L.point('sub5_emerg', 34, 9.0, -18.65, AMBER, 230, 38, { flicker: 'alarm', enabled: false, bounds: SUB_B });
-  const bcS = L.point('sub5_emerg', 34, 9.0, -55.35, AMBER, 230, 38, { flicker: 'alarm', enabled: false, bounds: SUB_B });
+  // (IB5b B6: 230 cd 0.65 m off the wall swept a hot pool over the end walls — the light stands 1.3 m out, softer;
+  // the red pools carry the floor)
+  const bcN = L.point('sub5_emerg', 34, 9.0, -19.5, AMBER, 110, 30, { flicker: 'alarm', enabled: false, bounds: SUB_B });
+  const bcS = L.point('sub5_emerg', 34, 9.0, -54.5, AMBER, 110, 30, { flicker: 'alarm', enabled: false, bounds: SUB_B });
   const redT = L.point('sub5_emerg', 23.0, 4.1, -52.8, RED, 14, 14, { enabled: false, bounds: SUB_B });
   const redW = L.point('sub5_emerg', 26.4, 2.6, -46.4, RED, 14, 14, { enabled: false, bounds: SUB_B });
   const redE = L.point('sub5_emerg', 41.6, 2.6, -23.6, RED, 14, 14, { enabled: false, bounds: SUB_B });
@@ -265,7 +288,7 @@ function buildSub(L: LevelBuild) {
       // stiffeners on both side plates every second tread (flat bars 1.5 cm proud, to the tread line)
       if (k % 2 === 1) for (const x of [s.x0 - 0.015, s.x1]) b.bx(N, x, 0, (z0 + z1) / 2 - 0.03, x + 0.015, top - 0.06, (z0 + z1) / 2 + 0.03);
     }
-    stairDressing(b, L, { stair: s, nosing: 'amber', rails: 'both', stringers: true });
+    stairDressing(b, L, { stair: s, nosing: 'emerg', rails: 'both', stringers: true });
     const zl = s.z0 + s.dir * s.tread * 3;
     navySign(b, 'STAIR — NO STORAGE UNDER', s.x0 - 0.016, 0.55, zl, 1.1, 0.1, '-x');
   }
@@ -446,8 +469,7 @@ function buildSub(L: LevelBuild) {
     S.jets.push(e);
   }
 
-  // strips: the bay's red (the 'amber' channel in this zone is restyled to it)
-  restyle(L, 'sub5_dress', (m) => m === stripMat5(L, 'amber'), S.strip);
+  emergStrips5(L);
   // the decks' galvanised grating a shade darker (under the high-bay lamps the bridge read as a white sheet)
   const grate = L.ctx.materials.get('deck_grate');
   const grateD = L.ctx.materials.clone('deck_grate', { color: new THREE.Color(0.62, 0.64, 0.66) });
@@ -577,7 +599,6 @@ function bayVignettes(L: LevelBuild, boat: THREE.Object3D, ud: Record<string, an
   L.updaters.push((dt) => {
     const on = emergOn();
     k = Math.max(0, Math.min(1, k + (on ? dt / 0.5 : -dt / 0.3)));
-    S.strip.emissiveIntensity = STRIP_LIT + (STRIP_DARK - STRIP_LIT) * k;
     if (on !== beaconsOn) { beaconsOn = on; for (const bc of S.beacons) bc.set(on); if (!on) { for (const s of sounders) s?.stop(0.3); sounders.length = 0; } }
     if (on && !sounders.length && ctx.state === 'playing') {
       for (const p of [V(34, 9.1, -18.5), V(34, 9.1, -55.5)]) { try { sounders.push(ctx.audio.loop('alarm_beacon', { position: p, volume: 0.32 })); } catch { sounders.push(null); } }
@@ -603,7 +624,8 @@ function buildDive(L: LevelBuild) {
   restyle(L, 'dive5_grey', isStandin, null);
   const b = L.builder('dive5_dress');
   const fx = L.ctx.fx as FxSystemEx;
-  const h = L.point('dive5', 49.0, 2.95, -33.0, 0xff2a18, 7, 10, { bounds: rbox('dive5', -0.05, 3.3) });
+  // (IB5b B6: a pure-red 7 cd lamp turned the whole locker one red: an orange-red, weaker; the suits keep their colour)
+  const h = L.point('dive5', 49.0, 2.95, -33.0, 0xff9a7a, 5.0, 10, { bounds: rbox('dive5', -0.05, 3.3) });
   const m = lampLens5(L, 'red', 0.9).clone(); m.name = 'd3_dive_lamp';
   h.bindEmissive(m, 1.2);
   b.bx('painted_dark', 48.8, 3.08, -33.15, 49.2, 3.2, -32.85);
@@ -621,7 +643,7 @@ function buildDive(L: LevelBuild) {
   navySign(b, 'DIVE LOCKER — SDV TERN', 46.21, 2.3, -30.5, 1.6, 0.16, '+x');
   // red wall-base strips (the bay's) on the free walls and across the door's approach
   for (const [ax, az, bx, bz] of [[46.5, -39.5, 46.5, -36.0], [46.5, -32.0, 46.5, -29.6], [46.9, -39.5, 48.6, -39.5], [51.5, -35.5, 51.5, -31.2], [46.6, -35.0, 46.6, -33.0]] as const) bayStrip(b, L, ax, az, bx, bz);
-  restyle(L, 'dive5_dress', (mm) => mm === stripMat5(L, 'amber'), st(L).strip);
+  emergStrips5(L);
 }
 
 function buildLockAcc(L: LevelBuild) {

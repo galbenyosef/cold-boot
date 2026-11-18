@@ -224,7 +224,8 @@ export class Emitters {
       S.vx = em.dir.x * v0 + (Math.random() - 0.5) * 0.03; S.vy = em.dir.y * v0; S.vz = em.dir.z * v0 + (Math.random() - 0.5) * 0.03;
       S.px += S.vx * back; S.py += S.vy * back; S.pz += S.vz * back;
       S.life = Math.sqrt((2 * h) / Math.abs(this.d.streaks.gravity)) + 0.4;
-      S.size = 0.0032 + Math.random() * 0.0022; S.r = 0.34; S.g = 0.38; S.b = 0.41; S.alpha = 0.7; S.drag = 0.05;
+      // (IB5b B7: thicker and paler — at 4 m in the dim washroom the column read as nothing; it must catch the lamp)
+      S.size = 0.0055 + Math.random() * 0.003; S.r = 0.62; S.g = 0.68; S.b = 0.72; S.alpha = 0.88; S.drag = 0.05;
       S.planeA = pl;
       em.sink.streaks.spawn(S);
     }
@@ -243,8 +244,9 @@ export class Emitters {
       const sp = r(1.2, 2.2) * em.speed;
       P.px = em.pos.x + _n.x * 0.05; P.py = em.pos.y + _n.y * 0.05; P.pz = em.pos.z + _n.z * 0.05;
       P.vx = _n.x * sp; P.vy = _n.y * sp; P.vz = _n.z * sp;
-      P.life = r(2.6, 4.2); P.s0 = r(0.12, 0.2); P.s1 = r(1.1, 1.9); P.grow = 1.4;
-      P.alpha = r(0.09, 0.15); P.fadePow = 1.8; P.drag = r(1.6, 2.2); P.buoy = 0.12;
+      // (IB5b B7: denser — the ballast blow read as a faint haze from the bridge)
+      P.life = r(2.8, 4.4); P.s0 = r(0.14, 0.22); P.s1 = r(1.3, 2.2); P.grow = 1.4;
+      P.alpha = r(0.17, 0.26); P.fadePow = 1.6; P.drag = r(1.6, 2.2); P.buoy = 0.12;
       const v = r(0.78, 0.9);
       P.r = v; P.g = v * 1.01; P.b = v * 1.04;
       P.er0 = 0.1; P.er1 = 0.7; P.phase = 0.5; P.fadeIn = 0.2; P.rotV = r(-0.5, 0.5);

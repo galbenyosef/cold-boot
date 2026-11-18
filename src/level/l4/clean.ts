@@ -666,7 +666,8 @@ const vivarium: RoomDress = {
       { group: 'vivarium', type: 'point', p: [-21.5, H - 0.6, -18.5], color: CLEAN, i: 11, d: 10 },
       { group: 'vivarium', type: 'point', p: [-21.5, H - 0.6, -26], color: CLEAN, i: 11, d: 10 },
       { group: 'vivarium', type: 'point', p: [-17, H - 0.6, -22], color: CLEAN, i: 6, d: 8, min: 'medium' },
-      { group: 'vivarium_emerg', type: 'point', p: [-21.0, Y + 2.3, -21.0], color: EMERG, i: 1.8, d: 9, off: true },
+      // IB5b (B8): at its wall unit, a pool — not beside the room's probe (a lamp 1 m from the probe lit the whole room by IBL)
+      { group: 'vivarium_emerg', type: 'point', p: [-21.0, Y + 2.35, -14.6], color: EMERG, i: 1.2, d: 7, off: true },
     ]);
     const lum = boundGlow(L, 'lum_viv', hs[0], 0xe8f0ff, 0.38);
     const eLens = boundGlow(L, 'elens_viv', hs[3], 0xcfe2ff, 2.2);
@@ -814,7 +815,8 @@ const cold: RoomDress = {
     const hs = lightsOf(L, [
       { group: 'cold', type: 'point', p: [-6, H - 0.55, -29], color: COLDW, i: 10, d: 10 },
       { group: 'cold', type: 'point', p: [-9.5, H - 0.55, -26.2], color: COLDW, i: 6, d: 7, min: 'medium' },
-      { group: 'cold_emerg', type: 'point', p: [-6.5, Y + 1.9, -29.5], color: 0x7fb0ff, i: 2.0, d: 10, off: true },
+      // IB5b (B8): at its wall unit (was at the room's probe: the IBL lit the whole store)
+      { group: 'cold_emerg', type: 'point', p: [-9.0, Y + 2.2, -33.4], color: 0x7fb0ff, i: 1.2, d: 7, off: true },
     ]);
     const lum = boundGlow(L, 'lum_cold', hs[0], 0xdcecff, 0.38);
     const eLens = boundGlow(L, 'elens_cold', hs[2], 0xb8d4ff, 2.0);
@@ -936,7 +938,8 @@ const records: RoomDress = {
     const hs = lightsOf(L, [
       { group: 'records', type: 'point', p: [6, H - 0.55, -29], color: CLEAN, i: 8, d: 10 },
       { group: 'records', type: 'spot', p: [3.2, Y + 1.55, -26.75], t: [3.1, Y + 0.75, -27.1], color: 0xf4f6ff, i: 5, d: 3.5, angle: 0.9, min: 'medium' },
-      { group: 'records_emerg', type: 'point', p: [6, Y + 2.2, -29.5], color: EMERG, i: 1.8, d: 9, off: true },
+      // IB5b (B8): at its wall unit (was at the room's probe)
+      { group: 'records_emerg', type: 'point', p: [2.0, Y + 2.2, -33.4], color: EMERG, i: 1.2, d: 7, off: true },
     ]);
     const lum = boundGlow(L, 'lum_rec', hs[0], 0xe8f0ff, 0.38);
     const lamp = boundGlow(L, 'lamp_rec', hs[1] ?? hs[0], 0xf4f6ff, 0.6);
@@ -1028,7 +1031,8 @@ const bay: RoomDress = {
     const b = L.builder('bay_dress');
     const H = Y + 3.0;
     // three dark charging docks on the east wall, standby LEDs dim red (the bay has no lights of its own: §2.7)
-    lightsOf(L, [{ group: 'bay', type: 'point', p: [19.6, Y + 2.3, -19.0], color: 0xff2414, i: 1.6, d: 6, prio: 0.3, min: 'medium' }]);
+    // (IB5b, B8: on every quality — on LOW the bay was pitch black under lights-out)
+    lightsOf(L, [{ group: 'bay', type: 'point', p: [19.6, Y + 2.3, -19.0], color: 0xff2414, i: 1.8, d: 6.5, prio: 0.3 }]);
     const led = mat4(L, 'd1b_dock_led', () => { const m = L.ctx.materials.clone('emissive_red'); m.emissiveIntensity = 0.5; return m; });
     for (const z of [-17.3, -19.0, -20.7]) {
       onWall(b, '-x', 20.8, Y, z, () => chargingDock(b, L, led));

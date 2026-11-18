@@ -81,6 +81,12 @@ const TERM = /* glsl */ `
   RE_Direct( vmL, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
   vmL.color = uVmRim; vmL.direction = uVmRimDir;
   RE_Direct( vmL, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
+  // aimed (uVmNear > 0, ramps with the aim): a soft fill from behind the eye — the receiver's rear faces turn toward
+  // the camera over the stock and read as a black block at the bottom of the sight picture without it (IB5b B9)
+  if ( uVmNear > 0.0 ) {
+    vmL.color = uVmKey * ( 0.5 * clamp( uVmNear / 0.1, 0.0, 1.0 ) ); vmL.direction = normalize( vec3( 0.2, 0.55, 1.0 ) );
+    RE_Direct( vmL, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
+  }
 }
 `;
 
