@@ -138,3 +138,10 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   (use `1,0,-81,-45`). Weak: body lumpy close up, coverall grease blotchy, flap dark outside, rep6 dim/brown, vault
   haunch reads as a beam, trunk yellow bands wider than the cable. User listens: tarp_flap/lamp_creak timing,
   lights_out_dock at 0.6.
+- 3d ST-a: `play:l6 --contract`, default to the reveal, `--checkpoints` to `cp6_shaft` (both choices); check-chain L6
+  end + stub-button case (button removed b25aa01 → case should skip); APPLY ST-a's `check-voice-level --level 6` diff
+  (in its report: listeners l6_kes_start 2-D SYNC, l6_unit_tube ~3 m, choir_he at kes_he_3 cut, aas_1 at 0.8 m, second
+  ring at 3 m, aas_2 held, aas_3 to its cut; exempt fx `phone` from the ≤ 4 m reference rule) + ST-b's additions;
+  `--scares` audit. Decide: `interlock_deny` played 2-D by the story (UI never plays it). Weak: radio sharing in
+  compressed runs; "both soldiers in cover + 6 s" rule unseen with real AI; handset follow-point not seen in motion;
+  Q silent during sequences; `v6_thud` rarely fires (launchAt = pull + 90 for most).
