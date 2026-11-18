@@ -13,3 +13,8 @@ Collected from agents' reports and coordinator notes. At the end: run every item
 - 3d W9: `check-voice-level --level 6` incl. SYNC for leads and the ASR pass of `l6_aas_2` through the `phone` band; the user
   listens to `aas` (audition 18, runner-ups 19 / 12), `l6_kes_he_3` and `l6_aas_3` cuts (aas_3 cut moved to 2.66 vs the
   plan's formula 2.58), `l6_kes_end_3` (EMPTY stress dropped for ASR); W2b must define `phone` / `pa` fx in `src/audio/voice.ts`.
+- 3d K: playthrough defaults L1–5 (`play:l3`, `play:l4` through the live hand-over, `play:l5`, `playthrough.mjs` L1–2);
+  `check:nav` stair/ramp cases L3–5 (slope-seam rule changed stair contacts) + `check:nav all`; `check:reach all`,
+  `check:doors`, `check:wreck`, `check:weapons`; full `check:chain` re-run with the final allow-list.
+- To-dos from K: `src/enemies/nav.ts:200` per-level branch (`levelId === 5`) → level data; patrol stub only teleports;
+  check-chain's two `LEVELS[5].next === null` cases rewritten when 5 → 6 goes live; rayOnly/moveOnly on dynamic boxes.

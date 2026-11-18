@@ -27,3 +27,8 @@ across levels, voice-level sweeps, perf sweeps over every view. Anything you wou
 | **W9-6** | Stage 3d task W9 (voices) | Sonnet | its §11 row | — |
 
 Stage 3d wave 1 starts after K6 merges; wave 2 after wave 1 (same test policy until IA/IB of 3d).
+
+## Started 2026-11-18 after K6 merged (f089863): stage 3d wave 1, part 1
+W1 (minus `player/viewmodels/**`), W2a, W2b, W3a, W4a, W4b, W5 (new files + registration lines only), W6 (new files +
+minimal fx edits), W7, W8 — ports 4321–4330. **Held until IA5 merges** (they own IA5's files): W3b (`enemies/index.ts`,
+`manager.ts`), W3c (`enemies/nav.ts`, `ai.ts`, husk, soldier).
