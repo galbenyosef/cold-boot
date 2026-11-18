@@ -39,3 +39,7 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   barks 5/15 m, bunk radio 3 m); look: Clasp at 20–30 m in the dark bay, vent grille drop in motion, gate_log screen in
   its bezel; soldier-in-motion review of `SOLDIER_TUNING.search.fresh`. Open decisions: the `gallery_e` soldier in wave A
   never climbs to the gallery (left as is); level-5 end-card cap measured from CHOIR's last line, not 8 s after phase X.
+- 3c IB5c: `check:fxleak --level 5` (tap columns/splash in heads5); `check:dark` berths5 + galley5 lamp off; LOW point-light
+  count berths5 from the spine doorway (3 points now); zfight tray rims vs deck; replay `v5_trays` fall (rims follow);
+  `v5_galley_shape` with the fan. Cleanup: remove the no-op recolour in `bay.ts` `emergStrips5`. Weak: splash crowns
+  geometric; tray bodies maybe too dark; berths ceiling over the first dome brightest.
