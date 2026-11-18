@@ -28,6 +28,8 @@ import { createFalls, createPool, type FallsHandle, type FallsOpts, type PoolHan
 import { createLampGrid, type LampGridHandle, type LampGridOpts } from './lamps';
 import { EnemyTracers, MuzzleFlashes, type MuzzleKind } from './gunfire';
 import { WetPatches, type WetPatchHandle, type WetPatchOpts } from './wet';
+import { createWell, type WellHandle, type WellOpts } from './well';
+import { createTrunkFx, type FxTrunk } from './trunk';
 
 export type { ViewportHandle, ViewportOpts, ViewportState } from './viewport';
 export type { FallsHandle, FallsOpts, PoolHandle, PoolOpts, PoolSurfaceQuad } from './water';
@@ -36,6 +38,8 @@ export type { FxAperture, FxVolume, FxVolumeSpec } from './volumes';
 export type { FogHandle, FogOpts } from './fog';
 export type { WetPatchHandle, WetPatchOpts } from './wet';
 export type { MuzzleKind } from './gunfire';
+export type { WellHandle, WellOpts, WellState, WellEye } from './well';
+export type { FxTrunk, SprayHandle, SprayOpts, WaterFxOpts } from './trunk';
 
 const QMUL: Record<Quality, number> = { low: 0.45, medium: 0.7, high: 1, ultra: 1.25 };
 
@@ -166,7 +170,12 @@ export interface FxCombat {
   /** Grit and dust sifting down from the ceiling over `box`'s plan (hull groan, an impact overhead). No light. */
   dustSift(box: THREE.Box3, o?: { amount?: number }): void;
 }
-export type FxSystemEx = FxSystem & FxHabitat & FxVolumesApi & FxCombat & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> };
+/** Stage 3d §8.6 (W6): the moon pool's well (well.ts) + wakes, splashes, the ram spray (trunk.ts). */
+export interface FxWater extends FxTrunk {
+  /** The well (registered with its surface rectangle as the only aperture). */
+  well(o: WellOpts): WellHandle;
+}
+export type FxSystemEx = FxSystem & FxHabitat & FxVolumesApi & FxCombat & FxWater & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> };
 
 export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   const root = new THREE.Group();
@@ -196,7 +205,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   /** Floor plane below p (one raycast). Returns plane index or -1. */
   function floorPlane(p: THREE.Vector3, maxDist = 8): number {
     _q.copy(p); _q.y += 0.05;
-    const hit = ctx.physics.raycast(_q, _down, maxDist);
+    const hit = ctx.physics.raycastSolid(_q, _down, maxDist); // stage 3d S5: water is never a floor
     if (hit) return streaks.planes.add(hit.normal.x, hit.normal.y, hit.normal.z, hit.point.x, hit.point.y, hit.point.z);
     if (p.y > -0.01) return streaks.planes.add(0, 1, 0, 0, 0, 0); // main floor fallback (y = 0)
     return -1;
@@ -495,6 +504,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
         fluidImpl(point, normal, 6, true);
         break;
       }
+      // stage 3d (W6): 'water' — no decal and no splash here: the shooter calls fx.splash (player weapons / enemy hitscan)
     }
   }
 
@@ -684,8 +694,27 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   }
 
   const wet = new WetPatches(root, ctx.materials, (spec) => registry.register(spec));
+  // ── stage 3d (W6): the well, wakes, splashes, the ram spray
+  const trunk = createTrunkFx({ ctx, root, streaks, puffs, atlas, pixelScale, resetStreak, resetPuff, register: (spec) => registry.register(spec), qmul });
+  const wells: WellHandle[] = [];
 
   const fx = {
+    // ── stage 3d (W6): water
+    wake: trunk.wake,
+    splash: trunk.splash,
+    waterFx: trunk.waterFx,
+    spray: trunk.spray,
+    well(o: WellOpts): WellHandle {
+      const h = createWell(o, habitat, quality);
+      const b = o.box;
+      const pane: FxAperture = { center: new THREE.Vector3((b.min.x + b.max.x) / 2, b.max.y, (b.min.z + b.max.z) / 2), normal: new THREE.Vector3(0, 1, 0), width: b.max.x - b.min.x, height: b.max.z - b.min.z, up: new THREE.Vector3(0, 0, 1) };
+      const reg = registry.register({ id: o.id ?? `well#${++nVol}`, object: h.object, rooms: o.rooms ?? [], seenFrom: o.seenFrom, apertures: [pane] });
+      const remove = h.remove.bind(h);
+      h.remove = () => { remove(); reg.remove(); drop(wells, h); };
+      wells.push(h);
+      return h;
+    },
+
     // ── stage 3c (W6): enemy fire
     tracer(from: THREE.Vector3, to: THREE.Vector3, o: TracerOpts = {}) {
       let cr = 6, cg = 3.6, cb = 1.6;
@@ -1036,6 +1065,8 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
       puffs.update(dt, cam);
       tracers.update(dt, flashes.cam);
       muzzles.update(dt, cam, flashes.cam);
+      for (let i = 0; i < wells.length; i++) wells[i].update(dt, pixelScale.value, quality());
+      trunk.update(dt, cam);
       fxClock += dt;
       // D21: last, after every handle's own visibility — a volume is drawn only while one of its rooms is drawn
       registry.update();

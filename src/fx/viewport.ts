@@ -82,6 +82,10 @@ export interface ViewportOpts {
   heads?: number;
   /** B8: pull the floods' in-scatter this far (0 … 1) toward grey (the extinction makes it an electric blue). Default 0. */
   desat?: number;
+  /** Stage 3d §8.6 (W6): the cable's beacon starts lit (default true); see `setBeacon`. */
+  beacon?: boolean;
+  /** Stage 3d §8.6 (W6): start with the cable already cut (a restore after the shear): the upper run gone, beacon off. */
+  cableCut?: boolean;
 }
 
 export interface ViewportHandle {
@@ -90,6 +94,21 @@ export interface ViewportHandle {
   setState(state: ViewportState, seconds?: number): void;
   /** Start a large-shape pass now (debug / story beat); `progress` 0…1 starts it part-way across. */
   summon(progress?: number): void;
+  /**
+   * Stage 3d §8.6 (W6, `v6_window`): ONE very large shape crosses the pane in `seconds` (default 4) — closer, bigger
+   * and with a brighter bioluminescent rim than the ambient shapes (it reads in the 'dark' state), the snow swirling
+   * in its wake. Runs on every quality (it ignores the `shapes` cap).
+   */
+  pass(seconds?: number): void;
+  /** Stage 3d §8.6 (W6): the cable's red beacon on / off over `seconds` (default 0.4). */
+  setBeacon(on: boolean, seconds?: number): void;
+  /**
+   * Stage 3d §8.6 (W6, the shear): the cable is cut — its upper run (above world y `at`, default the cable's foot +
+   * 1.5 m) drifts up and out of the floods over `seconds` (default 6), the beacon and the marker lamps go out.
+   * `seconds` 0 = the end state at once (a restore). Idempotent.
+   */
+  cutCable(seconds?: number, at?: number): void;
+  readonly cableCut: boolean;
   /** Root object (two meshes). Hide it to stop drawing. */
   readonly object: THREE.Object3D;
   visible: boolean;
@@ -190,6 +209,10 @@ uniform vec3 uCabA;
 uniform vec3 uCabB;
 uniform float uCabR;
 uniform float uCabOn;
+uniform vec3 uCab2A;        // stage 3d (W6): the cut cable's free upper run (uCab2On 1); uCabA → uCabB is then the stub
+uniform vec3 uCab2B;
+uniform float uCab2On;
+uniform float uShapeK[3];   // stage 3d (W6): rim glow multiplier per shape (a pass() shape glows brighter)
 uniform vec4 uMark[4];      // xyz, kind (0 off, 1 beacon, 2 marker)
 uniform float uBeacon;
 uniform float uMarkers;
@@ -266,8 +289,13 @@ void main() {
   }
   // ── the trunk cable
   float cT = -1.0;
+  vec3 cA = uCabA, cB = uCabB;
   if (uCabOn > 0.5) {
     cT = capsule(o, rd, uCabA, uCabB, uCabR);
+    if (uCab2On > 0.5) {
+      float c2 = capsule(o, rd, uCab2A, uCab2B, uCabR);
+      if (c2 > 0.0 && (cT <= 0.0 || c2 < cT)) { cT = c2; cA = uCab2A; cB = uCab2B; }
+    }
     if (cT > 0.0 && cT < tEnd) tEnd = cT; else cT = -1.0;
   }
   // ── in-scatter: per flood, only along the segment of the ray inside its cone (few samples, smooth shafts)
@@ -330,9 +358,9 @@ void main() {
     col += T * alb * Ls * 0.9;
   }
   if (cT > 0.0 && tEnd == cT) {
-    vec3 ba = uCabB - uCabA;
-    float y = clamp(dot(pe - uCabA, ba) / dot(ba, ba), 0.0, 1.0);
-    vec3 nrm = normalize(pe - (uCabA + ba * y));
+    vec3 ba = cB - cA;
+    float y = clamp(dot(pe - cA, ba) / dot(ba, ba), 0.0, 1.0);
+    vec3 nrm = normalize(pe - (cA + ba * y));
     float along = y * length(ba);
     // armour strakes (a slow helix) and collar bands every 6 m
     float ang = atan(dot(nrm, uU), dot(nrm, uN));
@@ -381,7 +409,7 @@ void main() {
     col *= 1.0 - (a * 0.88 + thr * 0.3) * far;
     float rim = exp(-pow((d - 0.82) / 0.07, 2.0)) * step(-0.2, lp.y);
     float pulse = 0.5 + 0.5 * sin(uTime * 0.9 - ang * 4.0);
-    col += (L * (0.02 * a + 0.05 * rim + 0.04 * thr) + vec3(0.05, 0.42, 0.55) * (rim * pulse + thr * 0.3) * (0.03 + 0.1 * uBio)) * far;
+    col += (L * (0.02 * a + 0.05 * rim + 0.04 * thr) + vec3(0.05, 0.42, 0.55) * (rim * pulse + thr * 0.3) * (0.03 + 0.1 * uBio) * uShapeK[i]) * far;
   }
 #endif
 
@@ -456,6 +484,7 @@ uniform float uPxScale;
 uniform float uBio;
 uniform float uBioCount;
 uniform vec2 uHalf;
+uniform vec4 uShape[3];
 varying vec3 vCol;
 varying float vSoft;
 void main() {
@@ -470,6 +499,14 @@ void main() {
   float edge = clamp(min(min(b.x, b.y), b.z), 0.0, 1.0);
   vec3 lp = vec3(l.x - uDomain.x * 0.5, l.y - uDomain.y * 0.5, l.z + uWMin);
   vec3 world = uOrigin + uU * lp.x + uV * lp.y - uN * lp.z;
+  // stage 3d (W6): the snow swirls round a passing shape (pushed off it, turned about the vertical)
+  for (int i = 0; i < 3; i++) {
+    float sr = uShape[i].w;
+    if (sr <= 0.0) continue;
+    vec3 sd = world - uShape[i].xyz;
+    float sk = exp(-dot(sd, sd) / (sr * sr * 2.6));
+    world += (normalize(sd + vec3(1e-3)) * sr * 0.3 + cross(vec3(0.0, 1.0, 0.0), sd) * 0.45 * sin(uTime * 0.6 + float(i))) * sk;
+  }
   vec4 mv = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
   // stage 3b D21: a fleck is drawn only when the eye sees it through the pane
@@ -563,7 +600,7 @@ export function noiseTexture(): THREE.Data3DTexture {
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 
-interface Shape { active: boolean; t: number; dur: number; from: THREE.Vector3; to: THREE.Vector3; r: number; bob: number; next: number }
+interface Shape { active: boolean; t: number; dur: number; from: THREE.Vector3; to: THREE.Vector3; r: number; bob: number; next: number; k: number; forced: boolean }
 
 export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality: () => Quality): ViewportHandle {
   const N = o.normal.clone().setY(0).normalize();
@@ -671,6 +708,10 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       uBeacon: { value: 1 },
       uMarkers: { value: 1 },
       uShape: { value: shapeU },
+      uShapeK: { value: [1, 1, 1] },
+      uCab2A: { value: new THREE.Vector3() },
+      uCab2B: { value: new THREE.Vector3() },
+      uCab2On: { value: 0 },
       uGlass: { value: 1 },
       uClip: { value: new THREE.Vector2(0.03 / halfW, 0.03 / halfH) },
     },
@@ -730,6 +771,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       uPxScale: { value: 600 },
       uBioCount: { value: BIO_MAX },
       uHalf: { value: new THREE.Vector2(halfW, halfH) },
+      uShape: { value: shapeU },
     },
   });
   const snow = new THREE.Points(sgeo, snowMat);
@@ -750,7 +792,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
   // ── shapes
   const shapeMax = o.shapes;
   const gap = o.shapeGap ?? 70;
-  const shapes: Shape[] = [0, 1, 2].map((i) => ({ active: false, t: 0, dur: 1, from: new THREE.Vector3(), to: new THREE.Vector3(), r: 1, bob: 0, next: 12 + i * gap * 0.7 + rnd() * gap }));
+  const shapes: Shape[] = [0, 1, 2].map((i) => ({ active: false, t: 0, dur: 1, from: new THREE.Vector3(), to: new THREE.Vector3(), r: 1, bob: 0, next: 12 + i * gap * 0.7 + rnd() * gap, k: 1, forced: false }));
   const startShape = (s: Shape) => {
     const side = rnd() < 0.5 ? -1 : 1;
     const w = 9 + rnd() * 8;
@@ -760,7 +802,53 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
     local(side * span, v0 + (rnd() - 0.5) * 3, w + (rnd() - 0.5) * 4, s.to);
     s.r = 1.6 + rnd() * 1.6;
     s.dur = (2 * span) / (0.22 + rnd() * 0.12);
-    s.t = 0; s.bob = rnd() * 6.28; s.active = true;
+    s.t = 0; s.bob = rnd() * 6.28; s.active = true; s.k = 1; s.forced = false;
+  };
+
+  // ── stage 3d (W6): beacon switch, the cut, the pass
+  const bea = { v: o.beacon === false ? 0 : 1, from: 0, to: 0, t: 1, dur: 0 };
+  const cut = { on: false, k: 0, t: 1, dur: 0, at: new THREE.Vector3(), offA: new THREE.Vector3(), offB: new THREE.Vector3() };
+  const setBeacon = (on: boolean, seconds = 0.4) => {
+    bea.from = bea.v; bea.to = on ? 1 : 0; bea.dur = Math.max(0, seconds); bea.t = bea.dur > 0 ? 0 : 1;
+    if (bea.dur <= 0) bea.v = bea.to;
+  };
+  const cutUniforms = () => {
+    const vu = volMat.uniforms;
+    if (!cut.on || !cable) return;
+    // the free end springs up and away, then the run drifts out of the light (ease-out)
+    const e = 1 - (1 - cut.k) * (1 - cut.k);
+    (vu.uCab2A.value as THREE.Vector3).copy(cut.at).addScaledVector(cut.offA, e).addScaledVector(V, -0.25 * (1 - e));
+    (vu.uCab2B.value as THREE.Vector3).copy(cable.to).addScaledVector(cut.offB, e);
+  };
+  const cutCable = (seconds = 6, at?: number) => {
+    if (cut.on) return;
+    if (!cable) { console.warn('[fx.viewport] cutCable: this viewport has no cable'); return; }
+    const a = cable.from, b = cable.to;
+    const y0 = at ?? a.y + 1.5;
+    const f = THREE.MathUtils.clamp(Math.abs(b.y - a.y) > 1e-3 ? (y0 - a.y) / (b.y - a.y) : 0.05, 0.02, 0.95);
+    cut.at.copy(a).lerp(b, f);
+    cut.offA.set(0, 0, 0).addScaledVector(V, 12).addScaledVector(W, 8).addScaledVector(U, 3);
+    cut.offB.set(0, 0, 0).addScaledVector(V, 3).addScaledVector(W, 4);
+    cut.on = true;
+    cut.dur = Math.max(0, seconds);
+    cut.t = cut.dur > 0 ? 0 : 1;
+    cut.k = cut.dur > 0 ? 0 : 1;
+    const vu = volMat.uniforms;
+    (vu.uCabB.value as THREE.Vector3).copy(cut.at);
+    vu.uCab2On.value = 1;
+    cutUniforms();
+    setBeacon(false, cut.dur > 0 ? 0.3 : 0);
+  };
+  const pass = (seconds = 4) => {
+    const s = shapes.find((x) => !x.active) ?? shapes[0];
+    const side = rnd() < 0.5 ? -1 : 1;
+    const w = 13 + rnd() * 2.5;
+    s.r = 8 + rnd() * 1.5;
+    const span = halfW + s.r * 1.3 + 2;
+    local(-side * span, -0.5 + rnd() * 1.5, w, s.from);
+    local(side * span, 0.5 + rnd() * 1.5, w + 1.5, s.to);
+    s.dur = Math.max(0.5, seconds);
+    s.t = 0; s.bob = rnd() * 6.28; s.active = true; s.k = 3.5; s.forced = true;
   };
 
   const handle: ViewportHandle = {
@@ -773,6 +861,10 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       else { tw = 0; twDur = seconds; }
     },
     summon(progress = 0) { const s = shapes.find((x) => !x.active); if (s) { startShape(s); s.t = THREE.MathUtils.clamp(progress, 0, 0.99); } },
+    pass,
+    setBeacon,
+    cutCable,
+    get cableCut() { return cut.on; },
     object: group,
     get visible() { return group.visible; },
     set visible(v: boolean) { group.visible = v; },
@@ -808,8 +900,10 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       shared.uBio.value = cur.bio;
       shared.uSigma.value.copy(sigma).multiplyScalar(cur.murk);
       const vu = volMat.uniforms;
-      vu.uBeacon.value = cur.beacon;
-      vu.uMarkers.value = cur.markers;
+      if (bea.t < 1) { bea.t = Math.min(1, bea.t + dt / Math.max(bea.dur, 1e-3)); bea.v = bea.from + (bea.to - bea.from) * bea.t; }
+      if (cut.on && cut.t < 1) { cut.t = Math.min(1, cut.t + dt / Math.max(cut.dur, 1e-3)); cut.k = cut.t; cutUniforms(); }
+      vu.uBeacon.value = cur.beacon * bea.v;
+      vu.uMarkers.value = cur.markers * (cut.on ? 1 - Math.min(1, cut.k * 3) : 1);
       vu.uSteps.value = (wide ? QSTEPS_WIDE[q] : QSTEPS[q]) ?? 6;
       // shapes
       const maxShapes = Math.min(3, shapeMax ?? QSHAPES[q] ?? 2);
@@ -821,7 +915,8 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
           continue;
         }
         s.t += dt / s.dur;
-        if (s.t >= 1 || i >= maxShapes) { s.active = false; s.next = gap * (0.6 + rnd() * 0.8); shapeU[i].w = 0; continue; }
+        if (s.t >= 1 || (i >= maxShapes && !s.forced)) { s.active = false; s.forced = false; s.next = gap * (0.6 + rnd() * 0.8); shapeU[i].w = 0; continue; }
+        (volMat.uniforms.uShapeK.value as number[])[i] = s.k;
         const e = s.t;
         _v.copy(s.from).lerp(s.to, e);
         _v.addScaledVector(V, Math.sin(time * 0.21 + s.bob) * 0.4);
@@ -837,5 +932,6 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
     },
   };
   handle.setState(state, 0);
+  if (o.cableCut) cutCable(0);
   return handle;
 }

@@ -1,7 +1,7 @@
 // check:fxleak (stage 3b §8.6.6, D21, §13 S13) — no fx volume may be seen from a place it was not meant for, and no
 // reflection probe may contain one.
 //
-// Usage: node scripts/check-fxleak.mjs [--url http://127.0.0.1:5173] [--level 3|4|5|all] [--grid 8] [--shots N] [--verbose]
+// Usage: node scripts/check-fxleak.mjs [--url http://127.0.0.1:5173] [--level 3|4|5|6|all] [--grid 8] [--shots N] [--verbose]
 //          [--selftest]  (negative controls: a half-width aperture must trip the gap rule, a bake hiding nothing the probe rule)
 //
 // Boots `?level=N&nostory=1&noenemies=1&autostart=1` at 320 × 180, every door opened, `fx.debugVolumes(true)` (each
@@ -21,13 +21,18 @@
 //              (the 3a defect: the sea seen through gaps beside its pane).
 //   (P) probe — a registered volume is visible while a reflection probe face is rendered: the load-time bake
 //              (`render.prepare`, run again here with every volume forced on) and the progressive re-captures.
+// Stage 3d (W6, level 6, §8.6.5): plus the reveal view (`mk6_reveal`, else the plan's (−30, −12, −169.8) yaw 90), the
+// window walk (x −62 … −42 at z −195.0, y −20, facing the sea windows and away), and the shaft bottom facing `d6_pool`
+// with the door open AND shut (the same views again after `d6_pool` is closed; with it shut nothing of pool6 may show
+// in shaft6 — the room rule does it, as shaft6 is in no pool6 volume's `rooms`, and the gate must hide them). Views
+// whose point is not inside a room interior are dropped like every other (counted in `skipped`).
 // Report: shots/checks/fxleak-l<N>.json; PNGs of failing views in shots/checks/fxleak-l<N>/. Exit 1 on any failure.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { parseArgs, levelsOf, launch, bootLevel, writeJson } from './lib/check-common.mjs';
 
 const args = parseArgs();
 const base = args.url ?? 'http://127.0.0.1:5173';
-const levels = args.level ? levelsOf(args).filter((l) => l >= 3) : [3, 4, 5];
+const levels = args.level ? levelsOf(args).filter((l) => l >= 3) : [3, 4, 5, 6];
 const opts = { grid: Number(args.grid ?? 8), maxPx: 4, shots: Number(args.shots ?? 12), verbose: !!args.verbose, selftest: !!args.selftest };
 
 /** Runs in the page: the whole check for the booted level. */
@@ -168,6 +173,31 @@ async function run(o) {
     }
   }
 
+  // ── stage 3d (W6): level 6's extra views (plan §8.6.5)
+  const shut = [];
+  if (g.levelId === 6 || o.level === 6) {
+    const mk = (id) => { const m = level.object?.(id); return m ? m.getWorldPosition(new THREE_V()) : null; };
+    const extra = (kind, p, yaw, pitches = [0, -20], tag = null) => {
+      if (standIn(new THREE_V(p[0], p[1] + 0.9, p[2])) === null) {
+        out.skipped++;
+        const n = `${kind} view (${p.join(', ')}) not inside a room interior: dropped`;
+        if (!out.notes.includes(n)) out.notes.push(n);
+        return;
+      }
+      for (const pitch of pitches) views.push({ kind, room: tag ?? kind, p, yaw, pitch });
+    };
+    const rv = mk('mk6_reveal');
+    const rp = rv ? [rv.x, rv.y, rv.z] : [-30, -12, -169.8];
+    for (const dy of [-35, 0, 35]) extra('reveal', rp, 90 + dy, [0, -20, -40]);
+    for (let x = -62; x <= -42; x += 5) { extra('window', [x, -20, -195.0], 0); extra('window', [x, -20, -195.0], 180, [0]); }
+    const door = level.doors.find((d) => d.id === 'd6_pool');
+    const sp = [-24.0, -12, -169.8];
+    for (const dy of [-30, 0, 30]) extra('shaft', sp, 90 + dy, [0]);
+    if (door) {
+      for (const dy of [-30, 0, 30]) shut.push({ kind: 'shaft-shut', room: 'shaft-shut', p: sp, yaw: 90 + dy, pitch: 0 });
+    } else out.notes.push('level 6: no door d6_pool (stub level?) — the shut-door views are skipped');
+  }
+
   const fail = (rule, v, view, n, extra = {}, mark = null) => {
     const f = { rule, volume: v.id, view: { ...view, p: view.p.map((x) => +x.toFixed(2)), yaw: +view.yaw.toFixed(1) }, pixels: n, ...extra };
     out.fails.push(f);
@@ -181,7 +211,14 @@ async function run(o) {
   for (const id of standFails) out.fails.push({ rule: 'stand', volume: '-', view: { kind: 'room', room: id, p: [0, 0, 0], yaw: 0 }, pixels: 0, from: id });
   const P = new THREE_V();
   const t0 = performance.now();
-  for (const view of views) {
+  const all = [...views];
+  if (shut.length && standIn(new THREE_V(shut[0].p[0], shut[0].p[1] + 0.9, shut[0].p[2])) !== null) all.push({ kind: 'close-d6_pool' }, ...shut);
+  for (const view of all) {
+    if (view.kind === 'close-d6_pool') {
+      const d = level.doors.find((x) => x.id === 'd6_pool');
+      try { d.auto = false; d.close(); d.snap?.(); } catch { /* sealed */ }
+      continue;
+    }
     P.set(view.p[0], view.p[1], view.p[2]);
     player.teleport(P, view.yaw * deg, view.pitch * deg);
     out.views++;

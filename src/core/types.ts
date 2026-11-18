@@ -851,6 +851,10 @@ export interface FxSystem extends Updatable {
   debris(point: THREE.Vector3, impulse: THREE.Vector3, meshes?: THREE.Object3D[], life?: number): void;
   /** Continuous emitter (steam leak, sparking cable, dripping). Returns stop handle. */
   emitter(kind: 'steam' | 'sparks' | 'drip' | 'dust', point: THREE.Vector3, direction?: THREE.Vector3, rate?: number): { stop(): void; enabled: boolean };
+  /** Stage 3d §8.6 (W6; optional so test fakes need not implement it — call as `fx.wake?.(…)`): ring ripples of radius ≈ `r` on the water surface under `p` (nothing where there is no water). */
+  wake?(p: THREE.Vector3, r: number): void;
+  /** Stage 3d §8.6 (W6): a splash burst at `p` (size: round 0.3–0.6, body 1.2, the grab / a container 2.5–3). */
+  splash?(p: THREE.Vector3, size: number): void;
 }
 
 // ───────────────────────────────────────────────────────────── audio (src/audio)
