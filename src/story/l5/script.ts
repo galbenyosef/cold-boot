@@ -1112,11 +1112,11 @@ export class ScriptL5 extends Scenes5 {
   private async tunnelThread(): Promise<void> {
     await this.until(() => this.f.released);
     while (!this.f.tunnel) {
-      await this.until(() => this.forced.has('tunnel') || ((this.phase === 'W' || this.phase === 'W_lock') && this.inTrig('t5_tunnel') && this.ctx.state === 'playing'));
+      await this.until(() => this.forced.has('tunnel') || ((this.phase === 'W' || this.phase === 'W_lock') && this.inTrig('t5_tunnel') && this.pos.x < 20.8 && this.ctx.state === 'playing')); // (past the doorway: the trigger starts inside it, so a latch tried there always failed)
       const forced = this.forced.has('tunnel');
       const ok = forced || await this.latch('d5_tunnel', () => this.pos.x < 21.6, 1.0, 1.0, 1.8);
       if (ok) { this.beat('l5_tunnel'); break; }
-      await this.until(() => !this.inTrig('t5_tunnel') || this.forced.has('tunnel'));
+      await this.until(() => !this.inTrig('t5_tunnel') || this.pos.x < 20.8 || this.forced.has('tunnel'));
     }
     // X: the end waits only for hostiles INSIDE the tunnel (stranded: unseen 60 s → removed)
     await this.fightOutWhere('tunnel5', 60);
