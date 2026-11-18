@@ -23,3 +23,7 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `v5_body` + snap with the new body; `check-soldier` death poses; soldier perf at LOD0 with 3 soldiers in the bay
   (+2–3k tris each); perf MEDIUM/HIGH berths + galley. To-dos: plan §2.6 "catering contractor" → "navy cook"; locker
   aisles in the ready room plain; lino/mess floors pale and glossy.
+- 3d W2a: add `check-cards` cases `{title: ['END OF CHAPTER 3']}` and `{ending: ['THE TRUNK','','TO BE CONTINUED']}`; run
+  `check:cards`; grip ring live with real `gripProgress`; loader pips with real `part-destroyed` / 0-damage `part`
+  (assumes `enemy:damaged` carries `part`); HUD unchanged on L1–5 (`check:weapons`); W2b must define `grip_tick`;
+  subtitles `phone` class matches speaker labels AAS / LT. AAS / HANDSET — check the story's label.
