@@ -68,8 +68,8 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
       facts: { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true, testHour: 62.5 },
       loadout: { weapons: { pistol: { clip: 12, reserve: 24 }, shotgun: { clip: 6, reserve: 6 }, carbine: { clip: 30, reserve: 90 } }, health: 100, flashlight: true, armor: 50 },
     },
-    // stage 3d D2: stays null on main until 3d's IA sets 6 (5 → 6 only through the test override `?next=5:6`)
-    healthFloor: 50, next: null,
+    // stage 3d: finishing level 5 hands over to level 6 (The Trunk)
+    healthFloor: 50, next: 6,
   },
   6: {
     id: 6, tag: 'l6', built: true, title: 'THE TRUNK', place: 'The Trunk', bootStatus: 'the trunk',
