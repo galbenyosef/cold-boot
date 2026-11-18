@@ -1,5 +1,5 @@
 // Cutscene camera + player cinematic + safe state + key consume (docs/plans/stage-3a.md §8.2, §8.3; task P4).
-//   node scripts/check-cutscene.mjs [--url http://127.0.0.1:5173] [--only natural,skip,enter,safe,levels] [--frames]
+//   node scripts/check-cutscene.mjs [--url http://127.0.0.1:5173] [--only natural,skip,enter,safe,l6,levels] [--frames] [--strict6]
 // On a static build (vite build + vite preview), like the playthroughs. Exit 1 on any failure.
 // Runs the dev scene (`?cutdev=1` on the two-deck greybox, src/story/dev/cutscene.ts): dev_meet (standing, cut to
 // black, chained like C1 → C2) and dev_seated (seated, rise-and-turn hand-back, safe state after).
@@ -12,6 +12,7 @@
 //   enter   — backwards, mid-jump, mid-reload, mid palm-scan, a note open, paused (deferred), fire held, dying (refused)
 //   safe    — no shot / reload / switch while safe under pressed + held fire; look, move, interact work; the latch ends
 //             it and the weapon is up (lower 0) within 0.5 s; no shot through either transition while firing every frame
+//   l6      — level 6's ending (E1/E2 at console6) from awkward entries (stage 3d §8.9; skipped without the L6 story)
 //   levels  — levels 1 and 2 boot and play with no page error; the new player API is inert there
 // --frames writes frame sequences to shots/p4/ (both scenes, the hand-back pair, the skip ring, the safe view).
 import { mkdirSync } from 'node:fs';
@@ -415,6 +416,85 @@ if (want('safe')) {
   c = await cnt();
   const late = c.firedList.filter((f) => f.t > tOn);
   check(late.length === 0, `setSafe(true) under fire every frame: ${late.length} shot(s) after the call (${c.fired} before)`);
+}
+
+// ───────────────────────────────────────────────────────────── level 6: the ending's awkward entries (stage 3d §8.9, S8f; T)
+// The dock console (`console6`, E1 + E2, §4.9) entered sprinting (first view: skip refused, played to l6_end), mid-reload,
+// crouched, lamp on, a grip just finished (seen: skip accepted → the same end). Each: the camera is taken ≤ 2 s after the
+// press, nothing the player does moves / fires / reloads / jumps, the camera stays on the cam0 → cam1 dolly (≤ 0.45 m),
+// the end lands on l6_end. Reached through the story hooks (H3 `fire`) — SKIPPED with a note while the level-6 story
+// (ST-a / ST-b) is not on the build, unless `--strict6`.
+if (want('l6')) {
+  console.log('══════════ level 6: the ending from awkward entries ══════════');
+  const Q6 = '/?level=6&autostart=1&god=1&handoff=1&choice=stop';
+  await boot(Q6);
+  const need = await ev(() => {
+    const g = window.__game, s = g.story, miss = []; let d = {}; try { d = s.debugState ?? {}; } catch { /* */ }
+    if (d.stub) miss.push('the level-6 story (K stub running)');
+    if (typeof s.fire !== 'function') miss.push('story.fire (H3)');
+    if (!d.ending) miss.push('debugState.ending (H7)');
+    if (!g.interactables.get('console6')) miss.push('interactable console6');
+    for (const m of ['mk6_end_cam0', 'mk6_end_cam1']) if (!g.level.object(m)) miss.push(m);
+    if (!(g.__triggers ?? []).some((t) => t.id === 't6_console')) miss.push('trigger t6_console');
+    return miss;
+  });
+  if (need.length) { const m = `level 6 ending: SKIPPED — needs ${need.join(', ')} (ST-a / ST-b / W4a)`; if (args.strict6) bad(m); else console.log(`  SKIP ${m}`); }
+  else {
+    await ev(() => localStorage.removeItem('coldboot.seen.v1'));
+    for (const [i, entry] of ['sprint', 'reload', 'crouch', 'lamp', 'grip'].entries()) {
+      console.log(`── entry: ${entry}${i === 0 ? ' (first view)' : ' (seen)'}`);
+      if (i > 0) await boot(Q6);
+      // to the ending by the hooks: every step, the waves dead, the quiet
+      const refused = await ev(async () => { const s = window.__game.story, out = []; for (const f of ['tube', 'latch', 'f1', 'f2', 'f3', 'manual', 'f4', 'bj', 'pull', 'f5', 'shaft', 'reveal', 'hostile', 'pin', 'pump', 'fire', 'ram_e', 'ram_w', 'pod']) { const x = s.fire(f); if (x === null || x === false) out.push(f); await new Promise((r) => setTimeout(r, 300)); } return out; });
+      if (refused.length) bad(`l6/${entry}: fire() refused ${refused.join(', ')} on the way to the ending`);
+      await ev(() => { const g = window.__game, V = g.player.position.constructor; for (const e of [...g.enemies.all]) for (let k = 0; k < 10 && e.alive && e.type !== 'loader'; k++) g.enemies.damage({ enemy: e, point: e.position.clone(), normal: new V(0, 0, 1), distance: 1, part: 'torso' }, 500, new V(0, 0, -1)); window.__game.story.fire('quiet'); });
+      const pending = await page.waitForFunction(() => window.__game.story.debugState?.ending?.pending && window.__game.interactables.get('console6')?.enabled, null, { timeout: 90000, polling: 200 }).then(() => true).catch(() => false);
+      if (!pending) { bad(`l6/${entry}: the ending never became pending (cut + loader dead + quiet)`); continue; }
+      // the stand: inside t6_console on its floor, facing the console; a sprint starts 1.6 m back
+      const stand = await ev((back) => {
+        const g = window.__game, V = g.player.position.constructor, t = g.__triggers.find((x) => x.id === 't6_console'), c = g.interactables.get('console6').position;
+        const x = (t.x0 + t.x1) / 2, z = (t.z0 + t.z1) / 2, dx = c.x - x, dz = c.z - z, l = Math.hypot(dx, dz) || 1;
+        const sx = x - dx / l * back, sz = z - dz / l * back;
+        const h = g.physics.raycastSolid(new V(sx, t.y1 - 0.2, sz), new V(0, -1, 0), 6);
+        g.player.teleport(new V(sx, h ? h.point.y : t.y0 + 0.5, sz), Math.atan2(-dx, -dz), Math.atan2(c.y - ((h ? h.point.y : 0) + 1.65), l));
+        return true;
+      }, entry === 'sprint' ? 1.6 : 0);
+      void stand;
+      await wait(400);
+      if (entry === 'reload') await ev(() => { const p = window.__game.player; p.debug.switchTo('carbine'); p.weapons.carbine.clip = 5; p.debug.reload(); });
+      if (entry === 'crouch') { await ev(() => window.__game.player.debug.crouch(true)); await wait(500); }
+      if (entry === 'lamp') await ev(() => { const p = window.__game.player; p.debug.torch?.(1); p.debug.flashlight(true); });
+      if (entry === 'grip') await ev(async () => { const g = window.__game, c = g.interactables.get('console6').position; const h = g.player.grip({ id: 'test_grip', point: c.clone(), normal: new (c.constructor)(0, 0, 1), seconds: 0.3, hold: false, motion: 'lever' }); await h.done; });
+      await zeroCnt();
+      if (entry === 'sprint') { await ev(() => window.__game.player.debug.move(1, 0, true)); await wait(350); }
+      await ev(() => { const g = window.__game; g.interactables.use(g.interactables.get('console6')); });
+      const took = await page.waitForFunction(() => window.__game.state === 'cutscene', null, { timeout: 2500, polling: 50 }).then(() => true).catch(() => false);
+      await ev(() => window.__game.player.debug.move(0, 0, false));
+      check(took, `l6/${entry}: the camera taken ≤ 2 s after the press`);
+      if (!took) continue;
+      await wait(800);
+      const s0 = await st();
+      check(s0.cinematic !== null && Math.hypot(s0.vel[0], s0.vel[2]) < 0.05, `l6/${entry}: cinematic ${s0.cinematic}, velocity ${s0.vel}`);
+      await hammer(2500);
+      const c = await cnt();
+      check(c.fired === 0 && c.reload === 0 && c.jump === 0, `l6/${entry}: nothing fires / reloads / jumps during the scene (fired ${c.fired}, reload ${c.reload}, jump ${c.jump})`);
+      const cam = await ev(() => { const g = window.__game, w = (n) => { const o = g.level.object(n); return o.getWorldPosition(o.position.clone()).toArray(); }; return { c: g.camera.getWorldPosition(g.camera.position.clone()).toArray(), a: w('mk6_end_cam0'), b: w('mk6_end_cam1') }; });
+      const off = Math.min(Math.hypot(...cam.c.map((v, k) => v - cam.a[k])), Math.hypot(...cam.c.map((v, k) => v - cam.b[k])));
+      check(off <= 0.45, `l6/${entry}: the camera on the cam0 → cam1 dolly (${off.toFixed(2)} m off)`);
+      await page.keyboard.down('Space'); await wait(700); await page.keyboard.up('Space');
+      const res = await ev(() => ({ s: window.__game.state, r: window.__game.story.debugState?.ending?.result ?? null }));
+      if (i === 0) {
+        check(res.s === 'cutscene', `l6/${entry}: skip refused on the first view (${res.s}, ${res.r})`);
+        const end = await page.waitForFunction(() => (window.__game.story.debugState?.beats ?? []).includes('l6_end'), null, { timeout: 70000, polling: 200 }).then(() => true).catch(() => false);
+        check(end && (await ev(() => window.__game.story.debugState?.ending?.result)) === 'played', `l6/${entry}: played to l6_end`);
+      } else {
+        const end = await page.waitForFunction(() => (window.__game.story.debugState?.beats ?? []).includes('l6_end'), null, { timeout: 8000, polling: 100 }).then(() => true).catch(() => false);
+        const r2 = await ev(() => ({ r: window.__game.story.debugState?.ending?.result, carry: JSON.parse(localStorage.getItem('coldboot.carry.v2') ?? 'null')?.facts ?? null }));
+        check(end && r2.r === 'skipped' && r2.carry?.trunkCut === true && r2.carry?.loaderDead === true, `l6/${entry}: skip accepted once seen → l6_end, the same end state (result ${r2.r}, carry trunkCut ${r2.carry?.trunkCut}, loaderDead ${r2.carry?.loaderDead})`);
+      }
+      await shot(`l6-${entry}`);
+    }
+  }
 }
 
 // ───────────────────────────────────────────────────────────── levels 1–2
