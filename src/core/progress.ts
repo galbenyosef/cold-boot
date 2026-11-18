@@ -54,8 +54,8 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     keycardName: 'FACILITIES BADGE', endEyebrow: 'End of Biological Systems', menuLine: 'Chapter 3  —  Biological Systems', subtitles: 'stacked',
     cast: NO_CAST,
     direct: { facts: { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true }, loadout: { ...DIRECT, flashlight: true, armor: 0 } },
-    // stage 3c D2: stays null on main until integration (IA sets 5); tests hand over with `?next=4:5`
-    healthFloor: 50, next: null,
+    // stage 3c: finishing level 4 hands over to level 5 (Post 4)
+    healthFloor: 50, next: 5,
   },
   5: {
     id: 5, tag: 'l5', built: true, title: 'POST 4', place: 'Post 4', bootStatus: 'post 4',

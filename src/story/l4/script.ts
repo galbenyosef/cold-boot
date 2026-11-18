@@ -743,11 +743,12 @@ export class ScriptL4 extends Base4 {
   private async gateLatch(): Promise<void> {
     await this.until(() => this.f.gateOpen);
     while (!this.f.gateLock) {
-      await this.until(() => this.forced.has('gatelock') || (this.at('t4_gatel') && this.ctx.state === 'playing'));
+      // (past the doorway: the trigger starts inside it, so a latch tried there always failed and never re-armed)
+      await this.until(() => this.forced.has('gatelock') || (this.at('t4_gatel') && this.pos.z < -108.2 && this.ctx.state === 'playing'));
       const forced = this.forced.has('gatelock');
       const ok = await this.latch('d4_tube_s', () => forced || this.pos.z < -107.4);
       if (ok) { this.beat('l4_gatelock'); break; }
-      await this.until(() => !this.at('t4_gatel'));
+      await this.until(() => !this.at('t4_gatel') || this.pos.z > -108.2 || this.forced.has('gatelock'));
     }
   }
 
