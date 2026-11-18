@@ -173,3 +173,16 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   walk-in-motion pop-in tun6_a → rep6 → tun6_b and he6 ↔ trench; L1–5 pickup visuals (baked meshes, 50 m cutoff) in
   play screenshots + `check:decals`. Weak: view (8) 34 calls on 14 pool pickups (instance per kind); door leaves 7 calls
   each (doors.ts); shot.mjs needs a fixed-frame perf measure (±20 call noise).
+- 3d ST-b: every `play:l6` mode on the dressed level (default with real grips; `--checkpoints` cp6_m1…m5 with pending/
+  alive/dead waves, dying twice at one milestone, B5 with 0 reserve, S2d pump save; `--boss` 3 seeds × 2 choices; `--dry`;
+  `--order` d/e/f; `--softlock` d–i; `--scares` incl. v6_well_eyes, v6_window); `check:cutscene` L6; APPLY ST-b's
+  check-voice-level L6 additions (E1/E2 radio SYNC at `mk6_end_stand`; loader PA at the trolley from dock 8–15 m, east
+  gallery ~25 m, cage, audible at 30 m; UNIT at `frame6.shearPoint` 1–2 m; soldier barks 15/30 m; sequenced radio
+  kes_dark = cut + 1.2, kes_pool_1 = reveal + 0.6, choir_pool = hostile + 0.4); `check:chain` L6 chapter end + carry;
+  E1/E2 frames on 4:3 and 21:9; reveal + shear in motion; W3 stores variant + `d6_stores` latch; W1 twin re-opened door.
+  FIX: E2 feed OSD — running hh:mm:ss and typed lines overdraw (W5 screens6 feed OSD); tether cut may run twice (pool.ts
+  cuts on `frame6.state().fired` AND ST-b calls `cutCable` at +0.6 — keep one); objective empty during the wait for the
+  quiet (write one); frame grips' normal from the player's position, not the set piece face. REVIEW (user): ending
+  framing changed from the plan (fov 72 → 70 → 68, quarter dolly, 0.1 m push) so the 3.2 m screen stays in frame;
+  flashlight off for the ending. Gap: `kes_boss_pod` skipped when rams + pod die in the same instant (H3 only).
+  User listens: alarm_beacon, the shear's four sounds, PA at gallery distance, pump strokes + gauge_tick.
