@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import type {
   EnemySpawn, EnemyType, FlickerMode, GameContext, LightDesc, LightHandle, MaterialName, PickupKind, PickupSpawn, Room,
-  ScreenKind, SignStyle, Surface,
+  RoomFloor, ScreenKind, SignStyle, Surface,
 } from '../core/types';
 import { Builder, aabbOf, mergeItems, unitBox, type Face } from './builder';
 import { SignAtlas, type UvRect } from './signatlas';
@@ -54,12 +54,20 @@ export interface NavDrop { from: THREE.Vector3; to: THREE.Vector3 }
  * (balconies, landings — `box` = [x0, x1, z0, z1] in plan view).
  */
 export interface RoomOpts {
-  /** Floor of the room (world y). Bounds are y0 − 0.5 … y0 + h. Default 0. */
+  /**
+   * Floor of the room (world y). Bounds are y0 − 0.5 … y0 + h — or, stage 3c §2.1 / §8.4, from the LOWEST floor − 0.5
+   * when an extra floor lies below y0 (the crawlway under the spine, the magazine under the armoury). Default 0.
+   */
   y0?: number;
   /** Reflection probe height above the floor (default 1.6). */
   probeY?: number;
-  /** Extra walkable floors inside the room (Deck-2 balcony over a Deck-1 hall, stair landings). */
-  floors?: { y: number; box: [number, number, number, number] }[];
+  /**
+   * Extra walkable floors inside the room (Deck-2 balcony over a Deck-1 hall, stair landings; stage 3c: floors BELOW
+   * the main floor). `nav: false` (stage 3c D20 / §8.4) = enemies never walk it (level/nav.ts samples no node on it,
+   * it is left out of the "floor with no reachable node" warning); `exits` = the standing points at the top of each
+   * way out of such a floor (copied onto `Room.floors`, read by the enemies through `level.floorAt`).
+   */
+  floors?: { y: number; box: [number, number, number, number]; nav?: boolean; exits?: readonly [number, number, number][] }[];
 }
 
 /**
@@ -104,8 +112,11 @@ export class LevelBuild {
   /** Extra hand-placed nav nodes. */
   readonly navExtra: { p: THREE.Vector3; room: string }[] = [];
   lightCount = 0;
-  /** Scripted set-pieces fired through `level.vignette(id)`. */
-  readonly vignettes = new Map<string, { run: () => void; toggle: boolean; fired: boolean }>();
+  /**
+   * Scripted set-pieces fired through `level.vignette(id)`. `snap` (stage 3c §8.7): the vignette's end state, applied
+   * instantly and silently by `level.vignette('<id>:snap')` (checkpoint restore, tests).
+   */
+  readonly vignettes = new Map<string, { run: () => void; toggle: boolean; fired: boolean; snap?: () => void }>();
   /** Doors by id (filled by createLevel after every room is built — use from updaters / vignettes / `afterDoors`). */
   readonly doors = new Map<string, DoorImpl>();
   /** Hooks run once the doors exist (things that hang on door leaves). */
@@ -248,8 +259,18 @@ export class LevelBuild {
   room(id: string, name: string, x0: number, x1: number, z0: number, z1: number, h: number, opts: number | RoomOpts = {}): LevelRoom {
     const o: RoomOpts = typeof opts === 'number' ? { probeY: opts } : opts;
     const y0 = o.y0 ?? 0;
-    const r: LevelRoom = { id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, y0 - 0.5, z0), new THREE.Vector3(x1, y0 + h, z1)), floor: y0 };
-    if (o.floors?.length) r.floors = o.floors.map((f) => ({ y: f.y, box: [...f.box] as [number, number, number, number] }));
+    // stage 3c §2.1: bounds start 0.5 below the lowest floor (a floor may lie under the main one); levels 1–4 have none
+    // below, so their bounds are unchanged
+    const low = Math.min(y0, ...(o.floors ?? []).map((f) => f.y));
+    const r: LevelRoom = { id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, low - 0.5, z0), new THREE.Vector3(x1, y0 + h, z1)), floor: y0 };
+    if (o.floors?.length) {
+      r.floors = o.floors.map((f) => {
+        const out: RoomFloor = { y: f.y, box: [...f.box] as [number, number, number, number] };
+        if (f.nav === false) out.nav = false;
+        if (f.exits) out.exits = f.exits.map((e) => [e[0], e[1], e[2]] as [number, number, number]);
+        return out;
+      });
+    }
     this.rooms.push(r);
     this.probes.push(new THREE.Vector3((x0 + x1) / 2, y0 + (o.probeY ?? 1.6), (z0 + z1) / 2));
     return r;
@@ -360,9 +381,31 @@ export class LevelBuild {
   }
 
   // ── vignettes / scripted animation ──
-  /** Register a scripted set-piece. One-shots run once; toggles run on every call. */
-  vignette(id: string, run: () => void, toggle = false) { this.vignettes.set(id, { run, toggle, fired: false }); }
+  /**
+   * Register a scripted set-piece. One-shots run once; toggles run on every call. The third argument is `toggle`
+   * (legacy boolean) or `{ toggle, snap }`.
+   *
+   * Stage 3c §8.7 — the `:snap` convention: `snap` puts the world into the vignette's END state at once — no sound
+   * (it runs with `L.silent` set, so `sfx()` is skipped), no fx, no tween left running, idempotent (safe to call twice,
+   * or after the vignette itself ran). `level.vignette('<id>:snap')` runs it and marks a one-shot as fired (a later
+   * `level.vignette('<id>')` is then ignored). A vignette registered without a snap warns once when asked for one.
+   * Registering an id again replaces the earlier entry (greybox placeholders are registered only when the id is free).
+   */
+  vignette(id: string, run: () => void, opts: boolean | { toggle?: boolean; snap?: () => void } = false) {
+    const o = typeof opts === 'boolean' ? { toggle: opts } : opts;
+    this.vignettes.set(id, { run, toggle: !!o.toggle, fired: false, ...(o.snap ? { snap: o.snap } : {}) });
+  }
   fireVignette(id: string): void {
+    if (id.endsWith(':snap')) {
+      const base = id.slice(0, -5);
+      const v = this.vignettes.get(base);
+      if (!v?.snap) { if (!this.warned.has(id)) { this.warned.add(id); console.warn(`[level] vignette "${base}" has no snap (${v ? 'registered without one' : 'unknown id'})`); } return; }
+      if (!v.toggle) v.fired = true;
+      const was = this.silent;
+      this.silent = true;
+      try { v.snap(); } catch (e) { console.warn(`[level] vignette snap "${base}" failed`, e); } finally { this.silent = was; }
+      return;
+    }
     const v = this.vignettes.get(id);
     if (!v) { if (!this.warned.has(id)) { this.warned.add(id); console.warn(`[level] unknown vignette "${id}"`); } return; }
     if (v.fired && !v.toggle) return;
@@ -408,12 +451,15 @@ export class LevelBuild {
 
   // ── gameplay data ──
   /** `opts.skin` (stage 3b §8.4): visual variant of a husk / sentry (`lab` | `navy`); absent = today's look. */
+  /** Stage 3c §5.1: `opts.arms` / `opts.cover` (soldier data: weapon, preferred cover set). */
   enemy(group: string, type: EnemyType, mode: 'dormant' | 'spawn', x: number, y: number, z: number, yaw: number, pose?: string, idle?: EnemySpawn['idle'],
-    opts?: { skin?: EnemySpawn['skin'] }) {
+    opts?: { skin?: EnemySpawn['skin']; arms?: EnemySpawn['arms']; cover?: string }) {
     const n = this.enemySpawns.filter((e) => e.group === group).length;
     const e: EnemySpawn = { id: `${group}_${n + 1}`, type, position: new THREE.Vector3(x, y, z), yaw, group, mode, pose };
     if (idle) e.idle = idle;
     if (opts?.skin) e.skin = opts.skin;
+    if (opts?.arms) e.arms = opts.arms;
+    if (opts?.cover) e.cover = opts.cover;
     this.enemySpawns.push(e);
   }
   pickup(id: string, kind: PickupKind, x: number, y: number, z: number, amount: number, yaw = 0) {

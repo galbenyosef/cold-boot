@@ -18,14 +18,20 @@
 // Levels 1–2 print their nav node hash and build time (nav v2 must leave both unchanged).
 //
 // Level 4 (stage 3b §10.3) declares its own cases like level 3, with `sentries` (a list) besides `sentry`.
-// Usage: node scripts/check-nav.mjs [--url http://127.0.0.1:5173] [--level 1|2|3|4|all|greybox] [--no-sim] [--verbose]
+// Level 5 (stage 3c §10.3, W4): reach cases carry `type` (husk | skitter | soldier), `rush` (the story's
+// `enemies.rush`: husks at 4.0 m/s) and `arrive` (success within that many metres of the player — a soldier stops at
+// range); `ramps` (a list); `nav: false` floors (crawl, magazine) are left out of the floor test and must hold NO node;
+// `noNodes` boxes (the hatch pit, the magazine hatch: obstacles from load) hold none; `navStairs` = how many nav stairs
+// there are (the lower ship stairs carry none); `shipStairs`: the PLAYER capsule walks up each ship stair (lids
+// snapped open); `cover`: every cover point has a nav node within 1.5 m reachable from its set's soldier spawn.
+// Usage: node scripts/check-nav.mjs [--url http://127.0.0.1:5173] [--level 1|2|3|4|5|all|greybox] [--no-sim] [--verbose]
 // Exit code 1 on any failure.
 import { parseArgs, launch, bootLevel } from './lib/check-common.mjs';
 
 const args = parseArgs();
 const base = args.url ?? 'http://127.0.0.1:5173';
 const which = args.level ?? 'all';
-const targets = which === 'all' ? ['greybox', 1, 2, 3, 4] : which === 'greybox' ? ['greybox'] : [Number(which)];
+const targets = which === 'all' ? ['greybox', 1, 2, 3, 4, 5] : which === 'greybox' ? ['greybox'] : [Number(which)];
 const sims = !args['no-sim'];
 /**
  * Levels 1–2 nav node sets as built before nav v2 (K4 baseline: ids, positions, rooms, links). Nav v2 must not change
@@ -278,9 +284,12 @@ function install() {
       if (c.phase) level.applyPhase(c.phase, { snap: true });
       const yaw = Math.atan2(-(c.spawn[0] - c.player[0]), -(c.spawn[2] - c.player[2]));
       place(c.player, yaw);
-      const { e, grp } = spawn('husk', c.spawn, Math.atan2(-(c.player[0] - c.spawn[0]), -(c.player[2] - c.spawn[2])));
+      const { e, grp } = spawn(c.type ?? 'husk', c.spawn, Math.atan2(-(c.player[0] - c.spawn[0]), -(c.player[2] - c.spawn[2])));
       step(2); e.alert?.();
-      const r = follow(e, c.within);
+      if (c.rush) g.enemies.rush?.(grp, c.within + 5);
+      const pp = g.player.position;
+      const r = follow(e, c.within, c.arrive ? { until: () => Math.hypot(e.position.x - pp.x, e.position.z - pp.z) < c.arrive && Math.abs(e.position.y - pp.y) < 1.0 } : {});
+      r.type = e.type;
       kill(grp);
       return r;
     },
@@ -385,6 +394,48 @@ function install() {
       out.huskLegs = hLegs; out.huskFell = hAcc.fell ?? null; out.huskOn = !!hAcc.on;
       return out;
     },
+    /** Level 5 statics (W4): noNodes boxes, nav:false floors, nav stair count, cover reachability. */
+    level5() {
+      const cs = level.navCases;
+      if (!cs?.cover) return null;
+      openAll();
+      const inB = (q, b) => q.x > b[0] && q.x < b[3] && q.y > b[1] && q.y < b[4] && q.z > b[2] && q.z < b[5];
+      const noNodes = (cs.noNodes ?? []).map((x) => ({ id: x.id, n: nav.filter((n) => inB(n.position, x.box)).length }));
+      const offNav = nav.filter((n) => { const f = level.floorAt(n.position); return f && !f.nav && Math.abs(f.y - n.position.y) < 0.3; }).length;
+      const cover = cs.cover.map((c) => {
+        const from = nearestNode(new V(...c.from));
+        const dist = dijkstra(from);
+        const near = nav.filter((n) => Math.abs(n.position.y - c.p[1]) < 0.4 && Math.hypot(n.position.x - c.p[0], n.position.z - c.p[2]) <= 1.5);
+        if (!near.length) return { id: c.id, ok: false, why: 'no node within 1.5 m' };
+        const best = Math.min(...near.map((n) => dist[n.id]));
+        return { id: c.id, ok: best < Infinity, why: best < Infinity ? `${best.toFixed(0)} m` : `unreachable from ${c.set} spawn` };
+      });
+      return { noNodes, offNav, stairs: stairs.length, wantStairs: cs.navStairs ?? stairs.length, cover };
+    },
+    /** The player capsule walks a ship stair: from `from` to `via` (the foot), then up toward `to` (lids snapped open). */
+    shipStair(c) {
+      openAll();
+      for (const v of c.snaps ?? []) level.vignette(`${v}:snap`);
+      // one straight leg: face the target once (teleport in place), then walk forward
+      const walkTo = (to, limit) => {
+        const p0 = g.player.position.clone();
+        g.player.teleport(p0, Math.atan2(-(to[0] - p0.x), -(to[2] - p0.z)), 0);
+        g.player.debug.move(1, 0, false);
+        for (let t = 0; t < limit; t += DT) {
+          const p = g.player.position;
+          if (Math.hypot(to[0] - p.x, to[2] - p.z) < 0.35 && Math.abs(p.y - to[1]) < 0.3) { g.player.debug.move(0, 0, false); step(5); return t; }
+          step(1);
+        }
+        g.player.debug.move(0, 0, false);
+        return -1;
+      };
+      place(c.from, 0);
+      const t1 = walkTo(c.via, 6);
+      const t2 = t1 < 0 ? -1 : walkTo(c.to, 10);
+      g.player.debug.move(0, 0, false);
+      const p = g.player.position;
+      return { ok: t2 >= 0, t: t1 + t2, at: fmt(p) };
+    },
     perf() { const r = { enemyMsPerFrame: enemyFrames ? enemyMs / enemyFrames : 0, frames: enemyFrames }; enemyMs = 0; enemyFrames = 0; return r; },
   };
   g.debug.noEnemies = false; // boot without the level's own machines, then let ours hunt (EnemyManager reads it per frame)
@@ -425,11 +476,21 @@ for (const target of targets) {
   if (st.floors) {
     const cases = await page.evaluate(() => window.__game.level.navCases ?? null);
     const expected = new Set(cases?.unlinkedFloors ?? []), ignore = new Set(cases?.ignoreFloors ?? []);
-    const lost = Object.entries(st.floors).filter(([k, f]) => f.kept === 0 && !k.endsWith(':stair') && !ignore.has(k));
+    const lost = Object.entries(st.floors).filter(([k, f]) => f.kept === 0 && f.nav !== false && !k.endsWith(':stair') && !ignore.has(k));
+    const navOff = Object.entries(st.floors).filter(([, f]) => f.nav === false);
+    if (navOff.length) line(navOff.every(([, f]) => f.made === 0), `nav: false floors hold no node (${navOff.map(([k]) => k).join(', ')})`, navOff.some(([, f]) => f.made) ? ` — ${navOff.filter(([, f]) => f.made).map(([k, f]) => `${k} ${f.made}`).join(', ')}` : '');
     const bad = lost.filter(([k]) => !expected.has(k));
     line(bad.length === 0, `every declared floor keeps reachable nav nodes (${Object.keys(st.floors).length} floors, ${st.stairs} stair(s))`, bad.length ? ` — unlinked: ${bad.map(([k, f]) => `${k} (y ${f.y}, ${f.made} nodes made)`).join(', ')}` : '');
     for (const k of expected) expectFail(lost.some(([q]) => q === k), `unlinked deck "${k}" is reported`);
     if (ignore.size) console.log(`      (not part of the walkable test layout: ${[...ignore].join(', ')})`);
+  }
+  const l5 = await page.evaluate(() => window.__nav.level5());
+  if (l5) {
+    line(l5.noNodes.every((x) => x.n === 0), `no nav node in ${l5.noNodes.map((x) => `${x.id} (${x.n})`).join(', ')}`);
+    line(l5.offNav === 0, `no nav node stands on a nav: false floor (${l5.offNav})`);
+    line(l5.stairs === l5.wantStairs, `nav stairs: ${l5.stairs} (the lower ship stairs carry none; want ${l5.wantStairs})`);
+    const badC = l5.cover.filter((c) => !c.ok);
+    line(badC.length === 0, `every cover point (${l5.cover.length}) has a nav node ≤ 1.5 m reachable from its set's soldier spawn`, badC.length ? ` — ${badC.map((c) => `${c.id} (${c.why})`).join(', ')}` : '');
   }
   const ph = await page.evaluate(() => window.__nav.phases());
   for (const p of ph) {
@@ -469,8 +530,8 @@ for (const target of targets) {
       const r = await page.evaluate((c) => window.__nav.sentry(c), c);
       line(r.reached && !r.outside, `${c.id.padEnd(18)} ${c.label} — ${r.reached ? `fired after ${r.t.toFixed(1)} s` : `did not fire in ${c.within} s (at ${r.at})`}`);
     }
-    if (cases.ramp) {
-      const c = { ...cases.ramp, away: cases.ramp.away ?? [0, 0, -34] };
+    for (const c0 of cases.ramps ?? (cases.ramp ? [cases.ramp] : [])) {
+      const c = { ...c0, away: c0.away ?? [0, 0, -34] };
       const r = await page.evaluate((c) => window.__nav.ramp(c), c);
       line(r.huskDrift < 0.05, `ramp: a husk standing on it drifts ${(r.huskDrift * 100).toFixed(1)} cm in 10 s (< 5 cm; state ${r.huskState})`);
       line(r.playerDrift < 0.05, `ramp: the player standing on it drifts ${(r.playerDrift * 100).toFixed(1)} cm in 10 s (< 5 cm)`);
@@ -478,6 +539,10 @@ for (const target of targets) {
       line(r.huskLegs === c.trips * 2 && !r.huskFell && r.huskOn, `ramp: a husk follows the player up and down ${c.trips} times — ${r.huskLegs}/${c.trips * 2} legs${r.huskFell ? `, went over the side at ${r.huskFell}` : ''}`);
       const nh = await page.evaluate((c) => window.__nav.ramp(c, { noHold: true }), c);
       expectFail(nh.huskDrift >= 0.05, `ramp without the physics slope hold: a standing husk drifts ${(nh.huskDrift * 100).toFixed(1)} cm in 10 s`);
+    }
+    if (cases.shipStairs) for (const c of cases.shipStairs) {
+      const r = await page.evaluate((c) => window.__nav.shipStair(c), c);
+      line(r.ok, `ship stair ${c.id}: ${c.label} — the player capsule ${r.ok ? `reaches the top in ${r.t.toFixed(1)} s` : `stopped at ${r.at}`}`);
     }
     const perf = await page.evaluate(() => window.__nav.perf());
     console.log(`      enemies.update: ${perf.enemyMsPerFrame.toFixed(3)} ms per frame on average over ${perf.frames} simulated frames (1 machine)`);

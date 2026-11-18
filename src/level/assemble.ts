@@ -37,13 +37,15 @@ export interface LevelDef {
   t0?: number;
   /** REVISION 5: named regions besides the per-room ones (each room id is a region by default). */
   regions?: Record<string, THREE.Box3[]>;
-  /** Stage 3c §8.3: soldier cover points (`Level.cover`; K placeholder default `[]` — levels 1–4 have none). */
+  /** Stage 3c §8.3: soldier cover points (`Level.cover`; default `[]` — levels 1–4 have none; level 5: l5/cover.ts). */
   cover?: readonly CoverPoint[];
 }
 
 /**
  * Stage 3c §8.4 `Level.floorAt` (default for every level): the floor of `room` that `p` stands on — the main floor or a
- * `floors[i]` whose plan box contains p, the highest with y ≤ p.y + 0.5 (else the lowest of them).
+ * `floors[i]` whose plan box contains p, the highest with y ≤ p.y + 0.5 (else the lowest of them). A floor below the
+ * main one (the level-5 crawlway, magazine) is found because room bounds start at the lowest floor − 0.5
+ * (`LevelBuild.room`). `nav` / `exits` come from `RoomFloor` (`LevelBuild.room(…, { floors: [{ nav: false, exits }] })`).
  */
 export function floorOf(room: Room, p: THREE.Vector3): FloorInfo {
   const main = room.floor ?? room.y0 ?? 0;

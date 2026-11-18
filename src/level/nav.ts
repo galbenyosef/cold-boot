@@ -8,6 +8,10 @@
  * stairs / ramps a level declares (`LevelBuild.navStair`: a chain of nodes every 1.0 m on the slope) and by one-way
  * drops (`LevelBuild.navDrop`, `NavNode.drops`). Door portal nodes take the door's floor. A level with one floor at
  * y 0 and no stairs (levels 1, 2) builds exactly the graph it built before.
+ *
+ * Stage 3c D20 / §8.4: a floor declared `nav: false` (the crawlway, the magazine) gets no grid node, does not carry a
+ * link (`supported`), and is left out of the "floor with no reachable node" warning (`NavInfo.floors[k].nav` false —
+ * scripts/check-nav.mjs skips it too). Its `exits` are data for the enemies (level.floorAt), not nav nodes.
  */
 import * as THREE from 'three';
 import type { NavNode, Room } from '../core/types';
@@ -41,8 +45,8 @@ export interface NavPortal { x: number; y?: number; z: number }
 export interface NavInfo {
   /** Multi-deck rules active (a room with extra floors / a floor off y 0 / a stair). */
   decks: boolean;
-  /** Per room floor (`room:floor index` or `room:main`): nodes generated / kept after pruning. */
-  floors: Record<string, { y: number; made: number; kept: number }>;
+  /** Per room floor (`room:floor index` or `room:main`): nodes generated / kept after pruning; `nav: false` floors flagged. */
+  floors: Record<string, { y: number; made: number; kept: number; nav?: false }>;
   stairs: { room: string; a: number[]; b: number[]; width: number; nodes: number }[];
   drops: { from: number[]; to: number[]; ok: boolean }[];
   /** Stair end nodes that came out blocked (a stair that cannot be entered). */
@@ -108,6 +112,7 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
       if (x < b.min.x - g || x > b.max.x + g || z < b.min.z - g || z > b.max.z + g) continue;
       if (Math.abs(floorY[i] - y) < 0.35) return true;
       for (const f of rooms[i].floors ?? []) {
+        if (f.nav === false) continue;
         if (Math.abs(f.y - y) < 0.35 && x >= f.box[0] - 0.1 && x <= f.box[1] + 0.1 && z >= f.box[2] - 0.1 && z <= f.box[3] + 0.1) return true;
       }
     }
@@ -136,6 +141,7 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
     const fl = rooms[ri].floors ?? [];
     for (let k = 0; k < fl.length; k++) {
       const f = fl[k];
+      if (f.nav === false) continue;
       if (Math.abs(f.y - y) < 0.3 && x >= f.box[0] - 0.1 && x <= f.box[1] + 0.1 && z >= f.box[2] - 0.1 && z <= f.box[3] + 0.1) return k;
     }
     return undefined;
@@ -183,7 +189,7 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
       continue;
     }
     grid(b.min.x, b.max.x, b.min.z, b.max.z, floorY[ri]);
-    (room.floors ?? []).forEach((f, k) => grid(f.box[0], f.box[1], f.box[2], f.box[3], f.y, k));
+    (room.floors ?? []).forEach((f, k) => { if (f.nav !== false) grid(f.box[0], f.box[1], f.box[2], f.box[3], f.y, k); });
   }
   for (const e of L.navExtra) {
     add(e.p.x, e.p.y, e.p.z, e.room, 1.6, decks ? floorIndex(roomIndex(e.room), e.p.x, e.p.y, e.p.z) : undefined);
@@ -274,7 +280,10 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
     // a declared floor that produced no node at all is reported too (made 0)
     if (!decks) break;
     (info.floors[floorKey(r.id, undefined)] ??= { y: roomFloor(r), made: 0, kept: 0 });
-    (r.floors ?? []).forEach((f, k) => { info.floors[floorKey(r.id, k)] ??= { y: f.y, made: 0, kept: 0 }; });
+    (r.floors ?? []).forEach((f, k) => {
+      const e = (info.floors[floorKey(r.id, k)] ??= { y: f.y, made: 0, kept: 0 });
+      if (f.nav === false) e.nav = false;
+    });
   }
   for (const [a, b] of dropPairs) info.drops.push({ from: a.position.toArray(), to: b.position.toArray(), ok: !!(seen[a.id] && seen[b.id]) });
   const remap = new Int32Array(nodes.length).fill(-1);
@@ -287,7 +296,7 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
   }
   if (out.length < nodes.length && L.ctx.debug.verbose) console.info(`[level] nav: pruned ${nodes.length - out.length} unreachable nodes`);
   if (decks) {
-    const lost = Object.entries(info.floors).filter(([, f]) => f.kept === 0).map(([k]) => k);
+    const lost = Object.entries(info.floors).filter(([, f]) => f.kept === 0 && f.nav !== false).map(([k]) => k);
     if (lost.length && L.ctx.debug.verbose) console.warn(`[level] nav: floors with no reachable node (no stair / door links them): ${lost.join(' ')}`);
     for (const e of info.blockedEnds) console.warn(`[level] nav: stair end blocked — ${e}`);
   }

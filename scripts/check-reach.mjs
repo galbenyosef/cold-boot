@@ -12,6 +12,12 @@
 // every trigger contains a reachable node (feet, inside its y range) in at least one phase; `level.selfTest()` is
 // run when the level has one (the dev greybox). A phase may declare `check.expect: 'fail'` (a deliberate failing
 // case: it passes only if a forbidden region IS reached) and `check.stressFloors` (floors that must get stress jumps).
+// Stage 3c (W4) fields: `check.mustNotUse` — interactables that must NOT be usable from any reachable capsule (in range
+// + clear line from its eye; a disabled one passes; `{ id, eye: [min, max] }` restricts the eye heights considered);
+// `check.snaps` — vignette snaps applied before the flood (`level.vignette(id + ':snap')`: world state the story makes,
+// e.g. an opened hatch); `check.crouchOnly` — regions where no reachable node may stand up (a crawlway: the player
+// cannot stand into its ceiling). `use` entries may be `{ id, eye }` too. An interactable's `eyeGate` ({ axis, min,
+// max } — the level's R8 gate on the player's eye) is honoured for every use / leak / mustNotUse test.
 //
 // Usage: node scripts/check-reach.mjs [--url http://127.0.0.1:5173] [--level 1|2|all] [--phase D2] [--no-stress]
 //        [--cell 0.4] [--jobs 4] [--verbose] [--greybox [deck2]]   (--phase takes a comma list;
@@ -31,6 +37,7 @@ function runPhase(o) {
   const V = g.camera.position.constructor;
   const phase = level.phases.find((p) => p.id === o.phase);
   level.applyPhase(o.phase, { snap: true });
+  for (const v of phase.check.snaps ?? []) level.vignette(`${v}:snap`);
   // auto doors stand open for the flood (they open for anyone who comes near); snap every stroke
   for (const d of level.doors) {
     if (!d.locked && d.auto) d.open();
@@ -208,11 +215,14 @@ function runPhase(o) {
   const goals = phase.check.goal.map((r) => ({ region: r, ok: r === 'ride' ? rides > 0 : reached.has(r) }));
 
   // ── interactables: goals usable; nothing inside a forbidden region usable / walk-over-able ──
-  const usable = (it) => {
+  const usable = (it, eyeRange = null) => {
     const r = it.radius ?? 2.2;
+    const gate = it.eyeGate ?? null;
     for (const n of nodes) {
       for (const eh of n.stand ? [EYE, EYEC] : [EYEC]) {
         tmp.set(n.p.x, n.p.y + eh, n.p.z);
+        if (gate) { const v = tmp[gate.axis]; if ((gate.min !== undefined && v < gate.min) || (gate.max !== undefined && v >= gate.max)) continue; }
+        if (eyeRange && (tmp.y < eyeRange[0] || tmp.y > eyeRange[1])) continue;
         tmp2.copy(it.position).sub(tmp);
         const d = tmp2.length();
         if (d > r) continue;
@@ -226,10 +236,28 @@ function runPhase(o) {
     return null;
   };
   const all = g.interactables.all.filter((it) => it.kind !== 'door');
-  const use = (phase.check.use ?? []).map((id) => {
+  const entry = (e) => (typeof e === 'string' ? { id: e, eye: null } : { id: e.id, eye: e.eye ?? null });
+  const use = (phase.check.use ?? []).map((e) => {
+    const { id, eye } = entry(e);
     const it = all.find((x) => x.id === id);
-    if (!it) return { id, ok: false, why: 'no such interactable' };
-    const u = usable(it);
+    if (!it) {
+      // stage 3c: a touch pickup (no interactable) — the player module's collect rule: feet within 1.0 m in plan,
+      // the item 0.6 below … 1.4 above the feet, a clear line from the chest (0.9 m) with 0.4 m tolerance
+      const sp = (level.pickupSpawns ?? []).find((x) => x.id === id);
+      if (!sp) return { id, ok: false, why: 'no such interactable or pickup' };
+      const c = sp.position;
+      for (const n of nodes) {
+        const dx = c.x - n.p.x, dz = c.z - n.p.z, dy = c.y - n.p.y;
+        if (dx * dx + dz * dz >= 1.0 || dy <= -0.6 || dy >= 1.4) continue;
+        tmp.set(n.p.x, n.p.y + 0.9, n.p.z);
+        tmp2.copy(c).sub(tmp);
+        const d = tmp2.length();
+        if (d > 0.3 && phys.raycast(tmp, tmp2.multiplyScalar(1 / d), d - 0.4)) continue;
+        return { id, ok: true, from: [n.p.x, n.p.y, n.p.z].map((v) => +v.toFixed(2)), how: 'touch' };
+      }
+      return { id, ok: false, why: 'touch pickup not collectable from any reachable spot' };
+    }
+    const u = usable(it, eye);
     return { id, ok: !!u, from: u ? [u.node.p.x, u.node.p.y, u.node.p.z].map((v) => +v.toFixed(2)) : null };
   });
   const leaks = [];
@@ -239,12 +267,32 @@ function runPhase(o) {
     const u = usable(it);
     if (u) leaks.push({ id: it.id, kind: it.kind, region: rs[0], pos: [it.position.x, it.position.y, it.position.z].map((v) => +v.toFixed(2)), from: [u.node.p.x, u.node.p.y, u.node.p.z].map((v) => +v.toFixed(2)), how: u.eye });
   }
+  // ── stage 3c: interactables that must not be usable (a disabled one passes: the player cannot focus it)
+  const mustNot = (phase.check.mustNotUse ?? []).map((e) => {
+    const { id, eye } = entry(e);
+    const it = all.find((x) => x.id === id);
+    if (!it) return { id, ok: false, why: 'no such interactable' };
+    if (!it.enabled) return { id, ok: true, why: 'disabled' };
+    const u = usable(it, eye);
+    return { id, ok: !u, from: u ? [u.node.p.x, u.node.p.y, u.node.p.z].map((v) => +v.toFixed(2)) : null, how: u ? u.eye : null };
+  });
+  // ── stage 3c: crouch-only regions (no reachable node stands up inside them; tested at the feet + 0.5)
+  const standIn = [];
+  for (const reg of phase.check.crouchOnly ?? []) {
+    const boxes = regions[reg] ?? [];
+    for (const n of nodes) {
+      if (!n.stand) continue;
+      tmp2.set(n.p.x, n.p.y + 0.5, n.p.z);
+      if (boxes.some((b) => b.containsPoint(tmp2))) { standIn.push({ region: reg, at: [n.p.x, n.p.y, n.p.z].map((v) => +v.toFixed(2)) }); break; }
+    }
+  }
+  const crouchNodes = (phase.check.crouchOnly ?? []).map((reg) => ({ reg, n: nodes.filter((n) => (regions[reg] ?? []).some((b) => b.containsPoint(tmp2.set(n.p.x, n.p.y + 0.5, n.p.z)))).length }));
   // ── triggers holding a reachable node (feet, inside the y range) ──
   const triggers = trig.filter((t) => nodes.some((n) => inTrig(t, n.p))).map((t) => t.id);
   const stressMissing = o.stress ? (phase.check.stressFloors ?? []).filter((f) => !boxFloors[String(+f.toFixed(2))]) : [];
   return {
     phase: phase.id, label: phase.label, stress: o.stress, nodes: nodes.length, sims, ms: Math.round(ms), truncated: nodes.length >= o.maxNodes || ms > o.budgetMs,
-    reached: [...reached.keys()].sort(), forbidden, goals, use, leaks, rides, triggers, boxFloors, stressMissing, expect: phase.check.expect ?? null,
+    reached: [...reached.keys()].sort(), forbidden, goals, use, mustNot, standIn, crouchNodes, leaks, rides, triggers, boxFloors, stressMissing, expect: phase.check.expect ?? null,
   };
 }
 
@@ -271,7 +319,7 @@ const browser = await launch();
 let failures = 0;
 const jobsN = Number(args.jobs ?? 4);
 const print = (r) => {
-  let bad = r.forbidden.length || r.goals.some((x) => !x.ok) || r.use.some((x) => !x.ok) || r.leaks.length || r.truncated || r.stressMissing.length;
+  let bad = r.forbidden.length || r.goals.some((x) => !x.ok) || r.use.some((x) => !x.ok) || r.mustNot.some((x) => !x.ok) || r.standIn.length || r.leaks.length || r.truncated || r.stressMissing.length;
   let tag = bad ? 'FAIL' : ' ok ', note = '';
   if (r.expect === 'fail') {
     // the deliberate failing case: it must report its forbidden region, else the check cannot fail
@@ -285,6 +333,9 @@ const print = (r) => {
   for (const f of r.forbidden) console.log(`       forbidden region "${f.region}" reached at (${f.at.slice(0, 3).join(', ')}) via ${f.at[3]}\n         path: ${f.path.map((q) => q.length < 3 ? '…' : `(${q[0]},${q[1]},${q[2]})${q[3] !== 'walk' ? ':' + q[3] : ''}`).join(' → ')}`);
   for (const x of r.goals.filter((x) => !x.ok)) console.log(`       goal region "${x.region}" NOT reached`);
   for (const x of r.use.filter((x) => !x.ok)) console.log(`       goal interactable "${x.id}" NOT usable${x.why ? ' (' + x.why + ')' : ''}`);
+  for (const x of r.mustNot.filter((x) => !x.ok)) console.log(`       interactable "${x.id}" must NOT be usable, but is${x.from ? ` from (${x.from.join(', ')}) [eye ${x.how}]` : ''}${x.why ? ' (' + x.why + ')' : ''}`);
+  for (const x of r.standIn) console.log(`       a reachable node STANDS in crouch-only region "${x.region}" at (${x.at.join(', ')})`);
+  if (r.crouchNodes.length && !r.stress) console.log(`       crouch-only: ${r.crouchNodes.map((c) => `${c.reg} ${c.n} crouched nodes`).join(', ')}; must-not-use: ${r.mustNot.map((x) => `${x.id}${x.why ? ` (${x.why})` : ''}`).join(', ') || '—'}`);
   for (const l of r.leaks) console.log(`       interactable "${l.id}" (${l.kind}) in sealed "${l.region}" usable from (${l.from.join(', ')}) [${l.how}]`);
   if (args.verbose) console.log(`       reached: ${r.reached.join(' ')}`);
   if (args.verbose && r.stress) console.log(`       wreck boxes per floor: ${Object.entries(r.boxFloors).map(([k, v]) => `y ${k}: ${v}`).join(', ')}`);

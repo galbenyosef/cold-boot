@@ -5,7 +5,7 @@
  *  - cage (3.0 × 2.8): elevator gate, grated leaves, same motion as wide.
  */
 import * as THREE from 'three';
-import type { Door, DynamicBox, GameContext, Interactable } from '../core/types';
+import type { Door, DynamicBox, GameContext, Interactable, SignStyle } from '../core/types';
 import type { Builder, Mat } from './builder';
 import type { LevelBuild } from './context';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -73,6 +73,19 @@ export interface DoorSpec {
    * Rides with the leaf (notes, drawings taped to a door).
    */
   leafDetail?: (b: Builder, side: -1 | 1, w: number, h: number) => void;
+  /**
+   * Stage 3c §8.11 (S1o): the door's OWN stroke sounds — played by the door itself (positional, at the middle of the
+   * opening, through `LevelBuild.sfx`: silent during a checkpoint restore) the moment a stroke starts. `open` when it
+   * starts opening, `close` when it starts closing. For the `wide` pressure gate `d5_gate`: `gate_open_heavy` /
+   * `gate_close_heavy` — the gate owns both; no vignette or story plays them. Absent = none (every other door).
+   * (The audio module's generic `door:opening` / `door:closing` sounds are not affected.)
+   */
+  sounds?: { open?: string; close?: string; volume?: number };
+  /**
+   * Stage 3c: the lintel sign style of a `clinical` / `navy` frame (default: `clinical` → 'clinical', `navy` →
+   * 'stencil', as level 4 built). Level 5 passes 'navy' (white stencil on haze grey).
+   */
+  signStyle?: SignStyle;
 }
 
 /**
@@ -224,11 +237,18 @@ export class DoorImpl implements Door {
     if (this.locked || this.target === 1) return;
     this.target = 1;
     this.L.ctx.events.emit('door:opening', { id: this.id, position: this.position });
+    this.strokeSound(this.spec.sounds?.open);
   }
   close() {
     if (this.target === 0) return;
     this.target = 0;
     this.L.ctx.events.emit('door:closing', { id: this.id, position: this.position });
+    this.strokeSound(this.spec.sounds?.close);
+  }
+  /** Stage 3c §8.11: the door's own stroke sound (DoorSpec.sounds), at the middle of the opening. */
+  private strokeSound(id: string | undefined) {
+    if (!id) return;
+    this.L.sfx(id, this.position.x, this.y0 + this.h / 2, this.position.z, this.spec.sounds?.volume ?? 1);
   }
   lock() { this.locked = true; this.close(); this.refreshStatus(); }
   /** Only `unlock()` changes `locked`; a status override stays until `setStatus(null)`. */
@@ -383,7 +403,7 @@ export class DoorImpl implements Door {
         b.bx(trim, -w / 2 + 0.01, h - 0.01, z1, w / 2 - 0.01, h + 0.03, z1 + s * 0.008);
         const label = s > 0 ? sp.labelFront : sp.labelBack;
         const lw = Math.min(w + 0.3, 0.085 * label.length + 0.36);
-        b.sign(label, clin ? 'clinical' : 'stencil', 0, h + 0.15, z1, lw, 0.2, face);
+        b.sign(label, this.spec.signStyle ?? (clin ? 'clinical' : 'stencil'), 0, h + 0.15, z1, lw, 0.2, face);
         // status light housing on the right-hand jamb (as seen from this side): slim, flush
         const px = s * (w / 2 + jw / 2 + 0.02);
         b.box(trim, px, 1.43, z1 + s * 0.018, 0.19, 0.14, 0.036);

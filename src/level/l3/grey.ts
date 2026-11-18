@@ -82,14 +82,20 @@ export function airOf(id: RoomId3): Box6 {
  * the slope gets stepped colliders 0.15 m below the slope so nothing can get under the flight.
  * `dir` = +1: rises toward +z (west stair), −1: rises toward −z (feature stair). `z0` = foot of the first riser.
  */
-export interface StairDef { room: RoomId3; x0: number; x1: number; z0: number; dir: 1 | -1; risers: number; rise: number; tread: number }
+export interface StairDef {
+  room: RoomId3; x0: number; x1: number; z0: number; dir: 1 | -1; risers: number; rise: number; tread: number;
+  /** Stage 3c §2.1 (S1m): y of the floor the flight starts from (default 0); the top lands at y0 + risers · rise. */
+  y0?: number;
+  /** Stage 3c (S1m): false = no `navStair` (enemies never use it: ship stairs to `nav: false` floors). Default true. */
+  nav?: false;
+}
 export const STAIR_W: StairDef = { room: 'stair_w', x0: -19.8, x1: -15.2, z0: -31, dir: 1, risers: 16, rise: 0.3, tread: 0.5625 };
 export const STAIR_ATR: StairDef = { room: 'atrium', x0: 5.5, x1: 8.5, z0: -20, dir: -1, risers: 16, rise: 0.3, tread: 0.5625 };
 /** Slope line (bottom, top) of a stair — the navStair ends and the ramp collider. */
 export function stairLine(s: StairDef): { a: [number, number, number]; b: [number, number, number] } {
-  const cx = (s.x0 + s.x1) / 2, k = s.rise / s.tread, top = s.risers * s.rise;
+  const cx = (s.x0 + s.x1) / 2, k = s.rise / s.tread, top = s.risers * s.rise, y0 = s.y0 ?? 0;
   const d0 = -(s.rise / 2) / k, d1 = (top - s.rise / 2) / k; // y = rise/2 + k·d through the tread midpoints
-  return { a: [cx, 0, s.z0 + s.dir * d0], b: [cx, top, s.z0 + s.dir * d1] };
+  return { a: [cx, y0, s.z0 + s.dir * d0], b: [cx, y0 + top, s.z0 + s.dir * d1] };
 }
 
 // ───────────────────────────────────────────────────────────── looks (greybox materials)
@@ -348,11 +354,12 @@ export function block(b: Builder, mat: Mat, x0: number, y0: number, z0: number, 
 /** Visual steps + slope collider + under-mass colliders + the top filler (see StairDef). */
 export function buildStair(L: LevelBuild, b: Builder, s: StairDef, mat: Mat, glassSides: boolean) {
   const { x0, x1, z0, dir, risers, rise, tread } = s;
+  const y0 = s.y0 ?? 0;
   const glass = L.ctx.materials.get('glass');
   for (let k = 0; k < risers; k++) {
-    const za = z0 + dir * tread * k, zb = z0 + dir * tread * (k + 1), top = rise * (k + 1);
-    b.bx(mat, x0, 0, Math.min(za, zb), x1, top, Math.max(za, zb));
-    if (k > 0) b.collide(x0, 0, Math.min(za, zb), x1, rise * k, Math.max(za, zb), 'concrete', true);
+    const za = z0 + dir * tread * k, zb = z0 + dir * tread * (k + 1), top = y0 + rise * (k + 1);
+    b.bx(mat, x0, y0, Math.min(za, zb), x1, top, Math.max(za, zb));
+    if (k > 0) b.collide(x0, y0, Math.min(za, zb), x1, y0 + rise * k, Math.max(za, zb), 'concrete', true);
     if (glassSides) for (const [ga, gb] of [[x0 + 0.02, x0 + 0.05], [x1 - 0.05, x1 - 0.02]] as const) {
       b.bx(glass, ga, top, Math.min(za, zb), gb, top + 1.1, Math.max(za, zb));
       b.bx('brass', ga - 0.01, top + 1.1, Math.min(za, zb), gb + 0.01, top + 1.14, Math.max(za, zb));
@@ -371,8 +378,8 @@ export function buildStair(L: LevelBuild, b: Builder, s: StairDef, mat: Mat, gla
   // (2 mm proud of the landing level and starting exactly at the slope's top end: a ray down at the top node meets its
   // flat top, never the slab's end cap; no ledge a husk could catch on)
   const zf = e[2];
-  b.collide(x0, risers * rise - 0.3, Math.min(zf, zt + dir * 0.05), x1, risers * rise + 0.002, Math.max(zf, zt + dir * 0.05), 'concrete', false); // (2 mm proud: the ray meets it first)
-  L.navStair(s.room, a, e, Math.min(2.6, x1 - x0 - 0.9));
+  b.collide(x0, y0 + risers * rise - 0.3, Math.min(zf, zt + dir * 0.05), x1, y0 + risers * rise + 0.002, Math.max(zf, zt + dir * 0.05), 'concrete', false); // (2 mm proud: the ray meets it first)
+  if (s.nav !== false) L.navStair(s.room, a, e, Math.min(2.6, x1 - x0 - 0.9));
 }
 
 /** Glass balustrade run (glass + brass rail, collider 1.45 m: NOT containment, §2.9 / D24). */
