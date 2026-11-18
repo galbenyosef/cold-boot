@@ -129,3 +129,24 @@ object, `collide: false`, attachment points returned in world space)
   off until lights-out; crawl strips use `red`, on from load.
 - Weak, fix while dressing if cheap: the 4 m bay stairs use the greybox's solid tread blocks (massive); `tripleBunk` uses one
   fabric; fallen trays read as pale sheets from standing height.
+
+## Greybox (W4, `src/level/l5/{index,grey,phases,cover}.ts`)
+- 14 rooms, 15 doors, 23 triggers, phases A … X (+ `S_dive`, `V_lock`, `W_lock`, `nostory`), every marker, screen, interactable,
+  pickup, spawn, light group (lights bounded by floor), every vignette with a `:snap`, 41 cover points (13 moved from the
+  plan — `COVER5_NOTES` in `cover.ts`). Phases also switch interactables (`hatch5_spine`, `launch5_palm` from S; `wheel5` from V).
+- **Dressing tasks:** read the header of your stub (`fore.ts`, `spine.ts`, `quarters.ts`, `bay.ts`): what the shell already
+  built (do NOT re-create), which vignettes you own, how to hide stand-ins, and `addWet(L, box)` for puddles (they feed
+  `regions.wet`; match your `fx.wetPatch` boxes). Placeholders for the hatch lids, `door5_cmd`, `lock5_launch` and the wheel
+  manifold are built ONLY if no set piece registered the id: build W7's real ones (`hatchLid`, `cmdDoor`, `launchLockDoor`,
+  `wheel5`, `tern`, `launchConsole`, `boothBackDoor`, `gateLook`) and the placeholder disappears.
+- Corrections to the plan: `d5_gate` is a `wide` door 3.0 × 2.8 and plays its own sounds; the mess serving counter is split
+  (x 26…31.2 and 34.8…36) so `d5_galley` is free; `d5_dive` is `auto` from V; the crawl ceiling under `d5_arm` is −0.07
+  (1.33 m clear); hand nav nodes on the 1.2 m walkway beside the pit; the two lowest treads of `STAIR5_HATCH` and the rails at
+  x 33 / 35 are walkable dynamic boxes; the spine floor over the crawl turn (x 16.4…17.6, z −18…−16.6) is solid, not grating.
+- W7's shut spine lid at exactly y 0 would z-fight the hatch stair's top tread: place it 8 mm proud (as the placeholder is).
+  W7's command-door panel is named `door5_cmd_panel` (the plan says `cmd_panel`).
+- `mk5_glass.userData.panes = { id, p, box }[]` (`booth`, `port`, `lock_port`). `mk5_oilskin` is behind the galley pane in the
+  cold room, which is not a room, by design.
+- Open drains are 1 m holes inside the `voids` region (as level 4's sump).
+- Known, for integration: walking straight up `STAIR5_W` the player drifts ~0.8 m west (suspected physics edge resolution on
+  the slope slab's diagonal); the `drain_b` skitter arrival is noisy (9.6–13 s vs a 14 s bound).
