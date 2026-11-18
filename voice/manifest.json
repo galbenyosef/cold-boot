@@ -6640,7 +6640,7 @@
       "tries": 1,
       "seed": 663596512,
       "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.03s",
-      "lead": 0.0
+      "lead": 0.24
     },
     "l6_choir_dark_command": {
       "speaker": "choir",
@@ -6748,7 +6748,7 @@
       "tries": 1,
       "seed": 332099051,
       "info": "match=1.00 miss=0 extra=0 stall=0 audio=3.25s",
-      "lead": 0.0
+      "lead": 0.33
     },
     "l6_choir_loader_command": {
       "speaker": "choir",
