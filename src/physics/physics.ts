@@ -103,7 +103,7 @@ export function createPhysics(): Physics {
       if (len < 1e-9) continue;
       n.multiplyScalar(1 / len);
       const ny = Math.abs(n.y);
-      if (ny < 0.5 || ny >= 0.97) continue;
+      if (ny < 0.5 || ny >= 0.995) continue;
       for (const [p, q] of [[a, b], [b, c], [c, a]] as const) {
         const k = ekey(p, q);
         const l = byEdge.get(k);
@@ -222,13 +222,13 @@ export function createPhysics(): Physics {
             if (holdSlopes) {
               tri.getNormal(triN);
               if (triN.dot(dir) < 0) triN.negate();
-              if (dir.y >= 0.5 && dir.y < 0.97 && triN.dot(dir) > 0.995) {
+              if (dir.y >= 0.5 && dir.y < 0.995 && triN.dot(dir) > 0.995) {
                 // face contact on a walkable slope (not an edge): resolve vertically, no downhill creep
                 const up = depth / dir.y;
                 seg.start.y += up; seg.end.y += up;
                 return false;
               }
-              if (seams && triN.y >= 0.5 && triN.y < 0.97 && onSeam(tri, triPoint, seams)) {
+              if (seams && triN.y >= 0.5 && triN.y < 0.995 && onSeam(tri, triPoint, seams)) {
                 // stage 3d K: on a coplanar seam of a slope (the slab's diagonal): against the plane, vertically
                 const above = dist * triN.dot(dir);
                 const dep = radius - above;
