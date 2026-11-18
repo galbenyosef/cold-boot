@@ -125,3 +125,9 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   7–9 mm; `bj6_leafW` × `bj6_leafE` (vault6 −12, 1.03, −178.5) and a bj6 floor face at y 0 (find the owner: W7
   beachJoint6 / D2); grey guard-vs-deck 3–6 mm and pool6/tun6_b wall WARNs. Decide: cap `galleryRun` parapets (9 cm
   flat static top at 1.1 m)? Re-run `check:reach`/nav L6 (stopper, walkable, rail caps); play a hatch shut → open.
+- 3d T: every `play:l6` mode after ST-a (`--contract`, default to the reveal, `--checkpoints` to `cp6_shaft` + B4) and
+  after ST-b (all modes, `--boss` 3 seeds × 2 choices, `--dry`); `check:dark --level 6` full + `--level 4/5` (targets5
+  refactor); `check:wreck` all (L6 wet dock: one of four directions stopped, two crossings rose 0.00 m — look);
+  `check:cutscene` all + `l6 --strict6`. Expect test-side fixes on first runs against ST. Confirm ids used by tests:
+  `ping_far`/`ping_near`, `shear_fire`, `splash_big`, `winch_brake`. `--dry`/B5 write `player.weapons[*].reserve` (needs
+  to be writable or a hook). `--scares` is long by design (caps up to 90 s per scare).
