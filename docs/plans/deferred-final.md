@@ -152,3 +152,11 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   perf (7),(11) with the feed, pool views with D3a + enemies; scares audit; user listens: bulb pops + glass, sea_groan.
   Weak: shaft flights solid wedges (not open grating); deck grating heavy/dark; undercroft + stores6 sparse; wreck an
   approximation of the crane; container labels small; faint room-name text at the top of shaft shots (find source).
+- 3d D3a: `check:dark --level 6` pool views (west gallery marginal 0.015); perf (8)–(10) on HIGH + lamp on + enemies
+  firing; zfight all rooms doors open (W7 `well6` lock door top level with the grid floor at y −34 — lower ~2 cm; B-10
+  bottom vs wet plate, hidden); `play:l6 --boss` for `lights_out6`/`beacons6` from the story + snaps; physics/reach/nav
+  L6 (rails/guards visuals differ from colliders by 5–10 cm). Render: replace pool.ts's per-room mist override with a
+  rule (base = min(mistBase, feet, lowest floor of the current room)) — gallery views 8 m up lose the dock in mist
+  otherwise. Weak: well reads as lit teal pool not 13.7 m of black water (water env reflection, darker well fx); high-bay
+  hot spots on upper walls; festoon brackets 0.36 m off the wall; stairs without handrails; no drips (`fx6_drips_pool`);
+  reveal drama relies on floods without volumetric beams; dock-steel chips large up close.
