@@ -145,3 +145,10 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `--scares` audit. Decide: `interlock_deny` played 2-D by the story (UI never plays it). Weak: radio sharing in
   compressed runs; "both soldiers in cover + 6 s" rule unseen with real AI; handset follow-point not seen in motion;
   Q silent during sequences; `v6_thud` rarely fires (launchAt = pull + 90 for most).
+- 3d D3b: `check:dark --level 6` shaft views (L0 −26.5,0,−170.5,180,−30; L1 −23.3,−3,−163,20,−30; L2 −26.8,−6,−169.8,180,−25;
+  bottom −26.8,−12,−163,0,0; bottom-door −24,−12,−168,90,0) after `v6_shaft_lights:snap` LOW/MEDIUM (MEDIUM L0 lit 1.43 %
+  < 1.5 %, LOW bottom-door mean 0.0117 < 0.015 — fix at IB); zfight shaft6/pool6/stores6 (stencils vs D3a overlays);
+  fxleak with D3a handles; nav (W1 from stores6 to `cv6_gn1` ≤ 8 s); reach incl. locker `use` and re-seated `p6_*`;
+  perf (7),(11) with the feed, pool views with D3a + enemies; scares audit; user listens: bulb pops + glass, sea_groan.
+  Weak: shaft flights solid wedges (not open grating); deck grating heavy/dark; undercroft + stores6 sparse; wreck an
+  approximation of the crane; container labels small; faint room-name text at the top of shaft shots (find source).
