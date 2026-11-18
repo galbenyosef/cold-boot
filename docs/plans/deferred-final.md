@@ -186,3 +186,19 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   framing changed from the plan (fov 72 → 70 → 68, quarter dolly, 0.1 m push) so the 3.2 m screen stays in frame;
   flashlight off for the ending. Gap: `kes_boss_pod` skipped when rams + pod die in the same instant (H3 only).
   User listens: alarm_beacon, the shear's four sounds, PA at gallery distance, pump strokes + gauge_tick.
+
+## After IA-6 (3a41e85) — still open on level 6
+- NOT RUN: `play:l6 --order`, `--softlock`, `--impatient`, `--ads`, `--dry`, `--boss` seeds 2–3 + choice command, `--frames`;
+  re-run `--checkpoints` (boss cases) and `--scares` after the test fixes; full `check:reach --level 6` stress.
+- `--boss` bot not functional (0 loader attacks in 7 min) — rework the bot against the real dock.
+- `check:dark --level 6` FAILS broadly (tun6_b, trench, shaft L2, pool gallery/dock far under thresholds) → lighting work.
+- `check:nav --level 6`: bay6 main has no nav link to rep6; husk stuck on shaft flight (−24.6, −9, −163.9); W1 soldier never
+  leaves stores6; husk sinks under the wet-dock floor near the channel slope (2 cases); 2 nav nodes on the wet-dock stair.
+- `check:cutscene l6`: entering the ending mid-reload completes one reload during the scene (player/cutscene).
+- `check:wreck --level 6`: husk wreck on the wet dock blocks a walker from one of four directions (manager).
+- zfight leftovers (cage deck vs object bottoms on grating, feed6 steel_raw × painted_dark, fire-point cabinets at −195.8,
+  gallery fascia x −75.8, tun6_a brackets/sills, bj6 leaf meeting faces still).
+- Voice: leads set for l6_aas_3 (0.24) and l6_choir_last_stop (0.33) by the coordinator from IA-6's sync numbers — re-run
+  `check-voice-level --level 6`; check `_command` variant; `choir_manual_stop` once 0.143 s late.
+- Decisions recorded for the user: ending framing (ST-b), OSD clock on its own line, splash_big at water contact (~1.07 s),
+  trough 14 cm, objective "Clear the dock", galleryRun parapet keeps its 9 cm static cap.
