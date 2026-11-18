@@ -159,7 +159,9 @@ if (parts.has('synthetic')) {
     W.water(vol(1.0).map((v) => ({ ...v, x0: v.x0 - 10, x1: v.x1 + 10, z0: v.z0 - 10, z1: v.z1 + 10 })));
     out.walkOutCtl = P.debug.walkOut(lane.x, lane.y + 0.02, lane.z0, 0, 3, true);
     // ── deep water over the void beside the room: the hold and the rescue
-    W.water([{ id: 'wat_deep', x0: lane.x + 8, x1: lane.x + 14, z0: lane.z0 - 4, z1: lane.z0 + 2, y0: lane.y - 30, surface: lane.y, stand: 1.25 }]);
+    // (IA-6: 60 m east of the spawn room — on the real level 6 the old spot, 8–14 m east, has the tunnel floor under it
+    //  at −1.8: the player stood 1.7 cm under the surface and the hold never began)
+    W.water([{ id: 'wat_deep', x0: lane.x + 58, x1: lane.x + 64, z0: lane.z0 - 4, z1: lane.z0 + 2, y0: lane.y - 30, surface: lane.y, stand: 1.25 }]);
     const fake = [
       ['mk6_lw_exit', new V(lane.x + 1.5, lane.y, lane.z0 - 1)],
       ['mk6_boss_safe', new V(lane.x - 1.5, lane.y, lane.z0 - 1)],
@@ -169,7 +171,7 @@ if (parts.has('synthetic')) {
     const runRescue = async (health) => {
       W.log.rescued.length = 0;
       P.health = health;
-      P.teleport(new V(lane.x + 11, lane.y - 1.6, lane.z0 - 1), 0, 0);
+      P.teleport(new V(lane.x + 61, lane.y - 1.6, lane.z0 - 1), 0, 0);
       const rec = { minY: 99, maxSink: 0, at09: null, tRescue: null };
       const t0 = g.time;
       while (g.time - t0 < 2.4 && !W.log.rescued.length) {

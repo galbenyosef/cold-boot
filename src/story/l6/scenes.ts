@@ -160,7 +160,9 @@ export abstract class Scenes6 extends Boss6 {
   private osd(full: boolean): string {
     const lt = (this as unknown as { launchT?: () => number | null }).launchT?.() ?? this.prog.launchAt;
     const launch = typeof lt === 'number' ? hhmm6(this.hourAt(lt)) : '--:--';
-    const lines = [`POST 4 — SUB BAY — CAM 2 — ${this.clockHms()}`];
+    // (IA-6, the E2 OSD "overdraw": on one line the running seconds landed on the feed's red-lit FLOODED sign at the
+    //  top right and read as garbled digits; the clock now runs on its own line under the camera title, on the dark wall)
+    const lines = ['POST 4 — SUB BAY — CAM 2', this.clockHms()];
     if (full) lines.push(`SDV TERN — LAUNCHED ${launch}`, 'LAUNCH AUTHORITY: AAS, L. (LT.) — PALM — LIVE');
     return lines.join('\n');
   }
@@ -216,8 +218,10 @@ export abstract class Scenes6 extends Boss6 {
       const push = near.clone().add(scr.clone().sub(near).setY(0).normalize().multiplyScalar(0.1));
       const say = (id: string) => { void this.say(id, { pri: 'scene', now: true, gap: 0.02, cue: this.now }); };
       const mark = (n: string) => this.stamp(`end_${n}`);
+      // (S1 flushes EVERY line, a scene line too: Kessler's console ask still playing at the press, or a queued CHOIR
+      //  line, would otherwise hold the channel past K1 and push the scene's lines off their cues — IA-6)
       const cues: CamCue[] = [
-        { t: 0, run: () => { this.talk.flush(true); mark('S1'); this.page('manifest', { text: this.manifestText('head') }); } },
+        { t: 0, run: () => { this.talk.flush(false); mark('S1'); this.page('manifest', { text: this.manifestText('head') }); } },
         { t: T.S2, run: () => { mark('S2'); this.page('manifest', { text: this.manifestText('scroll') }); } },
         { t: T.K1, run: () => { mark('K1'); say('l6_kes_end_1'); } },
         { t: T.SU1, run: () => { mark('SU1'); this.page('manifest', { text: this.manifestText('totals') }); say('l6_sunde_end_1'); } },

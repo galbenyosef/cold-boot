@@ -601,6 +601,9 @@ export function beachJoint6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE
   const navy: Mat = libOr6(L, 'navy_grey', 'wall_panel_dark'), dark: Mat = 'painted_dark', steel: Mat = 'steel_raw';
   const { x0, x1, zWall, zFront, h, leaf, zLeaf, leafT } = BJ6;
   const xm = (x0 + x1) / 2;
+  // (IA-6, check:nav: the leaves are dynamic boxes, so no nav node knew the enclosure — nodes 3 cm in front of the shut
+  //  leaves, links along its face stopped; the enclosure's footprint is a nav obstacle)
+  L.obstacles.push(new THREE.Box3(new THREE.Vector3(x0, 0.3, zWall), new THREE.Vector3(x1, 2.0, zLeaf + leafT / 2)));
   // ── static shell
   b.bx(navy, x0, 0, zWall + 0.01, x0 + 0.2, h, zFront - 0.02).bx(navy, x1 - 0.2, 0, zWall + 0.01, x1, h, zFront - 0.02);
   b.bx(navy, x0, 2.0, zWall + 0.01, x1, h - 0.02, zFront - 0.02);
@@ -919,9 +922,12 @@ export function frame6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.Obje
 
   // ── the trough (winch south face → sheave), broken under the shear
   const trough = (za: number, zb: number) => {
-    b.bx(steel, -52.3, Y, zb, -52.27, Y + 0.25, za).bx(steel, -51.73, Y, zb, -51.7, Y + 0.25, za);
+    // (IA-6: the trough was a 0.25 m kerb across the mid deck and the cage's opening — no body steps 0.25 (a capsule
+    //  rides ≤ ~0.12), so husks / soldiers were cut off and nav nodes stood under its top. Now 0.14 m walls with a
+    //  0.08 m collider every body rides over; the tether (⌀ 110 mm) still lies inside it.)
+    b.bx(steel, -52.3, Y, zb, -52.27, Y + 0.14, za).bx(steel, -51.73, Y, zb, -51.7, Y + 0.14, za);
     b.bx(steel, -52.27, Y, zb, -51.73, Y + 0.015, za);
-    if (col) b.collide(-52.3, Y, zb, -51.7, Y + 0.25, za, 'metal', false);
+    if (col) b.collide(-52.3, Y, zb, -51.7, Y + 0.08, za, 'metal', false);
   };
   trough(-154.0, F.shear[3]); trough(F.shear[2], -171.2);
 
@@ -1256,19 +1262,20 @@ export function well6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.Objec
     L.root.add(lad); L.objects.set(lad.name, lad);
   }
   // the inner lock door at y −34
-  b.bx(dark, W.x0, W.lock - 0.25, W.z0, W.x1, W.lock, W.z1);
-  b.cyl(navyOr(L), xc, W.lock + 0.03, zm, 4.2, 0.06, 'y', 48);
-  b.torus(steel, xc, W.lock + 0.05, zm, 4.3, 0.12, 'y', 48);
+  b.bx(dark, W.x0, W.lock - 0.25, W.z0, W.x1, W.lock - 0.02, W.z1);   // (top 2 cm under the well's floor plane at −34: no z-fight)
+  // (IA-6: the door's furniture stands 2 cm proud of the well floor's plane at −34 — its bottoms sat ON it: z-fight)
+  b.cyl(navyOr(L), xc, W.lock + 0.05, zm, 4.2, 0.06, 'y', 48);
+  b.torus(steel, xc, W.lock + 0.07, zm, 4.3, 0.12, 'y', 48);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * TAU;
-    b.push(xc, W.lock + 0.064, zm, a).box(dark, 0.55, 0, 2.05, 0.03, 0.006, 4.0).pop();
+    b.push(xc, W.lock + 0.084, zm, a).box(dark, 0.55, 0, 2.05, 0.03, 0.006, 4.0).pop();
   }
-  b.cyl(steel, xc, W.lock + 0.08, zm, 0.45, 0.04, 'y', 24);
-  b.cyl(steel, W.x0 + 6, W.lock + 0.175, -171.9, 0.28, 0.35, 'y', 18).cyl(steel, W.x0 + 6, W.lock + 0.02, -171.9, 0.42, 0.04, 'y', 18);
+  b.cyl(steel, xc, W.lock + 0.10, zm, 0.45, 0.04, 'y', 24);
+  b.cyl(steel, W.x0 + 6, W.lock + 0.195, -171.9, 0.28, 0.35, 'y', 18).cyl(steel, W.x0 + 6, W.lock + 0.04, -171.9, 0.42, 0.04, 'y', 18);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * TAU + PI / 8, x = xc + Math.sin(a) * 4.75, z = zm + Math.cos(a) * 4.75;
-    b.cyl(steel, x, W.lock + 0.02, z, 0.13, 0.04, 'y', 14);
-    R.cyl(PAL.lensB, 0, x, W.lock + 0.07, z, 0.09, 0.06, 'y', 14);
+    b.cyl(steel, x, W.lock + 0.04, z, 0.13, 0.04, 'y', 14);
+    R.cyl(PAL.lensB, 0, x, W.lock + 0.09, z, 0.09, 0.06, 'y', 14);
   }
   // sluice ports in the coaming's south (outer) face, under the water
   const zf = W.z0 - W.coaming;

@@ -35,6 +35,12 @@ import { dirname } from 'node:path';
 import { launch, parseArgs } from './lib/check-common.mjs';
 
 const args = parseArgs();
+// --level 6: level 6's mode lives in its own file (IA-6; ST-a / ST-b / W9 listeners + the ASR pass of l6_aas_2)
+if (String(args.level ?? '') === '6') {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync(process.execPath, [new URL('./check-voice-level-l6.mjs', import.meta.url).pathname, ...process.argv.slice(2)], { stdio: 'inherit' });
+  process.exit(r.status ?? 1);
+}
 const base = (args.url ?? process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'http://127.0.0.1:5173').replace(/\/$/, '');
 const MODE = args.mode ?? (String(args.level ?? '') === '4' ? 'level4' : 'cold');
 const CHOICE = args.choice ?? 'stop';

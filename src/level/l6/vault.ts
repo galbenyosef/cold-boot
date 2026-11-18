@@ -265,8 +265,10 @@ function reward(L: LevelBuild, b: Builder) {
   const Y = -1.4;
   // M. Lie lying face down along T-a, head to the corner (south), feet toward the hatch (D1's `jointerBody`)
   b.at(-12.4, Y + 0.011, -177.35, 0, () => jointerBody(b, L, { pose: 'lying', seed: 6202 }));
-  // a 0.15 m walkable collider over him (walked over crouched; 1.2 m headroom stays)
-  b.collide(-12.78, Y, -178.45, -12.02, Y + 0.15, -176.4, 'flesh', false);
+  // a LOW walkable collider over him (walked over crouched). IA-6: at 0.15 m its edge met the capsule's lower sphere at
+  // exactly the slide/ground limit (push-out y 0.5): a crouched player stopped dead at z −176.1 and T-b, the T-b pickups
+  // and the trench exit under he6 were unreachable (check:reach T … U_pull; a real crouch-walk probe). 0.08 m rides over.
+  b.collide(-12.78, Y, -178.45, -12.02, Y + 0.08, -176.4, 'flesh', false);
   // his kit bag under the plates (visual: the pickups lie on it, 0.15 above the floor)
   const bag = tmat6(L, 'coverall_orange');
   b.rbox('painted_dark', -12.4, Y + 0.08, -175.9, 0.5, 0.14, 0.95, 0, 0.04, 0);
@@ -422,7 +424,7 @@ const vault6: RoomDress = {
     // ── dust in the lamp cones (fx6_vault_dust): a thin haze with slow motes ──
     fxOf(L).fog({
       id: 'fx6_vault_dust', box: box3([-21.0, 0, -179.0, 1.0, 6.0, -149.0]), color: 0xaab8c6, density: 0.035, height: 6.0, drift: [0.03, 0.012],
-      glints: { count: 160, box: box3([-20.0, 0.4, -178.0, 0.0, 5.6, -150.0]) }, rooms: ['vault6'], seenFrom: ['he6'], lowHalf: true,
+      glints: { count: 160, box: box3([-20.0, 0.4, -178.0, 0.0, 5.6, -150.0]) }, rooms: ['vault6'], seenFrom: ['he6', 'hold6', 'shaft6'], lowHalf: true,
     });
 
     // ═══ vignettes ═══

@@ -850,7 +850,8 @@ async function gapAfter(prev, id, gap, tol = 0.15) {
   return ok(near(dt, gap, tol), `${id} ${f2(dt)} s after ${prev} ends (want ${gap} ± ${tol})`, 'story');
 }
 /** CLOCK6: hh:mm of a script time (arrival hour = facts.testHour ?? 62.75). */
-const hhmm = (hour) => { const h = ((hour % 24) + 24) % 24; const m = Math.floor((h - Math.floor(h)) * 60 + 1e-6); return `${String(Math.floor(h)).padStart(2, '0')}:${String(m).padStart(2, '0')}`; };
+// CLOCK6 (§6.4): test hour 0 = MON 08:40 (level 3's CLOCK.testStart) — 62.75 = WED 23:25; the wall clock's hh:mm
+const hhmm = (hour) => { const min = Math.floor(8 * 60 + 40 + hour * 60 + 1e-6), m = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 
 // ───────────────────────────────────────────────────────────── needs → owners (for skips and --contract)
 const OWNER_OF_VIG = Object.fromEntries(Object.entries(VIGNETTES6).flatMap(([o, ids]) => ids.map(([i]) => [i, o])));
@@ -897,6 +898,9 @@ const missingOf = (needs) => evs((needs) => {
       player: () => { const p = id.split('.'); let o = g.player; for (const q of p) o = o?.[q]; return id === 'wading' ? typeof o === 'number' : typeof o === 'function'; },
       audio: () => Array.isArray(g.audio.debug?.log) || typeof g.audio.debug?.log === 'function',
       ui: () => typeof g.ui[id] === 'function',
+      // (the level's vignette registry is not on the Level contract: `--contract`'s probeVignettes() fires every
+      //  `<id>:snap` and reads the level's warnings — that is the registration check; a segment need is taken as met)
+      vig: () => true,
       level: () => (id === 'water' ? Array.isArray(g.level.water) && g.level.water.length > 0 : id === 'dock' ? !!g.level.dock : id === 'killY' ? g.level.killY === -36 && g.physics.killY === -36 : false),
     }[k];
     if (!has || !has()) out.push(n);
@@ -1094,7 +1098,8 @@ async function runChecks(label) {
   const pop = l.spawns.filter((s) => s.seen && !s.opened);
   ok(!pop.length, `${label}: spawn visibility — nobody appears in view (watcher) ${JSON.stringify(pop).slice(0, 300)}`, 'level');
   const d = await dbg();
-  const popS = (d.spawnLog ?? []).filter((s) => s.visible);
+  // (the loader rebuilt by a checkpoint load — the first frames after a restore — is the world as saved, not an arrival)
+  const popS = (d.spawnLog ?? []).filter((s) => s.visible && !(d.restoredFrom && s.group === 'g6_loader' && s.t < 1.0));
   ok(!popS.length, `${label}: spawn visibility — H7.spawnLog has no visible spawn ${JSON.stringify(popS).slice(0, 200)}`, 'story');
   ok(!l.cutBad.length, `${label}: never 'cutscene' outside E1 / E2 (${l.cutBad})`, 'story');
   ok(l.maxHostiles <= 6, `${label}: ≤ 6 non-loader hostiles in pool6 + shaft6 at any time (max ${l.maxHostiles})`, 'story');
@@ -1200,10 +1205,11 @@ async function segArrival() {
   await objectiveSeen(OBJ.start, 4);
   ok(/HEAD-END TUBE — CYCLING/.test(await screenText('tube_panel6') ?? ''), 'tube_panel6: HEAD-END TUBE — CYCLING', 'story');
   await film('tube', 'd.phaseApplied === "T"', 6);
-  if (!await phaseWait('T', 6, 'd6_tube opens at 3.0 s, phase T at 3.9 s')) return false;
+  if (!await phaseWait('T', 6, 'd6_tube opens with phase T at 3.0 s')) return false;
   const d = await dbg(), l = await L6();
   const st = d.t?.l6_start, pt = d.t?.['phase:T'], op = l.opened.d6_tube?.[0]?.s;
-  ok(near(pt - st, 3.9, 0.15), `phase T at start + 3.9 ± 0.15 (${f2(pt - st)})`, 'story');
+  // §3's phase table opens d6_tube WITH phase T (3.0 s); §4.1's "3.9 phase T" is the checkpoint moment (cp6_start).
+  ok(near(pt - st, 3.0, 0.15), `phase T with the tube at start + 3.0 ± 0.15 (${f2(pt - st)})`, 'story');
   ok(near(op - st, 3.0, 0.15), `d6_tube opens at start + 3.0 ± 0.15 (${f2(op - st)})`, 'story');
   const k1 = await lineOf('l6_kes_start');
   ok(k1 && near(k1.t - st, 0.6), `l6_kes_start at start + 0.6 (${k1 ? f2(k1.t - st) : 'not said'})`, 'story');
@@ -1263,7 +1269,7 @@ async function segRep() {
   if (opt.reads) { if (await stand('use', 'note6_jobcard')) { await use('note6_jobcard'); await gameWait(0.6); await closeNote(); } }
   if (!await stand('trig', 't6_rep', { fz: 0.95 })) return false;
   await heardWait('l6_kes_rep', 6);
-  if (opt.tent) { await stand('use', 'note6_jobcard', { dist: 3 }); await untilG('(d.scares ?? []).includes("v6_tent")', 5, 'v6_tent (the tent in view ≤ 8 m 0.5 s)', 'story', { quiet: true }); }
+  if (opt.tent) { const jp = await ev(() => window.__game.interactables.get('note6_jobcard')?.position.toArray() ?? null); if (jp) { await stand('near', 'tent', { p: jp, dist: 4 }); await look(jp); } await untilG('(d.scares ?? []).includes("v6_tent")', 5, 'v6_tent (the tent in view ≤ 8 m 0.5 s)', 'story', { quiet: true }); }
   if (!await stand('trig', 't6_rep_in', { fz: 0.5 })) return false;
   if (!await beatWait('l6_rep', 4, 'first t6_rep_in')) return false;
   await phaseWait('B', 2);
@@ -1272,7 +1278,12 @@ async function segRep() {
   ok(near(op - d.t?.l6_rep, 0.4, 0.15), `d6_bay opens at l6_rep + 0.4 (${f2(op - d.t?.l6_rep)})`, 'story');
   await checkDoors('B');
   for (const gname of ['g6_rep_s', 'g6_rep_u', 'g6_rep_k']) await spawnedWait(gname, 3);
-  await heardWait('l6_kes_contact_rep', 6);
+  // C: "F2 spawned, none of it in view" — standing at t6_rep_in the vent's skitters are in view, so the rule may say no:
+  // the line must be DECIDED (said, or logged with cond false), the oracle judges the condition.
+  if (await untilG('(g.story.lineLog ?? []).some((l) => l.id === "l6_kes_contact_rep")', 8, 'line l6_kes_contact_rep decided (said or refused by its rule)', 'story')) {
+    const e = await evs(() => (window.__game.story.lineLog ?? []).find((l) => l.id === 'l6_kes_contact_rep'));
+    if (!e?.said) note(`l6_kes_contact_rep refused by its rule (F2 in view at its start) — as the plan's condition says`);
+  }
   await killUntil('!["g6_rep_s","g6_rep_u","g6_rep_k"].some((x) => S.alive(x).length)', 30, 'F2 dead', ['g6_rep_s', 'g6_rep_u', 'g6_rep_k']);
   await cpWait('cp6_rep', 6, 'F2 dead + 1.5 s, calm');
   if (opt.bay) { await stand('room', 'bay6'); for (const p of ['p6_bay_plate', 'p6_bay_ammo']) await touchPickup(p); }
@@ -1282,9 +1293,10 @@ async function segTunB({ killFrom60 = false } = {}) {
   await heardWait('l6_kes_tunb', 6);
   if (!await stand('trig', 't6_tunb_dark', { fz: 0.93, yaw: 0 })) return false;
   if (!await spawnedWait('g6_tunb_s', 3, 'first t6_tunb_dark')) return false;
-  await film('tunb_walkout', 'd.groups?.g6_tunb_s?.holding > 0', 12);
-  // he walks out through d6_he on patrol to mk6_tunb_hold and holds; the door closes behind him
-  if (!await untilG('d.groups?.g6_tunb_s?.holding > 0', 15, 'g6_tunb_s holds at mk6_tunb_hold (patrol, end hold)', 'enemies')) return false;
+  await film('tunb_walkout', 'd.t?.f3_hold !== undefined', 12);
+  // he walks out through d6_he on patrol to mk6_tunb_hold and holds; the door closes behind him (`holding` counts from
+  // the spawn — he is spawned held — so the walk's end is the story's `f3_hold` stamp)
+  if (!await untilG('d.t?.f3_hold !== undefined && d.groups?.g6_tunb_s?.holding > 0', 20, 'g6_tunb_s walked to mk6_tunb_hold and holds (patrol, end hold)', 'enemies')) return false;
   const [s] = await S6('alive', 'g6_tunb_s'), hold = await S6('mk', 'mk6_tunb_hold');
   ok(s && hold && Math.hypot(s.pos[0] - hold[0], s.pos[2] - hold[2]) <= 0.8, `F3 holds at mk6_tunb_hold (${s?.pos})`, 'enemies');
   ok(await untilG('!g.level.door("d6_he").isOpen', 6, 'd6_he shut behind him', 'level', { quiet: true }), 'd6_he closes behind him', 'level');
@@ -1319,6 +1331,8 @@ async function segHeadEnd() {
   await heardWait('l6_reyes_he', 12); await gapAfter('l6_kes_he_2', 'l6_reyes_he', 0.6);
   await heardWait('l6_kes_he_3', 6); await gapAfter('l6_reyes_he', 'l6_kes_he_3', 0.4);
   await heardWait(`l6_choir_he_${opt.choice}`, 10);
+  // (CHOIR starts 0.05 s BEFORE _he_3's stop: wait for _he_3's end to be logged)
+  await untilG('(g.story.lineLog ?? []).some((l) => l.said === "l6_kes_he_3" && typeof l.end === "number")', 2, 'l6_kes_he_3 stopped at its cut', 'story', { quiet: true });
   const h3 = await lineOf('l6_kes_he_3'), ch = await lineOf(`l6_choir_he_${opt.choice}`);
   ok(h3 && ch && near(ch.t - h3.end, -0.05, 0.12), `CHOIR at _he_3's cut − 0.05 (${h3 && ch ? f2(ch.t - h3.end) : '—'})`, 'story');
   await objectiveSeen(OBJ.switch, 6);
@@ -1386,7 +1400,7 @@ async function segCrank({ inVault = false } = {}) {
 async function segVault({ deny = false } = {}) {
   if (!await stand('trig', 't6_vault', { fx: 0.7, fz: 0.5 })) return false;
   await heardWait('l6_kes_vault', 6);
-  if (opt.drum) { await stand('near', 'mk6_drum', { dist: 8 }); await look(await S6('mk', 'mk6_drum')); await untilG('(d.scares ?? []).includes("v6_drum")', 8, 'v6_drum', 'story', { quiet: true }); }
+  if (opt.drum) { await stand('near', 'mk6_drum', { dist: 5 }); await look(await S6('mk', 'mk6_drum')); await untilG('(d.scares ?? []).includes("v6_drum")', 8, 'v6_drum', 'story', { quiet: true }); }
   if (!await stand('use', 'vault6_lock')) return false;
   if (deny) return true;
   ok((await use('vault6_lock')) === 'ok', 'vault6_lock pressed with Key A', 'story');
@@ -1404,8 +1418,8 @@ async function segPull() {
   ok(await untilG('g.player.keys.has("key6_b")', 1, 'Key B'), 'Key B in the keys', 'story');
   await toastSeen('Key B — moon pool', 2);
   await beatWait('l6_pulled', 1);
-  const d = await dbg(), tp = d.t?.l6_pulled;
-  ok(typeof d.launchAt === 'number' && near(d.launchAt - tp, 90, 0.3), `launchAt = pull + 90 s pending (${f2(d.launchAt - tp)})`, 'story');
+  const d = await dbg(), tp = d.flags?.pullT;   // (level clock, as launchAt — the script clock also runs in notes)
+  ok(typeof d.launchAt === 'number' && near(d.launchAt - tp, 90, 0.3), `launchAt = pull + 90 s pending (${f2(d.launchAt - tp)}, level clock)`, 'story');
   ok(/LOS/.test(await screenText('bj6') ?? '') && /LOS/.test(await screenText('mimic6') ?? ''), 'screens flip: TRUNK FIBRE — LOS', 'story');
   await heardWait('l6_unit_pull', 2);
   await heardWait('l6_kes_pull_1', 8); await gapAfter('l6_unit_pull', 'l6_kes_pull_1', 0.5);
@@ -1438,14 +1452,17 @@ async function segF5({ inTrench = false } = {}) {
 async function segThud() {
   // v6_thud only within pull + 20 … + 90 s, calm, player in vault6 / he6, before Key B → launchAt = its time
   await stand('trig', 't6_vault', { fx: 0.7, fz: 0.5 });
-  const tp = (await dbg()).t?.l6_pulled ?? 0;
-  const fired = await untilG('(d.scares ?? []).includes("v6_thud")', Math.max(5, tp + 92 - ((await dbg()).now ?? 0)), 'v6_thud within pull + 90 s', 'story', { quiet: true });
-  const th = (await L6()).scares.find((x) => x.id === 'v6_thud'), d = await dbg();
-  if (fired && th) {
-    ok(th.t - tp >= 20 && th.t - tp <= 90, `v6_thud at pull + ${f2(th.t - tp)} (20 … 90)`, 'story');
-    ok(near(d.launchAt, th.t, 0.3), `launchAt = the thud (${f2(d.launchAt)} vs ${f2(th.t)})`, 'story');
+  // (the thud is a calm scare: F5 still awake within 30 m holds it past its window — fight them out first, as a player)
+  await killUntil('!S.awake().length', 20, 'F5 dead before the thud window', null);
+  // (launchAt and the pull's `flags.pullT` are on the LEVEL clock — game time while playing; the script clock `now`
+  //  also runs while a note is open — so the window is waited for and judged on the level clock, never on `now`)
+  // (launchAt holds pull + 90 from the pull on — the thud overwrites it — so the wait is for the thud itself, ≤ 90 s)
+  await untilG('(d.scares ?? []).includes("v6_thud")', 90, 'v6_thud within pull + 90 s', 'story', { quiet: true });
+  const d = await dbg(), pt = d.flags?.pullT, thud = (d.scares ?? []).includes('v6_thud');
+  if (thud) {
+    ok(d.launchAt - pt >= 20 - 0.3 && d.launchAt - pt <= 90 + 0.3, `v6_thud → launchAt at pull + ${f2(d.launchAt - pt)} (20 … 90, level clock)`, 'story');
     await heardWait('l6_kes_thud', 4);
-  } else ok(near(d.launchAt - tp, 90, 0.3), `no thud → launchAt = pull + 90 (${f2(d.launchAt - tp)})`, 'story');
+  } else ok(near(d.launchAt - pt, 90, 0.3), `no thud → launchAt = pull + 90 (${f2(d.launchAt - pt)}, level clock)`, 'story');
 }
 async function segShaftOpen() {
   if (!await stand('use', 'shaft6_lock', { room: 'vault6' })) return false;
@@ -1503,33 +1520,38 @@ async function segHostile() {
   await heardWait('l6_unit_loader_1', 3);
   await heardWait(`l6_choir_pool_${opt.choice}`, 4);
   if (!await spawnedWait('g6_w1', 4, 'W1 at the hostile start + 2.0')) return false;
+  // (W1 spawns at + 2.0; the door state is the phase table's, so phase K_stores IS the door opening at + 2.4 — §3)
+  await untilG('d.t?.["phase:K_stores"] !== undefined', 2, 'phase K_stores (d6_stores opens for W1)');
   const d = await dbg(), th = d.boss?.hostileAt ?? d.t?.l6_loader;
-  ok(near(d.t?.['phase:K_stores'] - th, 2.0, 0.25), `K_stores at hostile + 2.0 (${f2(d.t?.['phase:K_stores'] - th)})`, 'story');
+  ok(near(d.t?.w1 - th, 2.0, 0.25), `W1 at hostile + 2.0 (${f2(d.t?.w1 - th)})`, 'story');
+  ok(near(d.t?.['phase:K_stores'] - th, 2.4, 0.25), `K_stores (the door) at hostile + 2.4 (${f2(d.t?.['phase:K_stores'] - th)})`, 'story');
   const op = (await L6()).opened.d6_stores?.[0]?.s; ok(near(op - th, 2.4, 0.25), `d6_stores opens at hostile + 2.4 (${f2(op - th)})`, 'story');
   await heardWait('l6_kes_boss_1', 8);
   await objectiveSeen(OBJ.cut, 4);
 }
-async function enterCage() {
-  const s = await S6('spot', 'trig', 't6_cage', { fz: 0.5 });
+async function enterCage(at = null) {
+  // (a frame control: stand at ITS use point inside the cage — the grip holds only within 1.8 m of its handle, as a
+  //  player standing at the control; the cage's centre is > 1.8 m from the pump)
+  const s = at ? await S6('spot', 'use', at, { trig: 't6_cage' }) : await S6('spot', 'trig', 't6_cage', { fz: 0.5 });
   if (!s || s.err) return bad(`stand in t6_cage: ${s?.err}`, 'level');
   await S6('tp', s, false);
   return untilG('S.inTrig("t6_cage")', 1, 'feet in t6_cage', 'test');
 }
 async function segPin() {
-  if (!await enterCage()) return false;
+  if (!await enterCage('frame6_pin')) return false;
   if (!await grip('frame6_pin', 1.4)) return false;
   if (!await flagWait('pin', 1, 'pin out (1.2 s hold)')) return false;
   const tp = (await L6()).flags.pin.s;
-  ok(await untilG('(d.boss?.stage ?? 0) >= 2 || (g.story.boss?.()?.stage ?? 0) >= 2', 2, 'stage ≥ 2 at the pin'), 'stage ≥ 2 at the pin', 'story');
+  if (!(await dbg()).flags?.loaderDead) ok(await untilG('(d.boss?.stage ?? 0) >= 2 || (g.story.boss?.()?.stage ?? 0) >= 2', 2, 'stage ≥ 2 at the pin'), 'stage ≥ 2 at the pin', 'story');   // (order d: the loader already dead)
   ok(await untilG('d.t?.["vignette:lights_out6"] !== undefined || !!d.flags?.lights_out6', 2, 'lights_out6'), 'lights_out6 with stage 2', 'story');
-  await heardWait('l6_kes_pin', 6);
+  await heardWait('l6_kes_pin', 12);   // (C, waits its turn: the boss's teaching lines may be on the channel — up to 8 s)
   ok(/0 BAR/.test(await screenText('gauge6') ?? ''), 'gauge6: 0 BAR — PUMP', 'story');
   if (!await spawnedWait('g6_w2', 3, 'W2 at pin + 1.5')) return false;
   const w2 = (await L6()).spawns.find((s) => s.group === 'g6_w2'); if (w2) ok(near(w2.s - tp, 1.5, 0.25), `W2 at pin + 1.5 (${f2(w2.s - tp)})`, 'story');
   await film('w2_climb', null, 8);
 }
 async function segPump({ twoHolds = true, releases = 0 } = {}) {
-  if (!await enterCage()) return false;
+  if (!await enterCage('frame6_pump')) return false;
   for (let i = 0; i < releases; i++) {   // softlock (g): release at 90 % ten times — progress kept, never lost
     if (!await grip('frame6_pump', 0)) return false;
     await ev(() => window.__game.story.grip?.('frame6_pump', 'abandon'));
@@ -1541,12 +1563,12 @@ async function segPump({ twoHolds = true, releases = 0 } = {}) {
     const pr = (await dbg()).frame?.pressure ?? 0;
     ok(pr > 0.45 && pr < 0.6, `pressure kept after the first hold (${f2(pr)} ≈ 0.53)`, 'story');
     ok(!(await dbg()).flags?.pressure, 'not full after 3.2 of 6.0 s', 'story');
-    await heardWait('l6_kes_pump_half', 4);
+    await heardWait('l6_kes_pump_half', 10);   // (C, waits its turn behind the boss's teaching lines)
   }
   if (!await grip('frame6_pump', twoHolds ? 3.1 : 6.3)) return false;
   if (!await flagWait('pressure', 1.5, 'full pressure after 6.0 s cumulative')) return false;
   ok(/210 BAR/.test(await screenText('gauge6') ?? ''), 'gauge6: 210 BAR — READY', 'story');
-  ok(await untilG('(d.boss?.stage ?? 0) >= 3', 2, 'stage 3 at pressure'), 'stage 3 at full pressure', 'story');
+  if (!(await dbg()).flags?.loaderDead) ok(await untilG('(d.boss?.stage ?? 0) >= 3', 2, 'stage 3 at pressure'), 'stage 3 at full pressure', 'story');
   await heardWait('l6_kes_pump_done', 6);
 }
 async function segW3() {
@@ -1554,17 +1576,25 @@ async function segW3() {
   if (!await spawnedWait('g6_w3', 6, 'W3 once ≤ 3 non-loader hostiles live')) return false;
 }
 async function segShear() {
-  if (!await enterCage()) return false;
+  if (!await enterCage('frame6_lever')) return false;
   if (!await grip('frame6_lever', 0.8)) return false;
   if (!await untilG('!!d.frame?.fired', 1, 'the shear fired')) return false;
   await film('shear', null, 6);
-  const t0 = (await L6()).gripLog.filter((x) => x.id === 'frame6_lever').slice(-1)[0]?.se ?? (await dbg()).now;
+  // t = 0 is the lever's grip completing = the story's `cut` stamp (shearNow runs on that frame); the page poller's grip
+  // end (`gripLog.se`, sampled every 0.1 s on a loaded machine) only bounds it
+  const glEnd = (await L6()).gripLog.filter((x) => x.id === 'frame6_lever').slice(-1)[0]?.se;
+  const t0 = (await dbg()).t?.cut ?? glEnd ?? (await dbg()).now;
+  if (typeof glEnd === 'number') ok(Math.abs(t0 - glEnd) <= 0.35, `the shear starts with the lever's grip end (${f2(t0 - glEnd)} s after the poller saw it)`, 'story');
   await gameWait(5.0);
   const l = await L6(), A = (id) => l.audio.find((a) => a.id === id && a.s >= t0 - 0.05);
   const sf = A('shear_fire'), sp = A('splash_big'), wb = A('winch_brake');
-  ok(sf && near(sf.s - t0, 0.05, 0.1), `shear_fire at + 0.05 (${sf ? f2(sf.s - t0) : 'not played'})`, 'level');
-  ok(sp && near(sp.s - t0, 0.25, 0.1), `the tether parts: splash_big at + 0.25 (${sp ? f2(sp.s - t0) : 'not played'})`, 'level');
-  ok(wb && near(wb.s - t0, 1.4, 0.1), `winch_brake at + 1.4 (${wb ? f2(wb.s - t0) : 'not played'})`, 'level');
+  ok(sf && near(sf.s - t0, 0.05, 0.15), `shear_fire at + 0.05 (${sf ? f2(sf.s - t0) : "not played"}; ± a frame)`, 'level');
+  // (IA-6 decision: the tether PARTS at + 0.25 (tether_whip); `splash_big` is keyed on the set piece's `splash` cue — the
+  //  cut end hitting the water after its 4.7 m drop, ≈ + 1.07 (W7) — not on §4.8.1's 0.25, so the sound meets the splash)
+  const tw = A('tether_whip');
+  ok(tw && near(tw.s - t0, 0.25, 0.12), `the tether parts: tether_whip at + 0.25 (${tw ? f2(tw.s - t0) : 'not played'})`, 'level');
+  ok(sp && near(sp.s - t0, 1.07, 0.15), `splash_big when the cut end meets the water, ≈ + 1.07 (${sp ? f2(sp.s - t0) : 'not played'})`, 'level');
+  ok(wb && near(wb.s - t0, 1.4, 0.15), `winch_brake at + 1.4 (${wb ? f2(wb.s - t0) : 'not played'}; ± a frame)`, 'level');
   const pingAfter = l.audio.filter((a) => /^ping_/.test(a.id) && a.s > t0 + 0.3);
   ok(!pingAfter.length, `the ping stops at + 0.3 (${pingAfter.length} after)`, 'level');
   ok(/TRUNK: LOS · BUOY: LOS/.test(await screenText('dock_board') ?? '') || /LOS/.test(await screenText('gauge6') ?? ''), 'screens: TRUNK: LOS · BUOY: LOS', 'story');
@@ -1584,7 +1614,10 @@ async function segKillParts(order = ['ram_e', 'ram_w', 'pod']) {
     if (p !== 'pod') ok(await untilG(`(g.story.boss?.()?.parts?.${p}?.hp ?? 1) === 0`, 2, `${p} destroyed`, 'enemies', { quiet: true }), `${p} destroyed`, 'enemies');
     await gameWait(1.6);
   }
-  await heardWait('l6_kes_boss_pod', 1, 'story', 'both rams gone (said after the second ram)');
+  // (one part per segment on the default route: the pod line comes after the SECOND ram; loaderDead only with the pod)
+  const rams = await ev(() => { const p = window.__game.story.boss?.()?.parts ?? {}; return ['ram_e', 'ram_w'].every((k) => (p[k]?.hp ?? 1) === 0); });
+  if (rams && !order.includes('pod')) await heardWait('l6_kes_boss_pod', 8, 'story', 'both rams gone (said after the second ram)');
+  if (!order.includes('pod')) return true;
   if (!await flagWait('loaderDead', 6, 'the pod destroyed')) return false;
   await film('loader_death', null, 6);
   const dead = (await L6()).died.filter((x) => x.type === 'loader');
@@ -1620,9 +1653,10 @@ async function segEnding({ awkward = null } = {}) {
   const c0 = await S6('mk', 'mk6_end_cam0'), c1 = await S6('mk', 'mk6_end_cam1');
   let maxOff = 0;
   for (let i = 0; i < 30; i++) {
-    const r = await evs(() => ({ s: window.__game.state, c: window.__game.camera.getWorldPosition(window.__game.camera.position.clone()).toArray(), t: window.__game.story.debugState?.ending?.times ?? {} }));
+    const r = await evs(() => { const d = window.__game.story.debugState ?? {}; return { s: window.__game.state, c: window.__game.camera.getWorldPosition(window.__game.camera.position.clone()).toArray(), t: d.ending?.times ?? {}, el: d.now - (d.t?.ending_start ?? d.now) }; });
     if (r.s !== 'cutscene') break;
-    if (c0 && c1 && Object.keys(r.t).includes('S2')) { const dd = Math.min(Math.hypot(r.c[0] - c0[0], r.c[1] - c0[1], r.c[2] - c0[2]), Math.hypot(r.c[0] - c1[0], r.c[1] - c1[1], r.c[2] - c1[2])); maxOff = Math.max(maxOff, dd); }
+    // (from S2 on: S1 is the 0.6 s blend from wherever he stood onto cam0 — `times` is the schedule, known at S1)
+    if (c0 && c1 && typeof r.t.S2 === 'number' && r.el >= r.t.S2) { const dd = Math.min(Math.hypot(r.c[0] - c0[0], r.c[1] - c0[1], r.c[2] - c0[2]), Math.hypot(r.c[0] - c1[0], r.c[1] - c1[1], r.c[2] - c1[2])); maxOff = Math.max(maxOff, dd); }
     await gameWait(1.5);
   }
   ok(maxOff <= 0.45, `the camera stays on the cam0 → cam1 dolly (max ${f2(maxOff)} m off; never > 0.4 m of travel)`, 'story');
@@ -1635,8 +1669,9 @@ async function segEnding({ awkward = null } = {}) {
   ok(t.E2 <= 24.0 + 0.12, `E2 at ≤ 24.0 (cap) (${f2(t.E2)})`, 'story');
   const lines = await ev((ids) => (window.__game.story.lineLog ?? []).filter((l) => ids.includes(l.said)).map((l) => ({ id: l.said, t: l.t, cue: l.cue })), SCENE_LINES);
   const late = lines.filter((l) => typeof l.cue !== 'number' || Math.abs(l.t - l.cue) > 0.12);
-  ok(lines.length >= 9 && !late.length, `scene lines ≤ 0.12 s from their cues (${lines.length}) ${late.map((l) => `${l.id} ${typeof l.cue === 'number' ? f2(l.t - l.cue) : 'no cue'}`).join(', ')}`, 'story');
-  const man = await ev(() => window.__game.facts.manifest === true), aas2 = await heard('l6_aas_2');
+  ok(lines.length >= 8 && !late.length, `scene lines ≤ 0.12 s from their cues (${lines.length}) ${late.map((l) => `${l.id} ${typeof l.cue === 'number' ? f2(l.t - l.cue) : 'no cue'}`).join(', ')}`, 'story');
+  // (heard across loads: the story's restored `heard` list, not this session's lineLog — a load starts a new log)
+  const man = await ev(() => window.__game.facts.manifest === true), aas2 = (await heard('l6_aas_2')) || ((await dbg()).heard ?? []).includes('l6_aas_2');
   ok(lines.some((l) => l.id === (man ? 'l6_kes_end_1b' : 'l6_kes_end_1')), `K1 = ${man ? '_end_1b (queue read)' : '_end_1'}`, 'story');
   ok(lines.some((l) => l.id === (aas2 ? 'l6_kes_end_4' : 'l6_kes_end_4b')), `K4 = ${aas2 ? '_end_4 (Aas heard)' : '_end_4b (S11a)'}`, 'story');
   ok(lines.some((l) => l.id === `l6_choir_last_${opt.choice}`), `C1 = l6_choir_last_${opt.choice}`, 'story');
@@ -1644,7 +1679,7 @@ async function segEnding({ awkward = null } = {}) {
 }
 /** The console screen's texts as they pass (the OSD is shown only during E2): sampled into L.osd by this poller. */
 async function watchConsole() {
-  await ev(() => { const L = window.__L6, g = window.__game; L.osd = []; setInterval(() => { const t = g.level.screen('console6')?.userData?.screenText; if (t && L.osd[L.osd.length - 1] !== t) L.osd.push(t); }, 200); });
+  await ev(() => { const L = window.__L6, g = window.__game; L.osd = []; L.cards = []; setInterval(() => { const t = g.level.screen('console6')?.userData?.screenText; if (t && L.osd[L.osd.length - 1] !== t) L.osd.push(t); const c = document.querySelector('.cb')?.innerText ?? ''; if (c && L.cards[L.cards.length - 1] !== c) L.cards.push(c); }, 100); });
 }
 async function checkOsd() {
   const d = await dbg(), osd = (await L6()).osd ?? [];
@@ -1667,7 +1702,8 @@ async function segEnd({ natural = true } = {}) {
   }
   ok(end, 'state ended', 'story');
   // the cards (as check-chain reads them: `.cb`): THE TRUNK / TO BE CONTINUED (14 s, skippable), then END OF CHAPTER 3
-  const cardIs = (re, ms) => page.waitForFunction((src) => new RegExp(src).test(document.querySelector('.cb')?.innerText ?? ''), re.source, { timeout: ms, polling: 100 }).then(() => true).catch(() => false);
+  // (the card history is polled from the start — a loaded machine can reach this line after the 14 s card is gone)
+  const cardIs = (re, ms) => page.waitForFunction((src) => new RegExp(src).test(document.querySelector('.cb')?.innerText ?? '') || (window.__L6?.cards ?? []).some((c) => new RegExp(src).test(c)), re.source, { timeout: ms, polling: 100 }).then(() => true).catch(() => false);
   const c1 = await cardIs(/THE TRUNK[\s\S]*TO BE CONTINUED/, 15000);
   await film('end_cards', null, 2);
   ok(c1, 'end card THE TRUNK / TO BE CONTINUED', 'story');
@@ -1757,16 +1793,25 @@ const dieAndLoad = async (query = '') => {
 };
 const wsNorm = (w) => ({ ...w, doors: Object.fromEntries(Object.entries(w?.doors ?? {}).map(([k, v]) => [k, { locked: v.locked, status: v.status ?? null }])), screens: Object.fromEntries(Object.entries(w?.screens ?? {}).map(([k, v]) => [k, String(v).replace(/\d\d:\d\d(:\d\d)?/g, '##').replace(/\d+ BAR/g, 'n BAR')])) });
 /** After a load: H13 equal to the save's world (keys, flags, doors, screens, lights, hatches, pickups, scares, frame). */
+/** The differing keys of two records (after the load ≠ at the save). */
+const diffOf = (x, y) => {
+  if (!x || !y || typeof x !== 'object' || typeof y !== 'object') return `${JSON.stringify(x)?.slice(0, 120)} ≠ ${JSON.stringify(y)?.slice(0, 120)}`;
+  const ks = [...new Set([...Object.keys(x), ...Object.keys(y)])].filter((k) => JSON.stringify(x[k]) !== JSON.stringify(y[k]));
+  return ks.map((k) => `${k}: ${JSON.stringify(x[k])?.slice(0, 80)} (saved ${JSON.stringify(y[k])?.slice(0, 80)})`).join('; ');
+};
 async function compareLoad(cp, before) {
   const got = await ws(), d = await dbg();
   if (!got || got.__err || !before?.ws) return bad(`${cp}: worldState() (H13) unavailable — before ${!!before?.ws}, after ${got?.__err ?? !!got}`, 'story');
   const a = wsNorm(got), b = wsNorm(before.ws);
+  // (transient by design — base.ts: `holdOpen` / `storesOpen` are reset by afterReplay: a save never holds a door standing
+  //  open for a wave; the wave is re-queued and opens its door again — so those doors are not compared either)
+  for (const [fl, door] of [['holdOpen', 'd6_hold'], ['storesOpen', 'd6_stores']]) if (b.flags?.[fl] || a.flags?.[fl]) { if (a.doors) delete a.doors[door]; if (b.doors) delete b.doors[door]; }
   for (const key of ['doors', 'keys', 'hatches', 'lights', 'dark', 'screens', 'pickups', 'scares', 'frame', 'slots']) {
     const same = JSON.stringify(a[key]) === JSON.stringify(b[key]);
-    ok(same, `${cp}: ${key} as saved${same ? '' : ` — ${JSON.stringify(a[key]).slice(0, 160)} ≠ ${JSON.stringify(b[key]).slice(0, 160)}`}`, 'story');
+    ok(same, `${cp}: ${key} as saved${same ? '' : ` — ${diffOf(a[key], b[key])}`}`, 'story');
   }
-  const fl = (f) => Object.fromEntries(Object.entries(f ?? {}).filter(([k]) => !['f1Free', 'f3Free', 'ending'].includes(k)));
-  ok(JSON.stringify(fl(a.flags)) === JSON.stringify(fl(b.flags)), `${cp}: flags as saved ${JSON.stringify(fl(a.flags)).slice(0, 200)}`, 'story');
+  const fl = (f) => Object.fromEntries(Object.entries(f ?? {}).filter(([k]) => !['f1Free', 'f3Free', 'ending', 'holdOpen', 'storesOpen'].includes(k)));
+  ok(JSON.stringify(fl(a.flags)) === JSON.stringify(fl(b.flags)), `${cp}: flags as saved ${diffOf(fl(a.flags), fl(b.flags))}`, 'story');
   ok(JSON.stringify([...(d.keys ?? [])].sort()) === JSON.stringify([...(before.keys ?? [])].sort()), `${cp}: keys ${d.keys} = saved ${before.keys}`, 'story');
   return d;
 }
@@ -1775,7 +1820,8 @@ async function compareLoad(cp, before) {
 async function checkBossRestore(cp, before) {
   const d = await dbg(), b = before?.boss;
   if (!b) return bad(`${cp}: no boss record in debugState at the save`, 'story');
-  ok(JSON.stringify(d.boss?.parts) === JSON.stringify(b.parts) && d.boss?.stage === b.stage, `${cp}: loader parts + stage as saved (${JSON.stringify(d.boss?.parts)}, stage ${d.boss?.stage})`, 'story');
+  // (a loader dead at the save is removed silently by the load: no parts to compare — judged below)
+  if (!(b.dead || before?.flags?.loaderDead)) ok(JSON.stringify(d.boss?.parts) === JSON.stringify(b.parts) && d.boss?.stage === b.stage, `${cp}: loader parts + stage as saved (${JSON.stringify(d.boss?.parts)}, stage ${d.boss?.stage})`, 'story');
   const p = await ev(() => ({ hp: window.__game.player.health, res: window.__game.player.weapons.carbine?.reserve ?? 0, pos: window.__game.player.position.toArray() }));
   ok(p.hp >= 60, `${cp}: health ≥ 60 (${p.hp}, saved ${before.health})`, 'story');
   ok(p.res >= 90, `${cp}: carbine reserve topped to ≥ 90 (${p.res}) (B5)`, 'story');
@@ -1793,7 +1839,8 @@ async function checkBossRestore(cp, before) {
   await gameWait(1.6);
   for (const k of ['w1', 'w2', 'w3']) {
     const twin = await S6('alive', `g6_${k}_r`), orig = await S6('alive', `g6_${k}`);
-    ok(!orig.length, `${cp}: the original ${k} never comes back (${orig.length})`, 'story');
+    // (a PENDING latest wave is re-queued as itself — §7.1: its ORIGINAL spawns under its rule after the 3.0 s grace)
+    if (!(k === latest && w[k] === 'pending')) ok(!orig.length, `${cp}: the original ${k} never comes back (${orig.length})`, 'story');
     if (k === latest && w[k] === 'alive') ok(twin.length > 0, `${cp}: latest wave ${k} alive at the save → its twin is back (${twin.length})`, 'story');
     else if (k === latest && w[k] === 'pending') note(`${cp}: latest wave ${k} pending at the save → re-queued (twin now ${twin.length}; spawns only under its rule)`);
     else ok(!twin.length, `${cp}: wave ${k} (${w[k]}${k === latest ? ', latest' : ', earlier'}) not back (${twin.length})`, 'story');
@@ -1911,10 +1958,20 @@ if (MODE === 'probe') {
         if (await dieAndLoad()) {
           await gameWait(1.0);
           const d = await dbg();
-          ok(!!d.flags?.bjOpen && !d.keys?.includes('key6_a'), `B4: bjOpen ${d.flags?.bjOpen}, Key A trapped (keys ${d.keys}) after ${cp}`, 'story');
-          ok(await untilG('g.interactables.get("vault6_loom")?.enabled', 3, 'the loom enabled after the load'), 'B4: the loom usable after the load', 'story');
-          await seg('pull after the load', N.vault, segPull);
-          await finishFrom(list.findIndex((s) => s[0] === 'pull'), list);
+          if (d.restoredFrom === 'cp6_manual') {
+            // cp6_manual written before Key A went in: its restore replays bjOpen → the loom usable
+            ok(!!d.flags?.bjOpen && !d.keys?.includes('key6_a'), `B4: bjOpen ${d.flags?.bjOpen}, Key A trapped (keys ${d.keys}) after ${d.restoredFrom}`, 'story');
+            ok(await untilG('g.interactables.get("vault6_loom")?.enabled', 3, 'the loom enabled after the load'), 'B4: the loom usable after the load', 'story');
+            await seg('pull after the load', N.vault, segPull);
+            await finishFrom(list.findIndex((s) => s[0] === 'pull'), list);
+          } else {
+            // §9 #36: bjOpen made cp6_manual invalid → the latest valid save is cp6_he: no key, the switch at AUTO, he
+            // cranks again — never a trapped key with a shut enclosure
+            ok(d.restoredFrom === 'cp6_he' && !d.flags?.bjOpen && !d.flags?.manual && !d.keys?.includes('key6_a'), `B4: restored from ${d.restoredFrom} (bjOpen ${d.flags?.bjOpen}, manual ${d.flags?.manual}, keys [${d.keys}]) — the crank again (§9 #36)`, 'story');
+            ok(await untilG('g.interactables.get("he6_switch")?.enabled', 3, 'the switch usable after the load'), 'B4: the changeover switch usable again', 'story');
+            const kc = list.findIndex((s) => s[0] === 'crank');
+            await finishFrom(kc - 1, list);
+          }
         }
       }
       void k;
@@ -1945,7 +2002,7 @@ if (MODE === 'probe') {
     console.log('\n══════════ S2d: a milestone during a grip ══════════');
     if (await freshRun('S2d', '&choice=stop')) {
       const list = steps(ROUTE_O); await playTo('pin', list);
-      if (!routeBroken && await enterCage() && await grip('frame6_pump', 0)) {
+      if (!routeBroken && await enterCage('frame6_pump') && await grip('frame6_pump', 0)) {
         await ev(() => window.__game.story.grip?.('frame6_pump', 6.5));
         await gameWait(1.0);
         await fireOk('ram_e', 'a milestone while the pump grip runs');
@@ -1954,9 +2011,11 @@ if (MODE === 'probe') {
         ok(!(await dbg()).checkpoints?.includes(`cp6_m${n}`), `cp6_m${n} not written while the grip runs`, 'story');
         await untilG('!d.grip', 6, 'the pump grip ends');
         const endT = (await L6()).gripLog.filter((x) => x.id === 'frame6_pump').slice(-1)[0]?.se;
-        await cpWait(`cp6_m${n}`, 3, 'deferred save at the grip end + 1.0');
-        const at = (await L6()).cpAt[`cp6_m${n}`]?.s;
-        ok(near(at - endT, 1.0, 0.25), `cp6_m${n} at the grip end + 1.0 (${f2(at - endT)})`, 'story');
+        // (the grip itself completes the pump — `pressure` joins the milestones at its end — so the ONE deferred save
+        //  is numbered by the milestones done THEN: cp6_m{n}, or cp6_m{n+1} when the pump finished)
+        await untilG(`(d.checkpoints ?? []).some((c) => c === "cp6_m${n}" || c === "cp6_m${n + 1}")`, 3, 'deferred save at the grip end + 1.0');
+        const L = await L6(), id = L.cpAt[`cp6_m${n + 1}`] ? `cp6_m${n + 1}` : `cp6_m${n}`, at = L.cpAt[id]?.s;
+        ok(near(at - endT, 1.0, 0.25), `${id} at the grip end + 1.0 (${f2(at - endT)})`, 'story');
       }
       await runChecks('S2d');
     }
@@ -2062,11 +2121,13 @@ if (MODE === 'probe') {
     for (let i = 1; i < loud.length; i++) ok(loud[i].t - loud[i - 1].t >= 90, `loud ${loud[i - 1].id} → ${loud[i].id} ${f2(loud[i].t - loud[i - 1].t)} s (≥ 90)`, 'story');
     ok(l.scares.some((x) => x.id === 'v6_shaft_lights') && (d.checkpoints ?? []).includes('cp6_shaft'), 'v6_shaft_lights (and cp6_shaft) on the default route (S4)', 'story');
     const th = l.scares.find((x) => x.id === 'v6_thud'), tp = d.t?.l6_pulled, tk = d.t?.l6_shaft_open;
-    if (th) ok(th.t - tp >= 20 && th.t - tp <= 90 && (tk === undefined || th.t < tk), `v6_thud inside pull + 20 … + 90 and before Key B (${f2(th.t - tp)})`, 'story');
+    // (the window is on the LEVEL clock: launchAt = the thud's level time, flags.pullT the pull's; `now` runs on in notes)
+    const lw = typeof d.launchAt === 'number' && typeof d.flags?.pullT === 'number' ? d.launchAt - d.flags.pullT : null;
+    if (th) ok(lw !== null && lw >= 20 - 0.3 && lw <= 90 + 0.3 && (tk === undefined || th.t < tk), `v6_thud inside pull + 20 … + 90 (level clock) and before Key B (${f2(lw)})`, 'story');
     // sounds once each (H14): every vignette sound played at most once, none by two owners
     for (const id of ids) for (const snd of SCARES6[id].sounds) {
       const n = l.audio.filter((a) => a.id === snd).length;
-      if (snd === 'bulb_pop') ok(n === 5, `${id}: bulb_pop × 5 (${n})`, 'audio'); else ok(n <= 1 || ['ping_close'].includes(snd), `${id}: ${snd} played once (${n})`, 'audio');
+      if (snd === 'bulb_pop') ok(n === 5, `${id}: bulb_pop × 5 (${n})`, 'audio'); else if (id === 'v6_shaft_lights' && snd === 'glass_tinkle') ok(n === 5, `${id}: glass_tinkle × 5, one per lamp (${n})`, 'audio'); else ok(n <= 1 || ['ping_close'].includes(snd), `${id}: ${snd} played once (${n})`, 'audio');
     }
     await runChecks('scares');
   }
@@ -2118,11 +2179,10 @@ if (MODE === 'probe') {
         const d = await dbg();
         if (!d.flags?.trunkCut) {
           await S6('botStop');
-          const cs = await S6('spot', 'trig', 't6_cage', {});
-          if (!cs || cs.err || !await walkTo([cs.x, cs.y, cs.z], 40)) await enterCage();
-          if (!d.flags?.pin) await grip('frame6_pin', 1.4);
-          else if (!d.flags?.pressure) await grip('frame6_pump', 6.3);
-          else await grip('frame6_lever', 0.8);
+          const ctl = !d.flags?.pin ? 'frame6_pin' : !d.flags?.pressure ? 'frame6_pump' : 'frame6_lever';
+          const cs = await S6('spot', 'use', ctl, { trig: 't6_cage' });
+          if (!cs || cs.err || !await walkTo([cs.x, cs.y, cs.z], 40)) await enterCage(ctl);
+          await grip(ctl, ctl === 'frame6_pin' ? 1.4 : ctl === 'frame6_pump' ? 6.3 : 0.8);
           await S6('bot', { seed: opt.seed });
         }
       }

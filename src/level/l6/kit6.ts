@@ -1394,8 +1394,11 @@ export function hatchLid6(L: LevelBuild, b: Builder, s: HatchSpec6): THREE.Objec
   const rooms = s.rooms ?? b.rooms.slice();
   const body: Mat = 'navy_grey', steel: Mat = 'steel_raw';
   const c = 0.06;
-  b.bx(steel, s.x0 - c, y - 0.1, s.z0 - c, s.x1 + c, y + 0.005, s.z0).bx(steel, s.x0 - c, y - 0.1, s.z1, s.x1 + c, y + 0.005, s.z1 + c);
-  b.bx(steel, s.x0 - c, y - 0.1, s.z0, s.x0, y + 0.005, s.z1).bx(steel, s.x1, y - 0.1, s.z0, s.x1 + c, y + 0.005, s.z1);
+  // (IA-6, D2's note: the curb's inner faces stand 4 mm INSIDE the opening — never coplanar with the pit walls — and its
+  //  top 10 mm proud of the floor / lid; the lid's body starts 10 mm in, so the two never touch)
+  const e = 0.004, ct = y + 0.01;
+  b.bx(steel, s.x0 - c, y - 0.1, s.z0 - c, s.x1 + c, ct, s.z0 + e).bx(steel, s.x0 - c, y - 0.1, s.z1 - e, s.x1 + c, ct, s.z1 + c);
+  b.bx(steel, s.x0 - c, y - 0.1, s.z0 + e, s.x0 + e, ct, s.z1 - e).bx(steel, s.x1 - e, y - 0.1, s.z0 + e, s.x1 + c, ct, s.z1 - e);
   const topMat = mat4(L, `k6_hatch_top_${s.name}`, () => {
     const pxW = 512, pxH = Math.round(512 * d / w), R = srand(77 + s.name.length);
     const tex = canvasTex(pxW, pxH, (g) => {

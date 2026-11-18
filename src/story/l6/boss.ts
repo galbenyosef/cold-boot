@@ -129,8 +129,10 @@ export abstract class Boss6 extends Base6 {
   /** A sequence line on its cue (`at`): starts on that frame; resolves with its end time, false when dropped. */
   protected async cueLine(id: string, at: number, where?: () => THREE.Vector3 | undefined): Promise<number | false> {
     await this.until(() => this.now >= at - 0.2 || this.ended);
+    // a timed line takes the channel: a bark, a teaching / hint line, the loader's PA or a Q answer yields to it (IA-6 —
+    // `_pump_done` still playing at the shear held `_dark` 0.2–0.25 s past cut + 1.2)
     const sp = this.talk.speaking;
-    if (sp && /^l[56]_sol_/.test(sp)) this.talk.cut();
+    if (sp && /^l[56]_sol_|^l6_kes_(boss_|pump_|pin$|hint_|ack$|busy$)|^l6_unit_loader_/.test(sp)) this.talk.cut();
     await this.until(() => this.now >= at || this.ended);
     if (this.ended) return false;
     const pos = where?.();
@@ -295,7 +297,16 @@ export abstract class Boss6 extends Base6 {
     this.stamp('hostile');
     try { this.bossCtl()?.wake(); } catch (e) { console.warn('[story] loader wake failed', e); }
     this.vig('beacons6');
-    this.sfx('alarm_beacon', this.obj('mk6_horn') ? this.mk('mk6_horn') : undefined, 0.9);
+    // `alarm_beacon` is a LOOP (the sounder's two-tone, 2 s period): a 6 s burst with the beacons, then off (IA-6 —
+    // played as a one-shot it was refused: "is a loop; use loop()")
+    if (!this.ff) {
+      try {
+        const h = this.ctx.audio.loop('alarm_beacon', { position: this.obj('mk6_horn') ? this.mk('mk6_horn') : undefined, volume: 0.9 });
+        let on = true; const off = () => { if (on) { on = false; try { h.stop(1.0); } catch { /* ignore */ } } };
+        this.S('alarm_burst', async () => { await this.hold(6.0); off(); });
+        setTimeout(off, 9000);   // (a death / restore that ends the thread still stops it)
+      } catch (e) { console.warn('[story] alarm_beacon failed', e); }
+    }
     this.pa('l6_unit_loader_1');
     this.lastPa = this.now; this.paCount = 1;
     this.board();
@@ -567,7 +578,9 @@ export abstract class Boss6 extends Base6 {
       else this.frameApi('lever', 0);
     });
   }
-  private shearDeny(id: string): void { void this.unit(id, this.shearAt()); }
+  // (IA-6: the shear's panel speaker 0.5 m above the shear point — AT the point the frame's own steel occluded it from a
+  //  player 2 m away in the cage: −4.4 dB vs the reference)
+  private shearDeny(id: string): void { void this.unit(id, this.shearAt().add(V3(0, 0.5, 0))); }
 
   /** §4.8.1 the shear: the trunk goes dark — in control, no camera taken. t = 0 at the lever's grip end. */
   protected shearNow(): void {
@@ -602,7 +615,8 @@ export abstract class Boss6 extends Base6 {
       this.w.machine('ping6', 'off');              // the next ping never comes
       await this.until(() => this.now >= t0 + 0.60);
       this.screensCut();
-      this.cutCable(6);
+      // The tether outside is cut ONCE: pool.ts watches `frame6.state().fired`; only without the set piece does the story cut it.
+      if (!fired) this.cutCable(6);
       const e = await this.cueLine('l6_kes_dark', t0 + 1.2);
       if (this.loaderAlive()) await this.cueLine('l6_kes_cut_loader', (e === false ? this.now : e) + 0.4);
     });
@@ -766,11 +780,14 @@ export abstract class Boss6 extends Base6 {
     this.boardText = t;
     this.screen('dock_board', 'dock_board', t);
   }
-  /** `gauge6` (§6.4, W5 formats): `pin` | k | `fired` | `low|k`. */
+  /** `gauge6` (§6.4 texts): `PIN IN` → `0 BAR — PUMP` → `n BAR` → `210 BAR — READY` → `FIRED` / `PRESSURE LOW` (1.2 s). */
   protected gauge(): void {
     const f = this.f;
     const k = f.pressure >= 1 ? 1 : this.pumpK;
-    const t = f.trunkCut ? 'fired' : !f.pin ? 'pin' : this.now < this.lowUntil ? `low|${k.toFixed(3)}` : k.toFixed(3);
+    // §6.4's display strings (W5's `gaugeState` reads `n BAR …` as bar, `PRESSURE LOW|k`, `PIN IN`, `FIRED`)
+    const bar = Math.round(k * 210);
+    const t = f.trunkCut ? 'FIRED' : !f.pin ? 'PIN IN' : this.now < this.lowUntil ? `PRESSURE LOW|${k.toFixed(3)}`
+      : k >= 1 ? '210 BAR — READY' : bar <= 0 ? '0 BAR — PUMP' : `${bar} BAR`;
     if (t === this.gaugeText) return;
     this.gaugeText = t;
     this.screen('gauge6', 'gauge', t);
@@ -915,10 +932,10 @@ export abstract class Boss6 extends Base6 {
     if (f.pin) this.frameApi('pin', 1);
     if (f.pressure >= 1) { this.frameApi('pump', 1); this.frameApi('guard', 1); }
     if (f.trunkCut) {
-      this.frameApi('fired');
+      const had = this.frameApi('fired');
       this.w.machine('ping6', 'off');
       this.screen('mimic6', 'mimic', 'cut');
-      this.cutCable(0);
+      if (!had) this.cutCable(0);   // with the set piece, pool.ts cuts it on `state().fired`
     }
     if (f.hostile) this.snapVig('beacons6');
     if (f.lights_out6) this.snapVig('lights_out6');
@@ -970,7 +987,8 @@ export abstract class Boss6 extends Base6 {
     const f = this.f;
     if (f.quiet) return f.ending ? OBJ6.none : OBJ6.console;
     if (f.trunkCut && !f.loaderDead) return OBJ6.loader;
-    if (f.hostile || f.trunkCut) return f.trunkCut ? OBJ6.none : OBJ6.tether;
+    if (f.trunkCut) return OBJ6.clear;   // cut + loader dead, before the quiet (the fight-out)
+    if (f.hostile) return OBJ6.tether;
     return null;
   }
   /** H7 `boss`, `frame`, `ending` (scenes.ts adds the ending's times / result). */

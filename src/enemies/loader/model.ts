@@ -224,7 +224,8 @@ function authorBridge(b: RigBuilder, G: LoaderGeom, L: LFn): void {
   for (const s of [-1, 1]) {
     const z = s * K.girderDZ;
     b.mat('yellow');
-    L(box(span, h, gw, 0.03), 0, h / 2, z);
+    // (IA-6 zfight: the body sits INSIDE the flange lips — 0.04 shorter per end, 1 cm under each lip face)
+    L(box(span - 0.08, h - 0.02, gw, 0.03), 0, h / 2, z);
     // flange lips top and bottom (the box girder reads as a fabricated section)
     L(box(span, 0.05, gw + 0.12, 0.01), 0, h - 0.025, z);
     L(box(span, 0.05, gw + 0.12, 0.01), 0, 0.025, z);
@@ -236,8 +237,9 @@ function authorBridge(b: RigBuilder, G: LoaderGeom, L: LFn): void {
     }
     // trolley rail on top
     b.mat('steel');
-    L(box(span - 0.6, 0.1, 0.09), 0, h + 0.05, z);
-    L(box(span - 0.6, 0.03, 0.2), 0, h + 0.015, z);
+    // (the base plate sinks 5 mm into the top lip, the rail sits 2 mm up inside the plate — its top where the wheels run)
+    L(box(span - 0.6, 0.1, 0.09), 0, h + 0.052, z);
+    L(box(span - 0.6, 0.03, 0.2), 0, h + 0.01, z);
     // the decal along the outer face (south face of the south girder, north face of the north girder)
     b.mat('sign');
     b.addL(new THREE.PlaneGeometry(6.3, 0.7).toNonIndexed(), xf(0, h / 2, z + s * (gw / 2 + 0.045), 0, s > 0 ? 0 : 180 * D, 0), true);
@@ -247,13 +249,13 @@ function authorBridge(b: RigBuilder, G: LoaderGeom, L: LFn): void {
   }
   // cross ties between the girders at the ends and every 9 m (under the trolley's path they sit low)
   b.mat('dark');
-  for (const x of [-span / 2 + 0.6, -span / 4, 0, span / 4, span / 2 - 0.6]) L(box(0.3, 0.25, 2 * K.girderDZ - gw), x, 0.16, 0);
+  for (const x of [-span / 2 + 0.6, -span / 4, 0, span / 4, span / 2 - 0.6]) L(box(0.3, 0.25, 2 * K.girderDZ - gw + 0.04), x, 0.16, 0);   // (ends 2 cm into the girders: no shared face)
   // the maintenance walkway along the NORTH girder's top (the trolley floods hang on the south side): deck on
   // brackets, posts and a two-rail handrail on its outer edge
   {
     const z = K.girderDZ + gw / 2 + 0.36, y = h;
     b.mat('steel');
-    L(box(span - 2, 0.04, 0.7), 0, y - 0.02, z);
+    L(box(span - 2, 0.04, 0.7), 0, y + 0.006, z);   // (deck top 2.6 cm over the girder's lip: never its plane)
     const n = Math.floor((span - 2) / 1.5);
     for (let i = 0; i <= n; i++) {
       const x = -(span - 2) / 2 + i * ((span - 2) / n);
@@ -304,10 +306,10 @@ function authorTrolley(b: RigBuilder, G: LoaderGeom, L: LFn): void {
   const dz = K.girderDZ;
   b.mat('yellow');
   for (const s of [-1, 1]) L(box(3.3, 0.4, 0.42, 0.03), 0, Y(-2.15), s * dz);                 // side beams over the wheels
-  for (const x of [-1.45, 1.45]) L(box(0.36, 0.36, 2 * dz + 0.42, 0.03), x, Y(-2.15), 0);      // end beams
+  for (const x of [-1.45, 1.45]) L(box(0.36, 0.36, 2 * dz + 0.36, 0.03), x, Y(-2.15), 0);      // end beams (ends inside the side beams)
   L(box(3.2, 0.06, 2 * dz - 0.1), 0, Y(-1.92), 0);                                            // deck plate
   b.mat('hazard');
-  for (const x of [-1.64, 1.64]) L(box(0.03, 0.4, 2 * dz + 0.42), x, Y(-2.15), 0);
+  for (const x of [-1.668, 1.668]) L(box(0.03, 0.38, 2 * dz + 0.46), x, Y(-2.15), 0);          // (3 mm clear of the beam ends)
   // sheave blocks under the deck (the ropes leave from their bottoms at sheaveY)
   b.mat('dark');
   for (let i = 0; i < 4; i++) {

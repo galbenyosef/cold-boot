@@ -366,7 +366,8 @@ function slope(b: Builder, m: Mat, axis: 'x' | 'z', u0: number, y0: number, u1: 
  */
 function grillePanel(L: LevelBuild, id: string, x0: number, z0: number, x1: number, z1: number, yBottom: number, mat: Mat, sound: string, rooms: string[]) {
   const part = L.part(`${id}:panel`);
-  part.bx(mat, x0, 0, z0, x1, 0.06, z1);
+  // (the visual panel stands 6 mm inside the opening's walls — never their planes; the collider fills it)
+  part.bx(mat, x0 + 0.006, 0, z0 + 0.006, x1 - 0.006, 0.06, z1 - 0.006);
   const g = part.build();
   g.position.y = yBottom;
   g.name = id;
@@ -394,7 +395,7 @@ function grillePanel(L: LevelBuild, id: string, x0: number, z0: number, x1: numb
     if (pb.enabled) return;
     const fin = () => { g.position.set(0, yBottom, 0); g.rotation.set(0, 0, 0); g.visible = true; pb.enabled = true; };
     if (snap) { fin(); return; }
-    L.tween(0, 0.3, (k) => { g.position.x *= 1 - k; }, () => { fin(); L.sfx('grille_drop', (x0 + x1) / 2, yBottom, (z0 + z1) / 2, 0.7); });
+    L.tween(0, 0.3, (k) => { g.position.x *= 1 - k; }, () => { fin(); L.sfx('vent_grille', (x0 + x1) / 2, yBottom, (z0 + z1) / 2, 0.7); });
   };
 }
 

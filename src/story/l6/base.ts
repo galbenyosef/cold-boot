@@ -138,7 +138,7 @@ export interface BossFacts6 {
 }
 
 interface TrigBox { id: string; x0: number; x1: number; z0: number; z1: number; y0?: number; y1?: number }
-type LogEntry = LineLog & { dur?: number; end?: number; cue?: number };
+type LogEntry = LineLog & { dur?: number; end?: number | null; cue?: number };
 
 export abstract class Base6 extends StageBase<Flags6, PhaseId6, CheckpointIdL6, Facts6, ProgressL6> {
   protected declare hooks: HooksL6;
@@ -451,7 +451,7 @@ export abstract class Base6 extends StageBase<Flags6, PhaseId6, CheckpointIdL6, 
       onStart: (d) => {
         entry = (this.talk.log[this.talk.log.length - 1] as LogEntry) ?? null;
         const said = entry?.said ?? id;
-        if (entry) { entry.dur = +d.toFixed(3); if (timed) entry.cue = +cue.toFixed(3); }
+        if (entry) { entry.dur = +d.toFixed(3); entry.end = null; if (timed) entry.cue = +cue.toFixed(3); }
         this.subtitle(said, d, opts.name, show);
         this.noteStart(said, d);
         user?.(d);
@@ -472,7 +472,7 @@ export abstract class Base6 extends StageBase<Flags6, PhaseId6, CheckpointIdL6, 
     const entry = this.talk.log[this.talk.log.length - 1] as (LogEntry & { qp?: number; sp?: number }) | undefined;
     if (d <= 0) return Promise.resolve(false);
     const said = entry?.said ?? id;
-    if (entry) { entry.dur = +d.toFixed(3); entry.cue = +cue.toFixed(3); entry.q = +this.now.toFixed(3); entry.qp = qp; entry.sp = performance.now(); }
+    if (entry) { entry.dur = +d.toFixed(3); entry.end = null; entry.cue = +cue.toFixed(3); entry.q = +this.now.toFixed(3); entry.qp = qp; entry.sp = performance.now(); }
     this.subtitle(said, d, undefined, opts.subtitle ?? true);
     this.noteStart(said, d);
     try { opts.onStart?.(d); } catch (e) { console.warn('[story] overlap onStart failed', e); }
@@ -627,7 +627,8 @@ export abstract class Base6 extends StageBase<Flags6, PhaseId6, CheckpointIdL6, 
       get slamRecoveryInView() { return B().slamRecoveryInView; },
       get ramsGone() { return B().ramsGone; },
       get pinOut() { return F().pin; },
-      get pressure() { return Number(F().pressure) || 0; },
+      // (the pump's progress while pumping — the flag is 0 until full: `_pump_half`'s rule never held — IA-6)
+      get pressure() { return Math.max(Number(F().pressure) || 0, Number((self as unknown as { pumpK?: number }).pumpK) || 0); },
       get trunkCut() { return F().trunkCut; },
       get loaderDead() { return F().loaderDead; },
       get quiet() { return F().quiet; },

@@ -328,7 +328,11 @@ export class ScriptL6 extends Scenes6 {
   debugCheckpoint(id: CheckpointIdL6): boolean {
     try { if (!this.prog.checkpoints.includes(id)) this.prog.checkpoints.push(id); this.lastCheckpoint = id; this.hooks.checkpoint(id); return true; } catch { return false; }
   }
-  markEnded(): void { this.ended = true; }
+  markEnded(): void {
+    this.ended = true;
+    // H5: a line cut by the end (its script stops) still logs its end — the moment it was cut
+    for (const l of this.talk.log as unknown as { dur?: number; end?: number | null }[]) if (typeof l.dur === 'number' && typeof l.end !== 'number') l.end = +this.now.toFixed(3);
+  }
   /** D16: the launch's level-clock second (`launchAt`, else pull + 90 once pulled), null before the pull. */
   launchT(): number | null { return this.prog.launchAt ?? (this.f.pulled ? this.f.pullT + 90 : null); }
   /** For the carry (D28). */

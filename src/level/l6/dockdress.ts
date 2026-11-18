@@ -217,11 +217,13 @@ function buildPool(L: LevelBuild) {
   });
   stencil6(b, 'SUMP 2 — DRAIN', -52.0, DOCK + 0.006, -153.5, 0.8, 0.12, '+y', { style: 'stencil' });
   // the dewatering panel (`note6_transfer`, use point (−48.0, −18.5, −148.7)): a wall cabinet with a dim display
-  b.bx(K, -48.7, -19.1, -148.2, -47.3, -17.9, -148.12);
-  b.bx('screen_off', -48.45, -18.75, -148.122, -47.55, -18.2, -148.11);
+  // (IA-6: the cabinet was built INTO the wall — its face on the wall's plane (z-fight) and the screen hidden behind it;
+  //  now on the room side of the wall face z −148.2)
+  b.bx(K, -48.7, -19.1, -148.28, -47.3, -17.9, -148.2);
+  b.bx('screen_off', -48.45, -18.75, -148.292, -47.55, -18.2, -148.278);
   const lcd = lampLens6(L, 'amber', 0.25);
-  b.detail(() => { for (let i = 0; i < 4; i++) b.bx(lcd, -48.4 + i * 0.12, -18.85, -148.122, -48.33 + i * 0.12, -18.8, -148.114); });
-  b.rod('steel_raw', -48.0, -17.9, -148.16, -48.0, -16.3, -148.16, 0.03, 8);
+  b.detail(() => { for (let i = 0; i < 4; i++) b.bx(lcd, -48.4 + i * 0.12, -18.85, -148.295, -48.33 + i * 0.12, -18.8, -148.284); });
+  b.rod('steel_raw', -48.0, -17.9, -148.24, -48.0, -16.3, -148.24, 0.03, 8);
   stencil6(b, 'DEWATERING / TRANSFER LOG — DL-2', -48.0, -17.72, -148.2, 1.4, 0.1, '-z');
   stencil6(b, 'UNDERCROFT — PUMP ROOM', -66.5, -17.6, -148.2, 2.2, 0.18, '-z');
 

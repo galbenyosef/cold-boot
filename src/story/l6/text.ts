@@ -38,6 +38,8 @@ export const OBJ6 = {
   pool: 'The moon pool — down the stairs',
   tether: 'Cut the tether — the frame over the well',
   loader: 'Destroy the loader',
+  /** (IA-6) the wait for the quiet: tether cut + loader dead, hostiles still awake (§4.8 fight-out) — was empty. */
+  clear: 'Clear the dock',
   console: 'The dock console — mid deck',
 };
 
