@@ -7,7 +7,8 @@
     "dana": "hale",
     "husk": "unit",
     "units": "unit",
-    "unit32": "tomas"
+    "unit32": "tomas",
+    "soldier": "choir"
   },
   "characters": {
     "choir": {
@@ -199,6 +200,14 @@
       "refText": "Log entry. Um. The gel batch is stable at minus twenty. Fitting times are... down again. I want that on the record.",
       "fx": "screen",
       "why": "Provisional (stage 3b W8): halting video-log voice; candidates in voice/auditions/sunde for the user to pick."
+    },
+    "kessler": {
+      "name": "CDR M. KESSLER",
+      "describe": "female, middle-aged, low pitch",
+      "seed": 1,
+      "refText": "Post 4, Kessler. I haven't slept since Monday. Listen to me... I'll say this once. And then I'll say it again.",
+      "fx": "radio",
+      "why": "Provisional (stage 3c W9), see auditions in voice/auditions/kessler."
     }
   },
   "_fx": "Run-time processing names (src/audio/voice.ts): clean, choir (choir:N = N layers), intercom, headset (alias radio), unit, recorder, pa, foreman. Resolution: line.fx > first matching fxRules entry (id regex / note substring) > variant fx > character fx."

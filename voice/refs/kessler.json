@@ -1,0 +1,14 @@
+{
+  "describe": "female, middle-aged, low pitch",
+  "seed": 1,
+  "refText": "Post 4, Kessler. I haven't slept since Monday. Listen to me... I'll say this once. And then I'll say it again.",
+  "language": "en",
+  "source": "audition 1",
+  "sha": "de6dd0c134d542cf",
+  "duration": 6.44,
+  "asr": {
+    "ok": true,
+    "score": 1.0,
+    "transcript": "post four kessler i havent slept since monday listen to me ill say this once and then ill say it again"
+  }
+}

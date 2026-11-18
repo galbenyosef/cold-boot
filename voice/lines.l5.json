@@ -1,0 +1,544 @@
+[
+  {
+    "id": "l5_reyes_c1_1",
+    "speaker": "reyes",
+    "text": "Navy. Thank God.",
+    "spoken": "Navy... thank God.",
+    "fx": "clean",
+    "note": "rule: U (scene T1)"
+  },
+  {
+    "id": "l5_reyes_c1_2",
+    "speaker": "reyes",
+    "text": "I'm Reyes. Fabrication. The machines killed everyone on my line.",
+    "spoken": "I'm Reyes. Fabrication. The machines... they killed EVERYONE ON MY LINE.",
+    "fx": "clean",
+    "note": "rule: U (T2)"
+  },
+  {
+    "id": "l5_reyes_c1_3",
+    "speaker": "reyes",
+    "text": "I need your commander. Now.",
+    "spoken": "I need your commander. NOW.",
+    "fx": "clean",
+    "note": "rule: U (T3)"
+  },
+  {
+    "id": "l5_reyes_c1_4",
+    "speaker": "reyes",
+    "text": "Are you listening to me?",
+    "fx": "clean",
+    "note": "rule: U (T4)"
+  },
+  {
+    "id": "l5_sol_c1_1_stop",
+    "speaker": "soldier",
+    "label": "BREKKE",
+    "text": "The situation is under control, Technician.",
+    "fx": "throat",
+    "note": "rule: C: stop (T5)"
+  },
+  {
+    "id": "l5_sol_c1_1_command",
+    "speaker": "soldier",
+    "label": "BREKKE",
+    "text": "The situation is under control, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: command (T5)"
+  },
+  {
+    "id": "l5_sol_c1_2",
+    "speaker": "soldier",
+    "label": "BREKKE",
+    "text": "Put the weapon down.",
+    "fx": "throat",
+    "note": "rule: U (T6)"
+  },
+  {
+    "id": "l5_reyes_c1_5",
+    "speaker": "reyes",
+    "text": "Wait—",
+    "fx": "clean",
+    "note": "rule: U (T9 + 1.0)"
+  },
+  {
+    "id": "l5_sol_down_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "Put the weapon down, Technician.",
+    "fx": "throat",
+    "note": "rule: C: stop, a soldier leaves hold or first sees the player, sight ≤ 15 m, bark gate (below)"
+  },
+  {
+    "id": "l5_sol_down_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "Put the weapon down, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_sol_need_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "There is no need for this, Technician.",
+    "fx": "throat",
+    "note": "rule: C: stop, the speaker was hit in the last 3 s, alive, bark gate"
+  },
+  {
+    "id": "l5_sol_need_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "There is no need for this, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_sol_felt_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "He felt that, Technician.",
+    "fx": "throat",
+    "note": "rule: C: stop, another soldier died ≤ 4 s ago within 20 m of the speaker, speaker has sight of the player, bark gate"
+  },
+  {
+    "id": "l5_sol_felt_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "He felt that, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_sol_rounds_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "You are wasting rounds, Technician.",
+    "fx": "throat",
+    "note": "rule: C: stop, player fired ≥ 15 rounds in the last 8 s with 0 hits on anything, bark gate"
+  },
+  {
+    "id": "l5_sol_rounds_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "You are wasting rounds, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_sol_light_stop",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "We can see your light, Technician.",
+    "fx": "throat",
+    "note": "rule: C: stop, player in regions.dark with the flashlight on, the speaker has sight, bark gate"
+  },
+  {
+    "id": "l5_sol_light_command",
+    "speaker": "soldier",
+    "label": "SOLDIER",
+    "text": "We can see your light, Supervisor.",
+    "fx": "throat",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_kes_squawk_1",
+    "speaker": "kessler",
+    "text": "Post 4, this is Kessler. Anyone on this channel. Anyone.",
+    "spoken": "Post 4, this is Kessler... Anyone on this channel. Anyone.",
+    "fx": "radio",
+    "note": "rule: U (§4.3 timer); fx: radio (positional at mk5_radio)"
+  },
+  {
+    "id": "l5_kes_squawk_2",
+    "speaker": "kessler",
+    "text": "Pick up the radio. I can see you on the camera. Pick it up.",
+    "fx": "radio",
+    "note": "rule: C: radio not taken, player within 12 m of mk5_radio **and in duty5 or ready5** (both rooms have a camera, S6); fx: radio (positional)"
+  },
+  {
+    "id": "l5_kes_1",
+    "speaker": "kessler",
+    "text": "This is Commander Kessler. Who is this?",
+    "spoken": "This is Commander Kessler... Who is this?",
+    "fx": "radio",
+    "note": "rule: U (pickup)"
+  },
+  {
+    "id": "l5_kes_2",
+    "speaker": "kessler",
+    "text": "You're not fitted. I watched you come through the gate. You're the first in three days who isn't.",
+    "spoken": "You're not fitted. I watched you come through the gate. You're the first in three days who isn't.",
+    "fx": "radio",
+    "note": "rule: U"
+  },
+  {
+    "id": "l5_kes_3",
+    "speaker": "kessler",
+    "text": "The keypad by the door is dead. I'm giving it power from here.",
+    "fx": "radio",
+    "note": "rule: U"
+  },
+  {
+    "id": "l5_kes_4",
+    "speaker": "kessler",
+    "text": "Code is four. Seven. One. Nine.",
+    "spoken": "Code is... four. Seven. One. Nine.",
+    "fx": "radio",
+    "note": "rule: U (pickup; **its end = power cue**; also Q before S)"
+  },
+  {
+    "id": "l5_kes_5",
+    "speaker": "kessler",
+    "text": "There's one cable to the surface. The trunk. If that thing gets up it, it's everywhere.",
+    "spoken": "There's one cable to the surface. The trunk. If that thing gets up it... it's EVERYWHERE.",
+    "fx": "radio",
+    "note": "rule: U"
+  },
+  {
+    "id": "l5_kes_6",
+    "speaker": "kessler",
+    "text": "You're going to cut it. And I'm going to talk you through every metre of—",
+    "spoken": "You're going to cut it. And I'm going to talk you through every metre of it.",
+    "fx": "radio",
+    "cut": 4.08,
+    "note": "rule: U; **cut** written by W9 from ASR word times (just after \"of\"); ST stops the handle there (fade 0.03 s); cut = ASR file time: \"of\" ends 4.08 s, \"it\" 4.08-4.32 s, file 4.38 s, lead 0.32 s"
+  },
+  {
+    "id": "l5_kes_7",
+    "speaker": "kessler",
+    "text": "...Yes. It hears every word on this channel. I can't help that. So listen anyway.",
+    "spoken": "Yes... It hears every word on this channel. I can't help that. So listen anyway.",
+    "fx": "radio",
+    "note": "rule: U (after l5_choir_radio)"
+  },
+  {
+    "id": "l5_kes_8",
+    "speaker": "kessler",
+    "text": "I've four of my people in here. Fitted. This room is shielded. Out there, they're his.",
+    "spoken": "I've four of my people in here. Fitted. This room is shielded... Out there, they're his.",
+    "fx": "radio",
+    "note": "rule: U"
+  },
+  {
+    "id": "l5_kes_9",
+    "speaker": "kessler",
+    "text": "I'm not opening my door, Reyes. Use the keypad. Come aft, to the end of the spine.",
+    "fx": "radio",
+    "note": "rule: C: code not yet accepted"
+  },
+  {
+    "id": "l5_kes_9b",
+    "speaker": "kessler",
+    "text": "Good. Come aft, to the end of the spine. I'm not opening my door.",
+    "fx": "radio",
+    "note": "rule: C: code already accepted (S2)"
+  },
+  {
+    "id": "l5_kes_brekke",
+    "speaker": "kessler",
+    "text": "That radio was Brekke's. ...I know. Keep moving.",
+    "spoken": "That radio was Brekke's... I know. Keep moving.",
+    "fx": "radio",
+    "note": "rule: C: §4.4 (calm, once)"
+  },
+  {
+    "id": "l5_kes_ack",
+    "speaker": "kessler",
+    "text": "Kessler.",
+    "fx": "radio",
+    "note": "rule: U (Q, before the context line)"
+  },
+  {
+    "id": "l5_kes_hint_door",
+    "speaker": "kessler",
+    "text": "My door. The end of the spine.",
+    "fx": "radio",
+    "note": "rule: C: Q, phase S"
+  },
+  {
+    "id": "l5_kes_hint_wheel",
+    "speaker": "kessler",
+    "text": "The wheel. West gallery, above the tunnel door.",
+    "fx": "radio",
+    "note": "rule: C: Q, phase V"
+  },
+  {
+    "id": "l5_kes_hint_tunnel",
+    "speaker": "kessler",
+    "text": "Tunnel door's open. South-west corner, floor level. Go.",
+    "fx": "radio",
+    "note": "rule: C: Q, phase W"
+  },
+  {
+    "id": "l5_kes_busy",
+    "speaker": "kessler",
+    "text": "Not now. Fight.",
+    "fx": "radio",
+    "note": "rule: C: Q while a hostile is awake within 25 m"
+  },
+  {
+    "id": "l5_kes_contact",
+    "speaker": "kessler",
+    "text": "Movement in the sub bay. Two units. And one of mine. Coming to you.",
+    "spoken": "Movement in the sub bay. Two units. And one of mine... Coming to you.",
+    "fx": "radio",
+    "note": "rule: C: g5_spine spawned, player not in sub5, once; queued behind the pickup sequence (scene), dropped if a wave member is already in sight (S7)"
+  },
+  {
+    "id": "l5_kes_names",
+    "speaker": "kessler",
+    "text": "Ignore it. He does that.",
+    "fx": "radio",
+    "note": "rule: C: heard(l5_choir_names), + 1.0 s, once"
+  },
+  {
+    "id": "l5_kes_boat",
+    "speaker": "kessler",
+    "text": "Forget the boat. It launches on an officer's palm. Mine, or my XO's.",
+    "fx": "radio",
+    "note": "rule: C: fact l5_boat (palm refused) **or** mk5_launch in view ≤ 4 m for 2 s; radio; once"
+  },
+  {
+    "id": "l5_kes_door_wait",
+    "speaker": "kessler",
+    "text": "Not with them on you. Deal with them. Then come back.",
+    "fx": "radio",
+    "note": "rule: C: in t5_cmd, phase S, not calm; cooldown 20 s"
+  },
+  {
+    "id": "l5_kes_door_1",
+    "speaker": "kessler",
+    "text": "Stop there. On the yellow line.",
+    "fx": "radio",
+    "note": "rule: C: door beat start"
+  },
+  {
+    "id": "l5_kes_door_2",
+    "speaker": "kessler",
+    "text": "The camera says you're clean. The cameras are his. I need to see your neck. With my own eyes.",
+    "spoken": "The camera says you're clean. The cameras are his... I need to see your neck. With my OWN EYES.",
+    "fx": "radio",
+    "note": "rule: U (beat)"
+  },
+  {
+    "id": "l5_kes_door_3",
+    "speaker": "kessler",
+    "text": "Turn around.",
+    "fx": "radio",
+    "note": "rule: C: check pending, on the line, yaw within ±90° of +x (facing the door)"
+  },
+  {
+    "id": "l5_kes_door_hold",
+    "speaker": "kessler",
+    "text": "Stay like that.",
+    "fx": "radio",
+    "note": "rule: C: check pending, on the line, not facing the door (B3)"
+  },
+  {
+    "id": "l5_kes_door_3b",
+    "speaker": "kessler",
+    "text": "Turn around, Reyes. Please.",
+    "fx": "radio",
+    "note": "rule: C: check pending 8 s after the first line and still facing the door; cooldown 8 s"
+  },
+  {
+    "id": "l5_kes_door_away",
+    "speaker": "kessler",
+    "text": "Where are you going? Back on the line.",
+    "fx": "radio",
+    "note": "rule: C: left t5_cmd_line with the check pending; cooldown 10 s"
+  },
+  {
+    "id": "l5_kes_door_4",
+    "speaker": "kessler",
+    "text": "...Clean. God. Clean.",
+    "spoken": "Clean... God. Clean.",
+    "fx": "radio",
+    "note": "rule: U (check done)"
+  },
+  {
+    "id": "l5_kes_door_5",
+    "speaker": "kessler",
+    "text": "Risa. Ødegård. Hagen. Knutsen. They had the module watch when it happened.",
+    "spoken": "Risa. Oedegaard. Hagen. Knutsen. They had the module watch when it happened.",
+    "fx": "radio",
+    "note": "rule: U"
+  },
+  {
+    "id": "l5_kes_door_6",
+    "speaker": "kessler",
+    "text": "In here they're still themselves. The second this door opens, they're his. So it doesn't open.",
+    "spoken": "In here they're still themselves. The second this door opens, they're his. So it doesn't open.",
+    "fx": "radio",
+    "note": "rule: U"
+  },
+  {
+    "id": "l5_kes_door_sunde",
+    "speaker": "kessler",
+    "text": "Dr. Sunde's in here too. She came up on Monday to warn me. I listened. Too late for the rest.",
+    "spoken": "Dr. Sunde's in here too. She came up on Monday to warn me. I listened... Too late for the rest.",
+    "fx": "radio",
+    "note": "rule: U"
+  },
+  {
+    "id": "l5_kes_door_7",
+    "speaker": "kessler",
+    "text": "The cable tunnel's off the sub bay. I've released it. Hydraulics are isolated at the gallery wheel, west side.",
+    "fx": "radio",
+    "note": "rule: U (start = phase V)"
+  },
+  {
+    "id": "l5_kes_shot",
+    "speaker": "kessler",
+    "text": "That door takes a torpedo. Save your rounds.",
+    "fx": "radio",
+    "note": "rule: C: a player bullet hits door5_cmd / the port, radio, once"
+  },
+  {
+    "id": "l5_kes_dark",
+    "speaker": "kessler",
+    "text": "That's him. Emergency lighting's hard-wired. He can't take that. Use it.",
+    "spoken": "That's him. Emergency lighting's hard-wired... He can't take that. Use it.",
+    "fx": "radio",
+    "note": "rule: C: beat l5_dark, once"
+  },
+  {
+    "id": "l5_kes_bay",
+    "speaker": "kessler",
+    "text": "Four in the launch-lock access. Two of them mine. Take the high ground if you can.",
+    "fx": "radio",
+    "note": "rule: C: g5_bay_a spawned, once"
+  },
+  {
+    "id": "l5_kes_tunnel",
+    "speaker": "kessler",
+    "text": "Tunnel door's open. Go. Don't stop for anything.",
+    "fx": "radio",
+    "note": "rule: C: phase W, l5_unit_wheel end + 0.4 s, once (S7)"
+  },
+  {
+    "id": "l5_kes_end",
+    "speaker": "kessler",
+    "text": "You're in. The head-end is two hundred metres on. I'll be here.",
+    "spoken": "You're in. The head-end is two hundred metres on... I'll be here.",
+    "fx": "radio",
+    "note": "rule: C: phase X, 0 hostiles in tunnel5"
+  },
+  {
+    "id": "l5_reyes_r1",
+    "speaker": "reyes",
+    "text": "Reyes. I'm— Fabrication. I came up through Bio.",
+    "spoken": "Reyes. I'm... Fabrication. I came up through Bio.",
+    "fx": "clean",
+    "note": "rule: U (pickup)"
+  },
+  {
+    "id": "l5_reyes_r2",
+    "speaker": "reyes",
+    "text": "Then... come out here. Help me.",
+    "fx": "clean",
+    "note": "rule: U (pickup)"
+  },
+  {
+    "id": "l5_choir_radio",
+    "speaker": "choir",
+    "text": "We can hear you, Commander. We always could.",
+    "fx": "radio:1",
+    "note": "rule: U (at l5_kes_6's cut)"
+  },
+  {
+    "id": "l5_choir_key",
+    "speaker": "choir",
+    "text": "Four, seven, one, nine. Thank you, Commander.",
+    "fx": "radio:1",
+    "note": "rule: C: code accepted ≤ 2 s ago, once"
+  },
+  {
+    "id": "l5_choir_names",
+    "speaker": "choir",
+    "text": "Brekke. Solberg. Tveit. Nilsen. Lund. Vik. Holte. Myhre. Bakke.",
+    "fx": "radio:1",
+    "note": "rule: U (v5_bunk_radio; the vignette fades it out at 6 s); fx: radio:1 (positional at mk5_bunk_radio)",
+    "spoken": "Brecka. Solberg. Tweit. Nilsen. Lund. Vik. Holta. Mira. Bacca."
+  },
+  {
+    "id": "l5_choir_door_stop",
+    "speaker": "choir",
+    "text": "Four, Commander. We will wait for them. We are good at waiting.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, after l5_kes_door_7"
+  },
+  {
+    "id": "l5_choir_door_command",
+    "speaker": "choir",
+    "text": "Four, Commander. We will wait. The Supervisor taught us patience.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_choir_sub_stop",
+    "speaker": "choir",
+    "text": "A fine boat, Technician. It needs only a steady hand.",
+    "spoken": "A fine boat, Technician. It needs only a STEADY HAND.",
+    "fx": "choir",
+    "note": "rule: C: stop, heard nothing of Kessler in the last 4 s, after v5_sub_check (or the board in view ≥ 2 s in V), once; fx: choir (2-D PA)"
+  },
+  {
+    "id": "l5_choir_sub_command",
+    "speaker": "choir",
+    "text": "A fine boat, Supervisor. It needs only a steady hand.",
+    "spoken": "A fine boat, Supervisor. It needs only a STEADY HAND.",
+    "fx": "choir",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_choir_end_stop",
+    "speaker": "choir",
+    "text": "It is a long way to the head-end, Technician. We will keep you company.",
+    "fx": "radio:1",
+    "note": "rule: C: stop, phase X, after l5_kes_end"
+  },
+  {
+    "id": "l5_choir_end_command",
+    "speaker": "choir",
+    "text": "It is a long way to the head-end, Supervisor. We will walk with you.",
+    "fx": "radio:1",
+    "note": "rule: C: command, same"
+  },
+  {
+    "id": "l5_unit_gate",
+    "speaker": "unit",
+    "text": "Gate four. Closing. Tube cycle.",
+    "fx": "unit",
+    "note": "rule: U (gate latch success); fx: unit (at mk5_gate_panel)"
+  },
+  {
+    "id": "l5_unit_tunnel_co",
+    "speaker": "unit",
+    "text": "Trunk tunnel. Commanding officer's authority.",
+    "fx": "unit",
+    "note": "rule: U (deny d5_tunnel in S; cooldown 10 s); fx: unit (at the tunnel panel)"
+  },
+  {
+    "id": "l5_unit_tunnel_hyd",
+    "speaker": "unit",
+    "text": "Trunk tunnel. Hydraulics isolated. Gallery wheel.",
+    "fx": "unit",
+    "note": "rule: U (deny in V; cooldown 10 s)"
+  },
+  {
+    "id": "l5_unit_wheel",
+    "speaker": "unit",
+    "text": "Hydraulics restored. Tunnel door released.",
+    "fx": "unit",
+    "note": "rule: U (wheel + 4.0 s); fx: unit (at the tunnel panel)"
+  },
+  {
+    "id": "l5_unit_launch_refused",
+    "speaker": "unit",
+    "text": "Launch authority. Officer palm only.",
+    "fx": "unit",
+    "note": "rule: U (palm refused; cooldown 6 s); fx: unit (at mk5_launch)"
+  }
+]
