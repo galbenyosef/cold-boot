@@ -545,6 +545,105 @@ function drawClinical(g: Ctx, rg: Ctx, W: number, H: number, raw: string, rand: 
   return [115, false];
 }
 
+// ───────────────────────────── stage 3c: navy stencils (§8.9, §2.6)
+
+/** A compartment number in the navy's deck-frame-position-use form, e.g. `2-34-0-L` (drawn boxed, smaller). */
+const HULL_NO = /^\s*\d{1,2}-\d{1,3}-\d{1,2}-[A-Z]{1,2}\s*$/;
+
+/**
+ * Navy signage: white stencil paint on a masked haze-grey-dark backing (so it reads on `navy_grey` frames and on the
+ * off-white `hull_white` plating alike); transparent outside the backing except a faint overspray. Stencil bridges,
+ * arrows (same parsing as `directional`), first line large; warning words (DANGER, NO …, KEEP …, WARNING, FLOODED,
+ * HIGH …, DOGGED) in signal yellow; a line like `2-34-0-L` is a hull number in a painted box. Boot- and hand-worn
+ * dropouts. Returns the base roughness.
+ */
+function drawNavy(g: Ctx, rg: Ctx, W: number, H: number, raw: string, rand: () => number): number {
+  g.clearRect(0, 0, W, H);
+  const { text, dir, side } = parseArrow(raw.replace(/\n\s*([→←↑↓<>^])\s*$/, ' $1'));
+  const lines = text.toUpperCase().split('\n');
+  const WHITE = '#e8e7e0', YEL = '#e2b322', BACK = '#3b444a';
+  const m = Math.max(2, H * 0.035);
+  // the masked backing (crisp taped edges, a soft overspray halo outside)
+  g.save();
+  g.filter = `blur(${Math.max(1.5, H * 0.02)}px)`;
+  g.globalAlpha = 0.25; g.fillStyle = BACK; g.fillRect(m * 0.4, m * 0.4, W - m * 0.8, H - m * 0.8);
+  g.restore();
+  g.fillStyle = BACK; g.fillRect(m, m, W - m * 2, H - m * 2);
+  rg.fillStyle = 'rgb(150,150,150)'; rg.fillRect(m, m, W - m * 2, H - m * 2);
+  // brush-out of the backing coat: faint horizontal drag marks
+  g.save(); g.beginPath(); g.rect(m, m, W - m * 2, H - m * 2); g.clip();
+  for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(${rand() < 0.5 ? '255,255,255' : '0,0,0'},${0.03 + rand() * 0.04})`; g.fillRect(m + rand() * W, m + rand() * H, W * (0.1 + rand() * 0.4), 1 + rand() * 2); }
+  g.restore();
+  const warn = /^(DANGER|NO |KEEP|WARNING|FLOODED|HIGH|DOGGED|BILGE)/.test(lines[0]);
+  let x0 = m * 3, x1 = W - m * 3;
+  if (dir) {
+    const asz = Math.min(H * 0.62, W * 0.3);
+    const ax = side === 'left' ? x0 + asz / 2 : x1 - asz / 2;
+    arrow(g, ax, H / 2, asz, dir, WHITE);
+    if (side === 'left') x0 = ax + asz * 0.62; else x1 = ax - asz * 0.62;
+  }
+  const hullIdx = lines.findIndex((l) => HULL_NO.test(l));
+  const body = lines.filter((_, i) => i !== hullIdx);
+  const hullH = hullIdx >= 0 ? (H - m * 2) * 0.28 : 0;
+  const avail = H - m * 4 - hullH;
+  const weights = body.map((_, i) => (i === 0 ? 1 : 0.62));
+  const tot = weights.reduce((a, b) => a + b, 0) || 1;
+  g.textAlign = dir && side === 'right' ? 'right' : dir ? 'left' : 'center';
+  const tx = g.textAlign === 'center' ? (x0 + x1) / 2 : g.textAlign === 'right' ? x1 : x0;
+  g.textBaseline = 'middle';
+  const rows: { y: number; lh: number }[] = [];
+  let y = m * 2;
+  body.forEach((ln, i) => {
+    const lh = avail * weights[i] / tot;
+    g.fillStyle = i === 0 && warn ? YEL : WHITE;
+    fitText(g, ln, x1 - x0, Math.round(lh * 0.84), '900', SANS);
+    g.fillText(ln, tx, y + lh * 0.52);
+    rows.push({ y: y + lh * 0.52, lh });
+    y += lh;
+  });
+  if (hullIdx >= 0) {
+    const hn = lines[hullIdx].trim();
+    const bh = hullH * 0.86, by = H - m * 2 - bh;
+    g.font = `800 ${Math.round(bh * 0.66)}px ${MONO}`;
+    const bw = Math.min(x1 - x0, g.measureText(hn).width + bh * 0.8);
+    const bx = g.textAlign === 'center' ? (x0 + x1) / 2 - bw / 2 : g.textAlign === 'right' ? x1 - bw : x0;
+    g.strokeStyle = WHITE; g.lineWidth = Math.max(1.5, bh * 0.08); g.strokeRect(bx, by, bw, bh);
+    g.fillStyle = WHITE; g.textAlign = 'center';
+    fitText(g, hn, bw - bh * 0.5, Math.round(bh * 0.66), '800', MONO);
+    g.fillText(hn, bx + bw / 2, by + bh * 0.54);
+  }
+  // stencil bridges through the lettering (the backing shows through)
+  g.fillStyle = BACK;
+  for (const r of rows) g.fillRect(m, r.y - r.lh * 0.025, W - m * 2, r.lh * 0.045);
+  // wear: dropouts through both coats near the bottom edge and where hands go; scratches
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 90; i++) {
+    const x = rand() * W, yy = H * (0.55 + 0.45 * Math.sqrt(rand())), r = 1 + rand() * H * 0.035;
+    const gr = g.createRadialGradient(x, yy, 0, x, yy, r);
+    gr.addColorStop(0, `rgba(0,0,0,${0.25 + rand() * 0.6})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(x - r, yy - r, r * 2, r * 2);
+  }
+  g.lineCap = 'round';
+  for (let i = 0; i < 18; i++) {
+    const x = rand() * W, yy = rand() * H, a = (rand() - 0.5) * 0.6, l = (0.04 + rand() * 0.2) * W;
+    g.strokeStyle = `rgba(0,0,0,${0.4 + rand() * 0.5})`; g.lineWidth = 0.6 + rand() * 1.2;
+    g.beginPath(); g.moveTo(x, yy); g.lineTo(x + Math.cos(a) * l, yy + Math.sin(a) * l); g.stroke();
+  }
+  g.globalCompositeOperation = 'source-over';
+  // grime settling on the lower edge, a rust run or two from the fixing points
+  const bg = g.createLinearGradient(0, H, 0, H * 0.6);
+  bg.addColorStop(0, 'rgba(30,26,20,0.3)'); bg.addColorStop(1, 'rgba(30,26,20,0)');
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 2; i++) {
+    const x = m + rand() * (W - m * 2), len = H * (0.2 + rand() * 0.5);
+    const lg = g.createLinearGradient(0, m, 0, m + len); lg.addColorStop(0, 'rgba(120,60,25,0.4)'); lg.addColorStop(1, 'rgba(120,60,25,0)');
+    g.fillStyle = lg; g.fillRect(x, m, 1.5 + rand() * 2, len);
+  }
+  g.globalCompositeOperation = 'source-over';
+  return 165;
+}
+
 export function createSign(text: string, style: SignStyle, aspect: number, maxAniso: number): THREE.MeshStandardMaterial {
   const H = aspect >= 4 ? 192 : 256;
   const W = Math.min(2048, Math.max(64, Math.round(H * aspect)));
@@ -627,6 +726,9 @@ export function createSign(text: string, style: SignStyle, aspect: number, maxAn
     roughBase = drawWayfinding(g, rg, W, H, text, rand);
   } else if (style === 'clinical') {
     [roughBase, transparent] = drawClinical(g, rg, W, H, text, rand);
+  } else if (style === 'navy') {
+    roughBase = drawNavy(g, rg, W, H, text, rand);
+    transparent = true;
   } else { // stencil — transparent spray paint
     transparent = true;
     g.clearRect(0, 0, W, H);

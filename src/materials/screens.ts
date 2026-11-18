@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { LevelInfo, ScreenKind } from '../core/types';
 import { containment, videoLog, videoLogBeforeSet, roster, theatreCam } from './screens4';
+import { keypad, launch, dockStatus, onpost, NAVY_INK } from './screens5';
 
 const MONO = 'ui-monospace, Menlo, "SF Mono", Consolas, monospace';
 const SANS = '"Arial Narrow", "Helvetica Neue", Arial, sans-serif';
@@ -45,8 +46,8 @@ const INTENSITY: Record<ScreenKind, number> = {
   pressure: 2.8, habitat_status: 2.4, badge: 2.8, feed: 2.0, cctv: 2.0,
   // stage 3b §8.7 (screens4.ts)
   containment: 2.6, video_log: 2.2, roster: 2.4, theatre_cam: 2.2,
-  // stage 3c §8.9 — K placeholder values (W5)
-  keypad: 2.6, launch: 2.4, dock_status: 2.4, onpost: 2.6,
+  // stage 3c §8.9 (screens5.ts): navy panels are dark glass with bright type; the ON POST LEDs are the brightest
+  keypad: 2.6, launch: 2.4, dock_status: 2.5, onpost: 3.0,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
@@ -54,16 +55,16 @@ const RATE: Record<ScreenKind, number> = {
   pressure: 4, habitat_status: 4, badge: 8, feed: 12, cctv: 12,
   // the roster's 1 Hz dots are on for 0.25 s: 12 Hz catches every one
   containment: 8, video_log: 12, roster: 12, theatre_cam: 12,
-  // stage 3c — K placeholder values (W5)
-  keypad: 8, launch: 6, dock_status: 4, onpost: 4,
+  // stage 3c: the boards flip in over 0.45 s and the counter rolls over 0.4 s (12 Hz shows both); the keypad blinks
+  keypad: 8, launch: 8, dock_status: 12, onpost: 12,
 };
 /**
  * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must
  * be read from across the room: on a wide quad they get a 2048 px canvas (everything else 512 / 256).
  */
 function sizeFor(kind: ScreenKind, aspect: number): [number, number] {
-  // (the roster is a 2.4 m wall board with 23 names: 1024 wide)
-  const base = kind.startsWith('door') || kind === 'badge' ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : kind === 'roster' ? 1024 : 512;
+  // (the roster is a 2.4 m wall board with 23 names: 1024 wide; so are stage 3c's dock boards — 3 m and 4 m wide)
+  const base = kind.startsWith('door') || kind === 'badge' ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : kind === 'roster' || kind === 'dock_status' ? 1024 : 512;
   return aspect >= 1 ? [base, Math.max(16, Math.round(base / aspect))] : [Math.round(base * aspect), base];
 }
 const MAX_DRAWS_PER_UPDATE = 4;
@@ -87,6 +88,50 @@ function logLine(r: () => number): string {
   if (k < 0.35) return `  PWR BUS ${Math.floor(r() * 9)}  ${(r() * 480).toFixed(1)}V  ${(r() * 40).toFixed(2)}A  ${p(WORDS.stat)}`;
   if (k < 0.45) return `  SURFACE UPLINK ........ ${p(['NO CARRIER', 'NO CARRIER', 'REFUSED', 'NOT REQUIRED'])}`;
   return `${hex()}:${hex()}  ${p(WORDS.verb)} ${p(WORDS.sys)}-${Math.floor(r() * 99)} ${'.'.repeat(2 + Math.floor(r() * 8))} ${p(WORDS.stat)}`;
+}
+
+/** Stage 3c kinds whose clock starts at 0 on creation (they animate from their write: flip, roll, the 1.2 s reject). */
+const CLOCKED_3C = new Set<ScreenKind>(['keypad', 'launch', 'dock_status', 'onpost']);
+
+/**
+ * Stage 3c navy log: the detachment's own systems; CHOIR appears only as the facility system that requests
+ * maintenance (§1 — no navy screen says CHOIR controls anyone).
+ */
+const NAVY_WORDS = {
+  sys: ['POST4', 'GATE-4', 'SPINE', 'BERTH-1', 'MESS', 'ARMOURY', 'SUB-BAY', 'TERN', 'DIVE', 'BILGE', 'PUMP-2', 'HULL-S', 'TRUNK'],
+  verb: ['POLL', 'SYNC', 'VERIFY', 'LOG', 'SWEEP', 'CYCLE', 'TEST', 'QUERY'],
+  stat: ['OK', 'OK', 'OK', 'NOMINAL', 'NOMINAL', 'LOGGED', 'NO ACK', 'TIMEOUT', 'RETRY'],
+};
+function navyLogLine(r: () => number): string {
+  const p = (a: string[]) => a[Math.floor(r() * a.length)];
+  const hex = () => Math.floor(r() * 0xffff).toString(16).toUpperCase().padStart(4, '0');
+  const k = r();
+  if (k < 0.06) return '> CHOIR: ' + p(['MAINTENANCE REQUEST — SDV TERN PRE-LAUNCH CHECK', 'MAINTENANCE REQUEST — BILGE PUMP 2', 'REQUEST LOGGED — HULL SENSOR SWEEP', 'MAINTENANCE REQUEST — GALLEY COLD ROOM']);
+  if (k < 0.2) return `[${hex()}] ${p(NAVY_WORDS.sys)}.${p(NAVY_WORDS.sys)} :: ${p(NAVY_WORDS.stat)}`;
+  if (k < 0.32) return `  HULL STRAIN F${Math.floor(r() * 40)}  ${(380 + r() * 60).toFixed(0)} µε  ${p(NAVY_WORDS.stat)}`;
+  if (k < 0.4) return `  DEPTH 2104 M   SEA ${(1.6 + r() * 0.4).toFixed(1)} °C   HULL ${(r() * 2 + 18).toFixed(1)} °C`;
+  if (k < 0.48) return `  SURFACE UPLINK ........ ${p(['NO CARRIER', 'NO CARRIER', 'NO CARRIER', 'TIMEOUT'])}`;
+  return `${hex()}:${hex()}  ${p(NAVY_WORDS.verb)} ${p(NAVY_WORDS.sys)}-${Math.floor(r() * 99)} ${'.'.repeat(2 + Math.floor(r() * 8))} ${p(NAVY_WORDS.stat)}`;
+}
+
+/**
+ * Stage 3c `[plain]` blocks on the navy level: a line too long to stay legible is wrapped at its ` — ` joints (the
+ * §6.4 gate log lines are 50+ characters), continuation lines indented.
+ */
+function wrapDashes(lines: string[], max = 30): string[] {
+  const out: string[] = [];
+  for (const ln of lines) {
+    if (ln.length <= max || !ln.includes(' — ')) { out.push(ln); continue; }
+    const parts = ln.split(' — ');
+    let cur = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      const next = `${cur} — ${parts[i]}`;
+      if (next.length <= max) cur = next;
+      else { out.push(cur + ' —'); cur = '  ' + parts[i]; }
+    }
+    out.push(cur);
+  }
+  return out;
 }
 
 const overlays = new Map<string, HTMLCanvasElement>();
@@ -137,7 +182,12 @@ export class ScreenManager {
   private header: string;
   private camLabel: string;
   private idleText: boolean;
-  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial, level: Pick<LevelInfo, 'screenHeader' | 'camLabel' | 'idleText'>) {
+  /**
+   * @param navy stage 3c: the navy dock's screen chrome (with its material set, from level `NAVY_FROM`): `terminal_idle`
+   *   in navy glass, a log in which CHOIR only ever appears as the facility system that requests maintenance (§1: no
+   *   navy screen says CHOIR controls anyone), and long `[plain]` lines wrapped at ` — ` instead of shrunk.
+   */
+  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial, level: Pick<LevelInfo, 'screenHeader' | 'camLabel' | 'idleText'>, private navy = false) {
     this.header = level.screenHeader;
     this.camLabel = level.camLabel;
     this.idleText = level.idleText;
@@ -163,7 +213,7 @@ export class ScreenManager {
     const s: Screen = {
       mat, kind, text: opts?.text, cv, g, tex, W, H, aspect,
       // (the stage 3b kinds count from their text: their clock starts at 0)
-      t: kind === 'containment' || kind === 'video_log' || kind === 'theatre_cam' ? 0 : Math.random() * 10, since: 1, lastSeen: -100, drawn: false,
+      t: kind === 'containment' || kind === 'video_log' || kind === 'theatre_cam' || CLOCKED_3C.has(kind) ? 0 : Math.random() * 10, since: 1, lastSeen: -100, drawn: false,
       seed, rand: rng(seed), lines: [], lineTimer: 0, scroll: 0, noise: null, noiseCv: null, ext: null, aux: {},
     };
     mat.onBeforeRender = () => { s.lastSeen = this.frame; };
@@ -185,6 +235,8 @@ export class ScreenManager {
     if (s.kind === 'video_log' && kind === 'video_log') videoLogBeforeSet(this.s4(s));
     // theatre_cam may be re-written every cue (or every frame): no immediate redraw, the update loop picks it up
     const lazy = s.kind === 'theatre_cam' && kind === 'theatre_cam';
+    // stage 3c: the counter rolls from the number it showed (and a board flips from its old text)
+    if (s.kind === kind) s.aux.prev = s.text;
     s.kind = kind; s.text = opts?.text;
     mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? '';
     if (!same) { s.t = 0; mat.emissiveIntensity = INTENSITY[kind]; }
@@ -201,6 +253,11 @@ export class ScreenManager {
     this.bindFeed(s, opts?.texture);
     this.prime(s);
     if (!lazy) this.draw(s);
+  }
+
+  /** The view of a screen the stage 3c kinds draw with. */
+  private s5(s: Screen) {
+    return { g: s.g, W: s.W, H: s.H, t: s.t, text: s.text, seed: s.seed, rand: s.rand, aux: s.aux, header: this.header };
   }
 
   /** The view of a screen the stage 3b kinds draw with. */
@@ -223,7 +280,7 @@ export class ScreenManager {
 
   private prime(s: Screen) {
     s.lines.length = 0;
-    if (s.kind === 'terminal_idle') for (let i = 0; i < 24; i++) s.lines.push(logLine(s.rand));
+    if (s.kind === 'terminal_idle') for (let i = 0; i < 24; i++) s.lines.push(this.navy ? navyLogLine(s.rand) : logLine(s.rand));
     if (s.kind === 'static' && !s.noise) {
       s.noiseCv = document.createElement('canvas');
       s.noiseCv.width = Math.ceil(s.W / 2); s.noiseCv.height = Math.ceil(s.H / 2);
@@ -275,8 +332,11 @@ export class ScreenManager {
       case 'video_log': videoLog(this.s4(s)); break;
       case 'roster': roster(this.s4(s)); break;
       case 'theatre_cam': theatreCam(this.s4(s)); break;
-      // stage 3c §8.9 — K placeholder: drawn as a terminal (its `text`) until W5 draws the real kinds
-      case 'keypad': case 'launch': case 'dock_status': case 'onpost': this.terminal(s); break;
+      // stage 3c §8.9 (screens5.ts)
+      case 'keypad': keypad(this.s5(s)); break;
+      case 'launch': launch(this.s5(s)); break;
+      case 'dock_status': dockStatus(this.s5(s)); break;
+      case 'onpost': onpost(this.s5(s)); break;
     }
     g.globalAlpha = 1;
     // (the wall-sized cards are seen from far and at a slant: a sub-pixel grid would only alias into moiré)
@@ -293,26 +353,28 @@ export class ScreenManager {
   private terminal(s: Screen) {
     const { g, W, H } = s;
     const amber = (s.seed & 1) === 0;
-    const fg = amber ? '#ffb347' : '#7dff9a';
-    const dim = amber ? 'rgba(255,179,71,0.45)' : 'rgba(125,255,154,0.45)';
-    g.fillStyle = amber ? '#0d0702' : '#020b05'; g.fillRect(0, 0, W, H);
+    // (stage 3c: one navy palette — cool white on navy glass)
+    const fg = this.navy ? '#bcd6ea' : amber ? '#ffb347' : '#7dff9a';
+    const dim = this.navy ? 'rgba(156,186,208,0.5)' : amber ? 'rgba(255,179,71,0.45)' : 'rgba(125,255,154,0.45)';
+    const bgc = this.navy ? NAVY_INK.bg : amber ? '#0d0702' : '#020b05';
+    g.fillStyle = bgc; g.fillRect(0, 0, W, H);
     const fs = Math.max(9, Math.round(H / 22));
     g.font = `${fs}px ${MONO}`; g.textBaseline = 'top'; g.textAlign = 'left';
     // header
-    g.fillStyle = fg; g.fillRect(0, 0, W, fs * 1.5);
-    g.fillStyle = amber ? '#0d0702' : '#020b05';
+    g.fillStyle = this.navy ? '#16324a' : fg; g.fillRect(0, 0, W, fs * 1.5);
+    g.fillStyle = this.navy ? NAVY_INK.text : bgc;
     g.fillText(this.header, fs * 0.5, fs * 0.25);
     // stage 3b (B3/B8): text starting `[plain]` is the whole content — large, no scrolling log, no footer chatter
     if (s.text?.startsWith(PLAIN)) { this.plainBlock(s, s.text.slice(PLAIN.length).replace(/^\n/, ''), fg, fs * 1.8, H - fs * 0.8); return; }
     // advance log
     const step = 0.45;
-    while (s.t - s.lineTimer > step) { s.lineTimer += step; s.lines.push(logLine(s.rand)); if (s.lines.length > 40) s.lines.shift(); }
+    while (s.t - s.lineTimer > step) { s.lineTimer += step; s.lines.push(this.navy ? navyLogLine(s.rand) : logLine(s.rand)); if (s.lines.length > 40) s.lines.shift(); }
     const frac = (s.t - s.lineTimer) / step;
     // level 2: a pinned message block (the screen's `text`) above the scrolling log
     let top = fs * 1.8;
     if (this.idleText && s.text) {
-      const msg = s.text.split('\n');
-      const big = Math.max(fs, Math.min(Math.round(H / (msg.length * 1.6 + 4)), Math.round(fs * 2.4)));
+      const msg = this.navy ? wrapDashes(s.text.split('\n'), 34) : s.text.split('\n');
+      const big =Math.max(fs, Math.min(Math.round(H / (msg.length * 1.6 + 4)), Math.round(fs * 2.4)));
       g.save();
       g.shadowColor = fg; g.shadowBlur = big * 0.5;
       g.fillStyle = '#f2f6ee';
@@ -342,13 +404,13 @@ export class ScreenManager {
     g.fillStyle = dim; g.fillRect(0, H - fs * 1.6, W, 1);
     g.fillStyle = fg;
     const blink = Math.floor(s.t * 2) % 2 === 0;
-    g.fillText(`OPERATOR: ---   LINK: NO CARRIER   ${blink ? '█' : ' '}`, fs * 0.5, H - fs * 1.35);
+    g.fillText(this.navy ? `WATCH: ---   SURFACE: NO CARRIER   ${blink ? '█' : ' '}` : `OPERATOR: ---   LINK: NO CARRIER   ${blink ? '█' : ' '}`, fs * 0.5, H - fs * 1.35);
   }
 
   /** Stage 3b: a pinned message filling (top … bottom), lines sized to fit, the first line brightest. */
   private plainBlock(s: Screen, text: string, fg: string, top: number, bottom: number) {
     const { g, W } = s;
-    const msg = text.split('\n');
+    const msg = this.navy ? wrapDashes(text.split('\n')) : text.split('\n');
     const avail = bottom - top;
     const big = Math.max(10, Math.min(avail / (msg.length * 1.3 + 0.4), W / 12));
     g.save();
@@ -770,11 +832,16 @@ export class ScreenManager {
    * yet armed), idle (armed: outline of a left hand, a slow scan line), scan (a bar fills over the scan time),
    * done (REYES, S. — LIVING — ROSTERED), fail (SCAN INCOMPLETE). The top of the canvas is the far edge of the
    * plate, so the fingers of the outline point away from whoever stands in front of it.
+   * Stage 3c: a LABEL `<TITLE> — <status>` splits at its first ` — ` — the title on top, the rest in place of the
+   * state's status line (`white|done|AAS, L. (LT.) — PALM — LIVE — 21:52`: someone else's palm was read;
+   * `white|fail|NOT ROSTERED — REYES, S.`). A label too wide for the plate shrinks to fit.
    */
   private palm(s: Screen) {
     const { g, W, H } = s;
     const t = s.t;
     const [colour = 'amber', state = 'idle', label = '', secs = '1.6'] = (s.text ?? '').split('|');
+    const cut = label.indexOf(' — ');
+    const title = cut < 0 ? label : label.slice(0, cut), sub = cut < 0 ? '' : label.slice(cut + 3);
     const rgb = colour === 'amber' ? '255,158,44' : '244,247,250';
     const C = (a: number) => `rgba(${rgb},${a})`;
     const bg = colour === 'amber' ? '#0b0602' : '#05060a';
@@ -822,17 +889,21 @@ export class ScreenManager {
     // the far edge of the plate stays in sight above the fingers: which option this is, and the status line
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = C(live ? 1 : 0.4);
-    g.font = `900 ${Math.round(H * 0.125)}px ${SANS}`;
-    g.fillText(label, cx, H * 0.125);
+    this.fit(g, title, 900, H * 0.125, W - H * 0.16, SANS);
+    g.fillText(title, cx, H * 0.125);
     g.font = `800 ${Math.round(H * 0.06)}px ${SANS}`;
     const line = (txt: string, a = 1) => { g.fillStyle = C(a); g.fillText(txt, cx, H * 0.25); };
     if (state === 'standby') line('STANDBY', 0.45);
     else if (state === 'idle') line('PLACE PALM', 0.6 + 0.4 * Math.abs(Math.sin(t * 1.6)));
-    else if (state === 'fail') line('SCAN INCOMPLETE', blink ? 1 : 0.4);
+    else if (state === 'fail') { if (sub) this.fit(g, sub, 800, H * 0.075, W - H * 0.2, SANS); line(sub || 'SCAN INCOMPLETE', blink ? 1 : 0.4); }
     else if (state === 'done') {
-      g.fillStyle = C(1); g.fillRect(H * 0.07, H * 0.2, W - H * 0.14, H * 0.1);
-      g.fillStyle = bg; g.font = `900 ${Math.round(H * 0.054)}px ${SANS}`;
-      g.fillText('REYES, S. — LIVING — ROSTERED', cx, H * 0.252);
+      // (stage 3c: someone else's read-out is seen through booth glass at ≥ 1.8 m — a taller bar, bigger type)
+      g.fillStyle = C(1);
+      if (sub) g.fillRect(H * 0.05, H * 0.19, W - H * 0.1, H * 0.15); else g.fillRect(H * 0.07, H * 0.2, W - H * 0.14, H * 0.1);
+      g.fillStyle = bg;
+      const read = sub || 'REYES, S. — LIVING — ROSTERED';
+      if (sub) this.fit(g, read, 900, H * 0.11, W - H * 0.16, SANS); else g.font = `900 ${Math.round(H * 0.054)}px ${SANS}`;
+      g.fillText(read, cx, sub ? H * 0.268 : H * 0.252);
     } else if (state === 'scan') {
       const dur = Math.max(0.2, Number(secs) || 1.6), k = Math.min(1, t / dur);
       g.strokeStyle = C(1); g.lineWidth = H * 0.008;

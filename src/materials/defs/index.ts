@@ -3,7 +3,7 @@
  * Tile sizes are in metres (geometry UVs are metres), see TILE in the final report / README of the module.
  */
 import * as THREE from 'three';
-import type { MaterialName, NavyDockMaterialName } from '../../core/types';
+import type { MaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
@@ -11,6 +11,7 @@ import { PAINTED, METAL, POLY, RUST, FABRIC, GLASS, BELT, GLASS_THICK, SKIN } fr
 import { ROBOT_SHELL } from './robot';
 import { WOOD, TWILL, CARPET, PLASTER, TERRAZZO, LIMESTONE, TILE, LINO, SOIL, LEAF, BARK, WATER, GLASS_CLEAN } from './habitat';
 import { WALL_CLEAN, FLOOR_EPOXY, CEILING_CLEAN, FROST, TYVEK, NAVY_GREY, DECK_NONSLIP } from './clinical';
+import { HULL_WHITE, DECK_GRATE, WET_STEEL, FATIGUE, KNIT, WEBBING, RUBBER_MAT, SUB_COATING, LINO_NAVY, BLANKET, HAZARD_DECK } from './navy';
 
 export interface MatSpec {
   tex?: Omit<TexDef, 'key'>;
@@ -31,12 +32,25 @@ export interface MatSpec {
   habitat?: boolean;
   /** Stage 3b clinical / navy set: baked at load only on level `CLINICAL_FROM` and later, elsewhere on first `get`. */
   clinical?: boolean;
+  /** Stage 3c navy dock set: baked at load only on level `NAVY_FROM` and later, elsewhere on first `get`. */
+  navy?: boolean;
+  /** `kind: 'water'`: the ripple flow the library instance starts with (`userData.flow`, default 1). */
+  flow?: number;
 }
 
 /** First level id that bakes the habitat set at load. */
 export const HABITAT_FROM = 3;
 /** First level id that bakes the clinical set at load. */
 export const CLINICAL_FROM = 4;
+/** First level id that bakes the navy dock set at load. */
+export const NAVY_FROM = 5;
+
+/**
+ * Stage 3c look extras (W5): navy dock materials the contract's `NavyDockMaterialName` does not name yet. They are
+ * full library materials (`materials.get('sub_coating' as MaterialName)`) until `core/types.ts` lists them.
+ */
+export const NAVY_EXTRAS = ['sub_coating', 'lino_navy', 'blanket_wool', 'hazard_deck'] as const;
+export type NavyExtraName = typeof NAVY_EXTRAS[number];
 
 /** Uniform colours are authored as raw sRGB triplets (the bake shader linearises at the end). */
 const srgb = (hex: number) => { const c = new THREE.Color(); c.setHex(hex, THREE.LinearSRGBColorSpace); return new THREE.Vector3(c.r, c.g, c.b); };
@@ -94,8 +108,7 @@ const U_WOOD_ = (o: { a: number; b: number; leaf: number; ring: number; warp: nu
 });
 const col = (c: number) => ({ uCol: { value: srgb(c) } });
 
-// stage 3c — K placeholder: the navy / dock set (§8.9) stays out of the record until W5 adds it (remove the exclusion then)
-export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | NavyDockMaterialName>, MatSpec> = {
+export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`> | NavyExtraName, MatSpec> = {
   wall_panel: {
     tex: { size: HERO, tile: 2, depth: 0.02, glsl: G_WALL, uniforms: wall(0x4f5b55, 0.9), aoRadius: 0.03, seed: 1 },
     params: {}, env: 1, macro: [0.25, 0.25],
@@ -342,6 +355,61 @@ export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | NavyDock
   deck_nonslip: {  // non-slip grit deck paint
     tex: { size: HERO, tile: 1, depth: 0.003, glsl: DECK_NONSLIP, seed: 68, aoRadius: 0.003, uniforms: col(0x667074) },
     params: {}, env: 0.6, macro: [0.15, 0.2], clinical: true,
+  },
+
+  // ── stage 3c navy dock (§8.9) + the four look extras. 3 × 1024² + 5 × 512² + extras 1 × 1024² + 3 × 512²
+  //    (≈ 96 MiB on high; every 1024² set bakes at 512² on low: ≈ 48 MiB). Baked at load from level 5 on.
+  hull_white: {    // off-white enamel on riveted pressure-hull strakes, condensation (tile = two 1.5 m strakes × 3 m)
+    tex: { size: HERO, tile: 3, depth: 0.012, glsl: HULL_WHITE, seed: 81, aoRadius: 0.012,
+      uniforms: { uCol: { value: srgb(0xcbc9bf) }, uWet: { value: 1 } } },
+    params: {}, env: 1.0, macro: [0.025, 0.3], navy: true,
+  },
+  deck_grate: {    // galvanised bar grating 30 × 5 mm at 40 mm, white bloom; alpha-tested, double-sided, casts
+    tex: { size: HERO, tile: 1, depth: 0.012, glsl: DECK_GRATE, seed: 82, aoRadius: 0.012, coverageMips: true },
+    params: { alphaTest: 0.5, side: THREE.DoubleSide }, env: 1, macro: [0.1, 0.25], navy: true,
+  },
+  wet_steel: {     // standing-water overlay: one puddle per 2 m tile, transparent, rippling (water variant)
+    tex: { size: MINOR, tile: 2, depth: 0.002, glsl: WET_STEEL, seed: 83, aoRadius: 0.002, aoStrength: 0 },
+    params: { transparent: true, depthWrite: false }, env: 2.2, normalScale: 0.5, kind: 'water', flow: 0.35, navy: true,
+  },
+  fatigue_navy: {  // rip-stop poplin, navy blue-grey
+    tex: { size: MINOR, tile: 0.25, depth: 0.0012, glsl: FATIGUE, seed: 84, aoRadius: 0.003, uniforms: col(0x4a5563) },
+    params: {}, env: 0.3, macro: [0.1, 0.0], navy: true,
+  },
+  knit_black: {    // balaclava knit, charcoal (reads as black, still takes a red emergency light)
+    tex: { size: MINOR, tile: 0.1, depth: 0.0015, glsl: KNIT, seed: 85, aoRadius: 0.002, uniforms: col(0x2e2f32) },
+    params: {}, env: 0.2, navy: true,
+  },
+  helmet_navy: {   // matte textured paint over a composite shell, scuffed (the shared POLY program)
+    tex: { size: MINOR, tile: 0.5, depth: 0.001, glsl: G_POLY, seed: 86, aoRadius: 0.005,
+      uniforms: poly({ col: 0x485360, rough: [0.62, 0.82], grain: 0.09, scuff: 0.85, dust: 0.3, grime: 0.45 }) },
+    params: {}, env: 0.6, navy: true,
+  },
+  webbing: {       // ranger-green nylon, MOLLE rows, bar-tacks
+    tex: { size: MINOR, tile: 0.25, depth: 0.002, glsl: WEBBING, seed: 87, aoRadius: 0.003, uniforms: col(0x4a5040) },
+    params: {}, env: 0.35, macro: [0.08, 0.0], navy: true,
+  },
+  rubber_mat: {    // ribbed rubber runners (ready room), wet and dried boot prints
+    tex: { size: HERO, tile: 2, depth: 0.004, glsl: RUBBER_MAT, seed: 88, aoRadius: 0.006, uniforms: col(0x474b4b) },
+    params: {}, env: 0.6, macro: [0.08, 0.3], navy: true,
+  },
+  sub_coating: {   // extra: the boat's anechoic tile coating, salt bloom, torn corners
+    tex: { size: HERO, tile: 1.5, depth: 0.012, glsl: SUB_COATING, seed: 89, aoRadius: 0.01, uniforms: col(0x34393d) },
+    params: {}, env: 0.5, macro: [0.06, 0.25], navy: true,
+  },
+  lino_navy: {     // extra: barracks sheet lino, blue-grey jaspé, waxed
+    tex: { size: MINOR, tile: 2, depth: 0.0008, glsl: LINO_NAVY, seed: 90, aoRadius: 0.003,
+      uniforms: { uCol: { value: srgb(0x737b80) }, uCol2: { value: srgb(0x596166) } } },
+    params: {}, env: 0.9, macro: [0.06, 0.2], navy: true,
+  },
+  blanket_wool: {  // extra: grey issue blanket, felted, heathered
+    tex: { size: MINOR, tile: 0.5, depth: 0.002, glsl: BLANKET, seed: 91, aoRadius: 0.004, uniforms: col(0x6b6e72) },
+    params: {}, env: 0.2, macro: [0.1, 0.0], navy: true,
+  },
+  hazard_deck: {   // extra: yellow / black deck stripes worn through by boots
+    tex: { size: MINOR, tile: 1, depth: 0.003, glsl: HAZARD_DECK, seed: 92, aoRadius: 0.003,
+      uniforms: { uColA: { value: srgb(0xcfa318) }, uColB: { value: srgb(0x232425) } } },
+    params: {}, env: 0.8, macro: [0.12, 0.2], navy: true,
   },
 };
 

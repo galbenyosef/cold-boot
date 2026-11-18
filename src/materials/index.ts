@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { DecalName, GameContext, MaterialLibrary, MaterialName, ScreenKind, SignStyle } from '../core/types';
 import { Baker, type BakedTextures } from './baker';
-import { SPECS, EMISSIVE, HABITAT_FROM, CLINICAL_FROM, type MatSpec } from './defs';
+import { SPECS, EMISSIVE, HABITAT_FROM, CLINICAL_FROM, NAVY_FROM, type MatSpec } from './defs';
 import { advanceWater, applyMacro, macroConfigOf } from './macro';
 import { DecalFactory, DECAL_COUNT } from './decals';
 import { createSign } from './signs';
@@ -56,12 +56,12 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   const baked = new Map<string, BakedTextures>();
   const allNames = Object.keys(SPECS) as (keyof typeof SPECS)[];
   // the habitat set (stage 3a) is baked at load only where it is used; elsewhere on first `get` (dev pages)
-  // the clinical set (stage 3b) likewise from level 4 on
+  // the clinical set (stage 3b) likewise from level 4 on, the navy dock set (stage 3c) from level 5 on
   const habitatNow = (ctx.levelId ?? 1) >= HABITAT_FROM;
-  const clinicalNow = (ctx.levelId ?? 1) >= CLINICAL_FROM;
+  const [clinicalNow, navyNow] = [(ctx.levelId ?? 1) >= CLINICAL_FROM, (ctx.levelId ?? 1) >= NAVY_FROM];
   const names = allNames.filter((n) => {
     const sp = SPECS[n] as MatSpec;
-    return sp.habitat ? habitatNow : sp.clinical ? clinicalNow : true;
+    return sp.habitat ? habitatNow : sp.clinical ? clinicalNow : sp.navy ? navyNow : true;
   });
   await baker.precompile(names.map((n) => ({ key: n, ...SPECS[n].tex! })).filter((d) => d.glsl));
   const tCompile = performance.now();
@@ -70,7 +70,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   const bakeOne = (n: keyof typeof SPECS) => {
     const spec = SPECS[n] as MatSpec;
     if (!spec.tex) return;
-    const size = (spec.habitat || spec.clinical) && lowQ ? Math.min(spec.tex.size, 512) : spec.tex.size;
+    const size = (spec.habitat || spec.clinical || spec.navy) && lowQ ? Math.min(spec.tex.size, 512) : spec.tex.size;
     const tex = baker.bake({ key: n, ...spec.tex, size });
     const rep = 1 / spec.tex.tile;
     for (const t of [tex.map, tex.normalMap, tex.orm, tex.emissiveMap]) if (t) t.repeat.set(rep, rep);
@@ -123,6 +123,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
       metalness: 1,
       ...spec.params,
     });
+    if (spec.flow !== undefined) m.userData.flow = spec.flow;
     if (spec.macro || spec.glass || spec.kind) applyMacro(m, { albedo: spec.macro?.[0] ?? 0, rough: spec.macro?.[1] ?? 0, glass: !!spec.glass, kind: spec.kind });
     if (spec.kind === 'water') waters.push(new WeakRef(m));
     return track(m, spec.env);
@@ -132,10 +133,11 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   for (const n of [...names, ...(Object.keys(EMISSIVE) as MaterialName[])]) cache.set(n, build(n as MaterialName));
   // REVISION 5.1 (z-fight): materials that are always a thin layer ON another surface (chevron strips, emissive
   // lenses / strips / lamps) win their depth test deterministically against the surface under them, like decals do
-  for (const n of ['hazard_stripes', 'screen_off', ...Object.keys(EMISSIVE)] as MaterialName[]) {
-    const m = cache.get(n);
-    if (m) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }
-  }
+  const thin = (m: THREE.MeshStandardMaterial | undefined) => { if (m) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; } };
+  for (const n of ['hazard_stripes', 'screen_off', ...Object.keys(EMISSIVE)] as MaterialName[]) thin(cache.get(n));
+  // (stage 3c: the standing-water overlay `wet_steel` lies on a deck likewise — also when baked on demand)
+  const THIN_LATE = new Set<string>(['wet_steel']);
+  for (const n of THIN_LATE) thin(cache.get(n));
   const tEnd = performance.now();
   console.info(`[materials] generated ${baked.size} texture sets + ${cache.size} materials in ${(tEnd - t0).toFixed(0)} ms ` +
     `(compile ${(tCompile - t0).toFixed(0)} ms, bake ${(tBake - tCompile).toFixed(0)} ms incl. ${DECAL_COUNT} decals ${tDecal.toFixed(0)} ms)`);
@@ -151,6 +153,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
       bakeOne(name as keyof typeof SPECS);
       baker.releaseTransient();
       const lm = build(name);
+      if (THIN_LATE.has(name)) thin(lm);
       cache.set(name, lm);
       console.info(`[materials] baked "${name}" on demand in ${(performance.now() - tl).toFixed(0)} ms`);
       return lm;
@@ -160,7 +163,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   };
 
   const signCache = new Map<string, THREE.MeshStandardMaterial>();
-  const screens = new ScreenManager((m) => track(m, 0.8), levelOf(ctx));
+  const screens = new ScreenManager((m) => track(m, 0.8), levelOf(ctx), navyNow);
 
   const lib: MaterialLibrary = {
     get,
