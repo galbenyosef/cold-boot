@@ -43,3 +43,5 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   count berths5 from the spine doorway (3 points now); zfight tray rims vs deck; replay `v5_trays` fall (rims follow);
   `v5_galley_shape` with the fan. Cleanup: remove the no-op recolour in `bay.ts` `emergStrips5`. Weak: splash crowns
   geometric; tray bodies maybe too dark; berths ceiling over the first dome brightest.
+- Coordinator look (f0204a6, level-5 start view): a faint second sign text "POST 4 — GATE LOCK" shows through/above the
+  "POST 4 — PRESSURE GATE — NAVAL ACCESS ONLY" sign on the lock wall — two signs overlap; keep one.
