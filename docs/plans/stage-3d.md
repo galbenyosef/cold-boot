@@ -1,41 +1,52 @@
 # Stage 3d "THE TRUNK" — detailed plan (technical level id 6)
 
-Status: **PLAN, draft before review.** This file is the single authoritative document for building 3d once it has been
-reviewed; §13 will list every review item and what changed. Sources: DESIGN.md R1–R8 (REVISION 5 + 5.1), REVISION 6/6.1
+Status: **PLAN, amended after review** (`docs/reviews/stage-3d-review.md`, verdict "build after fixes", read against
+e8373e2 with 3c's K contract merged) with the coordinator's six decisions. This file is the single authoritative document
+for building 3d; §13 lists every review item and what changed (**§13 wins** where any older sentence still disagrees). Sources: DESIGN.md R1–R8 (REVISION 5 + 5.1), REVISION 6/6.1
 (canon: 61 h, Eridu Deep, the living rostered palm, lockouts), REVISION 7 + **7.1** (7.1 wins: the trunk is cut in a
 **fixed order by layout** — head-end → cable vault → moon pool; the objectives are **physical and irreversible**, no palm
 plates; the ending beats happen **at the moon pool**; the open ending uses the submersible — the cradle at Post 4 is empty;
 boss = the dock's autonomous loader; taken soldiers are plain enemies that cannot be saved), `docs/plans/stage-3c.md`
 (after review, incl. §13 — **3d's canon and toolbox**), `docs/reviews/stage-3c-review.md`, `docs/plans/stage-3b.md` §13,
-`docs/plans/stage-3b-integration.md`, and the code on main at 4197790 (flashlight battery, carbine aim, dark-room marks
-merged; 3c not yet built). To be copied into DESIGN.md as REVISION 11 at integration (IA).
+`docs/plans/stage-3b-integration.md`, `docs/plans/stage-3c-agent-rules.md`, `docs/plans/stage-3c-k-notes.md`,
+`docs/plans/stage-3c-wave1-notes.md`, and the code on main at 3596764 (flashlight battery, carbine aim, dark-room marks;
+3c's K contract, 3c W2a UI and W9 voices merged; the rest of 3c is being built). To be copied into DESIGN.md as REVISION 11 at integration (IA).
 
-**3c dependency.** 3d is built only after 3c is merged. Everything this plan takes from 3c is cited as "3c §x" with the
-interface assumed; if 3c's build changes one of these, K updates the citation here before wave 1 starts (§11 rule 7):
+**3c dependency.** 3d is built only after 3c is merged. Each interface 3d uses from 3c is either **merged (fact)** —
+in `src/core/types.ts` or a merged task's notes — or **assumed** (still being built), cited with its 3c plan section.
+**K's first job (§11 rule 7) is to verify every "assumed" row against merged code before wave 1** and edit this table
+and every citation if 3c built it differently:
 
-| from 3c | interface 3d assumes | 3d uses it for |
-|---|---|---|
-| soldier enemy (3c §8.2) | `EnemyType 'soldier'`, `EnemySpawn.arms` / `.cover`, pose `hold`, `EnemyManager.release(group)`, `corpsePoint`, `SOLDIER_TUNING` (one table), the `lit` rule (D18), tokens, damage cap, barks gate, `enemies.debug.soldiers()` | every gunfight; flood-lit rule (§5.6) |
-| cover points (3c §5.4, §8.3) | `Level.cover: CoverPoint[]` `{ id, position, normal, height, room, set }`, W4 `selfTest`, `check:nav` reachability | all cover; 3d adds `enabled` (§8.1) |
-| `nav: false` floors + exits (3c §8.4) | `floors[].nav: false`, `floors[].exits`, `StairDef.y0` / `nav: false`, nav obstacles, `level.floorAt(p)` | the vault's cable trench (§2.6) |
-| hatches (3c §8.4, W7) | hatch lid as a registered mover, `open(k)`, underside-only interact with the eye rule | trench hatches |
-| radio + Q (3c §8.6) | fact `radio`, HUD `ui.radio({ label, live })`, Q → story, voice fx `radio` / `radio:1`, POS `radio` | Kessler and CHOIR all stage |
-| scare kit (3c §5.5, §8.7) | `scareOk(id)` rules, `L.vignette(id, run, { snap })`, `id:snap` replay, `scares` in progress, `audio.debug.log` | §5.7 |
-| stage base additions (3c §4.7, B1) | level `calm()` override, door-calm pattern, **stray rule** (unseen ≥ 30 s and ≥ 25 m during a calm wait → removed), `afterReplay` re-spawn pattern | checkpoints, boss restore |
-| `mustNotUse` in `check-reach` (3c §3) | R8 with line of sight from a reachable capsule | §3 |
-| `throat` fx, `soldier` alias, `kessler` voice (3c §6.1, W9) | as built | lines |
-| first-person cutscene (3a `rig.cutscene`, 3c §4.2) | `linesReady(ids, s)`, shot table, `handback`, skip only once seen, `check:cutscene` | the ending (§4.9) |
-| level 5 end (3c §7) | carry `from: 5` with facts `radio`, `kessler`, `l5_door`, `l5_boat`, `kills5`, `testHour`; `LEVELS[5].next` | the hand-over (D2) |
+| from 3c | status | interface 3d uses | 3d uses it for |
+|---|---|---|---|
+| soldier contract (3c §8.1, K) | **merged** (`types.ts`) | `EnemyType 'soldier'`, `EnemySpawn.pose 'hold'` / `.arms` (absent = carbine) / `.cover`, `EnemyManager.release(group)` (emits `enemy:alerted`), **`holding(group)`**, `corpsePoint(id, 'chest')`, `GameEvents['enemy:fired']`, `LevelInfo.cast.soldier` (required), `SoldierDebug` row type | every gunfight; the level-6 `calm()` |
+| soldier body + AI (3c §8.2, W3a/W3b) | assumed | `SOLDIER_TUNING` (one table), the `lit` flag (3c D18), tokens, damage cap, bark gate, `enemies.debug.soldiers()`, cover choice reading `Level.cover` | gunfights; the flood-lit rule (D20) |
+| cover points (3c §5.4, §8.3) | **merged** type + `Level.cover` (via `assembleLevel`'s `cover` option); W4 `selfTest` assumed | `CoverPoint { id, position, normal, height, room, set }` | all cover; 3d adds `enabled` (§8.1) |
+| floors below the main floor (3c §8.4) | **merged**: `RoomFloor.nav?`, `RoomFloor.exits?`, required `Level.floorAt(p)` (default `floorOf`); assumed: `LevelBuild.room(…, { floors })` copying `nav` / `exits`, room bounds from the lowest floor, `StairDef.y0` / `nav` (level-internal, `l3/grey.ts`), nav obstacles, opening a wall below floor level (the crawl under `d5_arm`) | the vault's cable trench (§2.6.7) |
+| hatches (3c §8.4, W7) | assumed | lid as a registered mover, `open(k)`, underside-only interact with the eye rule | trench hatches |
+| radio + Q (3c §8.6) | **merged**: `ui.radio(o \| null)` (strip `rstrip`), subtitle class `radio` for `KESSLER` / `RADIO`, voice fx `radio`, `radio:1`, `throat` in `FX_NAMES`; assumed: Q handling in the story, POS `radio` / `throat` (W2b) | Kessler and CHOIR all stage |
+| scare kit (3c §5.5, §8.7) | `Level.vignette('<id>:snap')` convention **merged** (documented, W4 builds it); assumed: `scareOk(id)`, `scares` in progress (`ProgressL5` merged with `scares`), `audio.debug.log` (`AudioLogEntry` type merged) | §5.7 |
+| stage base additions (3c §4.7, B1) | assumed (ST 3c) | the level `calm()` override pattern ignoring holding groups, door-calm, **stray rule** (unseen ≥ 30 s and ≥ 25 m during a calm wait → removed), `afterReplay` re-spawn | checkpoints, boss restore |
+| `mustNotUse` in `check-reach` (3c §3) | assumed (3c W4) | R8 with line of sight | §3 |
+| voices (3c W9) | **merged**: 72 lines, `kessler` provisional pick, `soldier` alias, **`cut` in FILE time** (incl. `lead`), the `l4_sunde_8` lead re-set after any `npm run voice` | lines (§6) |
+| first-person cutscene (3a `rig.cutscene`, 3c §4.2) | built (3a) | `linesReady(ids, s)`, shot table, skip only once seen, `check:cutscene` | the ending (§4.9) |
+| level 5 end (3c §7, K) | **merged** (K stub) / ST assumed | carry `from: 5` with `kills5`, `testHour` (≥ 62.5); facts `radio`, `kessler`, `l5_door`, `l5_boat` (ST 3c); `nextOf(5)` | the hand-over (D2) |
+| soldier patrol path | **does not exist** (S8a) | 3d's K adds `EnemyManager.patrol(…)` (§8.1), W3b / W3c implement | `v6_crossing`, F3's walk-out |
 
 Conventions exactly as 3c: metres, y up, −Z forward, yaw 0 looks down −z (`?spawn` yaw in degrees, +90 = −x). Room boxes
 are **boundaries**; walls are 0.4 m centred on them (interior = box inset 0.2). Std door 1.6 × 2.4; an **open std leaf spans
 0.82 … 1.62 m from the door centre**, its slot ends 1.675 m from it, and `check:doors` rule (b) needs a wall face within
 0.45 m on both sides of every leaf sample — so **both rooms' interiors must cover the door centre ± 1.62 m along the door's
 wall** ("leaf faces" column). `DoorSpec.y` = the floor of the frame. Player capsule r 0.35, h 1.8 standing / 1.1 crouched
-(eye 1.65 / 0.98, walk 3.6, sprint 6.0, crouch 1.8 m/s, jump 1.0 m — `player/controller.ts:10-27`); **no fall damage exists
-(as built)**; crouch-jump clears 1.7 m, so containment = a collider ≥ 1.75 m above the standable surface. A **sprint-jump**
-from a standable surface at height h above a hazard's rim travels at most `6.0 × (0.45 + √(2(h + 1.0)/9.8))` m before it
-falls below the rim (§2.10 uses this). Points on decks are given as (x, y, z) with y = the deck.
+(eye 1.65 / 0.98, walk 3.6, sprint 6.0, crouch 1.8 m/s, jump 1.0 m, ground accel 11 — `player/controller.ts:10-27`);
+**gravity 19 m/s²** (`physics.ts:6`: take-off 6.16 m/s, apex at 0.324 s); **no fall damage exists (as built)**; crouch-jump
+clears 1.7 m. **Containment rule:** a barrier is ≥ **2.35 m** above any floor where a body (a wreck box, 0.36–0.6 m, is a
+walkable step) can lie, and ≥ 1.75 m only where no body can lie (a ledge < 0.6 m wide). A **sprint-jump** from a standable
+surface at height h above a hazard's rim travels at most `R(h) = 6.0 × (0.324 + √(2(h + 1.0)/19))` m before it falls
+below the rim (§2.10). **Pickup rule (as built, `pickups.ts:294-301`):** an auto pickup is taken with the feet within
+1.0 m horizontally, the item centre −0.6 … 1.4 m above the feet, and a clear chest-height ray (feet + 0.9) to within
+0.4 m of it — so every item here is ≤ 1.3 m above its floor and ≤ 0.3 m from the face it is approached from. Points on
+decks are given as (x, y, z) with y = the deck.
 
 ---
 
@@ -47,32 +58,34 @@ falls below the rim (§2.10 uses this). Points on decks are given as (x, y, z) w
 | D2 | **Hand-over:** 3c's `door5_headend` stays a sealed prop in level 5; 3d starts in its own copy of the tunnel end (`lock6`) with the head-end tube door (`d6_tube`, a real door) cycling open. **`LEVELS[5].next` stays `null` on main until IA**; K builds 5 → 6 behind the test override `?next=5:6`. With `next` set, 3c's end card loses "TO BE CONTINUED" (6 s, skippable) and hands over, as 3a → 3b → 3c. | Main stays playable through the build (3b D4). |
 | D3 | **The chapter ends here:** `LEVELS[6].next = null`; end card `THE TRUNK` / `TO BE CONTINUED` (14 s, skippable once seen), then `END OF CHAPTER 3` (4 s), then the menu; stored level 6; menu line `Chapter 3  —  The Trunk`. | The game's current end; open ending (user). |
 | D4 | 12 rooms, none overlapping in plan (§2.1); the cable trench is **floors** of the vault and the head-end (3c's crawl mechanism); the stair shaft's landings are floors of the shaft; the moon-pool chamber's decks are floors of the chamber; the Post-4 feed set `feed6` is a sealed room in the void, drawn only by the feed pass. | `assemble.ts` bitmask; `roomAt` x/z first-match. |
-| D5 | **Fixed order by mechanism, not by instruction (7.1, R1): a trapped-key interlock chain** (real naval/industrial practice — Castell keys). The head-end changeover switch, cranked to MANUAL, releases **Key A**; Key A opens the vault's beach-joint enclosure; pulling the fibre loom out frees **Key B**; Key B opens the stair door to the moon pool. Each key is given atomically at the end of its action (no separate pickup, no gap a death can fall into — 3c B1 class). | The order cannot be broken, and the reason is on every plate. |
+| D5 | **Fixed order by mechanism, not by instruction (7.1, R1): a trapped-key interlock chain** (real naval/industrial practice — Castell keys). The head-end changeover switch, cranked to MANUAL, releases **Key A**; Key A opens the vault's beach-joint enclosure; pulling the fibre loom out frees **Key B**; Key B opens the stair door to the moon pool. Each key is given (and a used key trapped) atomically **with its flag** (`manual`, `bjOpen`, `pulled`, `shaftOpen`) inside one action; every checkpoint restore replays the flags' world consequences (§7, B4). | The order cannot be broken, and the reason is on every plate. |
 | D6 | **Objectives are physical and irreversible (7.1):** the crank (the key comes out and nobody can switch back without it), the **pulled fibre** (the connector rips out of a 96-fibre splice: "a jointing team and a week"), the **cut tether** (a hydraulic guillotine: pin → pump → fire). No palm plate anywhere on them. | 7.1 B5; nothing a taken sailor can undo. |
 | D7 | **Hold-to-work is a player API**, `player.grip(o)` (§8.3), built on the palm-scan machinery: the press on an interactable starts it, progress advances only while **E is held**, the weapon is lowered and both hands go to the handle (IK), the feet are planted while held, the view is eased onto the handle; releasing pauses (progress kept for cumulative tasks); a hit flinches (0.3 s pause) but never cancels; walking > 1.3 m away pauses. Uses: crank 3.0 s, pull 3.0 s, pin 1.2 s, pump 6.0 s cumulative, lever 0.6 s. | The user's "hold-to-pull"; feedback the player can read; no silent failure. |
 | D8 | **The boss is the dock's autonomous loader** (`EnemyType 'loader'`, `src/enemies/loader/`): an overhead gantry crane — a bridge on wall rails, a trolley, four wire ropes, a heavy four-jaw grab, four work floods, a control pod under the trolley, a PA horn. It belongs to the place: on arrival it is **working** (lowering cargo into the well). It never walks; it moves on its rails. | User brief; not a monster. |
 | D9 | **Boss = three zones, three answers:** the **dock** is the loader's (slam, container shift/drop, swing); the **tether frame** (a bar-guarded cage over the well) is a **no-slam zone** — CHOIR will not risk its own link — so there the danger is the **hands** (soldiers, units) that its floods point at; the **galleries and the undercroft** are out of the grab's reach but open to soldiers. The player chooses where to be. | Readable, fair, verticality with a purpose. |
 | D10 | **Boss stages tied to the objective (or to damage, whichever first):** stage 1 at the hostile start; stage 2 when the shear pin is out **or** the first jaw ram is destroyed; stage 3 when the shear is pressurised **or** both rams are destroyed. **Waves join at set moments**: W1 at the hostile start, W2 when the pin is out, W3 when the pressure is full (§5.5). The trunk goes dark on the shear; the **ending needs both**: the tether cut **and** the loader destroyed, then calm. | Order-independent: kill first, cut first, or mix. |
-| D11 | **Weak points (R2: everything enemy-looking reacts):** four floods (40 each; each one dark makes the loader worse at finding the player and stops it lighting him for the soldiers); two jaw rams (200 each, ×1.0 **only while extended** — jaws open: the slam lock, its 2.4 s recovery, clamping a container — amber sight glasses glow then; ×0.1 retracted); the control pod (500, armoured ×0.1 until **both** rams are gone, then its cowl opens ×1.0); everything else ×0.05 with sparks. Kill = the pod. | Foreman lesson: three readable weak points = three phases, a clear end. |
-| D12 | **Water:** the wet dock is wadeable to **1.0 m** (knee 0.5 m on its floor, waist 1.0 m in the sluice channel); the well is 13.7 m deep and **never reachable**: its rim is a 0.8 m steel coaming + 1.1 m rail = 1.9 m above the dock (≥ 1.75), a 2.0 m bar guard along the mid deck's south edge, the frame's 2.0 m cage, and the §2.10 jump-arc rule; `check:reach` proves it, incl. sprint-jump arcs. Deep water is a real barrier: the coaming. A fail-safe exists only for bugs (depth > 1.25 m → the player goes under, 1.5 s, death `cause: 'drowned'`). | R1 + R6; "a real barrier, not an invisible wall". |
-| D13 | **Wading** (player, §8.3): depth `d` at the feet: < 0.1 dry; 0.1–0.35 walk × 0.85, sprint × 0.8; 0.35–0.7 walk × 0.6 (2.16 m/s), no sprint, jump × 0.5; 0.7–1.25 walk × 0.4 (1.44 m/s), no sprint, no jump, **no crouch** (toast `Too deep to crouch`); splash footsteps, wake rings. Enemies: husks and soldiers × 0.7 at d ≥ 0.35 and never path into d > 0.6; skitters never into d > 0.1. | User brief; slow water = a risk the loader exploits honestly. |
-| D14 | **Water stops rounds and sight:** water surfaces are **ray-only** colliders (`userData.rayOnly`, physics, K): bullets splash at the surface, nobody is hit under water, `lineOfSight` stops at it. Rails and bar guards are **move-only** colliders (`userData.moveOnly`): bodies stop, rounds and sight pass (a spark on 15 % of passes). Solid plate (coaming, parapets, containers) stops both. | Honest physics; the cage is not a bullet shield. |
-| D15 | **The Clasp manifest (open-ending beat 1)** is the head-end's outbound queue: an optional readable on the head-end console (`note6_queue`) and, at the end, the dock console (a labelled head-end repeater) showing the last buffered outbound traffic — **14 batches of cervical Clasp assemblies dispatched through the moon pool to a subsea shuttle since last spring, no consignee**. Order-independent: lines key on whether the queue was read. | 7.1; seen without assuming order. |
-| D16 | **The empty cradle (beat 2)** is a live CCTV feed (3a `render.feed`) of `feed6` — a sealed copy of 3c's sub-bay south end (cradle, rails, launch-lock door) — shown on the dock console, with CHOIR's OSD `SDV TERN — LAUNCHED {hh:mm}` / `LAUNCH AUTHORITY: AAS, L. (LT.) — PALM — LIVE`. `{hh:mm}` is the moment the player heard the launch through the hull (`v6_thud`), or the fibre pull + 90 s if he never heard it. Canvas `cctv` fallback if the feed spike fails. | 7.1: "the cradle at Post 4 is empty". |
+| D11 | **Weak points (R2: everything enemy-looking reacts):** four floods (40 each; each one dark makes the loader worse at finding the player and stops it lighting him for the soldiers); two jaw rams (200 each, ×1.0 **only while extended** — jaws open: the slam lock, its recovery, the 1.0 s clamp / release of a container on the player's deck — amber sight glasses glow then; **×0 retracted**: a hard clank, sparks, the HUD pip shakes); the control pod (500, **×0 with its cowl shut** — same clank — until **both** rams are gone, then its cowl opens ×1.0); everything else ×0.05 with sparks (R2: it reacts). Windows open only on a deck the grab can reach, so the fight cannot be won from the cage or a gallery (S3). Kill = the pod. | Foreman lesson: three readable weak points = three phases, a clear end. |
+| D12 | **Water:** the wet dock is wadeable to **1.0 m** (knee 0.5 m on its floor, waist 1.0 m in the sluice channel, which has a sloped side to walk out on); the well is 13.7 m deep and **never reachable**: its rim is a 0.8 m steel coaming with a **1.6 m vertical-bar guard flush with its outer face** = **2.4 m** above the dock (3.2 m above the wet floor), ladder gates as high, exit rungs without colliders; a **2.4 m** bar guard along the mid deck's south edge; the frame's 2.6 m roofed cage; containers and the grab not standable; the §2.10 jump-arc rule; `check:reach` proves it on every simulated step (B1). Deep water is a real barrier: the coaming and its guard. A fail-safe exists only for bugs: in water deeper than `stand` the player is held (sink ≤ 0.5 m/s) and after 1.0 s **rescued, not killed** — 0.5 s black, placed at the nearest ladder exit / `mk6_boss_safe`, −15 health, a toast, a `console.error` for the test logs (coordinator 2); the per-level kill height (−36) keeps him reachable for it (B6). | R1 + R6; "a real barrier, not an invisible wall". |
+| D13 | **Wading** (player, §8.3): depth `d` at the feet: < 0.1 dry; 0.1–0.35 walk × 0.85, sprint × 0.8; 0.35–0.7 walk × 0.6 (2.16 m/s), no sprint, jump × 0.5; 0.7–1.25 walk × 0.4 (1.44 m/s), no sprint, no jump, **no crouch** (toast `Too deep to crouch`); splash footsteps, wake rings. From every water cell a walk out to dry floor exists under these caps (`check:water`, B3). Enemies: husks and soldiers × 0.7 at d ≥ 0.35 and never path into d > 0.6; skitters never into d > 0.1; a body that dies or spawns in water deeper than 0.6 m makes no wreck box and sinks (B6). | User brief; slow water = a risk the loader exploits honestly. |
+| D14 | **Water stops rounds and sight:** water surfaces are **ray-only** colliders (`userData.rayOnly`, physics, K): bullets splash at the surface, nobody is hit under water, `lineOfSight` stops at it. Rails and bar guards are **move-only** colliders (`userData.moveOnly`): bodies stop, rounds and sight pass (a spark on 15 % of passes). Solid plate (coaming, parapets, containers) stops both. Physics keeps **two sets** (rays = solid ∪ rayOnly; moves = solid ∪ moveOnly) and a new `raycastSolid` (moves set + dynamic boxes) that every ground / headroom query uses, so water is never a floor (S5, §8.1). | Honest physics; the cage is not a bullet shield. |
+| D15 | **The Clasp manifest (open-ending beat 1)** is the head-end's outbound queue: an optional readable on the head-end console (`note6_queue`) and, at the end, the dock console (a labelled head-end repeater) showing the last buffered outbound traffic — **13 batches of cervical Clasp assemblies dispatched through the moon pool to a subsea shuttle since last spring and the 14th (B-14) in transfer — the one the player watches the loader lower at the reveal — no consignee**. Order-independent: lines key on whether the queue was read. | 7.1; seen without assuming order. |
+| D16 | **The empty cradle (beat 2)** is a live CCTV feed (3a `render.feed`) of `feed6` — a sealed copy of 3c's sub-bay south end (cradle, rails, launch-lock door) — shown on the dock console, with CHOIR's OSD `SDV TERN — LAUNCHED {hh:mm}` / `LAUNCH AUTHORITY: AAS, L. (LT.) — PALM — LIVE`. `{hh:mm}` is the moment the player heard the launch through the hull (`v6_thud`, which fires only within pull + 20 … + 90 s), else the fibre pull + 90 s. Canvas `cctv` fallback if the feed spike fails. | 7.1: "the cradle at Post 4 is empty". |
 | D17 | **The ending is a first-person cutscene started by the player** at the dock console (`console6`, "Use console"), only once the tether is cut, the loader is destroyed and the chamber is calm; two beats E1 (manifest) + E2 (cradle) on recorded line ends, each ≤ 25 s; then black, CHOIR's last line, `THE TRUNK` / `TO BE CONTINUED`. Before it: the shear (the trunk going dark) is the player's own act, in control, never a taken camera. | R5-style rules for scenes; no fight is ever interrupted by a camera. |
-| D18 | **One new voice, Lt. L. Aas (spoken "Oss")**, three whispered lines on a sound-powered phone handset in the head-end (`v6_handset`, optional): the man whose palm opens everything, alive, unfitted, being walked to the boat by taken sailors. **Dr. Sunde speaks twice** on Kessler's channel in E1 (existing voice). Argued in §6.1. | The ending's "hands" land on a person, not a name. |
+| D18 | **One new voice, Lt. L. Aas (spoken "Oss")** — decided — three whispered lines on a sound-powered phone handset in the head-end (`v6_handset`, optional): the man whose palm opens everything, alive, unfitted, being walked to the boat by taken sailors. His **base reference is a designed whisper** (short describe + `whispering` + a whispered refText, auditioned; never a description alone on a normal reference, never DSP-derived — S12). **Dr. Sunde speaks twice** on Kessler's channel in E1 (existing voice). For a player who skipped the handset, Kessler names the palm in E2 (`l6_kes_end_4b`, S11a). Argued in §6.1. | The ending's "hands" land on a person, not a name. |
 | D19 | **Darkness for the battery as built** (3c D16): tunnel B is dark from the start (hard-wired emergency strips and red pools ≤ 8 m apart), the shaft goes dark as the player descends (`v6_shaft_lights`), the trench is red-strip lit, and the moon pool's mains go at boss stage 2 (`lights_out6`) — the fight then lives in the loader's floods, the emergency strips, the sea windows and muzzle flashes; every dark stretch follows 3c §2.7.3's rules. | User brief; battery 10 s / 4 s. |
 | D20 | **Soldiers see by the loader's floods:** a player inside a live flood's beam is "lit" (3c D18: full sight 30 m) for every soldier with an eye ray to him. Shooting floods out is how the player takes the light back. | The fight changes the light; a reason to shoot lamps. |
-| D21 | **Boss checkpoints at milestones, restored with a floor**: six milestones (pin, pressure, cut, ram L, ram R, loader dead) — each writes `cp6_m<n>` (n = how many are done) 1.0 s after it, if the player is alive; a restore puts him at a safe marker, sets **health = max(saved, 60)**, rebuilds the loader with its saved parts, stage, slot layout and floods, clears earlier waves and re-spawns the **latest** wave fresh from its twin group with a 3 s grace. A death never replays more than one milestone. | User brief (~2 min); no death-loop at 10 HP. |
+| D21 | **Boss checkpoints at milestones, restored with a floor**: six milestones (pin, pressure, cut, ram E, ram W, loader dead) — each writes `cp6_m<n>` (n = how many are done) with **`checkpointNow`** 1.0 s after it if the player is alive (deferred to a running grip's end + 1.0 s, never skipped); a restore puts him at the **restore point of the latest wave** (§5.6.9), sets **health = max(saved, 60)** and **tops the carbine (or the best owned weapon) to ≥ 90 reserve**, re-arms the three **dock ammo lockers**, rebuilds the loader with its saved parts, stage, slot layout and floods, clears earlier waves and re-spawns **only the latest** wave fresh from its twin (a pending wave is re-queued under its own rule) after a 3 s grace. A death never replays more than one milestone (B5, S2). | User brief (~2 min); no death-loop at 10 HP. |
 | D22 | **Every story position is a `mk6_` marker**; missing marker = error. Every timed line starts ≤ 0.12 s from its cue (`lineLog`). | 3a/3b/3c lessons. |
 | D23 | Every fx volume declares `rooms` (and `seenFrom` / `apertures` where seen through an opening); hidden in `render.prepare`; `check:fxleak --level 6`. | 3b D21. |
-| D24 | LOW: every view ≤ 6 points / ≤ 8 spots / ≤ 2 shadow slots (the flashlight is one); the loader's floods are non-shadow spots on LOW (the two trolley floods cast on MEDIUM+); soldier weapon lights as 3c; muzzle flashes pooled; enemy eye lights lose slots first. | 3c D24. |
+| D24 | LOW: every view ≤ 6 points / ≤ 8 spots / ≤ 2 shadow slots (the flashlight is one); the loader's floods are non-shadow spots on LOW **and MEDIUM** (the two trolley floods cast on HIGH only; one flood shadow on MEDIUM only if the greybox gate measures it in budget — S13); the floods out-rank soldier weapon lights in the pool (prio 0.9 vs 0.5) and `floodLit` counts only a flood whose light is in the pool this frame; muzzle flashes pooled; enemy eye lights lose slots first. | 3c D24. |
 | D25 | **One owner per sound** (§8.12 table): vignette sounds the level's, line audio the story's, enemy combat sounds (incl. the loader) the enemies module's, UI clicks the UI's, the buoy ping motif the level's (driven by a story value). | 3b integration item 7. |
-| D26 | Waves that must arrive are `rush`ed (husks); soldiers never rush; W2 units climb out of the well (`emerge: 'climb'`) and are rushed from the dock. | 3c D26. |
-| D27 | No optional contract members: K adds every new member with working stubs (`Level.water = []`, `Level.dock = null`, `enemies.boss() = null`, `player.grip` stub resolving 'done' after `seconds`). | 3c D28. |
+| D26 | Waves that must arrive are `rush`ed (husks); soldiers never rush; W2 units climb out of the well (`EnemySpawn.pose: 'climb'`, kinematic from spawn to exit) and are rushed from the dock. | 3c D26. |
+| D27 | No optional contract members: K adds every new member with working stubs (`Level.water = []`, `Level.dock = null`, `enemies.boss() = null`, `enemies.patrol()` teleporting to the last point and holding, `player.grip` stub resolving 'done' after `seconds`, `physics.setKillY`, `physics.raycastSolid`). | 3c D28. |
 | D28 | Facts in from 5: everything carried; out of 6 (for chapter 4): `kills6`, `manifest` (queue read), `aas` (handset answered), `launchHour`, `trunkCut: true`, `loaderDead: true`, `testHour`. | Open ending; later chapters. |
-| D29 | Delivery (TTS rules): Kessler controlled and tired, hesitation in the words, scene-owned varied gaps, **cut once by CHOIR** (`l6_kes_he_3`, `cut` from ASR word times); Reyes hoarse, few words; Aas whispering, broken; Sunde quiet, precise; CHOIR calm, two variants by the choice for every CHOIR line, sparse stress to the phrase end; UNIT and the loader's PA flat, **no uppercase**; soldiers CHOIR through `throat`; "Aas" spoken "Oss"; `note` never reaches the model. | TTS rules; 3b S10, 3c D30. |
-| D30 | Target ≈ 15 min on the main route (§2.5); every room holds something to do, read or fight; the moon pool is the largest space of the game so far (48 × 48 × 22 m). | User brief. |
+| D29 | Delivery (TTS rules): Kessler controlled and tired, hesitation in the words, scene-owned varied gaps, **cut once by CHOIR** (`l6_kes_he_3`, `cut` from ASR word times, in file time incl. `lead` — 3c W9 convention); Reyes hoarse, few words; Aas whispering, broken; Sunde quiet, precise; CHOIR calm, two variants by the choice for every CHOIR line, sparse stress to the phrase end; UNIT and the loader's PA flat, **no uppercase**; soldiers CHOIR through `throat`; "Aas" spoken "Oss"; `note` never reaches the model. | TTS rules; 3b S10, 3c D30. |
+| D30 | Target ≈ 15 min on the main route (§2.5); every room holds something to do, read or fight; the moon pool is the largest space of the game so far (48 × 48 × 22 m). |
+| D31 | **R4 kept literally (coordinator 3): the loader is spawned when Key B turns** (`spawnGroup('g6_loader')` in pose `working` at the phase-K transition, and by `afterReplay` whenever `shaftOpen && !loaderDead`) — it does not exist before the chamber can be reached or seen. | R4 "bosses never exist early". |
+| D32 | **The shaft's well is closed** (coordinator 5): 2.4 m move-only mesh guards on every well edge and over the two open landing edges; no 12 m drop. | The climbing scare (F6) depends on the descent. | User brief. |
 
 ### 0.1 Review lessons → where this plan designs for them
 
@@ -82,8 +95,8 @@ falls below the rim (§2.10 uses this). Points on decks are given as (x, y, z) w
 | interaction ray ends inside a collider (3c B2) | every use point is 0.4–0.5 m off its surface (§2.6 lists the stand point); the frame's interactables require the feet inside `t6_cage` (bars pass rays, so R8 alone would allow use from outside, §8.5) |
 | a check that rejects a player who did the right thing (3c B3) | `grip` never needs a held look direction after it starts; damage only pauses; progress is kept; the gauge shows it (§8.3) |
 | cover normals inverted / tangent capsules (3c S1a, S1c) | §5.4 names each object's face; every point 0.55 m from its face and ≥ 0.1 m from walls, recomputed |
-| pickups inside racks / out of reach (3c S1i) | every pickup with its shelf and a stand point ≤ 1.6 m; all `p6_*` in `check:reach` `use` |
-| enemies path into pits (3c S1m) | the shaft's open well and the trench hatch pits are nav obstacles; water deeper than 0.6 m has no nodes; the well is a nav solid; the loader is rail-bound (no nav) |
+| pickups inside racks / out of reach (3c S1i) | the as-built pickup rule in the conventions; every item ≤ 1.3 m above its floor, ≤ 0.3 m from its approach face (§5.2 table); all `p6_*` in `check:reach` `use` |
+| enemies path into pits (3c S1m) | the shaft's well is closed; the trench hatch pits, the six cargo slots, the coaming and the wet dock's band are nav obstacles; water deeper than 0.6 m has no nodes; ground queries use `raycastSolid` (water is no floor); the loader is rail-bound (no nav) |
 | an exit stand-off on the only route (3c S1n) | trench exits are off-route (§2.6); stand-off never inside the hatch walkway |
 | lines that contradict each other (3c S6) | §6 written against one fact list (§1 threads); Kessler never claims cameras (they are his) |
 | sounds owned twice (3b item 7) | D25 + §8.12 owner column + `--scares` audit |
@@ -154,11 +167,13 @@ Threads (each readable alone — R3):
 Canon kept: 61-hour clock (`CLOCK6` from `facts.testHour`); 2.1 km under the Barents Sea; roster 23 fitted, 19 linked,
 4 no signal with Kessler in the shielded module; Sunde in the module; Aas the unfitted XO; the submersible launches on an
 officer's palm; LED language (amber powered-not-linked, red blinking linked, off failed); enemy marks (red hunting, cyan
-standby); CHOIR's voice by the level-2 choice. **Physics of the moon pool (canon note for REVISION 11):** a 1-atm chamber
-cannot sit open to 210 bar of sea; the well is a **flooded wet well** with a closed **sea gate** at its bottom (y −34)
-through which the tether passes in a pressure gland, and the cargo hatch in the gate opens only in a sealed, unmanned
-transfer cycle — which is why the dock's loader is autonomous. The wet dock is flooded because the last transfer's
-dewatering stopped at 34 % (the dock board says so). The sea itself is outside the great windows.
+standby); CHOIR's voice by the level-2 choice. **Physics of the moon pool (canon note for REVISION 11, S10b):** a 1-atm
+chamber cannot sit open to 210 bar of sea; the well is a **flooded wet well** whose floor (y −34) is the **inner door of a
+two-door cargo lock** — inner door, a lock chamber, an outer sea door — so the chamber never sees sea pressure; the tether
+passes the lock in pressure glands; cargo goes down in an unmanned lock cycle, which is why the dock's loader is
+autonomous. The wet dock is the well's overflow: the last cycle's dewatering stopped at 34 % (the dock board says so).
+**B-14** is the batch being lowered when the player arrives (it waits in the well for its lock cycle — "in transfer");
+B-01 … B-13 left before. The sea itself is outside the great windows.
 
 ---
 
@@ -204,7 +219,8 @@ rep6/tun6_b z −92 (x 9.5 … 14.5); tun6_b/bay6 x 14.5 (z −106 … −98); t
 **K / W4 level-internal additions** (no contract change beyond §8.1): water volumes (§2.9), cargo slots (§2.6.9), the
 3c mechanisms (`nav: false` floors, exits, `StairDef.y0` / `nav: false`, obstacles, hatches) reused unchanged, and two
 collider flags owned by the physics (K, §8.1): `mesh.userData.rayOnly` (water surfaces: rays and sight stop, bodies pass)
-and `mesh.userData.moveOnly` (rails, bar guards, the tent's tarp: bodies stop, rays and sight pass).
+and `mesh.userData.moveOnly` (rails, bar guards, mesh guards, the tent's tarp: bodies stop, rays and sight pass), with
+`physics.raycastSolid` for ground / headroom queries and the per-level kill height `physics.setKillY(−36)` (B6).
 
 ### 2.2 Doors (`DoorSpec.y` = floor of frame and sill)
 
@@ -402,7 +418,8 @@ west wall at y 0.2 (0.15 m, walkable kerb).
 Cover objects: **junction boxes** (h 1.8, high) JB1 x −2.3 … −1.4, z −24.8 … −23.2; JB2 x 1.4 … 2.3, z −40.8 … −39.2;
 JB3 x −2.3 … −1.4, z −56.8 … −55.2; JB4 x 1.4 … 2.3, z −70.8 … −69.2 (corridor beside each 2.8 m); **drum trolleys**
 (a Ø 1.2 cable drum on a 0.1 m trolley, h 1.3, low) DT1 x 0.4 … 2.0, z −30.5 … −29.5; DT2 x −2.0 … −0.4, z −62.5 … −61.5
-(corridor beside each 2.7 m). Pickups on the JB tops (h 1.8; stand ≤ 1.1 m from the eye). The far end opens into rep6
+(corridor beside each 2.7 m). Pickups on small bracket shelves on the JBs' corridor faces at y 1.0 (≤ 0.3 m from
+the face; the JB tops at 1.8 are out of the pickup rule's 1.4 m — S1b). The far end opens into rep6
 through the full tunnel width.
 
 #### 2.6.3 rep6 (interior x −5.8 … 15.8, z −91.8 … −80.2, ceiling 5.0)
@@ -424,7 +441,7 @@ every 16 m (z −100, −116, −132, −148) and green-amber **floor strips** a
 yellow bands catch the red. **Repeater housings** (h 2.0, high, 1.4 m deep from the wall — deep enough that RH1 hides F2's
 soldier from every point of rep6, §4.3) RH1 x 9.7 … 11.1, z −110 … −108; RH2 x 12.9 … 14.3, z −126 … −124; RH3 x 9.7 …
 11.1, z −142 … −140 (corridor beside each 3.2 m). Sentry dock in the ceiling at (12.0, 3.9, −134.0). `d6_bay` in the east
-wall at z −102. At the far end `d6_he`'s porthole glows warm (the backlight F3 is seen against). Pickups on RH tops.
+wall at z −102. At the far end `d6_he`'s porthole glows warm (the backlight F3 is seen against). Pickups on bracket shelves on the RH corridor faces at y 1.0 (S1b).
 
 #### 2.6.5 bay6 (interior x 14.7 … 20.3, z −105.8 … −98.2)
 A side joint bay: a cable joint box on trestles (x 16.0 … 18.0, z −103.0 … −101.0, h 1.2), a coil of spare cable, a wall
@@ -445,8 +462,10 @@ sound-powered phone, howler, selector dial `HEAD-END / POST 4 / DOCK / CMD`) on 
 −x, its handset hanging off the hook on its cord at (21.55, 0.85, −164.3); interactable `he6_phone` "Pick up handset",
 use point (21.2, 1.1, −164.0), radius 1.5, enabled only while `v6_handset` runs. **Wall locker** NW x 2.4 … 4.0, z −160.8 …
 −160.2 (h 2.0), door open, a navy vest on a hook: `p6_he_vest` (vest, "Put on vest") at (3.2, 1.3, −160.75), stand
-(3.2, 0, −161.6). Shelf on the west wall x 2.2 … 2.6, z −173 … −171, y 1.0. First-aid box on the east wall at (21.5, 1.0,
-−176.0). **Trench exit**: stair `STAIR6_HE = { room: 'he6', x0: 2.4, x1: 3.6, z0: -177.6, dir: 1, risers: 5, rise: 0.28,
+(3.2, 0, −161.6). Shelf on the west wall x 2.2 … 2.6, z −173 … −171, y 1.0. Two carbine boxes on the console's east end at its north edge
+(z −179.0, 0.2 m from the desk's north face). First-aid box on the east wall at (21.5, 1.0,
+−176.0). **Under-wall crossing**: T-b passes under the he6 / vault6 wall at x 2.0 by 3c's built way of opening a wall below
+floor level (the crawl under `d5_arm` — K verifies; a `check:reach` row walks T-b → T-c). **Trench exit**: stair `STAIR6_HE = { room: 'he6', x0: 2.4, x1: 3.6, z0: -177.6, dir: 1, risers: 5, rise: 0.28,
 tread: 0.42, y0: -1.4, nav: false }` (z −177.6 → −175.5, y −1.4 → 0) under `hatch6_he` (lid 1.2 × 2.2 in the floor,
 x 2.4 … 3.6, z −177.6 … −175.4, **dogged from below**, hinged on its south edge — open, it stands at z −177.6 … −177.7;
 exit north), rails 1.0 m on its east (x 3.6) and south (z −177.6) sides (the west wall is 0.2 m away); top plate `TRENCH —
@@ -458,9 +477,10 @@ The dry-room hush: dehumidifier hum, low blue-white light, dust in the lamp cone
 epoxy with the trench as a flush grating strip. **Cable drums** (Ø 4.0 steel drums of spare sea cable on stands, h 4.4,
 axis along z) **CD1** x −20.5 … −16.5, z −158.2 … −155.8; **CD2** x −20.5 … −16.5, z −164.2 … −161.8 (the one that turns —
 `v6_drum`; its brake handle and ratchet pawl on its east stand at x −16.5); **CD3** x −20.5 … −16.5, z −152.2 … −149.8.
-**Beach joint enclosure** BJ against the south wall x −13.2 … −10.8, z −179.8 … −178.6 (h 2.2): double doors on its north
-face hinged at x −13.2 and −10.8, swinging north 90° (open leaves are colliders x −13.2 … −13.15 and −10.85 … −10.8,
-z −178.6 … −177.4; the stand between them is 2.2 m wide); a Castell lock barrel at (−12.0, 1.2, −178.55) — interactable
+**Beach joint enclosure** BJ against the south wall x −13.2 … −10.8, z −179.8 … −178.6 (h 2.2): **bi-parting sliding
+doors** on its north face (two 1.2 m leaves running in a guide channel z −178.6 … −178.5 out to x −14.4 … −13.2 and
+−10.8 … −9.6 in front of the south wall — no sweep, so nobody at the lock is in their path; registered movers, colliders
+in every state — S1j); a Castell lock barrel at (−12.0, 1.2, −178.55) — interactable
 `vault6_lock` "Insert key A", use point (−12.0, 1.2, −178.1), radius 1.3 (without the key: plate prompt `Interlock key A
 required`); inside, the **fibre loom**: the sea cable's 96 fibres fanned into a splice tray glowing laser-green, ending in
 a heavy multi-pin connector with a T-handle, and the trapped **Key B** in a barrel that frees when the connector leaves
@@ -468,27 +488,31 @@ its housing — interactable `vault6_loom` "Pull the fibre", use point (−12.0,
 with the doors open. **Sea cable penetrator** on the south wall (−8.0, 1.0, −179.8): a flanged hull gland Ø 1.2, a small
 armoured port beside it showing black water (`fx` none — a dark lens; see §2.8), the sea cable bending down into the
 trench. **Dehumidifiers** DH1 x −6.0 … −4.0, DH2 x −2.0 … 0.0, both z −149.0 … −148.2 (h 2.0); **nitrogen racks** NR
-x −4.0 … −2.0, z −152.0 … −150.8 (h 1.8). A wall shelf on the east wall x 1.4 … 1.8, z −152 … −149.6, y 1.0. **Trench
-grilles** G1 (−12.4, 0, −170.0), G2 (−12.4, 0, −164.0), G3 (−6.0, 0, −178.8) (lifting 0.8 × 0.8 grilles in the grating,
-3b `sumpGrille`). Ceiling vent `vent6_vault` (−6.0, 6.0, −160.0).
+x −4.0 … −2.0, z −152.0 … −150.8 (h 1.8) with a bracket shelf on its north face at y 1.0. A wall shelf on the east wall x 1.4 … 1.8, z −152 … −149.6, y 1.0. **Trench
+grilles** G1 (−12.4, 0, −174.0), G2 (−12.4, 0, −164.0), G3 (−6.0, 0, −178.8) (lifting 0.8 × 0.8 grilles in the grating,
+3b `sumpGrille`; G1 moved off the door-to-door line, S1g); every grille **drops shut 1.2 s after its skitter is out** and
+its snap state is shut. Ceiling vent `vent6_vault` (−6.0, 6.0, −160.0).
 **Cable trench** (3c crawl mechanism): T-a x −13.0 … −11.8 (z −179.4 … −158.0) and T-b x −13.0 … 2.0 (z −179.4 … −178.2)
 at y −1.4, 1.35 m clear (crouch only), walls `hull_white`-free plain concrete with cable brackets, the sea cable running
 along it, a 3 cm water film (decal + gloss), red LED strips at both floor edges, the buoy ping loud down here; T-c in he6
 (§2.6.6). Entry **`hatch6_vault`** (lid 1.2 × 2.4 in the floor, x −13.0 … −11.8, z −160.4 … −158.0, opens from above,
-two-way) over `STAIR6_T = { room: 'vault6', x0: -13.0, x1: -11.8, z0: -160.3, dir: 1, risers: 5, rise: 0.28, tread: 0.42,
+two-way, **hinged on its south edge** — open, it stands at z −160.4 … −160.5, the exit north stays clear, S1f) over `STAIR6_T = { room: 'vault6', x0: -13.0, x1: -11.8, z0: -160.3, dir: 1, risers: 5, rise: 0.28, tread: 0.42,
 y0: -1.4, nav: false }` (z −160.3 → −158.2, y −1.4 → 0; the top tread meets the floor edge z −158.0, the exit is north);
 rails 1.0 m on the pit's west, east and south sides; interact `Open hatch` at (−12.4, 0.3, −157.5), radius 1.4, from the
 floor north of the pit; stencil `CABLE TRENCH — TO HEAD-END — CROUCH` on the pit frame facing +z. The pit is 8 m north of
 the door-to-door line (d6_vault → d6_shaft runs at z ≈ −168 … −170) and 3.5 m east of the drums: never on the route. Both
 hatch pits are nav obstacles from load (3c S1m). **Reward** at the T-a/T-b corner: a dead Halcyon Subsea jointer (M. Lie,
-orange coverall; body face down, walkable 0.15 m box) at (−12.4, −1.4, −177.2) along T-a, his kit: `p6_trench_plate_1/2`, `p6_trench_ammo_1/2`,
+orange coverall; a static prop with a 0.15 m collider, not an enemy wreck) at (−12.4, −1.4, −177.2) along T-a, his kit: `p6_trench_plate_1/2`, `p6_trench_ammo_1/2`,
 `p6_trench_med` (§5.2), `note6_jointer` (a notebook on a cable bracket (−12.85, −0.9, −176.4) facing +x).
 Length: hatch → corner 21 m, corner → he6 15 m, he6 run 2 m, stairs 2 × 2.1 m ≈ 42 m (≈ 23 s at 1.8 m/s): readable by its
 strips alone (§2.7.3).
 
 #### 2.6.8 shaft6 (interior x −27.8 … −22.2, z −171.8 … −162.2; y −12 … 3.2)
-Bare painted steel, `deck_grate` treads, a 1.6 m open well down the middle (x −25.8 … −24.2) between the halves, rails
-1.1 m (**move-only**) on every well edge; landings (`floors`): **L0** y 0 [−27.8, −22.2, −171.8, −168.4] (the vault door);
+Bare painted steel, `deck_grate` treads, a 1.6 m well down the middle (x −25.8 … −24.2) between the halves — **closed**
+(D32): a **2.4 m mesh guard** (move-only: bodies stop, rays and sight pass, so the look down the well stays) on every
+well edge of every flight and landing, and over the two landing edges that would drop onto a flight: **L0's and L2's
+north edges on the east half** (x −24.2 … −22.2 at z −168.4, over F2's / F4's feet — S1i). The outer flight sides are the
+walls. Landings (`floors`): **L0** y 0 [−27.8, −22.2, −171.8, −168.4] (the vault door);
 **L1** y −3 [−27.8, −22.2, −164.4, −162.2]; **L2** y −6 [−27.8, −22.2, −171.8, −168.4]; **L3** y −9 [−27.8, −22.2,
 −164.4, −162.2]; **bottom** y −12 [−27.8, −22.2, −171.8, −162.2] (the chamber door). Flights (all rise 0.3 × 10,
 tread 0.4 = 4.0 m run, 36.9°):
@@ -497,12 +521,13 @@ tread 0.4 = 4.0 m run, 36.9°):
 `F3 = { x0: -27.8, x1: -25.8, z0: -164.4, dir: -1, …, y0: -9 }` (L3 → L2),
 `F4 = { x0: -24.2, x1: -22.2, z0: -168.4, dir: 1, …, y0: -12 }` (bottom → L3).
 Headroom: every flight and landing is 6.0 m below the one above it on the same half (5.7 m clear under the slab); the
-bottom door (y −12 … −9.6) is under L2 (y −6). **Landing lamps** (caged, mains, the ones that die): LL0 (−27.7, 2.4,
-−170.6), LL1 (−27.7, −0.6, −163.3), LL2 (−27.7, −3.6, −170.6), LL3 (−27.7, −6.6, −163.3), LLB (−27.7, −9.6, −166.0);
-**emergency** (hard-wired): amber nosing strips on every tread, landing-edge strips, a red point at L2 and at the bottom.
-A fire-point cabinet on the east wall at L2 (x −22.6 … −22.2, z −171.6 … −170.6, y −6 … −4.6) with `p6_shaft_ammo` on its
-shelf; a box at the bottom south-west (x −27.8 … −27.0, z −171.8 … −171.0, h 0.8) with `p6_shaft_med`. The well gap on
-each level is a nav obstacle. Drop down the well: allowed (no fall damage; lands on the bottom floor).
+bottom door (y −12 … −9.6) is under L2 (y −6); 2.7 m clear above the bottom floor under L3. **Landing lamps** (caged,
+mains, the ones that die): LL0 (−27.7, 2.4, −170.6), LL1 (−27.7, −0.6, −163.3), LL2 (−27.7, −3.6, −170.6), LL3 (−27.7,
+−6.6, −163.3), LLB (−27.7, −9.6, −166.0); **emergency** (hard-wired): amber nosing strips on every tread, landing-edge
+strips, a red point at L2 and at the bottom. A fire-point cabinet on the east wall at L2 (x −22.6 … −22.2, z −171.6 …
+−170.6, y −6 … −4.6) with `p6_shaft_ammo` on its shelf (1.0 m above L2, 0.2 m from the cabinet face); a box at the bottom
+south-west (x −27.8 … −27.0, z −171.8 … −171.0, h 0.8) with `p6_shaft_med`. The guarded well is a nav obstacle on every
+level. No way down but the stairs.
 
 #### 2.6.9 pool6 — the moon-pool chamber (interior x −75.8 … −28.2, z −195.8 … −148.2; y −20 … +2)
 The largest space of the game: a flooded steel hall, three decks, the well, the windows, the gantry overhead.
@@ -511,54 +536,60 @@ The largest space of the game: a flooded steel hall, three decks, the well, the 
 
 | deck | y | plan box(es) | notes |
 |---|---|---|---|
-| dock | −20 | [−75.8, −28.2, −195.8, −148.2] | minus the well (coaming x −58.4 … −45.6, z −182.4 … −169.6) and the wet dock; includes the **undercroft** under the mid deck and the **window walk** z −195.8 … −194.0 |
-| wet dock | −20.8 | [−62.4, −41.6, −194.0, −184.0] | flat floor, 0.5 m of water; ramps W x −66.0 … −62.4 and E x −41.6 … −38.0 (z −194.0 … −182.4) from −20.0 to −20.8 (12.5°); the **sluice channel** x −62.4 … −41.6, z −184.0 … −182.4 at y −21.3 (1.0 m of water, **no nav nodes**) |
+| dock | −20 | [−75.8, −28.2, −195.8, −148.2] | the room's main floor; its nav grid is cut over the wet dock and the coaming by **nav obstacle boxes in the dock band only** (y −19.25 … −18.5 over x −66 … −38, z −194 … −182.4 and over the coaming footprint x −58.4 … −45.6, z −182.4 … −169.6 — clear of the wet floor's band −20.6 … −19.3, `level/nav.ts:76-88`; S1e); includes the **undercroft** under the mid deck and the **window walk** z −195.8 … −194.0 |
+| wet dock | −20.8 | [−62.4, −41.6, −194.0, −185.5] | flat floor, 0.5 m of water; ramps W x −66.0 … −62.4 and E x −41.6 … −38.0 (z −194.0 … −182.4) from −20.0 to −20.8 (12.5°); the **sluice channel** x −62.4 … −41.6: a **sloped side** z −185.5 → −184.0 from −20.8 down to −21.3 (18.4°, walkable both ways — B3) and a flat bottom z −184.0 … −182.4 at y −21.3 (1.0 m of water; no nav node where `wade` > 0.6) |
 | mid deck | −16 | [−72.8, −31.2, −166.0, −148.2] + the cage cantilever [−55.0, −49.0, −172.0, −166.0] | 0.3 m slab; the undercroft below has 3.7 m |
 | galleries | −12 | east [−31.2, −28.2, −195.8, −148.2], west [−75.8, −72.8, −195.8, −148.2], north [−72.8, −31.2, −151.2, −148.2], landings [−35.0, −31.2, −159.6, −157.6] and [−72.8, −70.6, −159.6, −157.6] | 3.0 m wide; rails 1.1 m (move-only) on the inner edges except where parapet plates are (below) |
 
-**The well**: opening x −58 … −46, z −182 … −170 (12 × 12), water at −20.3, its floor = the **sea gate** at y −34 (a
-closed steel iris with a ring of eight amber lamps and the tether's gland at its centre-north (−52, −34, −171.9)); the
-**coaming** 0.4 m thick, x −58.4 … −45.6, z −182.4 … −169.6, top y −19.2 (0.8 m above the dock, 1.6 m above the wet
-dock), hazard-striped, with a **1.1 m rail** on top (top y −18.1: **1.9 m above the dock**, 2.8 m above the wet dock
-floor); coaming = solid (stops rounds), rail = move-only. Two **ladders** on the inner walls (west wall x −57.8 at z −176;
-east wall x −46.2 at z −176) from the sea gate to the coaming top, each with a self-closing **ladder gate** in the rail
-(0.9 m wide; closed it is the rail; it swings open only toward the well for a climber and shuts behind him — the player
-can never open it) and a 3-rung step down the coaming's outer face to the dock: exits `mk6_lw_exit` (−59.3, −20, −176.0),
-`mk6_le_exit` (−44.7, −20, −176.0). **Sluice ports** in the coaming's south face below the water (the reason the wet dock
-is flooded).
+**The well**: opening x −58 … −46, z −182 … −170 (12 × 12), water at −20.3; its floor is the **inner door of a two-door
+cargo lock** at y −34 (a steel iris with a ring of eight amber lamps and the tether's pressure gland at its centre-north
+(−52, −34, −171.9)); below it a lock chamber and an outer sea door (never seen) — so the chamber never sees sea pressure
+(S10b). The **coaming** is 0.4 m thick, x −58.4 … −45.6, z −182.4 … −169.6, top y −19.2 (0.8 m above the dock, 1.6 m
+above the wet dock), solid (stops rounds), hazard-striped; on it a **1.6 m vertical-bar guard flush with the coaming's
+outer face** (move-only; no horizontal mid-rail; top y −17.6 = **2.4 m above the dock**, 3.2 m above the wet floor, 3.7 m
+above the channel floor) — the coaming top is behind the bars and cannot be stood on (B1). Two **ladders** on the inner
+walls (west wall x −57.8 at z −176; east wall x −46.2 at z −176) from the lock door to the coaming top, each with a
+self-closing **ladder gate** in the guard (0.9 m wide, the guard's full height; it swings open only toward the well, only
+for a kinematic climber, and shuts behind him — the player can never open it); the 3 exit rungs down the coaming's outer
+face are **visual only (no collider)**; the climber steps down kinematically to the exits `mk6_lw_exit` (−59.3, −20,
+−176.0), `mk6_le_exit` (−44.7, −20, −176.0). **Sluice ports** in the coaming's south face below the water: the wet dock is
+the well's overflow (the dock board's `DEWATERING 34 % — STOPPED`).
 
-**The wet dock**: x −66 … −38, z −194 … −182.4, recessed (floor −20.8), water −20.3; kerb faces 0.8 m to the dry dock on
-its north side (x −66 … −58.4 and −45.6 … −38) and its south side (the window walk); ramps W and E. Two cargo slots in it
-(`sl6_5`, `sl6_6`). Wading rules D13.
+**The wet dock**: x −66 … −38, z −194 … −182.4, recessed (flat floor −20.8), water −20.3; kerb faces 0.8 m to the dry
+dock on its north side (x −66 … −58.4 and −45.6 … −38) and its south side (the window walk); ramps W and E; the channel's
+sloped side lets a wader walk out anywhere along it (B3). Two cargo slots in it (`sl6_5`, `sl6_6`). Wading rules D13.
 
 **Sea windows**: one viewport pane 24 × 3.6 m in the south wall, x −64 … −40, y −19.6 … −16.0, z −195.8, normal +z, with
 two 0.3 m mullions at x −56 and −48 (three bays) and a thick frame; outside, the station's floods on the sea floor and
-the **tether** rising from the sea gate's outer sheave (−52, −40, −206) toward the surface, its red beacon at y +18.
+the **tether** rising from the cargo lock's outer sheave (−52, −40, −206) toward the surface, its red beacon at y +18.
 The window walk (dry, y −20) runs along it.
 
-**The mid deck** (y −16): the **winch** WI x −54.0 … −50.0, z −154.0 … −150.0 (h 3.0; a ridged 62° hood — not standable,
-§2.10), the tether paying off its drum into a **trough** (x −52.3 … −51.7, h 0.25, walkable over) running south from
-z −150 to the cage; crates **MC1** x −66.0 … −64.8, z −160.0 … −158.8 (h 1.2) and **MC2** x −40.0 … −38.8, z −160.0 …
-−158.8 (h 1.2); the **dock console** `console6` (desk x −46.0 … −42.0, z −158.6 … −157.8, h 1.0; a 3.2 × 1.4 m screen
-on a stand above its north edge facing −z, labelled `HEAD-END REPEATER — DOCK`, bullet-resistant glass: stars, holds);
-interactable `console6` "Use console" at (−44.0, −15.0, −159.1), radius 1.3, enabled only in the ending's pending state
-(§4.9); stand `mk6_end_stand` (−44.0, −16, −159.6) yaw 180° (facing +z). South edge: a **2.0 m bar guard** (move-only)
-x −68.0 … −55.0 and −49.0 … −36.0; 1.1 m rails x −72.8 … −72.0, −70.0 … −68.0, −36.0 … −34.0, −32.0 … −31.2; the stair
-heads at x −72.0 … −70.0 (`ST6_M`) and −34.0 … −32.0 (`ST6_M2`); the **cage** in the middle. East and west edges
-(x −31.2 / −72.8, the drop to the dock under the side galleries): 1.1 m rails; the space under `ST6_NE` / `ST6_W` is
-closed by a mesh screen (no head-bumping pocket). North edge: the chamber wall.
+**The mid deck** (y −16): the **winch** WI x −54.0 … −50.0, z −154.0 … −150.0 (h 3.0; a ridged steel hood — its ridge
+is standable, which is harmless at 15.6 m from the well, §2.10), the tether paying off its drum into a **trough** (x −52.3
+… −51.7, h 0.25, walkable over) running south from z −150 to the cage; crates **MC1** x −66.0 … −64.8, z −160.0 … −158.8
+(h 1.2) and **MC2** x −40.0 … −38.8, z −160.0 … −158.8 (h 1.2); the **dock console** `console6` (desk x −46.0 … −42.0,
+z −158.6 … −157.8, h 1.0; a 3.2 × 1.4 m screen on a stand **above the desk's north edge** (screen plane z −157.9, facing
+−z), labelled `HEAD-END REPEATER — DOCK`, bullet-resistant glass: stars, holds); interactable `console6` "Use console"
+at (−44.0, −15.0, −159.1), radius 1.3, enabled only in the ending's pending state (§4.9); stand `mk6_end_stand` (−44.0,
+−16, −159.6) yaw 180° (facing +z). South edge: a **2.4 m bar guard** (move-only) x −68.0 … −55.0 and −49.0 … −36.0
+(B1: 1.8 m above a corpse ≥ 1.7); 1.1 m rails x −72.8 … −72.0, −70.0 … −68.0, −36.0 … −34.0, −32.0 … −31.2 (≥ 10.3 m
+from the well, §2.10); the stair heads at x −72.0 … −70.0 (`ST6_M`) and −34.0 … −32.0 (`ST6_M2`); the **cage** in the
+middle. East and west edges (x −31.2 / −72.8, the drop to the dock under the side galleries): 1.1 m rails; the space
+under `ST6_NE` / `ST6_W` is closed by a mesh screen. North edge: the chamber wall.
 
 **The tether frame and its cage** (cantilevered over the well's north edge): platform x −55 … −49, z −172 … −166, y −16;
-a **2.0 m bar cage** (move-only) on its west (x −55), east (x −49) and south (z −172) sides with a bar roof at y −14.0,
-its north side open x −53.0 … −51.0 (bars x −55 … −53 and −51 … −49 at z −166); the trough runs across it to the
-**sheave** (−52.0, −15.2, −171.6) where the tether turns down into the well (it hangs at z −171.9). On the trough: the
-**shear** SH x −52.6 … −51.4, z −169.0 … −168.0 (h 1.4) — a hydraulic guillotine round the tether, its **safety pin** on
-its east face (−51.38, −15.0, −168.5), its pressure gauge (screen `gauge`, 0 → 210 bar) on top; the **hand pump** stand
-PS x −54.2 … −53.4, z −169.0 … −168.2 (h 1.0) with a long lever handle; the **firing lever** post LV x −50.5 … −50.0,
-z −169.0 … −168.4 (h 1.3), a red lever under a hinged guard. Interactables (feet in `t6_cage` required, §8.5):
-`frame6_pin` "Pull safety pin" at (−51.0, −15.0, −168.5), `frame6_pump` "Pump" at (−53.8, −15.0, −167.8), `frame6_lever`
-"Fire the shear" at (−50.25, −14.8, −167.9), each radius 1.2. A hard-wired work lamp over the frame (spot) and a lit
-instruction plate `TETHER SHEAR — 1 PIN — 2 PRESSURE 210 BAR — 3 FIRE` on the cage's north bars facing +z.
+a **2.6 m bar cage** (move-only) on its west (x −55), east (x −49) and south (z −172) sides with a **bar roof at y −13.4**
+(a corpse inside cannot become a step out of it), its north side open x −53.0 … −51.0 (bars x −55 … −53 and −51 … −49 at
+z −166); the trough runs across it to the **sheave** (−52.0, −15.2, −171.6) where the tether turns down into the well (it
+hangs at z −171.9). On the trough: the **shear** SH x −52.6 … −51.4, z −169.0 … −168.0 (h 1.4) — a hydraulic guillotine
+round the tether, its **safety pin** on its east face (−51.38, −15.0, −168.5), its pressure gauge (screen `gauge`,
+0 → 210 bar) on top; the **hand pump** stand PS x −54.2 … −53.4, z −169.0 … −168.2 (h 1.0) with a long lever handle; the
+**firing lever** post LV x −50.5 … −50.0, z −169.0 … −168.4 (h 1.3), a red lever under a hinged guard. Interactables
+(feet in `t6_cage` required — enforced by the interactables' `requireRegion`, §8.5): `frame6_pin` "Pull safety pin" at
+(−51.0, −15.0, −168.5), `frame6_pump` "Pump" at (−53.8, −15.0, −167.8), `frame6_lever` "Fire the shear" at (−50.25,
+−14.8, −167.9), each radius 1.2. A box in the cage's north-west corner (x −54.8 … −54.2, z −167.2 … −166.2, h 1.0) holds
+`p6_cage_ammo` / `p6_cage_plate`. A hard-wired work lamp over the frame (spot) and a lit instruction plate `TETHER SHEAR —
+1 PIN — 2 PRESSURE 210 BAR — 3 FIRE` on the cage's north bars facing +z.
 
 **Stairs** (`StairDef`, all along z, rise 0.2857 × 14 = 4.0 m, tread 0.4, run 5.6 m, 35.5°):
 `ST6_NE = { room: 'pool6', x0: -35.0, x1: -33.2, z0: -152.0, dir: -1, risers: 14, rise: 0.2857, tread: 0.4, y0: -16 }`
@@ -571,16 +602,21 @@ ST6_M2 likewise in the east. 0.8 m of floor in front of every stair foot.
 
 **Galleries** (y −12): 3.0 m wide; **parapet plates** (h 1.1, solid — low cover): east gallery inner edge x −31.2 at
 z −192 … −184 and −182 … −174; west gallery x −72.8 at z −192 … −184, −182 … −174 and −168 … −160; north gallery
-z −151.2 at x −66 … −58 and −46 … −38; rails elsewhere. The galleries are **out of the grab's reach** (§5.6 trolley
-limits). Ammo lockers: east gallery at z −194.6 (x −28.6, a wall locker), west gallery at z −194.6 (x −75.4).
+z −151.2 at x −66 … −58 and −46 … −38; rails elsewhere. The galleries are **out of the grab's reach** (§2.6.10). **Dock
+ammo lockers** (fire-point lockers, story-owned interactables "Take ammo", **re-armed at every boss restore** — B5):
+`locker6_e` on the east gallery wall (−28.4, −11.0, −194.6) (carbine 60), `locker6_w` on the west gallery wall (−75.6,
+−11.0, −194.6) (carbine 30 + shells 8), `locker6_n` on the north gallery wall under the dock board (−52.0, −11.0,
+−148.4) (carbine 60 — S9); use points 0.5 m out from each, radius 1.3; beside each a medkit / plate pickup (§5.2).
 
 **The undercroft** (dock level under the mid deck, z −166 … −148.2): pump housings **P1** x −64.0 … −62.0, z −156.0 …
-−154.0 and **P2** x −42.0 … −40.0, z −156.0 … −154.0 (h 1.8), a hose reel, the drain sump grille, a dewatering panel
-(`DEWATERING — 34 % — STOPPED`); out of the grab's reach (it cannot pass the mid deck).
+−154.0 and **P2** x −42.0 … −40.0, z −156.0 … −154.0 (h 1.8) with a tool shelf on each north face (y −19.0), a hose reel,
+the drain sump grille, the dewatering panel with `note6_transfer`; out of the grab's reach (it cannot pass the mid deck);
+its point light is hard-wired and on in **all** qualities (the refuge, S13).
 
 **Cargo slots** (`Level.dock`, §8.1; painted yellow hatched outlines on the deck, stencil `CARGO SLOT n`; containers
 6.0 × 2.4 × 2.6, long axis x; a slot is "free" or holds one container; every slot is ≥ 6.5 m from the coaming, §2.10, and
-off every route corridor):
+off every route corridor; **all six slot boxes are permanent nav obstacles** (occupied or not), in their floor's band —
+S6a):
 
 | slot | box (x, z) | floor y | at load |
 |---|---|---|---|
@@ -591,14 +627,17 @@ off every route corridor):
 | `sl6_5` | −60 … −54, −192.0 … −189.6 | −20.8 (wet) | container B-10 |
 | `sl6_6` | −50 … −44, −192.0 … −189.6 | −20.8 (wet) | free |
 
-Container B-14 hangs in the grab at load (lowered into the well during the reveal, §4.8). Slot clearances: sl6_2 / sl6_4
-are 2.4 m south of the stair feet (z −171.6) and their floors in front; sl6_1 / sl6_3 leave 2.0 m passages north of them;
-sl6_5 / sl6_6 leave the wet dock's flat floor between them (x −54 … −50) and 1.6 m to the ramps.
+**Containers and the grab are non-walkable dynamic boxes** (B2): with the physics as built a capsule cannot rest on a
+non-walkable box (it is pushed off horizontally, `physics.ts:154-176`), so no container top and no grab top is ever a
+floor; the grab has a box only while its bottom is < 2.5 m above a deck. B-14 hangs in the grab when the loader is
+spawned (phase K) and is lowered into the well at the reveal (§4.8). Slot clearances: sl6_2 / sl6_4 are 2.4 m south of the
+stair feet (z −171.6) and their floors in front; sl6_1 / sl6_3 leave 2.0 m passages north of them; sl6_5 / sl6_6 leave
+the wet dock's flat floor between them (x −54 … −50) and 1.6 m to the ramps.
 
 **Signs and boards**: the **dock board** on the north wall above the north gallery (x −58 … −46, y −8.0 … −5.0,
 z −148.22, facing −z, screen `dock_board`, §6.4) — readable from everywhere in the chamber; `MOON POOL — 2,140 M`;
-`SEA GATE — CLOSED — 210 BAR`; hazard stencils on the coaming `NO ENTRY — WET WELL`; `LOADER WORKING AREA — KEEP CLEAR`
-on the dock.
+`CARGO LOCK — INNER DOOR CLOSED`; hazard stencils on the coaming `NO ENTRY — WET WELL`; `LOADER WORKING AREA — KEEP
+CLEAR` on the dock.
 
 #### 2.6.10 The loader (rig owned by W3a; its rails and end stops are level geometry)
 Runway rails on corbels along both side walls at y −4.0 (x −75.4 and −28.6), z −194 … −150 with end-stop buffers; a
@@ -612,7 +651,8 @@ mid deck, §5.6); the bridge's travel keeps the grab's footprint 0.6 m clear of 
 FL2) on the trolley's south corners and two **bridge floods** (FL3, FL4) under the girders at x −66 and −40, each a big
 lamp head on a pan/tilt yoke. **Hoist**: four wire ropes to the **grab** (2.4 × 2.4 × 1.6, four jaws on hinge pins, a
 hydraulic power pack on top with two **jaw rams** — chrome rods with amber sight glasses — on its east and west sides, a
-ring light under it, its CHOIR status mark). Grab top at y −6.4 when raised; its bottom reaches the dock (−20), the wet
+ring light under it, its CHOIR status mark). The grab and a carried container are **non-walkable** dynamic boxes; the
+grab has its box only while its bottom is < 2.5 m above a deck (B2). Grab top at y −6.4 when raised; its bottom reaches the dock (−20), the wet
 dock (−20.8), the mid deck (−16) and down into the well (cargo to −26).
 
 ### 2.7 Light plan, darkness and per-space performance budget
@@ -636,7 +676,7 @@ and mid deck's to their decks.
 | `vault6` | 2 spots (cast medium+, prio 0.7) down the drum row and onto the enclosure + 1 point (all) | after the pull: the enclosure's green dies (emissive) | 3 |
 | `trench6` | 2 red points 0.25 (all) at z −170 (T-a) and x −4 (T-b), `bounds` = trench boxes; LED strips | — | 2 |
 | `shaft6` | 5 landing lamps (points; LL0, LL2, LLB all; LL1, LL3 medium+) | **`v6_shaft_lights`**: they die one below the other; `shaft6_emerg`: red points at L2 and the bottom (all), nosing strips | 5 + 2 |
-| `pool6` | high-bay points HB1 (−62, −2, −160), HB2 (−42, −2, −160) (all), HB3 (−62, −2, −186), HB4 (−42, −2, −186) (medium+); the frame lamp (spot, all, prio 0.7, cast medium+) at (−52, −13.8, −166.2) aimed at the shear; the undercroft point (medium+); the loader's 4 floods (spots, prio 0.9; FL1/FL2 cast medium+) | **beacons** BC1 (−52, −6, −148.6), BC2 (−52, −6, −195.4) (amber rotating, all) from the hostile start; **`lights_out6`** at stage 2: HB1–4 off, red points ER1 (−73, −10, −150), ER2 (−31, −10, −194) (all, 0.45), the viewport → state `dark` (outside floods off, the beacon on the tether stays) | 8 + 4 |
+| `pool6` | high-bay points HB1 (−62, −2, −160), HB2 (−42, −2, −160) (all), HB3 (−62, −2, −186), HB4 (−42, −2, −186) (medium+); the frame lamp (spot, all, prio 0.7, cast medium+) at (−52, −13.8, −166.2) aimed at the shear; the undercroft point (**all**, hard-wired 0.35 — the refuge, S13); the loader's 4 floods (spots, prio 0.9, above every soldier weapon light; **non-shadow on LOW and MEDIUM**, FL1/FL2 cast on HIGH — S13) | **beacons** BC1 (−52, −6, −148.6), BC2 (−52, −6, −195.4) (amber rotating, all) from the hostile start; **`lights_out6`** at stage 2: HB1–4 off, red points ER1 (−73, −10, −150), ER2 (−31, −10, −194) (all, 0.45), the viewport → state `dark` (outside floods off, the beacon on the tether stays) | 8 + 4 |
 | `stores6` | 1 point (all) | — | 1 |
 | `feed6` | 2 amber beacons + 1 red point over the launch lock (pinned only during the E2 feed pass) | — | 3 |
 
@@ -648,9 +688,11 @@ lamp is medium+) / 3 / 1. (d) tun6_b dark: 4 red + muzzle 1 + sentry eye 1 = 6 /
 flashlight = 3 / 2. (e) he6 → vault: he6 2 + vault 1 + muzzle 1 + husk eye 1 = 5 / vault spots 0 on LOW-cast (spots
 still lit, no shadow: 2) + soldier 1 + flashlight = 4 / 1. (f) vault fight: 1 + trench 1 + he6 1 + muzzle 1 + eyes 2 = 6 /
 2 + 1 + 1 = 4 / 1. (g) shaft after the lamps die: red 2 + chamber spill (emissive) + eye 1 = 3 / 1 / 1. (h) **pool6 stage 1**
-from the cage looking south-east: HB1, HB2, BC1, BC2 + muzzle 1 + husk eye 1 = 6 / floods 4 + frame lamp 1 + soldier
-lights 2 + flashlight = **8** / 1 (flashlight; the frame lamp casts MEDIUM+) — at the pool limit by design; a destroyed
-flood frees a slot. (i) **pool6 after `lights_out6`**: BC1, BC2, ER1, ER2 + muzzle 1 + eye 1 = 6 / ≤ 8 / 1. (j) the
+from the cage looking south-east: HB1, HB2, BC1, BC2 + muzzle 1 + husk eye 1 = 6 (the undercroft point loses to them by
+distance when unseen) / floods 4 + frame lamp 1 + flashlight 1 = 6, leaving **2 slots for soldier weapon lights**: with
+W1 + W3 alive (4 soldiers, ≤ 2 aiming by the token rule) the floods out-rank them (prio 0.9 vs 0.5), so a flood is never
+evicted; `floodLit` counts only a flood whose light is in the pool this frame (S13) / 1 (the flashlight; no flood casts
+below HIGH). A destroyed flood frees a slot. (i) **pool6 after `lights_out6`**: BC1, BC2, ER1, ER2 + muzzle 1 + eye 1 = 6 / ≤ 8 / 1. (j) the
 ending (feed pass): pool6 as (i) minus enemies; the feed pass pins feed6's 3 lights in its own pass only.
 
 #### 2.7.3 Darkness for the battery (D19)
@@ -681,7 +723,10 @@ and `d6_stores` when open**: from the shaft with the door shut it costs nothing.
 #### 2.7.5 Per-space budget (main calls / shadow calls / tris / transparent calls / max layers)
 
 Targets ≥ 60 fps LOW and MEDIUM, ≥ 45 fps HIGH; any view over budget blocks hand-over. Counts **include** the enemies the
-plan puts there (soldier ≤ 10 calls LOD0 / ≤ 6 LOD1, husk 12, skitter ≤ 6, sentry ≤ 8, **loader ≤ 14**).
+plan puts there (soldier ≤ 10 calls LOD0 / ≤ 6 LOD1, **husk 12 main + ≈ 17 shadow** (3b integration item 6: three
+husks ≈ 86 with shadows), skitter ≤ 6, sentry ≤ 8, **loader ≤ 14**). The pool6 fight's shadow budget assumes the
+flashlight as the only moving shadow caster on MEDIUM (S13); a measured second caster is allowed only at the greybox
+gate.
 
 | space | main | shadow | tris | transparent | layers |
 |---|---|---|---|---|---|
@@ -721,8 +766,8 @@ Shots: the well and wet dock surfaces splash (`fx.splash`), no decal; panes and 
 
 | water id | box (world) | surface y | depth map (d at the feet) | room / region |
 |---|---|---|---|---|
-| `wat6_wet` | x −66 … −38, y −21.4 … −20.3, z −194 … −182.4 | −20.3 | ramps 0 → 0.5; flat floor 0.5 (knee); sluice channel 1.0 (waist) | pool6 / `wet` |
-| `wat6_well` | x −58 … −46, y −34 … −20.3, z −182 … −170 | −20.3 | 13.7 (**deep**: unreachable, ALWAYS forbidden; the fail-safe exists for bugs only) | pool6 / `deep` |
+| `wat6_wet` | x −66 … −38, y −21.4 … −20.3, z −194 … −182.4 | −20.3 | ramps 0 → 0.5; flat floor 0.5 (knee); channel side slope 0.5 → 1.0; channel bottom 1.0 (waist); `stand` 1.25 | pool6 / `wet` |
+| `wat6_well` | x −58 … −46, y −34 … −20.3, z −182 … −170 | −20.3 | 13.7 (**deep**: unreachable, ALWAYS forbidden); `stand` 1.25 (the rescue fail-safe, D12) | pool6 / `deep` |
 
 Each water surface is a `rayOnly` collider quad (K, D14) plus its visible mesh (W6/D3a).
 
@@ -737,30 +782,31 @@ Each water surface is a `rayOnly` collider quad (K, D14) plus its visible mesh (
 | `fx6_drips_pool` | 8 drips from roof seams (`bounds`) | pool6 interior | walls | pool6 / shaft6 |
 | `fx6_vault_dust` | `fx.fog` dust in the vault's spot cones | x −21 … 1, y 0 … 6, z −179 … −149 | vault walls | vault6 / he6 |
 | `fx6_drips_trench` | 3 drips in the trench | trench boxes | trench | vault6 (trench) / — |
-| `fx6_shaft_drips` | 2 drips down the well gap | shaft interior | walls | shaft6 / vault6 |
+| `fx6_shaft_drips` | 2 drips down the guarded well | shaft interior | walls | shaft6 / vault6 |
 
-### 2.10 Containment arithmetic — the well (D12, R6)
+### 2.10 Containment arithmetic — the well (D12, R6; recomputed after review B1 with g = 19)
 
-A sprint-jump from a standable surface h metres above the well's rail top (y −18.1) crosses its rim at most
-`R(h) = 6.0 × (0.45 + √(2(h + 1.0)/9.8))` m horizontally before falling below it. Every standable surface in the chamber,
-its height over the rail top, R, its nearest horizontal distance to the rail line, and what stops it:
+The well's barrier top is the coaming guard's top, **y −17.6**. A sprint-jump from a standable surface h metres above it
+(h includes **+0.6 m for a wreck box** lying on that surface) crosses at most `R(h) = 6.0 × (0.324 + √(2(h + 1.0)/19))` m
+horizontally before it falls below the barrier top. Every standable surface in the chamber:
 
-| surface | y | h | R | distance to the rail | barrier |
+| surface | y | h (+ wreck) | R | distance to the guard line | barrier |
 |---|---|---|---|---|---|
-| dock / window walk / undercroft | −20 | −1.9 | — (below) | 0 … | coaming + rail 1.9 m (≥ 1.75 ✓) |
-| wet dock floor / channel | −20.8 / −21.3 | — | — | 0 … | coaming face 1.6 / 2.1 m + rail = 2.7 / 3.2 m ✓ |
-| container top in a slot (sl6_1 … 4) | −17.4 | 0.7 | 6.2 m | ≥ 9.6 m (x ≤ −68 or ≥ −36) ✓ | distance |
-| container top in sl6_5 / sl6_6 | −18.2 | −0.1 | 5.3 m | ≥ 7.2 m ✓ | distance |
-| mid deck south edge x −68 … −36 | −16 | 2.1 | 7.5 m | 3.6 … 10 m | **2.0 m bar guard** ✓ (and the cage) |
-| mid deck edge x −72.8 … −68 / −36 … −31.2, stair heads | −16 | 2.1 | 7.5 m | ≥ 10.3 m ✓ | distance (1.1 m rail) |
-| `ST6_M` / `ST6_M2` flights | −20 … −16 | ≤ 2.1 | ≤ 7.5 m | ≥ 12.1 m ✓ | distance |
-| winch hood | −13 | 5.1 | 9.4 m | 15.6 m (z −154 → −169.6) ✓ | distance + 62° hood (not standable) |
-| galleries / landings | −12 | 6.1 | 9.9 m | ≥ 14.4 m ✓ | distance |
-| the cage roof | −14.0 (bars) | — | — | — | unreachable from any standable surface (nothing within 3 m above it) |
+| dock / window walk / undercroft | −20 | — | — | 0 … | coaming 0.8 + bar guard 1.6 = **2.4 m** (≥ 2.35 with a corpse ✓) |
+| wet dock floor / channel | −20.8 / −21.3 | — | — | 0 … | 3.2 / 3.7 m ✓ |
+| coaming top | −19.2 | — | — | — | behind the flush guard: not standable |
+| container tops, the grab top | — | — | — | — | **not standable** (non-walkable dynamic boxes, B2) |
+| mid deck south edge x −68 … −36 | −16 | 2.2 | 5.43 m | 3.6 … 10.25 m | **2.4 m bar guard** ✓ (1.8 m above a corpse) and the cage |
+| mid deck edge x −72.8 … −68 / −36 … −31.2, stair heads | −16 | 2.2 | 5.43 m | ≥ 10.3 m ✓ | distance (1.1 m rail) |
+| `ST6_M` / `ST6_M2` flights | −20 … −16 | ≤ 2.2 | ≤ 5.43 m | ≥ 12.1 m ✓ | distance |
+| winch hood ridge (standable) | −13 | 5.2 | 6.79 m | 15.6 m ✓ | distance only (the hood is no barrier) |
+| galleries / landings | −12 | 6.2 | 7.17 m | ≥ 14.4 m ✓ | distance |
+| inside the cage | −16 | — | — | — | 2.6 m bars + bar roof at −13.4: closed |
 
-W4 implements this as **`check:reach` jump-arc probes** (§10.2): from every standable sample in pool6 higher than y −18.6
-within 12 m of the rail, sprint-jump arcs in 16 directions with the real capsule; none may enter `deep`. Any prop added
-by dressing re-runs it.
+**`check:reach` (W4b, §10.2)** proves it: the simulation runs down to the level's lowest point (`GreyGrid` y −36, not
+the old y −5 cut-off), tests hazard regions (`deep`) **on every simulated step** (not only end nodes), and its jump-arc
+probes start from **every** standable surface in pool6 (no "above y −18.6" limit), with the +0.6 m wreck stress, sprint
+speed, 16 directions. Any prop added by dressing re-runs it.
 
 ---
 
@@ -780,7 +826,7 @@ Story progress that changes no door (manual, pulled, boss stages, the cut) is fl
 | d6_pool | auto | | | | | | | auto |
 | d6_stores | locked | | | | | | open (W1) | locked |
 
-Machines: `loader` dormant pose `working` from load (§5.6.1); `winch6` idle; `ping6` (the buoy ping, rate from the story:
+Machines: the loader is an enemy spawned when Key B turns (D31; pose `working`, §5.6.1) — not a level machine; `winch6` idle; `ping6` (the buoy ping, rate from the story:
 20 s before the pull, 4 s after, off after the cut). Variants without player checks: `B_hold`, `K_stores` (each latched
 closed again behind its wave).
 
@@ -794,9 +840,10 @@ variant; `bay6` is a goal after B (the reward); `hold6` / `stores6` neither afte
 | T | tube open | (0, 0, 2.0) | shaft6, pool6, stores6, hold6, bay6 | lock6, tun6_a, rep6, tun6_b, he6, vault6 | as U | as U |
 | U | latched (`cp6_tunnel`) | (0, 0, −10.0) | lock6, shaft6, pool6, stores6, hold6, bay6 | tun6_a, rep6, tun6_b, he6, vault6, trench | `he6_switch`, `note6_queue`, `note6_jobcard`, `hatch6_vault`, `hatch6_he` (from below), `vault6_lock` (refuses: no key), `shaft6_lock` (refuses), every `p6_*` in these rooms incl. the trench's | `frame6_*`, `console6`, `hatch6_he` from above, `vault6_loom` (doors shut) |
 | B | bay live (`cp6_rep`, `cp6_he`) | (4.0, 0, −86.0) | lock6, shaft6, pool6, stores6, hold6 | U goals + bay6 | U + `p6_bay_*` | as U |
+| B_hold (variant row) | F4 / F5 walking out | (−14.0, 0, −152.0) | as B **minus hold6** (neither forbidden nor goal while the door is open — a player inside it is fought there; the latch waits for him) | as B | as B | as B |
 | U_man (flag row: manual) | `cp6_manual` | (18.0, 0, −171.0) | as B | as B | B + `vault6_lock` (opens: Key A held) | as B |
 | U_pull (flag row: enclosure open) | — | (−12.0, 0, −177.6) | as B | as B | B + `vault6_loom` | as B |
-| K | shaft open (`cp6_pulled` is B-phase; `cp6_shaft`, `cp6_m*`, `cp6_quiet`) | (−24.5, 0, −170.0) (L0) | lock6, hold6, stores6 | everything else incl. every pool6 deck, the cage, the wet dock, the window walk | `frame6_pin`, `frame6_pump`, `frame6_lever` (feet in `t6_cage`), every `p6_*` of pool6 and shaft6 | `frame6_*` with the feet outside `t6_cage` (R8 row, §8.5), `console6` (until the ending), `deep` (a region: unreachable incl. jump arcs) |
+| K | shaft open (`cp6_pulled` is B-phase; `cp6_shaft`, `cp6_m*`, `cp6_quiet`) | (−24.5, 0, −170.0) (L0) | lock6, hold6, stores6 | everything else incl. every pool6 deck, the cage, the wet dock, the window walk | `frame6_pin`, `frame6_pump`, `frame6_lever` (feet in `t6_cage`), every `p6_*` of pool6 and shaft6 | `frame6_*` with the feet outside `t6_cage` (the interactables' `requireRegion: 't6_cage'`, which `check:reach` honours — S8g), `console6` (until the ending), `deep` (a hazard: never entered on any simulated step, incl. jump arcs) |
 | K_end (flag row) | ending pending | (−44.0, −16, −160.4) | as K | as K | K + `console6` | — |
 
 `stressFloors`: A … B `[0, −1.4]`; K `[0, −1.4, −3, −6, −9, −12, −16, −20, −20.8, −21.3]`. **One-way** (`reachHints.oneway`):
@@ -814,7 +861,7 @@ Latches (`closeBehind(door, keepSide)`):
 | `d6_hold` (after spawn) | last member at z < −148.6, or 10 s | B_hold | player z < −148.6 | stays open, retries every 2 s |
 | `d6_stores` (after spawn) | last W1 member at z < −148.6, or 10 s | K_stores | player z < −148.6 | stays open, retries every 2 s |
 
-`nostory`: every door `auto` except `d6_hold`, `d6_stores` (locked); the loader dormant `working` (never wakes);
+`nostory`: every door `auto` except `d6_hold`, `d6_stores` (locked); no loader (nothing spawns it);
 lights lit; hatches closed; no actors.
 `regions.dark` is for the soldier rule and `check:dark` only; `check:reach` ignores it.
 
@@ -840,7 +887,7 @@ combat (a radio), but a CHOIR bark never overlaps them (3c §4.4 rule).
 
 | when | event |
 |---|---|
-| first `t6_tun_mid` in U, calm, player z > −40 — **or** 35 s in U with the player still at z > −70 | beat `l6_crossing`; `g6_tun_s` (2 soldiers, carbine) spawned in rep6 at `mk6_tun_s1` (10.0, 0, −86.0) and `mk6_tun_s2` (12.0, 0, −87.5) — hidden from every tunnel point north of z −70 (worst case (−2.3, −70) → (10, −86) crosses z −80 at x 5.4, outside the mouth's ±2.5); **if the player reaches z −70 before this spawn, F1 is cancelled for good** (R4: it never exists; rep6's F2 takes over); `v6_crossing` (only when the player is at z > −40) (§5.7): s1 walks the patrol path (3c `v5_boots` mechanism, see §8.4) `mk6_cross_0` (10.0, 0, −86.0) → `mk6_cross_1` (−3.0, 0, −86.0) at 1.4 m/s, light on, not looking — seen through the tunnel mouth for ≈ 3 s at ≥ 60 m |
+| first `t6_tun_mid` in U, calm, player z > −40 — **or** 35 s in U with the player still at z > −70 | beat `l6_crossing`; `g6_tun_s` (2 soldiers, carbine) spawned in rep6 at `mk6_tun_s1` (10.0, 0, −86.0) and `mk6_tun_s2` (12.0, 0, −87.5) — hidden from every tunnel point north of z −70 (worst case (−2.3, −70) → (10, −86) crosses z −80 at x 5.4, outside the mouth's ±2.5); **if the player reaches z −70 before this spawn, F1 is cancelled for good** (R4: it never exists; rep6's F2 takes over); `v6_crossing` (only when the player is at z > −40) (§5.7): s1 walks `enemies.patrol('g6_tun_s', …)` (§8.1; 3d's K adds the member — no patrol API exists in 3c's contract, S8a) `mk6_cross_0` (10.0, 0, −86.0) → `mk6_cross_1` (−3.0, 0, −86.0) at 1.4 m/s, light on, not looking — seen through the tunnel mouth for ≈ 3 s at ≥ 60 m |
 | crossing end (s1 at `mk6_cross_1`) + 2.0 s, or the player fires / is within 40 m of either | `enemies.release('g6_tun_s')`; both advance cover to cover up the tunnel (`cover: 'tunnel'`); `tun6_far_out` (lights z −56, −72 off, red points on, `dark` extended to z < −52); `l6_kes_contact_a` (C) |
 | both soldiers in cover + 6 s, or one dead | `g6_tun_u` (2 husks `navy`) spawned at `mk6_tun_u1` (−1.2, 0, −91.3), `mk6_tun_u2` (0.0, 0, −91.3), in DS2's shadow (from any tunnel point, and from rep6's north mouth, the ray to their chests meets the 2.6 m drum: e.g. (2.3, −70) → (−1.2, −91.3) passes z −89.0 at x −0.82, inside DS2's x −2.0 … 0.6); `rush('g6_tun_u', 25)`; if the player is already in rep6 they spawn only if the spawn-visibility ray test (§10.1) passes from his eye at that moment, else they are skipped (R4) |
 | `g6_tun_s` + `g6_tun_u` dead + 1.5 s, calm | **`cp6_tunnel`**; `l6_kes_tun_done` (C, once) |
@@ -853,7 +900,7 @@ before the spawn cancels F1 (§9 #3).
 | when | event |
 |---|---|
 | first `t6_rep`, calm | `l6_kes_rep` (C) |
-| first `t6_rep_in` (feet past z −81.5), **or** 25 s in rep6 | beat `l6_rep`; `g6_rep_s` (1 soldier, carbine, `cover: 'rep'`) spawned at `mk6_rep_s` (10.4, 0, −111.0) in tun6_b (behind RH1: hidden from every point of rep6, §2.6.4) — he walks north into rep6's covers; phase B: `d6_bay` opens at +0.4; `g6_rep_u` (2 husks) from bay6 (`mk6_bay_u1/u2`) rushed 25 s (they walk into tun6_b and north); `vent6_rep` grille drops at +1.0, +0.4 s `g6_rep_k` (2 skitters) at (5.6, 4.9, −84.0), (6.4, 4.9, −84.0) (0.1 m under the ceiling beside the opening, 3b S1); `l6_kes_contact_rep` (C) |
+| first `t6_rep_in` (feet past z −81.5), **or** 25 s in rep6 | beat `l6_rep`; `g6_rep_s` (1 soldier, carbine, `cover: 'rep'`) spawned at `mk6_rep_s` (10.2, 0, −111.6) in tun6_b (behind RH1: hidden from every point of rep6, §2.6.4) — he walks north into rep6's covers; phase B: `d6_bay` opens at +0.4; `g6_rep_u` (2 husks) from bay6 (`mk6_bay_u1/u2`) rushed 25 s (they walk into tun6_b and north); `vent6_rep` grille drops at +1.0, +0.4 s `g6_rep_k` (2 skitters) at (5.6, 4.9, −84.0), (6.4, 4.9, −84.0) (0.1 m under the ceiling beside the opening, 3b S1); `l6_kes_contact_rep` (C) |
 | F2 dead + 1.5 s, calm, player in rep6 / tunnels / bay6 | **`cp6_rep`** |
 
 ### 4.4 Tunnel B in the dark (B)
@@ -861,7 +908,7 @@ before the spawn cancels F1 (§9 #3).
 | when | event |
 |---|---|
 | first `t6_tunb` | `l6_kes_tunb` (C, once) |
-| first `t6_tunb_dark` (z < −96) | `g6_tunb_s` (1 soldier, carbine) spawned in he6 at `mk6_he_s` (12.0, 0, −164.0) (he6 behind the shut `d6_he`: hidden); +0.5 s he walks out through `d6_he` (it opens for him: the spill of warm light down the dark tunnel) to `mk6_tunb_hold` (12.0, 0, −153.0) and holds (pose `hold`, yaw π — facing north up the tunnel, the porthole glowing behind him); `d6_he` closes behind him. Released (3c `release` + self-release) by: the player within 30 m; a shot or near miss; the flashlight on him 0.5 s within 25 m; 60 s after he holds. +1.0 after he holds: `l6_choir_dark_<choice>` (radio:1) |
+| first `t6_tunb_dark` (z < −96) | `g6_tunb_s` (1 soldier, carbine) spawned in he6 at `mk6_he_s` (12.0, 0, −162.0) (2 m clear of R1's north face; he6 behind the shut `d6_he`: hidden — S1a); +0.5 s he walks out through `d6_he` on **`enemies.patrol('g6_tunb_s', [mk6_he_s, mk6_tunb_hold], { speed: 1.4, light: false, end: 'hold' })`** (§8.1 — a real soldier walking, never an actor, R2; the door opens for him: the spill of warm light down the dark tunnel) to `mk6_tunb_hold` (12.0, 0, −153.0) and holds (pose `hold`, yaw π — facing north up the tunnel, the porthole glowing behind him); `d6_he` closes behind him. Released (3c `release` + self-release) by: the player within 30 m; a shot or near miss; the flashlight on him 0.5 s within 25 m; 60 s after he holds. +1.0 after he holds: `l6_choir_dark_<choice>` (radio:1) |
 | the soldier in view ≥ 1 s at > 25 m with the lamp off | `l6_kes_tunb_soldier` (C, once) |
 | first `t6_tunb_sentry`, a shot within 12 m of the dock, or the soldier released | `wakeGroup('g6_tunb_k')` (sentry `navy`, dormant `ceiling` at (12.0, 3.9, −134.0) from load — harmless while dormant, R4) |
 
@@ -872,9 +919,9 @@ before the spawn cancels F1 (§9 #3).
 | first `t6_he`, no awake hostile in he6 / tun6_b within 30 m | **`cp6_he`**; `l6_kes_he_1` (C); +g 0.5 `l6_kes_he_2`; +g 0.6 `l6_reyes_he`; +g 0.4 `l6_kes_he_3` → stopped at its **`cut`** (just after "by"; fade 0.03 s); at the cut (−0.05 s overlap) `l6_choir_he_<choice>` (radio:1); objective `The changeover switch — east wall` |
 | `v6_handset` (§5.7 #3): calm, feet in `t6_phone` or ≥ 25 s in he6, no `scene` line playing | the howler buzzes three times (`phone_howler`); then `l6_aas_1` from the handset (positional at `mk6_handset` (21.55, 0.85, −164.3), fx `phone`, POS `phone` ref 0.8 m — audible within ≈ 4 m, D29); `he6_phone` enabled. Not picked up within 12 s → `l6_aas_1` once more 25 s later, then `phone_dead_click` and `he6_phone` disabled for good |
 | `he6_phone` used | the handset lifts off its cord into the left hand (prop `held`, no camera; the player keeps control and his weapon in the right hand); the HUD strip shows `SOUND-POWERED — POST 4`; the voice becomes 2-D close (fx `phone`); +0.4 `l6_aas_2`; +g 0.5 `l6_reyes_aas`; +g 0.3 `l6_aas_3` → stopped at its `cut` ("bo—"), `phone_dead_click` + line hiss; the handset drops back onto its cord; fact `aas`; +1.2 `l6_kes_aas` (C: heard `l6_aas_2`). Walking > 2 m from the station while it talks: the handset swings back (`handset_drop`), the remaining lines play positional from it |
-| `note6_queue` read (closed) | fact `manifest`; +1.0, calm: `l6_kes_queue` (C, once); +g 0.5 `l6_choir_queue_<choice>` (radio:1) |
-| `he6_switch` used | `player.grip({ seconds: 3.0, hold: true, motion: 'crank' })` (§8.3); the mode plate's pointer travels AUTO → MANUAL with the progress; at done: **Key A** (`player.addKey('key6_a')`, toast `Key A — head-end mode`), fact `manual`, beat `l6_manual`; mimic board `MODE: MANUAL — PROTECTION SWITCHING OFF`; `l6_unit_manual` (at `mk6_switch`); +g 0.4 `l6_kes_manual` (C); +g 0.4 `l6_choir_manual_<choice>`; objective `The beach joint — vault, south wall` |
-| manual + 4.0 s | F4: `g6_he` (1 soldier carbine `cover: 'he'`, 2 husks) spawned in hold6 at `mk6_hold_1` (−16.0, 0, −143.0), `mk6_hold_2` (−19.0, 0, −144.0), `mk6_hold_3` (−13.0, 0, −144.0); +0.4 s phase B_hold (`d6_hold` opens); `rush` the husks 30 s; route hold6 → vault → `d6_vault` → he6 (≈ 30 m: husks ≈ 8 s, soldier ≈ 19 s); `l6_kes_he_contact` (C: none in view; queued behind any `scene` line, dropped if one is in sight); latch `d6_hold` behind them |
+| `note6_queue` read (closed) | fact `manifest`; +1.0, calm: `l6_reyes_queue` (C, once); +g 0.5 `l6_kes_queue` (C); +g 0.5 `l6_choir_queue_<choice>` (radio:1) (S11b: the same order as §6.2) |
+| `he6_switch` used | `player.grip({ seconds: 3.0, hold: true, motion: 'crank' })` (§8.3; a grip needs both hands — if the handset is held it drops first, `handset_drop`, and the call's remaining lines play positional from it, S11d); the mode plate's pointer travels AUTO → MANUAL with the progress; at done: **Key A** (`player.addKey('key6_a')`, toast `Key A — head-end mode`), fact `manual`, beat `l6_manual`; mimic board `MODE: MANUAL — PROTECTION SWITCHING OFF`; `l6_unit_manual` (at `mk6_switch`); +g 0.4 `l6_kes_manual` (C); +g 0.4 `l6_choir_manual_<choice>`; objective `The beach joint — vault, south wall` |
+| manual + 4.0 s | F4: `g6_he` (1 soldier carbine `cover: 'he'`, 2 husks) spawned in hold6 at `mk6_hold_1` (−16.0, 0, −143.0), `mk6_hold_2` (−19.0, 0, −144.0), `mk6_hold_3` (−13.0, 0, −144.0); +0.4 s phase B_hold (`d6_hold` opens); `rush` the husks 30 s; route hold6 → vault → `d6_vault` → he6 (≈ 30 m: husks ≈ 8 s, soldier ≈ 19 s); `l6_kes_he_contact` (C: none in view, player not in vault6) or `l6_kes_he_contact_b` (C: player in vault6 — S11c) (queued behind any `scene` line, dropped if one is in sight); latch `d6_hold` behind them |
 | F4 dead + 1.5 s, calm, player in he6 / vault6 / tun6_b | **`cp6_manual`** |
 
 ### 4.6 The vault (B → K)
@@ -882,11 +929,11 @@ before the spawn cancels F1 (§9 #3).
 | when | event |
 |---|---|
 | first `t6_vault`, calm | `l6_kes_vault` (C, once) |
-| `vault6_lock` used | without Key A: plate prompt `Interlock key A required`, `interlock_deny`, Q hint; with it: the key turns (0.6 s, `castell_turn`) and stays trapped (`player.removeKey('key6_a')`, §8.1), vignette `bj6_open` (the doors swing 1.2 s, the loom's green floods out, `bj_doors`), `vault6_loom` enabled; `l6_kes_bj` (C) |
+| `vault6_lock` used | without Key A: plate prompt `Interlock key A required`, `interlock_deny`, Q hint; with it, **in one action**: the key turns (0.6 s, `castell_turn`) and stays trapped (`player.removeKey('key6_a')`, §8.1) and flag **`bjOpen`** is set (B4); vignette `bj6_open` (the sliding doors part 1.2 s, the loom's green floods out, `bj_doors`), `vault6_loom` enabled; `l6_kes_bj` (C). On every restore with `bjOpen && !pulled`, `afterReplay` runs `bj6_open:snap` and enables the loom |
 | `vault6_loom` used | `player.grip({ seconds: 3.0, hold: true, motion: 'pull' })`; vignette `bj6_strain` follows the progress (0.3: the connector creaks; 0.7: the green flickers, fibres start to snap); at done: vignette `bj6_rip` (the connector tears out, `fibre_rip`, the green dies in a cascade along the tray 0.8 s), **Key B** (`player.addKey('key6_b')`, toast `Key B — moon pool`), fact `pulled`, beat `l6_pulled`; every screen `TRUNK FIBRE — LOS` / `BACKUP LINK — ACOUSTIC BUOY — ACTIVE`; ping rate 20 s → 4 s; `launchAt` = now + 90 s (game clock) unless `v6_thud` sets it first; +0.3 `l6_unit_pull` (at `mk6_bj`); +g 0.5 `l6_kes_pull_1`; +g 0.6 `l6_kes_pull_2`; +g 0.5 `l6_choir_pull_<choice>`; objective `The stair door — vault, west wall` |
 | pull + 4.0 s (the first fast ping) | `v6_ring` (§5.7 #5; exempt from spacing — the pull's own consequence) |
 | pull + 5.0 s | F5: `g6_vault` (1 soldier carbine `cover: 'vault'`, 2 husks) in hold6 (`mk6_hold_1/2/3`), phase B_hold, husks rushed 30 s; `g6_vault_k` (3 skitters): player **not** in the trench → spawned in the trench under grilles G1, G2, G3 (y −1.0), each grille lifts (`sump_lift`) +0.4 s and they jump out; player in the trench → from `vent6_vault` instead (0.1 m under the ceiling beside it); latch `d6_hold` |
-| `v6_thud` (§5.7 #6): after the pull, ≥ 20 s later, calm, player in vault6 / he6 / shaft6, before `t6_reveal` | `launchAt` = now; +1.2 `l6_kes_thud` (C) |
+| `v6_thud` (§5.7 #6): **only within pull + 20 … + 90 s**, calm, player in vault6 / he6, before Key B turns (else it never fires) | `launchAt` = now (else `launchAt` = pull + 90 s, S10d); +1.2 `l6_kes_thud` (C) |
 | F5 dead + 1.5 s, calm, player in vault6 / he6 (not the trench) | **`cp6_pulled`** |
 | `shaft6_lock` used (`mk6_shaft_lock` (−21.78, 1.3, −167.6), use point (−21.3, 1.3, −167.6), radius 1.3, vault side only) | without Key B: `Interlock key B required`; with it: the key turns, `removeKey('key6_b')`, phase K (`d6_shaft` auto), `l6_unit_shaft`, beat `l6_shaft_open`, objective `The moon pool — down the stairs` |
 
@@ -894,22 +941,22 @@ before the spawn cancels F1 (§9 #3).
 
 | when | event |
 |---|---|
-| first `t6_shaft_l1` (feet below y −2.5), no hostile within 20 m | `v6_shaft_lights` (§5.7 #7): LL2 pops (+0.0), LL3 (+0.7), LLB (+1.4), then above him LL1 (+3.0), LL0 (+3.6); `shaft6_emerg` on; `dark` += shaft6; at +1.0 `g6_shaft` (1 husk) spawned at `mk6_shaft_u` (−26.8, −12, −163.0) under L3 (hidden by L3's slab from every point above it) and rushed 20 s up the stairs; +4.4 `l6_kes_shaft` (C) |
+| first `t6_shaft_l1` (feet below y −2.5), no hostile within 20 m (**exempt from scare spacing** — it carries F6 and `cp6_shaft`, S4; the closed well means he arrives by the stairs, S7) | `v6_shaft_lights` (§5.7 #7): LL2 pops (+0.0), LL3 (+0.7), LLB (+1.4), then above him LL1 (+3.0), LL0 (+3.6); `shaft6_emerg` on; `dark` += shaft6; at +1.0 `g6_shaft` (1 husk) spawned at `mk6_shaft_u` (−26.8, −12, −162.8) under L3 (hidden by L3's slab from every point above it, with 0.3 m more margin than the review's −163.0) and rushed 20 s up the stairs; +4.4 `l6_kes_shaft` (C) |
 | F6 dead, calm, feet in `t6_shaft_bot` (or calm anywhere in shaft6 below y −6 before the reveal) | **`cp6_shaft`** |
 
 ### 4.8 The moon pool (K): reveal, boss, the cut
 
 | when | event |
 |---|---|
-| first `t6_reveal` | beat `l6_reveal`; `boss.cue('lower')`: the loader (dormant `working` since load, B-14 held over the well) lowers container B-14 into the well; it meets the water at +1.5 s (`splash_big`), sinks out of sight by +6.0, the grab rises empty; `v6_well_eyes` (§5.7 #8); +0.6 `l6_kes_pool_1`; +g 0.5 `l6_kes_pool_2` (variant `_2b` when the loader is not in view); ambience `amb_pool`; `dock_board` `TRANSFER B-14 — LOWERING` |
+| first `t6_reveal` | beat `l6_reveal`; `boss.cue('lower')`: the loader (spawned in pose `working` when Key B turned — D31 — B-14 held over the well) lowers container B-14 into the well; it meets the water at +1.5 s (`splash_big`), sinks out of sight by +6.0 (it waits in the well for its lock cycle: `IN TRANSFER`), the grab rises empty; `v6_well_eyes` (§5.7 #8; exempt from spacing, S4); +0.6 `l6_kes_pool_1`; +g 0.5 `l6_kes_pool_2` (variant `_2b` when the loader is not in view); ambience `amb_pool`; `dock_board` `TRANSFER B-14: LOWERING` → `IN WELL — AWAITING LOCK CYCLE` |
 | **hostile start** = the first of: `max(reveal + 10.0, l6_kes_pool_2 end + 0.5)` capped at reveal + 18.0; feet in `t6_floor`; any damage to the loader; a player shot fired in pool6; any `frame6_*` use | beat `l6_loader`; boss **stage 1** (§5.6): B-14 is let go if still held (it drops into the well), the grab rises, the floods swing to the player (1.5 s) and the CHOIR mark turns red; `l6_unit_loader_1` (the loader's PA, at the trolley); beacons on (`alarm_beacon`); boss pips on (`DOCK LOADER`); +0.4 `l6_choir_pool_<choice>` (radio:1); **W1** at +2.0 (phase K_stores, `d6_stores` opens +2.4); `l6_kes_boss_1` (C) at `_choir_pool` end + 0.4; objective `Cut the tether — the frame over the well` |
-| boss events, attacks, teaching lines | §5.6, §6.2 |
+| boss events, attacks, teaching lines | §5.6, §6.2. Every milestone writes `cp6_m<n>` with **`checkpointNow`** 1.0 s later (deferred to a running grip's end + 1.0 s, never skipped — S2d) |
 | `frame6_pin` used (grip 1.2 s, press-and-hold) | milestone; **stage ≥ 2** (`lights_out6`: high-bays off over 1.0 s with `lights_out_dock`, ER points on, the viewport → `dark`, `dark` += pool6); **W2** at +1.5 s; `l6_kes_pin` (C); gauge `0 BAR — PUMP` |
 | `frame6_pump` (grip 6.0 s cumulative, hold) | the gauge climbs 0 → 210 bar with the progress; `l6_kes_pump_half` (C, at ≥ 50 %, once); at done: milestone, **stage 3**, **W3** when ≤ 3 non-loader hostiles live (§5.5); `l6_kes_pump_done` (C); the lever's guard springs open |
 | `frame6_lever` used (grip 0.6 s, press) | without full pressure: `PRESSURE LOW` on the gauge, `interlock_deny`; with it: **the shear** (§4.8.1) |
-| ram L / ram R destroyed | milestones (each); `l6_kes_boss_pod` (C) when both are gone |
+| ram E / ram W destroyed | milestones (each); `l6_kes_boss_pod` (C) when both are gone |
 | pod destroyed | milestone; the loader's death (§5.6.8); `l6_kes_loader_dead` (C: tether not cut) / nothing (cut: the quiet follows); +0.6 `l6_choir_loader_<choice>` (radio:1) |
-| `trunkCut && loaderDead` | `fightOutWhere(e => in pool6 or shaft6, 60)`; then + 2.0 s calm → beat **`l6_quiet`**: music to silence, ambience `amb_pool_quiet` (the hum, the water, no ping), **`cp6_quiet`**; + 3.0 s `l6_kes_console` (C); objective `The dock console — mid deck`; `console6` enabled; `v6_window` armed |
+| `trunkCut && loaderDead` | `fightOutWhere(e => anywhere in the level, 60)` with **3c's stray rule** applied to the wait (a wave soldier who followed him to the vault is fought or, unseen ≥ 30 s and ≥ 25 m away, removed — S11e); then + 2.0 s calm → beat **`l6_quiet`**: music to silence, ambience `amb_pool_quiet` (the hum, the water, no ping), **`cp6_quiet`**; + 3.0 s `l6_kes_console` (C); objective `The dock console — mid deck`; `console6` enabled; `v6_window` armed |
 | `console6` not used, 60 s after `l6_kes_console`, calm | `l6_kes_console_2` (C, cooldown 60 s) |
 
 #### 4.8.1 The shear — the trunk goes dark (in control; no camera is taken)
@@ -927,12 +974,12 @@ before the spawn cancels F1 (§9 #3).
 
 ### 4.9 The ending — first-person cutscene at the dock console (E1, E2)
 
-Precondition (D17): `trunkCut && loaderDead`, `cp6_quiet` written, **no awake hostile in pool6 or shaft6, none hunting**,
+Precondition (D17): `trunkCut && loaderDead`, `cp6_quiet` written, **no awake hostile anywhere, none hunting** (the stray rule ends a stalemate, S11e),
 lines `l6_kes_end_*`, `l6_sunde_end_*`, `l6_reyes_end`, `l6_choir_last_<choice>` decoded (`linesReady(ids, 1.5)` —
 preloaded from `l6_quiet`), the feed set built (feed spike passed, else the `cctv` fallback). Trigger: `console6` used
 (feet in `t6_console`). Markers: `mk6_end_cam0` (−44.0, −14.35, −159.4) (the stand's eye), `mk6_end_cam1` (−44.0,
-−14.3, −159.0), `mk6_end_screen` (−44.0, −14.2, −158.6). The camera never moves more than 0.4 m (no leaf or wall is
-near); damage is impossible (calm; cinematic).
+−14.3, −159.0), `mk6_end_screen` (−44.0, −14.2, −157.9) (the screen plane above the desk's north edge, S1h: 1.5 m from
+`cam0`, 1.1 m from `cam1`). The camera never moves more than 0.4 m (no leaf or wall is near); damage is impossible (calm; cinematic).
 
 Times, nominal durations in brackets (the schedule is recomputed from the manifest):
 
@@ -941,19 +988,19 @@ Times, nominal durations in brackets (the schedule is recomputed from the manife
 | S1 | 0.00 | taken; the eye blends to `cam0` over 0.6 s, look → `mk6_end_screen`, fov 72 → 55 | the screen wakes: `HEAD-END REPEATER — DOCK` / `TRUNK: LOS · BUOY: LOS` / `LAST OUTBOUND (BUFFERED): 1 ITEM` | — |
 | S2 | 0.90 | dolly `cam0` → `cam1` over the whole of E1 (linear), fov 55 → 48 over 12 s | the manifest scrolls in (`manifest` screen, a line per 0.35 s, §6.4) | — |
 | K1 | 2.40 | | | `l6_kes_end_1` [4.5] — or `l6_kes_end_1b` if `manifest` (read at the head-end) |
-| SU1 | K1 end + 0.6 | | the total line highlights `CLASP ASSY (CERVICAL) — DISPATCHED 3,120` | `l6_sunde_end_1` [2.8] |
+| SU1 | K1 end + 0.6 | | the totals highlight `DISPATCHED 2,880 · IN TRANSFER 240` (S10a) | `l6_sunde_end_1` [2.8] |
 | SU2 | SU1 end + 0.5 | | | `l6_sunde_end_2` [3.0] |
 | R1 | SU2 end + 0.8 | | | `l6_reyes_end` [1.2] |
 | K2 | R1 end + 1.0 | | the cursor blinks on `CONSIGNEE: —` | `l6_kes_end_2` [3.5] |
 | E2 | K2 end + 1.2 (nominal 21.2; **cap 24.0**: gaps after K1 and SU2 shrink first, to 0.3) | hold; fov 48 | **the screen changes by itself**: static 0.3 s → `POST 4 — SUB BAY — CAM 2`, the live feed of `feed6`: the empty cradle, open clamps, wet rails, the launch-lock door's red `FLOODED` lamp, an amber beacon turning | — |
 | K3 | E2 + 1.6 | push in 0.15 m over 3 s | | `l6_kes_end_3` [3.8] |
 | O1 | K3 end + 0.4 | | the OSD types `SDV TERN — LAUNCHED {launchAt hh:mm}` (0.8 s), then `LAUNCH AUTHORITY: AAS, L. (LT.) — PALM — LIVE` (1.2 s) | — |
-| K4 | O1 + 2.4 | | | C: heard `l6_aas_2` → `l6_kes_end_4` [0.9]; else skipped |
-| C1 | (K4 end, or O1 + 2.4) + 1.0 | still | the beacon turns on the feed | `l6_choir_last_<choice>` (radio:1) [4.0] |
+| K4 | O1 + 2.4 | | | C: heard `l6_aas_2` → `l6_kes_end_4` "...Lars." [0.9]; else **`l6_kes_end_4b`** "...That's my XO's palm." [1.8] (S11a: the name lands on a person for every player) |
+| C1 | K4 end + 1.0 | still | the beacon turns on the feed | `l6_choir_last_<choice>` (radio:1) [4.0] |
 | B | C1 end + 1.5 | | the screen cuts to CHOIR's waveform for 0.6 s, then everything to black over 0.8 s, ambience out | — |
 | END | B + 0.8 | | beat `l6_end`: carry, end cards (§7) | — |
 
-E1 ≈ 21 s, E2 ≈ 16.5 s (each ≤ 25 s). Skippable only once seen (cutscene rule); the skip applies the same end state and
+E1 ≈ 21 s, E2 ≈ 17.3 s with `_end_4b` (each ≤ 25 s). Skippable only once seen (cutscene rule); the skip applies the same end state and
 lands on the card. Interactive vs not: the shear (§4.8.1) and the quiet walk are the player's; the console press is his
 choice of moment; E1 + E2 are the only taken camera of the stage.
 
@@ -970,15 +1017,15 @@ Soldier data as 3c (`EnemySpawn.arms`, `.cover`, pose `hold`); husks are `navy` 
 |---|---|---|---|---|---|
 | `g6_tun_s` | 2 soldiers (set `tunnel`) | spawn, pose `hold`; s1 walks the crossing path; released by the story | `mk6_tun_s1` (10.0, 0, −86.0), `mk6_tun_s2` (12.0, 0, −87.5), yaw +π/2 (−x) | §4.2 | long-range fight in an 80 m tunnel (aimed carbine 25–50 m) |
 | `g6_tun_u` | 2 husks | spawn (behind DS2) | `mk6_tun_u1` (−1.2, 0, −91.3), `mk6_tun_u2` (0.0, 0, −91.3), yaw π | §4.2 | the close threat pushes him into their sight lines |
-| `g6_rep_s` | 1 soldier (set `rep`) | spawn | `mk6_rep_s` (10.4, 0, −111.0), yaw π (facing +z) | §4.3 | mixed fight in a cluttered room |
+| `g6_rep_s` | 1 soldier (set `rep`) | spawn | `mk6_rep_s` (10.2, 0, −111.6), yaw π (facing +z) | §4.3 | mixed fight in a cluttered room |
 | `g6_rep_u` | 2 husks | spawn in bay6 (`d6_bay` opens) | `mk6_bay_u1` (16.0, 0, −99.6), `mk6_bay_u2` (18.6, 0, −99.6), yaw +π/2 | §4.3 | |
 | `g6_rep_k` | 2 skitters | spawn under `vent6_rep` | (5.6, 4.9, −84.0), (6.4, 4.9, −84.0) | §4.3 | |
-| `g6_tunb_s` | 1 soldier (set `tunb`) | spawn in he6, walks out, pose `hold` | `mk6_he_s` (12.0, 0, −164.0) → `mk6_tunb_hold` (12.0, 0, −153.0), yaw π | §4.4 | the duel in the dark |
+| `g6_tunb_s` | 1 soldier (set `tunb`) | spawn in he6, walks out, pose `hold` | `mk6_he_s` (12.0, 0, −162.0) → `mk6_tunb_hold` (12.0, 0, −153.0) by `patrol`, yaw π | §4.4 | the duel in the dark |
 | `g6_tunb_k` | 1 sentry `navy` | dormant `ceiling` from load (harmless, R4) | (12.0, 3.9, −134.0) | §4.4 | |
 | `g6_he` | 1 soldier (set `he`) + 2 husks | spawn in hold6 | `mk6_hold_1` (−16.0, 0, −143.0) soldier; `mk6_hold_2` (−19.0, 0, −144.0), `mk6_hold_3` (−13.0, 0, −144.0); yaw 0 (−z) | manual + 4 s | CHOIR answers the switch |
 | `g6_vault` | 1 soldier (set `vault`) + 2 husks | spawn in hold6 | same markers | pull + 5 s | |
 | `g6_vault_k` | 3 skitters | spawn in the trench under G1/G2/G3 (y −1.0), or under `vent6_vault` (−5.6, 5.9, −160.0), (−6.4, 5.9, −160.0), (−6.0, 5.9, −159.4) | | pull + 5 s | |
-| `g6_shaft` | 1 husk | spawn under L3 | `mk6_shaft_u` (−26.8, −12, −163.0), yaw π | §4.7 | the thing climbing in the dark |
+| `g6_shaft` | 1 husk | spawn under L3 | `mk6_shaft_u` (−26.8, −12, −162.8), yaw π | §4.7 | the thing climbing in the dark |
 | `g6_loader` | **the loader** | dormant pose `working` from load (sealed chamber: never visible or reachable before phase K) | rig on its rails, grab over the well | §4.8 | the boss |
 | `g6_w1` (+ twin `g6_w1_r`) | 2 soldiers (sets `gal_n`, `gal_w`) | spawn in stores6 | `mk6_w1_a` (−72.0, −12, −144.0), `mk6_w1_b` (−68.0, −12, −144.0), yaw 0 | hostile start + 2 s | long-range fire from the galleries |
 | `g6_w2` (+ `g6_w2_r`) | 4 husks, `emerge: 'climb'` (§8.4) | spawn under water at the ladder feet | (−57.3, −23.2, −176.4), (−57.3, −25.6, −175.6) west; (−46.7, −23.2, −176.4), (−46.7, −25.6, −175.6) east (≥ 2.9 m under the surface: hidden, the water stops sight) | pin + 1.5 s | "something in the water" made real |
