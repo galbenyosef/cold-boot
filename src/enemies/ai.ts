@@ -10,6 +10,7 @@ import type { Rig } from './shared/rig';
 import { angleDiff } from './shared/ik';
 import type { NavGraph } from './nav';
 import type { Holo } from './shared/holo';
+import type { SoldierDirector } from './soldier/fire';
 
 export interface EnemyWorld {
   ctx: GameContext;
@@ -35,6 +36,11 @@ export interface EnemyWorld {
   provoke(group: string, by: EnemyBase | null): void;
   /** World time until which every treadmill worker walks in exactly the same step (fitting_sync). */
   treadSyncUntil: number;
+  /**
+   * Stage 3c §8.2.5: the level-wide soldier director (fire tokens, damage cap, lit window, claims) — created by the
+   * manager on first use (levels without soldiers never build it).
+   */
+  soldiers(): SoldierDirector;
 }
 
 const _from = new THREE.Vector3(), _to = new THREE.Vector3();
@@ -291,6 +297,8 @@ export abstract class EnemyBase implements Enemy {
   protected navigate(dt: number, rayH = 0.35): boolean {
     if (this.world.nav.decks) return this.navigateDecks(dt, rayH);
     const w = this.world, p = this.body.position, nav = w.nav;
+    // stage 3c D20: the player on a `nav: false` floor → the stand-off node by its exit (never on levels 1–4)
+    const so = nav.exitsAware ? nav.standOffNode(this.id, w.time, w.playerPos) : -1;
     this.directTimer -= dt;
     if (this.directTimer <= 0) {
       this.directTimer = 0.25 + w.rand() * 0.05;
@@ -298,12 +306,13 @@ export abstract class EnemyBase implements Enemy {
       this.direct = nav.count === 0 ||
         (this.dist < 16 && Math.abs(w.playerPos.y - p.y) < 1.2 && this.seesPlayer && nav.walkable(p, w.playerPos, rayH));
     }
+    if (so >= 0) this.direct = false;
     if (this.direct) { this.waypoint.copy(w.playerPos); this.path.length = 0; return true; }
     this.replanTimer -= dt;
     if (this.replanTimer <= 0 || this.path.length === 0) {
       this.replanTimer = 0.6 + w.rand() * 0.4;
       const start = nav.nearestNode(p, true);
-      const goal = nav.playerNode(w.time, w.playerPos);
+      const goal = so >= 0 ? so : nav.playerNode(w.time, w.playerPos);
       nav.findPath(start, goal, this.path);
       this.pathIdx = 0;
       // skip the first node if we are already past it toward the second
@@ -313,7 +322,7 @@ export abstract class EnemyBase implements Enemy {
         if ((p.x - a.x) * abx + (p.z - a.z) * abz > 0 && nav.walkable(p, b, rayH)) this.pathIdx = 1;
       }
     }
-    if (this.path.length === 0) { this.waypoint.copy(w.playerPos); return true; }
+    if (this.path.length === 0) { if (so >= 0) return this.hold(); this.waypoint.copy(w.playerPos); return true; }
     this.pullTimer -= dt;
     if (this.pullTimer <= 0) {
       this.pullTimer = 0.25;
@@ -323,6 +332,7 @@ export abstract class EnemyBase implements Enemy {
     let node = nav.nodePos(this.path[this.pathIdx]);
     if (Math.hypot(node.x - p.x, node.z - p.z) < 0.55) {
       if (this.pathIdx < this.path.length - 1) { this.pathIdx++; node = nav.nodePos(this.path[this.pathIdx]); }
+      else if (so >= 0) return this.hold();
       else { this.waypoint.copy(w.playerPos); return true; }
     }
     this.waypoint.copy(node);
@@ -341,18 +351,21 @@ export abstract class EnemyBase implements Enemy {
   protected navigateDecks(dt: number, rayH: number): boolean {
     const w = this.world, p = this.body.position, nav = w.nav;
     const walker = this.type !== 'sentry';
+    // stage 3c D20: the player on a `nav: false` floor → the stand-off node by its exit (never on levels 1–4)
+    const so = nav.exitsAware ? nav.standOffNode(this.id, w.time, w.playerPos) : -1;
     this.directTimer -= dt;
     if (this.directTimer <= 0) {
       this.directTimer = 0.25 + w.rand() * 0.05;
       this.direct = nav.count === 0 ||
         (this.dist < 16 && Math.abs(w.playerPos.y - p.y) < 1.2 && this.seesPlayer && nav.walkable(p, w.playerPos, rayH, walker));
     }
+    if (so >= 0) this.direct = false;
     if (this.direct) { this.waypoint.copy(w.playerPos); this.path.length = 0; this.partial = false; return true; }
     this.replanTimer -= dt;
     if (this.replanTimer <= 0 || this.path.length === 0) {
       this.replanTimer = 0.6 + w.rand() * 0.4;
       const start = nav.nearestNode(p, true, walker);
-      const goal = nav.playerNode(w.time, w.playerPos);
+      const goal = so >= 0 ? so : nav.playerNode(w.time, w.playerPos);
       nav.findPath(start, goal, this.path, true);
       this.partial = nav.lastPartial;
       this.pathIdx = 0;
@@ -372,12 +385,61 @@ export abstract class EnemyBase implements Enemy {
     let node = nav.nodePos(this.path[this.pathIdx]);
     if (Math.hypot(node.x - p.x, node.z - p.z) < 0.55 && (!walker || Math.abs(node.y - p.y) < 1.0)) {
       if (this.pathIdx < this.path.length - 1) { this.pathIdx++; node = nav.nodePos(this.path[this.pathIdx]); }
-      else if (!this.partial && Math.abs(w.playerPos.y - p.y) < 1.2) { this.waypoint.copy(w.playerPos); return true; }
+      else if (!this.partial && so < 0 && Math.abs(w.playerPos.y - p.y) < 1.2) { this.waypoint.copy(w.playerPos); return true; }
       else return this.hold();
     }
     this.waypoint.copy(node);
     return true;
   }
+
+  /**
+   * Stage 3c §8.2 (soldier): walk toward an arbitrary point (a cover point, a stand-off node, a search spot) — the same
+   * path following as `navigateDecks` (nearest nodes on the right floor, partial paths, string-pulling) with `goal`
+   * instead of the player. Writes `waypoint`; returns false when there is no way (stay put). Used only by soldiers.
+   */
+  protected navigateTo(dt: number, goal: THREE.Vector3, rayH = 0.35): boolean {
+    const w = this.world, p = this.body.position, nav = w.nav;
+    const ground = nav.decks;
+    this.directTimer -= dt;
+    if (this.directTimer <= 0 || this.navGoal.distanceToSquared(goal) > 1) {
+      this.directTimer = 0.3 + w.rand() * 0.05;
+      this.direct = nav.count === 0 ||
+        (Math.hypot(goal.x - p.x, goal.z - p.z) < 14 && Math.abs(goal.y - p.y) < 0.6 && nav.walkable(p, goal, rayH, ground) && nav.walkable(p, goal, 1.0));
+    }
+    if (this.direct) { this.waypoint.copy(goal); this.path.length = 0; this.navGoal.copy(goal); return true; }
+    this.replanTimer -= dt;
+    if (this.replanTimer <= 0 || this.path.length === 0 || this.navGoal.distanceToSquared(goal) > 1) {
+      this.replanTimer = 0.7 + w.rand() * 0.4;
+      this.navGoal.copy(goal);
+      const start = nav.nearestNode(p, true, ground);
+      const end = nav.nearestNode(goal, true, ground);
+      nav.findPath(start, end, this.path, true);
+      this.partial = nav.lastPartial;
+      this.pathIdx = 0;
+      if (this.path.length > 1) {
+        const a = nav.nodePos(this.path[0]), b = nav.nodePos(this.path[1]);
+        if ((p.x - a.x) * (b.x - a.x) + (p.z - a.z) * (b.z - a.z) > 0 && Math.abs(a.y - p.y) < 1.0 && nav.walkable(p, b, rayH, ground)) this.pathIdx = 1;
+      }
+    }
+    if (this.path.length === 0) return false;
+    this.pullTimer -= dt;
+    if (this.pullTimer <= 0) {
+      this.pullTimer = 0.25;
+      if (this.pathIdx < this.path.length - 1 && nav.walkable(p, nav.nodePos(this.path[this.pathIdx + 1]), rayH, ground)) this.pathIdx++;
+      else if (this.pathIdx === this.path.length - 1 && nav.walkable(p, goal, rayH, ground)) { this.waypoint.copy(goal); return true; }
+    }
+    let node = nav.nodePos(this.path[this.pathIdx]);
+    if (Math.hypot(node.x - p.x, node.z - p.z) < 0.5 && Math.abs(node.y - p.y) < 1.0) {
+      if (this.pathIdx < this.path.length - 1) { this.pathIdx++; node = nav.nodePos(this.path[this.pathIdx]); }
+      else { if (this.partial) return false; this.waypoint.copy(goal); return true; }
+    }
+    this.waypoint.copy(node);
+    return true;
+  }
+  private navGoal = new THREE.Vector3(1e9, 0, 0);
+
+  /** Stage 3c B2: the chest point of the body (world) for `EnemyManager.corpsePoint`; null = this type has none. */
+  corpseChest(_out: THREE.Vector3): THREE.Vector3 | null { return null; }
 
   /** The last plan ended short of the player (partial path, §8.10). */
   protected partial = false;

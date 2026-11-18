@@ -14,6 +14,11 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 const DOWN = new THREE.Vector3(0, -1, 0);
 /** Extra cost (m) of a drop link over its length: walking down a stair wins unless the drop saves more. */
 const DROP_PENALTY = 8;
+/**
+ * Stage 3c S1n: level 5's crawl-exit walkway (the only route past the spine hatch) — no stand-off point inside it. Used
+ * when the level declares no `regions.exit_keepout` (W4 may publish the box there instead; then that wins).
+ */
+const L5_WALKWAY = new THREE.Box3(new THREE.Vector3(36.2, -1, -15.4), new THREE.Vector3(38.6, 3, -14.2));
 
 export class NavGraph {
   readonly count: number;
@@ -88,6 +93,126 @@ export class NavGraph {
     const n = Math.max(1, nodes.length);
     this.g = new Float32Array(n); this.f = new Float32Array(n);
     this.parent = new Int32Array(n); this.stamp = new Int32Array(n); this.closed = new Int32Array(n); this.open = new Int32Array(n);
+    this.dg = new Float32Array(n); this.dstamp = new Int32Array(n);
+    // Stage 3c D20: only a level with a `nav: false` floor (or a test arena that says so) ever targets exits
+    const lv = ctx.level as unknown as { rooms?: readonly { floors?: readonly { nav?: boolean }[] }[]; navExits?: boolean } | undefined;
+    this.exitsAware = !!lv?.navExits || !!lv?.rooms?.some((r) => r.floors?.some((f) => f.nav === false));
+  }
+
+  // ── stage 3c §8.2.4: bounded path costs from one node (cover reachability: one search per cover choice)
+  private dg: Float32Array;
+  private dstamp: Int32Array;
+  private dkey: Float32Array = new Float32Array(0);
+  private dheap: Int32Array = new Int32Array(0);
+  private dsearch = 0;
+  /** Dijkstra (binary heap, lazy deletion) from `start` up to `maxCost` m (doors as findPath); read with `costTo`. */
+  pathCosts(start: number, maxCost: number): void {
+    const s = ++this.dsearch;
+    if (start < 0) return;
+    const cap = this.count * 8 + 16;
+    if (this.dkey.length !== cap) { this.dkey = new Float32Array(cap); this.dheap = new Int32Array(cap); }
+    const H = this.dheap, K = this.dkey;
+    let n = 0;
+    const push = (node: number, key: number) => {
+      if (n >= H.length) return;
+      let i = n++;
+      while (i > 0) { const p = (i - 1) >> 1; if (K[p] <= key) break; H[i] = H[p]; K[i] = K[p]; i = p; }
+      H[i] = node; K[i] = key;
+    };
+    const pop = (): number => {
+      const top = H[0];
+      const ln = H[--n], lk = K[n];
+      let i = 0;
+      for (;;) {
+        let c = 2 * i + 1;
+        if (c >= n) break;
+        if (c + 1 < n && K[c + 1] < K[c]) c++;
+        if (K[c] >= lk) break;
+        H[i] = H[c]; K[i] = K[c]; i = c;
+      }
+      H[i] = ln; K[i] = lk;
+      return top;
+    };
+    this.dg[start] = 0; this.dstamp[start] = s; push(start, 0);
+    while (n > 0) {
+      const gk = K[0];
+      const cur = pop();
+      if (gk > this.dg[cur] + 1e-6) continue;
+      const adj = this.adj[cur], cost = this.cost[cur], doors = this.linkDoor[cur];
+      for (let k = 0; k < adj.length; k++) {
+        const nb = adj[k];
+        const di = doors[k];
+        if (di >= 0) { const d = this.doors[di]; if (d.locked && !d.isOpen) continue; }
+        const ng = gk + cost[k];
+        if (ng > maxCost) continue;
+        if (this.dstamp[nb] !== s || ng < this.dg[nb]) { this.dstamp[nb] = s; this.dg[nb] = ng; push(nb, ng); }
+      }
+    }
+  }
+  /** Path cost to `node` from the last `pathCosts` start (Infinity = beyond its bound / unreachable). */
+  costTo(node: number): number { return node >= 0 && this.dstamp[node] === this.dsearch ? this.dg[node] : Infinity; }
+
+  // ── stage 3c D20 / §8.4 / S1n: the player on a `nav: false` floor → enemies target its exits and stand off
+  /** The level has a `nav: false` floor (levels 1–4: false — the stand-off code never runs there). */
+  readonly exitsAware: boolean;
+  private soTime = -1;
+  private soExit: THREE.Vector3 | null = null;
+  private soCands: number[] = [];
+  private soTaken = new Map<number, number>();
+  /** The exit enemies are sent to now (null = the player stands on a nav floor). */
+  get standOffExit(): THREE.Vector3 | null { return this.soExit; }
+  /**
+   * The nav node enemy `who` should stand on while the player is on a `nav: false` floor: 2–5 m from the exit nearest
+   * the player, with sight of the exit, never inside an `exit_keepout` region box (level 5's walkway box x 36.2 … 38.6,
+   * z −15.4 … −14.2 by default), never within 1.0 m of a door; spread over the candidates (one enemy per node).
+   * −1 = the player is on a nav floor (or no candidate exists): normal behaviour.
+   */
+  standOffNode(who: number, time: number, playerPos: THREE.Vector3): number {
+    if (!this.exitsAware) return -1;
+    if (time - this.soTime > 0.3) { this.soTime = time; this.refreshStandOff(playerPos); }
+    if (!this.soExit || this.soCands.length === 0) return -1;
+    const have = this.soTaken.get(who);
+    if (have !== undefined) return have;
+    const used = new Set(this.soTaken.values());
+    for (const n of this.soCands) {
+      if (used.has(n)) continue;
+      let close = false;
+      for (const u of used) if (this.pos[u].distanceTo(this.pos[n]) < 1.3) { close = true; break; }
+      if (close) continue;
+      this.soTaken.set(who, n);
+      return n;
+    }
+    const n = this.soCands[who % this.soCands.length];
+    this.soTaken.set(who, n);
+    return n;
+  }
+  private refreshStandOff(playerPos: THREE.Vector3): void {
+    const lv = this.ctx.level as unknown as { floorAt?(p: THREE.Vector3): { nav: boolean; exits: readonly THREE.Vector3[] } | null; regions?: Record<string, readonly THREE.Box3[]> };
+    let fi: { nav: boolean; exits: readonly THREE.Vector3[] } | null = null;
+    try { fi = lv.floorAt?.(playerPos) ?? null; } catch { fi = null; }
+    if (!fi || fi.nav || fi.exits.length === 0) { this.soExit = null; this.soTaken.clear(); return; }
+    let ex = fi.exits[0], bd = Infinity;
+    for (const e of fi.exits) { const d = e.distanceToSquared(playerPos); if (d < bd) { bd = d; ex = e; } }
+    if (this.soExit && this.soExit.distanceToSquared(ex) < 1e-4) return;
+    this.soExit = ex.clone();
+    this.soTaken.clear();
+    const keep = [...(lv.regions?.exit_keepout ?? [])];
+    if (keep.length === 0 && this.ctx.levelId === 5) keep.push(L5_WALKWAY);
+    const cands: { n: number; d: number }[] = [];
+    for (let i = 0; i < this.count; i++) {
+      const q = this.pos[i];
+      const d = Math.hypot(q.x - ex.x, q.z - ex.z);
+      if (d < 2 || d > 5 || Math.abs(q.y - ex.y) > 1.0) continue;
+      let bad = false;
+      for (const b of keep) if (q.x > b.min.x - 0.35 && q.x < b.max.x + 0.35 && q.z > b.min.z - 0.35 && q.z < b.max.z + 0.35 && q.y > b.min.y - 1 && q.y < b.max.y + 1) { bad = true; break; }
+      for (const dr of this.doors) if (!bad && Math.hypot(dr.position.x - q.x, dr.position.z - q.z) < 1.4 && Math.abs((dr.position.y ?? 0) - q.y) < 2) bad = true;
+      if (bad) continue;
+      _a.set(q.x, q.y + 1.5, q.z); _b.set(ex.x, ex.y + 0.6, ex.z);
+      if (!this.ctx.physics.lineOfSight(_a, _b)) continue;
+      cands.push({ n: i, d: Math.abs(d - 3.2) });
+    }
+    cands.sort((a, b) => a.d - b.d);
+    this.soCands = cands.map((c) => c.n);
   }
 
   nodePos(i: number): THREE.Vector3 { return this.pos[i]; }

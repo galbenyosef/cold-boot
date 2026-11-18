@@ -24,9 +24,23 @@ import { buildHalvorsenTemplate } from './human/halvorsen';
 import { Halvorsen } from './human/halvorsen-actor';
 import { loadHalvorsenHead } from './human/head2';
 import { levelOf } from '../core/progress';
+import { Soldier } from './soldier/soldier';
+import { StubSoldierRig, buildSoldierArena, type SoldierRig, type SoldierRigOpts } from './soldier/stubrig';
+
+/**
+ * Stage 3c §8.2.2: THE ONE PLACE that builds a soldier body. Until W3a's rig lands this is the `StubSoldierRig`; at
+ * integration replace the body of this function with W3a's factory (same `SoldierRig` interface) — nothing else in the
+ * behaviour changes.
+ */
+function makeSoldierRig(ctx: GameContext, o: SoldierRigOpts): SoldierRig {
+  return new StubSoldierRig(ctx, o);
+}
 
 export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const t0 = performance.now();
+  // stage 3c §8.2.10: scripts/check-soldier.mjs's test arena (cover points, nav grid, a crawl trench) — tests only
+  let arena: ReturnType<typeof buildSoldierArena> | null = null;
+  try { if (new URLSearchParams(location.search).has('soldierArena')) arena = buildSoldierArena(ctx); } catch (e) { console.warn('[enemies] soldier arena failed', e); }
   const huskTpl = buildHuskTemplate(ctx);
   const skitterTpl = buildSkitterTemplate(ctx);
   const sentryTpl = buildSentryTemplate(ctx);
@@ -101,18 +115,19 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
       tpl.scan = null;
     }
   }
-  // stage 3c D5 — K placeholder (W3b registers the real soldier): a husk stands in, with one warning
-  let soldierWarned = false;
-  const soldier: EnemyFactory = (world, group, position, yaw, o) => {
-    if (!soldierWarned) { soldierWarned = true; console.warn('[enemies] soldier is not built yet (stage 3c W3a/W3b) — a husk stands in'); }
-    return husk(world, group, position, yaw, o);
-  };
+  // stage 3c D5: the taken soldier (W3b behaviour on the §8.2.2 rig). Actors (§8.2.8) use the same class as a puppet
+  // until W3a's actor.ts is routed here at integration.
+  let soldierSeed = 0;
+  const soldier: EnemyFactory = (world, group, position, yaw, o) =>
+    new Soldier(world, group, position, yaw, { ...o, rig: makeSoldierRig(ctx, { arms: o.arms ?? 'carbine', actor: !!o.actor, name: nextName, seed: ++soldierSeed }) });
+  let nextName: string | undefined;
   const manager = createManager(ctx, { husk, skitter, sentry, foreman, soldier }, extra);
   // §8.8: route ActorOpts.who to the human factory and expose Halvorsen's props on his handle (`prop?(name, value)`).
   {
     const baseActor = manager.actor.bind(manager);
     manager.actor = (type, position, yaw, pose, opts) => {
       nextWho = type === 'human' ? opts?.who : undefined;
+      nextName = type === 'soldier' ? opts?.name : undefined;
       let made: Halvorsen | null = null;
       try {
         const n0 = (manager as unknown as { actors: unknown[] }).actors.length;
@@ -120,8 +135,9 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
         const e = (manager as unknown as { actors: unknown[] }).actors[n0];
         if (e instanceof Halvorsen) made = e;
         if (made) { const m = made; (h as unknown as { prop(n: string, v: unknown): void }).prop = (n, v) => m.prop(n, v); }
+        if (e instanceof Soldier) { const sd = e; (h as unknown as { prop(n: string, v: unknown): void }).prop = (n, v) => sd.prop(n, v); }
         return h;
-      } finally { nextWho = undefined; }
+      } finally { nextWho = undefined; nextName = undefined; }
     };
   }
   const templates: Record<string, unknown> = { husk: huskTpl, skitter: skitterTpl, sentry: sentryTpl };
@@ -131,6 +147,7 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   for (const [k, t] of huskSkins) templates['husk_' + k] = t;
   for (const [k, t] of sentrySkins) templates['sentry_' + k] = t;
   (manager as any).templates = templates;
+  if (arena) (manager as any).debug.arena = arena;
   // Pre-warm: one hidden, never-updated puppet per type stays in the scene so render.prepare() compiles every
   // enemy program (hero LOD, distance LOD, shadow proxy, glow) even when no machine of that type exists yet —
   // actors / spawn groups created later then reuse those programs (no first-sight compile hitch).
@@ -139,6 +156,11 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   if (needForeman) warm.push(foreman);
   if (cast.human && (cast.tomasHead || !wantHalv)) warm.push(human);
   if (wantHalv) warm.push((world, group, position, yaw, o) => new Halvorsen(world, getHalv(), group, position, yaw, o));
+  // stage 3c §8.2.6 (S4): the soldier is pre-warmed when the level spawns one OR has a soldier actor (level 5's cutscene)
+  if (cast.soldier || (ctx.level?.enemySpawns ?? []).some((s) => s.type === 'soldier') || arena) {
+    warm.push((world, group, position, yaw, o) => soldier(world, group, position, yaw, { ...o, arms: 'carbine' }));
+    warm.push((world, group, position, yaw, o) => soldier(world, group, position, yaw, { ...o, arms: 'pistol' }));
+  }
   for (const { type, skin } of skinned) {
     const f = type === 'husk' ? husk : sentry;
     warm.push((world, group, position, yaw, o) => f(world, group, position, yaw, { ...o, skin }));

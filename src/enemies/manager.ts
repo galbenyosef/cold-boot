@@ -3,11 +3,12 @@
  * separation between bodies, update LOD, corpse cap.
  */
 import * as THREE from 'three';
-import type { ActorLook, ActorType, Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySkin, EnemySpawn, EnemyType, GameContext } from '../core/types';
+import type { ActorLook, ActorType, Enemy, EnemyActor, EnemyHit, EnemyManager, EnemySkin, EnemySpawn, EnemyType, GameContext, SoldierArms, SoldierDebug } from '../core/types';
 import { EnemyBase, type EnemyWorld } from './ai';
 import { NavGraph } from './nav';
 import { raycastVolumes, volumeNormal, type HitVolume, type VolumeHit } from './shared/hit';
 import { syncShellEnv } from './husk/model';
+import { SoldierDirector } from './soldier/fire';
 
 export interface FactoryOpts {
   dormant: boolean; pose?: string; emerge?: boolean; delay?: number;
@@ -19,7 +20,21 @@ export interface FactoryOpts {
   look?: ActorLook;
   /** Stage 3b §8.4 (EnemySpawn.skin): visual variant of a husk / sentry; other types ignore it. A look only. */
   skin?: EnemySkin;
+  /** Stage 3c §8.2 (EnemySpawn.arms / .cover): a soldier's weapon and preferred cover set; other types ignore them. */
+  arms?: SoldierArms;
+  cover?: string;
 }
+
+/**
+ * Stage 3c (W3b): what the manager needs from a soldier beyond EnemyBase (soldier/soldier.ts) — hold / release and the
+ * debug row. Duck-typed so the manager does not import the soldier class.
+ */
+interface SoldierLike extends EnemyBase {
+  readonly holdingNow: boolean;
+  releaseHold(why: string): void;
+  debugRow(): SoldierDebug;
+}
+const isSoldier = (e: EnemyBase): e is SoldierLike => e.type === 'soldier' && typeof (e as Partial<SoldierLike>).releaseHold === 'function';
 
 /**
  * REVISION 5 — what `enemies.actor()` returns beyond the contract's EnemyActor (holograms):
@@ -59,6 +74,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 
+  let director: SoldierDirector | null = null;
   // player eye history for lagged aiming
   const histPos = new Float32Array(HISTORY * 3), histTime = new Float32Array(HISTORY).fill(-1e9);
   let histHead = 0;
@@ -78,6 +94,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       return out.set(histPos[best * 3], histPos[best * 3 + 1], histPos[best * 3 + 2]);
     },
     rand,
+    soldiers() { return (director ??= new SoldierDirector(ctx, () => world.time)); },
     forceLod: -1,
     whisperUntil: 0,
     actors,
@@ -178,7 +195,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
 
   if (!ctx.debug.noEnemies) {
     for (const s of ctx.level.enemySpawns ?? []) {
-      if (s.mode === 'dormant') create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle, skin: s.skin });
+      if (s.mode === 'dormant') create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle, skin: s.skin, arms: s.arms, cover: s.cover });
       else pending.push(s);
     }
   }
@@ -269,7 +286,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
   const _c = new THREE.Vector3(), _oc = new THREE.Vector3();
   let frame = 0;
 
-  const manager: EnemyManager & { world: EnemyWorld; actors: EnemyBase[]; syncTreadmills(seconds: number): void; timeScale: number; spawnPose(type: EnemyType, position: THREE.Vector3, yaw?: number, group?: string, pose?: string): Enemy } = {
+  const manager: EnemyManager & { world: EnemyWorld; actors: EnemyBase[]; syncTreadmills(seconds: number): void; timeScale: number; spawnPose(type: EnemyType, position: THREE.Vector3, yaw?: number, group?: string, pose?: string): Enemy; debug: Record<string, (...a: any[]) => any> } = {
     world, actors,
     /** Extra (REVISION 4, for the `fitting_sync` vignette): all treadmill workers walk in exactly the same step. */
     syncTreadmills(seconds) { world.treadSyncUntil = world.time + Math.max(0, seconds); },
@@ -294,8 +311,8 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         if (s.group !== group) continue;
         pending.splice(i, 1);
         // A spawn-mode entry with an `idle` hint arrives as an inert machine (story places it; it wakes only if provoked/woken).
-        if (s.idle) create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle, skin: s.skin });
-        else create(s.type, s.position, s.yaw, s.group, { dormant: false, pose: s.pose, emerge: true, delay: k * 0.45, skin: s.skin });
+        if (s.idle) create(s.type, s.position, s.yaw, s.group, { dormant: true, pose: s.pose, idle: s.idle, skin: s.skin, arms: s.arms, cover: s.cover });
+        else create(s.type, s.position, s.yaw, s.group, { dormant: false, pose: s.pose, emerge: true, delay: k * 0.45, skin: s.skin, arms: s.arms, cover: s.cover });
         k++;
       }
     },
@@ -314,12 +331,31 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         k++;
       }
     },
-    // stage 3c B1 — K placeholder (W3b): no soldier holds yet, so a release is a wake (the contract's L1–4 meaning)
-    release(group) { manager.wakeGroup(group); },
-    // stage 3c — K placeholder (W3b): nothing holds before the soldier AI exists
-    holding(_group) { return 0; },
-    // stage 3c B2 — K placeholder (W3b): the chest point of a dead soldier (lifted above his wreck box)
-    corpsePoint(_id, _part) { return null; },
+    // stage 3c B1: holding soldiers of `group` → normal AI (each emits enemy:alerted); every other type: wakeGroup
+    release(group) {
+      for (let i = 0; i < all.length; i++) {
+        const e = all[i];
+        if (e.group === group && e.alive && isSoldier(e) && e.holdingNow) e.releaseHold('story');
+      }
+      manager.wakeGroup(group);
+    },
+    holding(group) {
+      let n = 0;
+      for (let i = 0; i < all.length; i++) { const e = all[i]; if (e.group === group && e.alive && isSoldier(e) && e.holdingNow) n++; }
+      return n;
+    },
+    // stage 3c B2 / K decision: the chest point's x/z, y lifted to max(chest.y, wreckBox.max.y + 0.08)
+    corpsePoint(id, _part) {
+      let e: EnemyBase | undefined;
+      for (let i = 0; i < all.length; i++) if (all[i].id === id) { e = all[i]; break; }
+      if (!e || e.alive) return null;
+      const out = new THREE.Vector3();
+      if (!e.corpseChest(out)) {
+        if (e.wreckBox) e.wreckBox.getCenter(out); else out.copy(e.position).setY(e.position.y + 0.3);
+      }
+      if (e.wreckBox) out.y = Math.max(out.y, e.wreckBox.max.y + 0.08);
+      return out;
+    },
     hitscan(origin, direction, maxDistance) {
       best.t = maxDistance; best.volume = null;
       let hitEnemy: EnemyBase | null = null;
@@ -438,6 +474,28 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
     },
     /** Extra (dev): slow-motion factor for the enemies module only (frame-by-frame review of holograms, promote, hoist). */
     timeScale: 1,
+    /**
+     * Stage 3c extras (W3b; tests + story, not contract members):
+     *   soldiers()            — §10.0 H12 rows (SoldierDebug) of every living or dead soldier in `all`;
+     *   soldierLog(clear?)    — the director's event log (rise / aim / burst / shot / whiz / back / reload / cover / …);
+     *   spawnSoldier(…)       — a soldier with explicit arms / cover set / hold (tests);
+     *   soldier(id)           — the soldier object (tests: `debugSet`);
+     *   tuning()              — SOLDIER_TUNING (read);
+     *   director()            — the level-wide director (tokens, cap, lit).
+     */
+    debug: {
+      soldiers(): SoldierDebug[] {
+        const out: SoldierDebug[] = [];
+        for (let i = 0; i < all.length; i++) { const e = all[i]; if (isSoldier(e)) out.push(e.debugRow()); }
+        return out;
+      },
+      soldierLog(clear = false) { const d = world.soldiers(); const l = d.log.slice(); if (clear) d.log.length = 0; return l; },
+      spawnSoldier(x: number, y: number, z: number, yaw = 0, group = '', o: { arms?: SoldierArms; cover?: string; hold?: boolean } = {}): Enemy {
+        return create('soldier', new THREE.Vector3(x, y, z), yaw, group, { dormant: false, pose: o.hold ? 'hold' : undefined, arms: o.arms ?? 'carbine', cover: o.cover });
+      },
+      soldier(id: number) { return all.find((e) => e.id === id && e.type === 'soldier') ?? null; },
+      director() { return world.soldiers(); },
+    },
     update(dt) {
       dt *= manager.timeScale;
       if (dt <= 0) return;
@@ -470,6 +528,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       }
       visibility();
       for (let i = 0; i < all.length; i++) all[i].flushHits();
+      if (director) director.update();
       wrecks(dt);
       if ((frame & 31) === 0) syncShellEnv(ctx);
       // separation between living, awake bodies
