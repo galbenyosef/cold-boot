@@ -168,3 +168,8 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `play:l6` + `--scares` owner audit; perf (5),(6) with F4/F5 on HIGH. User listens: ping_far/near, v6_ring layering,
   v6_thud 8 m under, drum_rumble + ratchet_run. Weak: vault dark (enclosure spot weak, reward body flashlight-only); dust
   motes untuned; he6 rack backs flat black; ring/thud light dips unseen in motion.
+- 3d IB6-perf: perf views (1),(2) with F1, (3) yaw-fixed with F2, (5),(6) with F4/F5, (4),(7),(9),(10),(11) + HIGH;
+  fxleak L6 (fx follow narrowed roomVisible); `check:dark` L6 tunnel/he6 (culled-room lights ×0.08); feed pass (11);
+  walk-in-motion pop-in tun6_a → rep6 → tun6_b and he6 ↔ trench; L1–5 pickup visuals (baked meshes, 50 m cutoff) in
+  play screenshots + `check:decals`. Weak: view (8) 34 calls on 14 pool pickups (instance per kind); door leaves 7 calls
+  each (doors.ts); shot.mjs needs a fixed-frame perf measure (±20 call noise).
