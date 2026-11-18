@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>COLD BOOT — level 5 set pieces</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #hud { position: fixed; left: 8px; top: 8px; color: #9ab; font: 11px/1.4 ui-monospace, Menlo, monospace; white-space: pre; pointer-events: none; text-shadow: 0 0 2px #000; }
+      #hud.off { display: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="ui"></div>
+    <div id="hud"></div>
+    <script type="module" src="./setpieces5.ts"></script>
+  </body>
+</html>
