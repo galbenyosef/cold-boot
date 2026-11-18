@@ -39,11 +39,11 @@ export interface LevelDef {
   regions?: Record<string, THREE.Box3[]>;
   /** Stage 3c §8.3: soldier cover points (`Level.cover`; default `[]` — levels 1–4 have none; level 5: l5/cover.ts). */
   cover?: readonly CoverPoint[];
-  /** Stage 3d D12 (K placeholder option): water volumes (`Level.water`; default `[]`; level 6: W4b's `l6/water.ts`). */
+  /** Stage 3d D12: water volumes (`Level.water`; default `[]`; level 6: W4b's `l6/water.ts`). */
   water?: readonly WaterVolume[];
-  /** Stage 3d §5.6.7 (K placeholder option): the loader's dock (`Level.dock`; default null; level 6: W4b's `l6/dock.ts`). */
+  /** Stage 3d §5.6.7: the loader's dock (`Level.dock`; default null; level 6: W4b's `l6/dock.ts`). */
   dock?: DockArena | null;
-  /** Stage 3d B6 (K placeholder option): the kill height (`Level.killY`; default −30; level 6: −36, W4a). */
+  /** Stage 3d B6: the kill height (`Level.killY`; default −30; level 6: −36, `l6/index.ts`). */
   killY?: number;
 }
 
@@ -288,7 +288,7 @@ export function assembleLevel(ctx: GameContext, L: LevelBuild, def: LevelDef): L
     vignette(id) { L.fireVignette(id); },
     regions,
     cover: def.cover ?? [],
-    // stage 3d (K placeholder defaults: levels 1–5 have no water, no dock, the old −30 kill height)
+    // stage 3d: levels 1–5 have no water, no dock, the old −30 kill height (level 6 passes its own)
     water: def.water ?? [],
     dock: def.dock ?? null,
     killY: def.killY ?? -30,

@@ -136,6 +136,18 @@ export class LevelBuild {
   /** Per-room light spill past the room bounds (see LIGHT_SPILL_L1). */
   lightSpill: Record<string, [number, number, number, number]> = LIGHT_SPILL_L1;
   private colliderItems: Record<string, { geo: THREE.BufferGeometry; m: THREE.Matrix4; uv: 'box'; su: number; sv: number }[]> = {};
+  /**
+   * Stage 3d D14 / S5: the physics flag of the colliders added while it is set (`flagged()`): 'rayOnly' (water surfaces:
+   * rays and sight stop, bodies pass) or 'moveOnly' (rails, bar / mesh guards, a tarp: bodies stop, rays and sight pass).
+   * Flagged colliders are merged into their own `collider:<surface>:<flag>` mesh carrying `userData[flag] = true`.
+   * null (default) = solid (both sets) — levels 1–5 never set it, so they bake exactly as before.
+   */
+  colliderFlag: 'rayOnly' | 'moveOnly' | null = null;
+  /**
+   * Stage 3d: ready-made collider meshes (any geometry, world space, `userData.surface` / `rayOnly` / `moveOnly` set by
+   * the caller) appended to `colliderMeshes()` — e.g. a water surface quad that is not a box.
+   */
+  readonly extraColliders: THREE.Mesh[] = [];
   private signs = new Map<string, THREE.MeshStandardMaterial>();
   private builders: Builder[] = [];
 
@@ -222,8 +234,16 @@ export class LevelBuild {
     return this._puddle;
   }
 
+  /** Stage 3d: run `fn` with `colliderFlag` = `flag` (every `collide()` inside it makes a ray-only / move-only collider). */
+  flagged<T>(flag: 'rayOnly' | 'moveOnly', fn: () => T): T {
+    const was = this.colliderFlag;
+    this.colliderFlag = flag;
+    try { return fn(); } finally { this.colliderFlag = was; }
+  }
+
   addCollider(m: THREE.Matrix4, surface: Surface, nav: boolean) {
-    (this.colliderItems[surface] ??= []).push({ geo: unitBox(), m, uv: 'box', su: 1, sv: 1 });
+    const key = this.colliderFlag ? `${surface}:${this.colliderFlag}` : surface;
+    (this.colliderItems[key] ??= []).push({ geo: unitBox(), m, uv: 'box', su: 1, sv: 1 });
     const box = aabbOf(m, new THREE.Box3());
     this.solids.push(box);
     if (nav) {
@@ -235,17 +255,24 @@ export class LevelBuild {
   /** One merged invisible proxy mesh per surface type. */
   colliderMeshes(): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
-    for (const surface of Object.keys(this.colliderItems)) {
-      const geo = mergeItems(this.colliderItems[surface]);
+    for (const key of Object.keys(this.colliderItems)) {
+      const geo = mergeItems(this.colliderItems[key]);
       geo.deleteAttribute('uv');
       const mesh = new THREE.Mesh(geo);
-      mesh.name = `collider:${surface}`;
+      const [surface, flag] = key.split(':');
+      mesh.name = `collider:${key}`;
       mesh.userData.surface = surface;
+      if (flag === 'rayOnly' || flag === 'moveOnly') mesh.userData[flag] = true;
       // §8.10: a level with walkable stairs / ramps asks physics to hold standing bodies on slopes (no idle drift);
       // levels without (1, 2) keep the old push-out everywhere
       if (this.navStairs.length) mesh.userData.holdSlopes = true;
       mesh.visible = false;
       mesh.matrixAutoUpdate = false;
+      out.push(mesh);
+    }
+    for (const mesh of this.extraColliders) {
+      if (this.navStairs.length) mesh.userData.holdSlopes = true;
+      mesh.visible = false;
       out.push(mesh);
     }
     return out;
@@ -465,8 +492,11 @@ export class LevelBuild {
   pickup(id: string, kind: PickupKind, x: number, y: number, z: number, amount: number, yaw = 0) {
     this.pickups.push({ id, kind, position: new THREE.Vector3(x, y, z), amount, yaw });
   }
-  interact(id: string, kind: string, prompt: string, x: number, y: number, z: number, enabled = true, radius = 2.2) {
-    return this.ctx.interactables.add({ id, kind, prompt, position: new THREE.Vector3(x, y, z), enabled, radius });
+  /** Stage 3d §8.5 (S8g): `opts.requireRegion` = usable only with the feet inside that `Level.regions` id. */
+  interact(id: string, kind: string, prompt: string, x: number, y: number, z: number, enabled = true, radius = 2.2, opts?: { requireRegion?: string }) {
+    const it: Parameters<GameContext['interactables']['add']>[0] = { id, kind, prompt, position: new THREE.Vector3(x, y, z), enabled, radius };
+    if (opts?.requireRegion) it.requireRegion = opts.requireRegion;
+    return this.ctx.interactables.add(it);
   }
   /** Hand-placed nav node; y defaults to the room's floor (Deck 2). */
   navNode(x: number, z: number, room: string, y = this.floorOf(room)) { this.navExtra.push({ p: new THREE.Vector3(x, y, z), room }); }
