@@ -755,6 +755,7 @@ export type TrunkMaterialName =
   | 'tunnel_shotcrete'    // sprayed concrete tunnel lining, rebound texture, wet streaks
   | 'cable_armour'        // the trunk cable's galvanised wire armour (helical lay)
   | 'dock_steel'          // heavy painted dock plate, worn to bare steel on the walk lines
+  | 'dock_steel_wet'      // the same plate with standing water and a damp sheen (W5)
   | 'crane_yellow'        // the loader's chipped crane yellow
   | 'rope_wire'           // six-strand wire rope, greased
   | 'container_navy'      // corrugated container, navy
@@ -1096,6 +1097,8 @@ export interface NavNode {
   room: string;
   /** §8.10: index into the room's `floors` (nav v2); absent = the room's main floor. */
   floor?: number;
+  /** Stage 3d W4b: water depth at the node (set only when > 0; nodes deeper than 0.6 are pruned). */
+  wade?: number;
   /** §8.10: a stair link-chain node (explicit links every 1.0 m). */
   stair?: boolean;
   /**
