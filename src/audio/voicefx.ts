@@ -9,8 +9,12 @@
  *             `choir:N` keeps N layers (1 = a single voice; used as it shuts down).
  *   intercom  wall panel: band-pass, a little drive, hiss, squelch clicks on and off
  *   headset   handset: narrower, dirtier, static crackle, short dropouts
- *   radio     (stage 3c) Kessler's handset radio; `radio:1` one speaker — until W2b rendered as `headset` (K placeholder)
- *   throat    (stage 3c) CHOIR speaking through a soldier — until W2b rendered as `choir` (K placeholder)
+ *   radio     (stage 3c §6.1) Kessler's radio: the headset band (HP 420, peak 1.9 kHz +6, shaper 3.2, LP 2900, 1–2
+ *             dropouts, static) plus a 40 ms squelch open before the voice (fxLead 0.04) and a key-up click with a
+ *             0.12 s squelch tail at the end. `radio:1` = CHOIR on the channel: the light layering (`throat`'s) first.
+ *   throat    (stage 3c §6.1) CHOIR speaking through a taken soldier: light layering (−12 st at −14 dB, −5 / +4 st at
+ *             −18 dB) → a contact-mic body (HP 280, LP 3200, peak 750 Hz +5 dB, dip 2.4 kHz −6 dB, shaper 1.6, a 35 ms
+ *             body comb at −20 dB) + the same signal through the radio band at −14 dB, 12 ms late (his vest radio)
  *   unit      a staff voice coming out of a service unit: comb resonance + ring modulation + light
  *             bit-crush, dropouts and one stutter — still the person, with nothing behind it
  *   foreman   all layers of a multi-voice line (cast "layers") through the unit chain, out of sync
@@ -218,10 +222,32 @@ function thump(c: Ctx, at: number, f0: number, level: number, dst: AudioNode): v
 
 // ───────────────────────────────────────────── chains
 
+/** Seconds of squelch before the voice on `radio` (§8.6: the story's cues subtract it). */
+const RADIO_LEAD = 0.04;
+
+/** The handset radio band (headset's: HP 420 ×2, peak 1.9 kHz +6 dB, shaper 3.2, LP 2900 ×2) from `inp` into `dst`. */
+function radioBand(c: Ctx, inp: AudioNode, dst: AudioNode): void {
+  chain(inp, filt(c, 'highpass', 420), filt(c, 'highpass', 420), filt(c, 'peaking', 1900, 1, 6), shaper(c, 3.2),
+    filt(c, 'lowpass', 2900), filt(c, 'lowpass', 2900), dst);
+}
+
+/**
+ * CHOIR's light layering (§6.1 `throat`, `radio:1`): the take, one −12 st copy at −14 dB (9 ms), the −5 / +4 st copies at
+ * −18 dB (21 / 36 ms) — plural but close. Mono.
+ */
+function lightChoir(base: Float32Array): Float32Array {
+  const out = new Float32Array(base.length + Math.ceil(0.04 * FX_SR));
+  out.set(base);
+  for (const [st, dB, dt] of [[-12, -14, 0.009], [-5, -18, 0.021], [4, -18, 0.036]] as const) {
+    const d = pitchShift(base, st);
+    const g = Math.pow(10, dB / 20), o = Math.floor(dt * FX_SR);
+    for (let i = 0; i < d.length && i + o < out.length; i++) out[i + o] += d[i] * g;
+  }
+  return out;
+}
+
 /** The DSP chain an fx name renders through: `screen` is an alias of `recorder` (stage 3b D17); the rest are their own. */
 export function chainOf(name: VoiceFxName): VoiceFxName {
-  if (name === 'radio') return 'headset';   // stage 3c — K placeholder (W2b builds the radio chain)
-  if (name === 'throat') return 'choir';    // stage 3c — K placeholder (W2b builds the throat chain)
   return name === 'screen' ? 'recorder' : name;
 }
 
@@ -230,7 +256,7 @@ export function fxLead(fx: VoiceFxName): number {
   // `screen` (a monitor playing a log) has no tape start: no clunk, no lead — its line starts with the voice
   if (fx === 'screen') return 0;
   const name = chainOf(fx);
-  return name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'pa' ? 0.04 : name === 'door' ? 0.05 : name === 'room' ? 0.02 : 0;
+  return name === 'recorder' ? 0.28 : name === 'intercom' || name === 'headset' ? 0.07 : name === 'radio' ? RADIO_LEAD : name === 'pa' ? 0.04 : name === 'door' ? 0.05 : name === 'room' ? 0.02 : 0;
 }
 
 /** Render `fx` over the clean take(s). `layers[0]` is the line; more layers only for multi-voice lines. */
@@ -243,7 +269,7 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
   const dur = base.length / FX_SR;
   const stereo = name === 'choir';
   const lead = fxLead(parsed);
-  const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : 0.01;
+  const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'radio' ? 0.24 : name === 'throat' ? 0.1 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : 0.01;
   const longest = Math.max(...src.map((d) => d.length)) / FX_SR + (name === 'foreman' ? 0.22 : 0);
   const len = Math.ceil((lead + longest + tail) * FX_SR);
   const c = new OfflineAudioContext(stereo ? 2 : 1, len, FX_SR);
@@ -310,6 +336,48 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
     const end = lead + dur + 0.03;
     burst(c, rnd, end, radio ? 0.14 : 0.09, 2200, 0.7, radio ? 0.16 : 0.08, out);
     click(c, end + (radio ? 0.13 : 0.08), 0.2, out);
+  } else if (name === 'radio') {
+    // Kessler's radio (`radio:1`: CHOIR on the channel — the light layering before the band)
+    const first = gain(c, 1);
+    radioBand(c, first, out);
+    const d = arg === 1 ? lightChoir(base) : base.slice();
+    gaps(d, rnd, 1 + Math.floor(rnd() * 2), 25, 60, 0.15, 0.3, dur - 0.3);
+    play(c, d, t0, first);
+    const end = lead + dur + 0.02;
+    // static bed for the transmission (with crackle), from the squelch open to the end of the key-up tail
+    const bedLen = end + 0.14;
+    const bed = noise(c, rnd, bedLen);
+    for (let i = 0; i < bed.length; i++) if (rnd() < 18 / FX_SR) { const a = (rnd() * 2 - 1) * 9; for (let k = 0; k < 40 && i + k < bed.length; k++) bed[i + k] += a * Math.exp(-k / 8); }
+    const bedG = gain(c, 0);
+    bedG.gain.setValueAtTime(0, 0);
+    bedG.gain.linearRampToValueAtTime(0.016, 0.01);
+    bedG.gain.setValueAtTime(0.016, bedLen - 0.05);
+    bedG.gain.linearRampToValueAtTime(0, bedLen);
+    const bedBp = filt(c, 'bandpass', 2400, 0.6);
+    play(c, bed, 0, bedBp);
+    chain(bedBp, bedG, out);
+    // squelch open: 40 ms of band noise, the voice starts as it closes (fxLead 0.04)
+    click(c, 0.001, 0.2, out);
+    burst(c, rnd, 0.002, RADIO_LEAD, 1800, 0.9, 0.14, out);
+    // key-up: the click, then 0.12 s of squelch tail
+    click(c, end, 0.22, out);
+    burst(c, rnd, end + 0.004, 0.12, 2200, 0.7, 0.15, out);
+  } else if (name === 'throat') {
+    // CHOIR through a taken soldier: plural but close, from inside his collar
+    const d = lightChoir(base);
+    const first = gain(c, 1);
+    const body = chain(first, filt(c, 'highpass', 280), filt(c, 'lowpass', 3200), filt(c, 'peaking', 750, 1.2, 5),
+      filt(c, 'peaking', 2400, 1.2, -6), shaper(c, 1.6)) as AudioNode;
+    body.connect(out);
+    // 35 ms body comb at −20 dB (the chest cavity / the vest)
+    const cd = c.createDelay(0.1); cd.delayTime.value = 0.035;
+    const cfb = gain(c, 0.25);
+    chain(body, cd, gain(c, 0.1), out); chain(cd, cfb, cd);
+    // the same signal bleeding out of his vest radio: the radio band at −14 dB, 12 ms late
+    const bleed = gain(c, 0.2);
+    radioBand(c, bleed, out);
+    play(c, d, t0, first);
+    play(c, d, t0 + 0.012, bleed);
   } else if (name === 'unit' || name === 'foreman') {
     const takes = name === 'foreman' ? src : [base];
     const offs = [0, 0.085, 0.19], rates = [1, 0.986, 1.018], combs = [0.0062, 0.0081, 0.0047], rings = [52, 67, 43];

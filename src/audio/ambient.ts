@@ -12,7 +12,10 @@ import * as THREE from 'three';
 import type { AudioEngine, LoopVoice } from './engine';
 import { SOUND_MAP } from './sounds';
 
-const BED_IDS = ['amb_room', 'amb_fab', 'amb_gen', 'amb_quarters', 'amb_pump', 'amb_hab', 'amb_hab_cold', 'amb_garden', 'amb_lock'] as const;
+// (stage 3c: + level 5's beds. NB the level-4 beds amb_clean / amb_cold / amb_navy / amb_plant / amb_tube are NOT in this list,
+// so ROOMS_L4's beds of those ids never play — left as built: levels 1–4 unchanged in 3c; reported to the coordinator)
+const BED_IDS = ['amb_room', 'amb_fab', 'amb_gen', 'amb_quarters', 'amb_pump', 'amb_hab', 'amb_hab_cold', 'amb_garden', 'amb_lock',
+  'amb_post', 'amb_berth', 'amb_crawl', 'amb_bay', 'amb_dark'] as const;
 
 /** Peak of the player's own walking footstep at the listener: step vol 0.2 × walk 0.75 × peak 0.9. */
 const FOOTSTEP_PEAK = 0.2 * 0.75 * 0.9;

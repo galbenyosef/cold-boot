@@ -8,13 +8,15 @@
  *   ui ────────────────────────────────────────────────────────────────────────────────┘
  */
 import * as THREE from 'three';
-import type { LoopHandle } from '../core/types';
+import type { AudioLogEntry, LoopHandle } from '../core/types';
 import { SR, type BusName, type SoundDef } from './synth/core';
 import { renderDef, renderMany } from './synth/render';
 import { SOUND_MAP } from './sounds';
 import { makeIR, presetFor, DEFAULT_ROOM, type IrName, type RoomPreset } from './impulses';
 
 const MAX_VOICES = 40;
+/** Stage 3c §8.11 / H14: ring size of the play log (`audio.debug.log`). */
+const LOG_MAX = 512;
 const MAX_DIST = 70;
 const LATE_PLAY_WINDOW = 0.3;
 
@@ -43,6 +45,8 @@ export interface PlayParams {
   variant?: number;
   /** Skip the occlusion test (already known / not wanted). */
   noOcclusion?: boolean;
+  /** Internal: the deferred replay of a play whose buffer was still rendering (already logged). */
+  retry?: boolean;
   /** Extra low-pass (Hz) on the direct sound: "through walls / far away". */
   lowpass?: number;
 }
@@ -83,6 +87,12 @@ export class AudioEngine {
   private lastVariant = new Map<string, number>();
   private cycleDir = new Map<string, number>();
   readonly loops = new Set<LoopVoice>();
+  /**
+   * Stage 3c §8.11 / §10.0 H14: every `play` (incl. the ones audio makes itself on events and in the ambience), every
+   * `loop` start and every voice `say`, as asked (before rate limits, culls or a missing buffer) — the `--scares`
+   * one-owner audit reads it. A ring of the last LOG_MAX; `t` = AudioContext seconds, `pos` = the source or null (2-D).
+   */
+  readonly log: AudioLogEntry[] = [];
 
   /** Listener pose (synced from the camera each frame). */
   readonly listener = new THREE.Vector3();
@@ -157,8 +167,15 @@ export class AudioEngine {
   has(id: string) { return SOUND_MAP.has(id); }
   buffers(id: string): AudioBuffer[] | undefined { return this.bank.get(id); }
 
+  /** Append to the play log (see `log`). */
+  logPlay(id: string, pos?: THREE.Vector3 | null): void {
+    this.log.push({ id, t: +this.now.toFixed(3), pos: pos ? [+pos.x.toFixed(2), +pos.y.toFixed(2), +pos.z.toFixed(2)] : null });
+    if (this.log.length > LOG_MAX) this.log.splice(0, this.log.length - LOG_MAX);
+  }
+
   async preload(): Promise<void> {
-    const defs = [...SOUND_MAP.values()].filter((d) => (d.when ?? 'load') === 'load');
+    // the load set honours `levels` (stage 3c: level 5's arrival sounds are needed in its first second, nowhere else)
+    const defs = [...SOUND_MAP.values()].filter((d) => (d.when ?? 'load') === 'load' && (!d.levels || !this.level || d.levels.includes(this.level)));
     this.preRenderMs = await renderMany(defs, (d, b) => this.bank.set(d.id, b), 8);
     // pre-build the IRs used most (cheap; avoids a hitch on first room switch)
     for (const n of ['corridor', 'padded', 'hall'] as IrName[]) this.ir(n);
@@ -201,6 +218,7 @@ export class AudioEngine {
   // ───────────────────────── voices
 
   play(id: string, p: PlayParams = {}): void {
+    if (!p.retry) this.logPlay(id, p.position);
     const def = SOUND_MAP.get(id);
     if (!def) { this.warnUnknown(id); return; }
     if (!this.running) return;
@@ -208,7 +226,7 @@ export class AudioEngine {
     if (!bufs) {
       const asked = this.now;
       // callers pass shared temp vectors — snapshot them for the deferred play
-      const q: PlayParams = { ...p, position: p.position?.clone(), moveTo: p.moveTo?.clone() };
+      const q: PlayParams = { ...p, position: p.position?.clone(), moveTo: p.moveTo?.clone(), retry: true };
       this.ensure(id).then(() => { if (this.now - asked < LATE_PLAY_WINDOW && this.bank.has(id)) this.play(id, q); });
       return;
     }
@@ -345,6 +363,7 @@ export class AudioEngine {
   // ───────────────────────── loops
 
   loop(id: string, p: { position?: THREE.Vector3; volume?: number; pitch?: number } = {}, busOverride?: BusName): LoopHandle {
+    this.logPlay(id, p.position);
     const def = SOUND_MAP.get(id);
     if (!def) { this.warnUnknown(id); return NOOP_LOOP; }
     if (!def.loop) {

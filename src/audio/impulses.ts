@@ -252,7 +252,56 @@ export const ROOMS_L4: Record<string, RoomPreset> = {
   },
   gatel: { ir: 'lock', wet: 0.5, bed: { amb_navy: 0.6, amb_tube: 0.45 }, events: NAVY },
 };
-const LEVEL_ROOMS: Record<number, Record<string, RoomPreset>> = { 3: ROOMS_L3, 4: ROOMS_L4 };
+// ── level 5 "POST 4" (stage 3c, plan §2.1). Room ids are the plan's, plus two acoustic sub-rooms the engine resolves by
+// height (index.ts subRoom): `crawl5` (the crawlway: spine5 / arm5 below their main floor) and `mag5` (the magazine,
+// arm5 below −2 m). The `cold` form is lights_out5 (§4.7 L, story:beat `l5_dark`): only spine5 and sub5 lose their mains
+// (D17), so only they (and the crawl under the spine) have one — the bed becomes amb_dark, the palette the dark one.
+// No far_steps / drag / breath in this level's palettes: the post has real soldiers in it (nothing heard that is not there).
+const NAVY5 = { hull_creak: 1.3, metal_groan: 0.8, pipe_tick: 1, dist_knock: 0.7, drip: 0.5 };
+const DARK5 = { hull_creak: 1.4, metal_groan: 1.1, pipe_tick: 0.8, dist_knock: 0.5, drip: 0.6 };
+const BAY5 = { hull_creak: 1.4, metal_groan: 1.2, dist_clank: 0.7, dist_knock: 0.6, drip: 0.8 };
+export const ROOMS_L5: Record<string, RoomPreset> = {
+  lock5: { ir: 'lock', wet: 0.5, bed: { amb_post: 0.5, amb_dark: 0.35 }, events: NAVY5 },
+  gate5: { ir: 'machine', wet: 0.45, bed: { amb_post: 0.9 }, events: NAVY5, quiet: true },
+  duty5: { ir: 'machine', wet: 0.4, bed: { amb_post: 0.9 }, events: NAVY5, quiet: true },
+  ready5: { ir: 'machine', wet: 0.5, bed: { amb_post: 0.85 }, events: NAVY5, quiet: true },
+  spine5: {
+    ir: 'corridor', wet: 0.6, bed: { amb_post: 1 }, events: NAVY5, quiet: true,
+    cold: { bed: { amb_dark: 1 }, events: DARK5, wet: 0.66 },
+  },
+  crawl5: {
+    ir: 'lock', wet: 0.5, bed: { amb_crawl: 1 }, events: { pipe_tick: 1, drip: 1, dist_knock: 0.5 }, quiet: true,
+    local: [{ id: 'drip', every: [2, 6], vol: [0.25, 0.6], y: [0.3, 0.6] }],
+    cold: { bed: { amb_crawl: 0.8, amb_dark: 0.45 }, events: { pipe_tick: 1, drip: 1, hull_creak: 0.8 } },
+  },
+  berths5: { ir: 'dead', wet: 0.28, bed: { amb_berth: 1 }, events: { pipe_tick: 1, hull_creak: 0.8, dist_knock: 0.4 }, quiet: true },
+  heads5: {
+    ir: 'tiled', wet: 0.5, bed: { amb_berth: 0.6, amb_post: 0.3 }, events: NAVY5, quiet: true,
+    local: [{ id: 'drip', every: [3, 9], vol: [0.2, 0.45], y: [0.9, 1.2] }],
+  },
+  mess5: { ir: 'machine', wet: 0.55, bed: { amb_post: 0.9 }, events: NAVY5, quiet: true },
+  galley5: { ir: 'tiled', wet: 0.45, bed: { amb_post: 0.8 }, events: NAVY5, quiet: true },
+  arm5: { ir: 'machine', wet: 0.45, bed: { amb_post: 0.7 }, events: NAVY5, quiet: true },
+  mag5: {
+    ir: 'lock', wet: 0.45, bed: { amb_crawl: 0.8 }, events: { pipe_tick: 1, drip: 1 }, quiet: true,
+    local: [{ id: 'drip', every: [2.5, 7], vol: [0.25, 0.55], y: [1.5, 2.2] }],
+  },
+  sub5: {
+    ir: 'hall', wet: 0.75, bed: { amb_bay: 1 }, events: BAY5, quiet: true,
+    local: [
+      { id: 'tube_groan', every: [16, 34], vol: [0.4, 0.8], y: [6, 10] }, // the hull taking 2.1 km of sea, far up
+      { id: 'drip', every: [1.5, 5], vol: [0.25, 0.6], y: [4, 8] },
+    ],
+    cold: { bed: { amb_dark: 1, amb_bay: 0.25 }, events: DARK5, wet: 0.8 },
+  },
+  dive5: { ir: 'dead', wet: 0.3, bed: { amb_post: 0.6 }, events: NAVY5, quiet: true },
+  lockacc5: { ir: 'lock', wet: 0.5, bed: { amb_post: 0.5, amb_bay: 0.3 }, events: BAY5 },
+  tunnel5: {
+    ir: 'shaft', wet: 0.55, bed: { amb_dark: 0.7, amb_crawl: 0.4 }, events: { hull_creak: 1.2, dist_knock: 0.6, drip: 0.8 }, quiet: true,
+    local: [{ id: 'drip', every: [2, 6], vol: [0.2, 0.5], y: [1.5, 2.5] }],
+  },
+};
+const LEVEL_ROOMS: Record<number, Record<string, RoomPreset>> = { 3: ROOMS_L3, 4: ROOMS_L4, 5: ROOMS_L5 };
 export const DEFAULT_ROOM: RoomPreset = { ir: 'corridor', wet: 0.5, bed: { amb_room: 0.8 }, events: ROOM_EVENTS };
 
 /** Unknown / renamed room ids fall back to the closest known preset by name, then to DEFAULT_ROOM. */

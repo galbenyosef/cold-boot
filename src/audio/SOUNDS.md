@@ -286,3 +286,44 @@ whispers except the vivarium); navy palette `hull_creak metal_groan dist_clank p
 Dev: `/dev/audio.html?mode=l4` (every level-4 room normal / dark with a 3-round burst + tail; `&live=1` runs the real system on
 level 4 and lists which ids each event triggers), `?mode=sounds&filter=^(carbine_|armor_|vest_on|plate_in|decon_|shower_|hold_|cold_jam|lights_thunk|bay_door|vent_grille|clasp_|gel_dip|pump_loop|valve_pull|sump_lift|alarm_beacon|gate_dogs|tube_groan|body_hit|amb_(clean|cold|navy|plant|tube))`
 (click a spectrogram to hear it), `?mode=voice&ids=l1_hale_recorder&fx=recorder,screen`.
+
+## Level 5 — POST 4 (stage 3c, `sounds/rev10.ts`)
+
+**Owners (plan §8.11, D25 — the owner is who plays it; never play an id another owner plays):**
+
+| who plays | ids |
+|---|---|
+| level vignettes | `turnstile_click` `counter_tick` `hull_groan_long` `locker_rattle` `locker_bang` `helmet_roll` `radio_on_click` `radio_static_bed` (loop) `pump_thump` `tray_crash` `cutlery_scatter` `fan_start` `fan_loop` (loop) `hook_creak` `water_hammer` `taps_run` `drain_gurgle` `bulb_pop` `glass_tinkle` `sub_ballast_hiss` `sub_hatch_clang` `clamp_cycle` `sub_systems_hum` (loop) `hatch_unlatch` `hatch_open` `lights_out_dock` `alarm_beacon` (loop) `wheel_crank` `hydraulic_release` `keypad_power_on` `sump_lift` `vent_grille` `booth_door_shut` |
+| door `d5_gate` (W4's wide-door hook) | `gate_open_heavy` (2.4 s rise + top stop), `gate_close_heavy` (2.4 s descent, slam at 2.45 s, dogs). Audio plays NO `door_open` / `door_close` for `d5_gate`. |
+| enemies (W3b) | `soldier_carbine_fire` `soldier_pistol_fire` (at the muzzle), `soldier_aim_click`, `soldier_light_on`, `soldier_reload`, `bullet_whiz` (pistol) / `bullet_crack` (carbine) at the ray's closest point to the head (never occluded), `soldier_hit_vest`, `soldier_fall`, `clasp_fail`, `gear_rattle` |
+| UI (W2a) | `keypad_beep` `keypad_err` `keypad_ok` `keypad_dead` (2-D, UI bus) |
+| story | `radio_squawk` (static burst before a body squawk) |
+| audio itself | `flashlight_die` / `flashlight_dead` (every level), `soldier_step`, `soldier_fire_tail`, `step_wet`, the beds |
+
+**Automatic:**
+- `player:flashlight` (every level): `cause: 'empty'` → `flashlight_die` (fizzle, the driver whine falling, the tailcap click),
+  `'refused'` → `flashlight_dead` (dry click); `'toggle'` / `'story'` → `flashlight_on` / `_off` as before.
+- Soldiers: audio plays nothing on `enemy:woke / alerted / attack / damaged / died` for type `soldier` (the enemies module plays
+  his sounds). `enemy:step` (soldier, actors too) → `soldier_step` with the surface by position (variants 0–2 deck, 3–5 grate,
+  6–8 wet); `audio.play('soldier_step', { position })` picks the surface the same way. After every soldier burst (rounds of
+  one shooter within 2 m, 0.42 s after the last) audio adds `soldier_fire_tail` at the shooter, by the listener's room size.
+- Footsteps on level 5: a puddle in `level.regions.wet` → `step_wet`; the spine's grating (over its crawl floors), the sub-bay
+  galleries (y > 4) and `lock5` → `step_grate`; `ready5` / `berths5` rubber; `heads5` / `mess5` / `galley5` tile.
+- Rooms: every level-5 room id has a preset (`impulses.ts ROOMS_L5`); the crawlway (spine5 / arm5 below their main floor) is
+  `crawl5`, the magazine (arm5 below −2 m) `mag5`. Beds `amb_post` (lit Post 4), `amb_berth`, `amb_crawl`, `amb_bay`,
+  `amb_dark`. `story:beat l5_dark` (lights_out5; re-emit on restore past it) turns spine5 / sub5 / crawl5 to `amb_dark` — the
+  level plays `lights_out_dock` itself.
+- `audio.debug.log`: the last 512 `play` / `loop` / `say` calls `{ id, t, pos }` as asked (also audio's own) — the `--scares`
+  one-owner audit.
+
+**Voice fx:** `radio` = the headset band + a 40 ms squelch open (`fxLead` 0.04) + key-up click and 0.12 s squelch tail; 2-D at
+conversation level, positioned (the body's radio) `POS.radio` ref 2, rolloff 1.0. `radio:1` = CHOIR on the channel (light
+layering first). `throat` = light layering → contact-mic body + the radio band bleed at −14 dB / 12 ms; `POS.throat` ref 5.5,
+rolloff 1.0, send 0.25, gain 1.3 (measured: −1.1 dB of the in-ear reference at 6.7 m).
+
+Pre-render on level 5: `gate_open_heavy`, `booth_door_shut` with the load set (the load set honours `levels`); combat, beds,
+keypad, `turnstile_click`, `counter_tick`, `gate_close_heavy` idle; the other scares late; loops lazy.
+
+Dev: `/dev/audio.html?mode=l5` (every room normal / dark with the tray crash; `&live=1` the event wiring and the play log;
+`&voice=1` the three chains and their levels), `?mode=sounds&filter=^(tray_|hull_groan|helmet|locker_rattle|…)` (click a
+spectrogram to hear it).

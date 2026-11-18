@@ -3,7 +3,7 @@
  * (see sounds/*), loops/music/voice are generative. Subscribes to game events itself — see SOUNDS.md.
  */
 import * as THREE from 'three';
-import type { AudioSystem, EnemyType, GameContext, LoopHandle, MusicState, PlayOpts, Surface, VoiceHandle } from '../core/types';
+import type { AudioLogEntry, AudioSystem, EnemyType, GameContext, LoopHandle, MusicState, PlayOpts, Surface, VoiceHandle } from '../core/types';
 import { AudioEngine, type LoopVoice } from './engine';
 import { Music, type MusicMode } from './music';
 import { Ambience } from './ambient';
@@ -22,6 +22,8 @@ export interface AudioDebug {
   /** Level 3 mood switch (warm bed ↔ cold bed): what `play('habitat_takeover')` / `story:beat habitat_takeover` do. */
   setMood(cold: boolean): void;
   readonly cold: boolean;
+  /** Stage 3c §10.0 H14: the last 512 `play` / `loop` / `say` calls `{ id, t, pos }` (engine.log) — the one-owner audit. */
+  readonly log: AudioLogEntry[];
 }
 
 const STEP_ID: Record<Surface, string> = {
@@ -30,7 +32,7 @@ const STEP_ID: Record<Surface, string> = {
 const IMPACT_ID: Record<Surface, string> = {
   metal: 'impact_metal', concrete: 'impact_concrete', rubber: 'impact_rubber', glass: 'impact_glass', robot: 'impact_robot', flesh: 'impact_flesh',
 };
-const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9, soldier: 1.4 }; // soldier: K placeholder (stage 3c; W2b tunes)
+const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9, soldier: 1.55 };
 const GRATE_ROOMS = new Set(['corr_a', 'elevator']);
 /** Level 3 (habitat): the floor under the player's feet by room id — the contract's `Surface` has no carpet/tile, so
  *  footsteps there are chosen by room (any surface but glass / flesh / robot). `step_wood` is available for story use. */
@@ -46,6 +48,16 @@ const FLOOR_L4: Record<string, string> = {
   wetlab: 'step_tile', pi_office: 'step_tile', cold: 'step_tile', records: 'step_tile', vivarium: 'step_tile', scrub: 'step_tile',
   store4: 'step_tile', gallery: 'step_tile', bay: 'step_tile', tube: 'step_grate', gatel: 'step_grate',
 };
+/** Level 5 (stage 3c): floors by room id (navy decks keep the surface's own step; grating and puddles by position). */
+const FLOOR_L5: Record<string, string> = {
+  lock5: 'step_grate', ready5: 'step_rubber', berths5: 'step_rubber', heads5: 'step_tile', mess5: 'step_tile', galley5: 'step_tile',
+};
+/** Level 5: doors that play their own sound (S1o: `d5_gate` owns gate_open_heavy / gate_close_heavy) — no door_open / close. */
+const OWN_SOUND_DOORS = new Set(['d5_gate']);
+/** Passing rounds (§8.2.5) are played at the ray's closest point to the head: never occlusion-tested. */
+const NO_OCC_IDS = new Set(['bullet_whiz', 'bullet_crack']);
+/** A soldier burst's room tail plays this long after its last round (pistol 2 × 0.35 s, carbine 3 × 0.11 s). */
+const SOLDIER_BURST_GAP = 0.42;
 /** carbine_tail variant by the room's reverb: 0 small, 1 medium, 2 large. */
 const TAIL_SIZE: Record<string, number> = {
   dead: 0, padded: 0, office: 0, lock: 0, whiteroom: 1, tiled: 1, corridor: 1, machine: 1,
@@ -55,6 +67,8 @@ const TAIL_SIZE: Record<string, number> = {
 const BURST_GAP = 0.11;
 /** Level-4 sounds rendered on demand elsewhere (level-3 ids reused here): warm them up after the idle set. */
 const WARM_L4 = ['amb_hab_cold', 'amb_lock', 'step_tile', 'hull_creak', 'pipe_tick', 'far_steps'];
+/** Level 5: ids of other levels it uses (beds' events, footsteps, the drains / vents, the beacon). */
+const WARM_L5 = ['step_tile', 'hull_creak', 'pipe_tick', 'metal_groan', 'tube_groan', 'sump_lift', 'vent_grille', 'alarm_beacon', 'locker_bang'];
 
 function silentVoice(duration: number): VoiceHandle {
   return { duration, done: new Promise<void>((r) => setTimeout(r, duration * 1000)), setPosition() {}, stop() {} };
@@ -90,6 +104,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   // levels after the first start powered (level 2: the hall is held, not dead) — LEVELS[id].powerOnAtLoad
   if (level.powerOnAtLoad) amb.powerOn = true;
   if (level.id === 4) setTimeout(() => { for (const id of WARM_L4) void eng.ensure(id); }, 2500);
+  if (level.id === 5) setTimeout(() => { for (const id of WARM_L5) void eng.ensure(id); }, 2500);
   // this level's voice files: fetch the bytes in the background (decode stays lazy)
   setTimeout(() => { try { voice.prefetchLevel(level.id); } catch { /* ignore */ } }, 1500);
   const musicTimer = setInterval(() => { if (eng.running) music.tick(); }, 100);
@@ -112,6 +127,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   let bedStarted = false;
   /** Carbine burst in progress: AudioContext time of its last round (0 = none). */
   let carbineLast = 0;
+  /** Level 5: soldier bursts in progress (one per shooter position) awaiting their room tail. */
+  const soldierBursts: Array<{ pos: THREE.Vector3; last: number; rounds: number }> = [];
 
   const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
 
@@ -144,7 +161,10 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     },
     play(id: string, opts?: PlayOpts) {
       if (id === 'habitat_takeover') setMood(true); // the story's one switch: warm bed → cold bed (also via story:beat)
-      eng.play(id, opts ? { position: opts.position, volume: opts.volume, pitch: opts.pitch } : undefined);
+      const pos = opts?.position;
+      if (pos && id === 'soldier_step') { eng.play(id, { position: pos, volume: opts?.volume, pitch: opts?.pitch, variant: soldierStepVariant(pos) }); return; }
+      eng.play(id, opts ? { position: pos, volume: opts.volume, pitch: opts.pitch, noOcclusion: NO_OCC_IDS.has(id) || undefined } : undefined);
+      if (pos && (id === 'soldier_carbine_fire' || id === 'soldier_pistol_fire')) soldierShot(pos);
     },
     loop(id: string, opts?: PlayOpts): LoopHandle {
       return eng.loop(id, opts ? { position: opts.position, volume: opts.volume, pitch: opts.pitch } : {});
@@ -195,9 +215,10 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
         roomTimer = 0;
         const pp = playerPos();
         const r = ctx.level && pp ? ctx.level.roomAt(pp) : null;
-        if (r) {
-          if (r.id !== roomCandidate) { roomCandidate = r.id; roomStable = 0; }
-          else if (r.id !== eng.roomId && ++roomStable >= 1) applyRoom(r.id, r.bounds);
+        if (r && pp) {
+          const id = subRoom(r.id, pp);
+          if (id !== roomCandidate) { roomCandidate = id; roomStable = 0; }
+          else if (id !== eng.roomId && ++roomStable >= 1) applyRoom(id, r.bounds);
         }
         eng.updateLoopOcclusion();
       }
@@ -240,6 +261,14 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
         carbineLast = 0;
         eng.play('carbine_tail', { variant: TAIL_SIZE[eng.room.ir] ?? 1 });
       }
+      // a soldier's burst ended: its room tail at the shooter, louder relative to the shot the farther he is
+      for (let i = soldierBursts.length - 1; i >= 0; i--) {
+        const b = soldierBursts[i];
+        if (eng.now - b.last <= SOLDIER_BURST_GAP) continue;
+        soldierBursts.splice(i, 1);
+        const d = b.pos.distanceTo(eng.listener);
+        eng.play('soldier_fire_tail', { position: b.pos, variant: TAIL_SIZE[eng.room.ir] ?? 1, volume: Math.min(1.3, 0.6 + d / 40) * (b.rounds > 1 ? 1 : 0.8), noOcclusion: true });
+      }
       amb.update();
     },
     debug: {
@@ -248,8 +277,43 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
       get musicMode() { return effective; },
       setMood,
       get cold() { return eng.cold; },
+      log: eng.log,
     },
   };
+
+  /** Level 5 (stage 3c §2.1, §2.9): what a foot at `p` stands on — 'wet' (a puddle patch in `regions.wet`), 'grate' (the
+   *  spine's grating over the crawlway, the sub bay's galleries, the gate lock) or 'deck'. */
+  function surfaceL5(p: THREE.Vector3): 'wet' | 'grate' | 'deck' {
+    const lv = ctx.level;
+    if (!lv) return 'deck';
+    const wet = lv.regions?.wet;
+    if (wet) for (const b of wet) if (p.x >= b.min.x && p.x <= b.max.x && p.z >= b.min.z && p.z <= b.max.z && p.y >= b.min.y - 0.5 && p.y <= b.max.y + 0.5) return 'wet';
+    const r = lv.roomAt(p);
+    if (!r) return 'deck';
+    if (r.id === 'lock5') return 'grate';
+    if (r.id === 'sub5' && p.y > 4) return 'grate';
+    if (r.id === 'spine5' && p.y > -0.5 && r.floors) {
+      // above one of the spine's lower (crawl) floors = on the grating
+      for (const f of r.floors) if (f.y < -0.5 && p.x >= f.box[0] && p.x <= f.box[1] && p.z >= f.box[2] && p.z <= f.box[3]) return 'grate';
+    }
+    return 'deck';
+  }
+  function soldierStepVariant(p: THREE.Vector3): number {
+    const k = level.id === 5 ? surfaceL5(p) : 'deck';
+    return (k === 'grate' ? 3 : k === 'wet' ? 6 : 0) + Math.floor(Math.random() * 3);
+  }
+  /** A soldier round (W3b plays soldier_*_fire at the muzzle): group it into its shooter's burst for the room tail. */
+  function soldierShot(p: THREE.Vector3): void {
+    for (const b of soldierBursts) if (b.pos.distanceToSquared(p) < 4) { b.pos.copy(p); b.last = eng.now; b.rounds++; return; }
+    if (soldierBursts.length < 8) soldierBursts.push({ pos: p.clone(), last: eng.now, rounds: 1 });
+  }
+  /** Level 5: the crawlway (spine5 / arm5 below the main floor) and the magazine (arm5, deeper) are their own rooms. */
+  function subRoom(id: string, p: THREE.Vector3): string {
+    if (level.id !== 5) return id;
+    if (id === 'spine5' && p.y < -0.5) return 'crawl5';
+    if (id === 'arm5' && p.y < -0.5) return p.y < -2.0 ? 'mag5' : 'crawl5';
+    return id;
+  }
 
   function applyRoom(id: string, bounds?: THREE.Box3 | null) {
     eng.setRoom(id);
@@ -335,11 +399,15 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     if (surface === 'metal' && Math.random() < 0.22) eng.play('ricochet', { position: point, delay: 0.015 });
   });
 
-  ev.on('player:footstep', ({ surface, running }) => {
+  ev.on('player:footstep', ({ position, surface, running }) => {
     let id = STEP_ID[surface] ?? 'step_metal';
     if (surface === 'metal' && GRATE_ROOMS.has(eng.roomId)) id = 'step_grate';
     if (level.id === 3 && surface !== 'glass' && surface !== 'flesh' && surface !== 'robot') id = FLOOR_L3[eng.roomId] ?? id;
     if (level.id === 4 && surface !== 'glass' && surface !== 'flesh' && surface !== 'robot') id = FLOOR_L4[eng.roomId] ?? id;
+    if (level.id === 5 && surface !== 'glass' && surface !== 'flesh' && surface !== 'robot') {
+      const k = position ? surfaceL5(position) : 'deck';
+      id = k === 'wet' ? 'step_wet' : k === 'grate' ? 'step_grate' : FLOOR_L5[eng.roomId] ?? id;
+    }
     eng.play(id, { volume: running ? 1.2 : 0.75, pitch: running ? 1.03 : 1 });
     if (running && Math.random() < 0.6) eng.play('gear_rattle', { volume: 0.8 });
   });
@@ -357,7 +425,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     }
   });
   ev.on('player:died', () => eng.play('player_death'));
-  ev.on('player:flashlight', ({ on }) => eng.play(on ? 'flashlight_on' : 'flashlight_off'));
+  // stage 3c coordinator 5a (every level): the cell ran flat → its own death; a switch press on a flat cell → a dry click
+  ev.on('player:flashlight', ({ on, cause }) => eng.play(cause === 'empty' ? 'flashlight_die' : cause === 'refused' ? 'flashlight_dead' : on ? 'flashlight_on' : 'flashlight_off'));
 
   // armour gained (vest strap done, plate touched): by its size — a vest is +50, a plate +15. Not on restore / carry.
   ev.on('player:armor', ({ delta }) => {
@@ -370,8 +439,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     eng.play(id);
   });
 
-  ev.on('door:opening', ({ position }) => eng.play('door_open', { position: lift(position, 1.4) }));
-  ev.on('door:closing', ({ position }) => eng.play('door_close', { position: lift(position, 1.4) }));
+  ev.on('door:opening', ({ id, position }) => { if (!OWN_SOUND_DOORS.has(id)) eng.play('door_open', { position: lift(position, 1.4) }); });
+  ev.on('door:closing', ({ id, position }) => { if (!OWN_SOUND_DOORS.has(id)) eng.play('door_close', { position: lift(position, 1.4) }); });
   ev.on('door:denied', ({ position }) => eng.play('denied', { position: lift(position, 1.3) }));
 
   ev.on('interact', ({ kind, position }) => {
@@ -384,7 +453,10 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   ev.on('enemy:spawned', ({ type, position }) => {
     if (type === 'skitter') eng.play('skitter_chitter', { position: lift(position, ENEMY_Y.skitter), volume: 0.7 });
   });
+  // soldiers (stage 3c §8.11): the enemies module plays every soldier sound itself; audio plays only soldier_step on
+  // enemy:step (the surface by position) and the burst's room tail — so none of the husk / sentry / robot sounds below
   ev.on('enemy:woke', ({ type, position }) => {
+    if (type === 'soldier') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'husk') eng.play('husk_wake', { position: p });
     else if (type === 'foreman') { eng.play('husk_wake', { position: p, pitch: 0.7 }); eng.play('foreman_step', { position: lift(position, 0.05, tmpC), delay: 0.3 }); }
@@ -392,6 +464,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     else eng.play('sentry_wake', { position: p });
   });
   ev.on('enemy:alerted', ({ type, position }) => {
+    if (type === 'soldier') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'skitter') eng.play('skitter_screech', { position: p });
     else if (type === 'husk') eng.play('husk_vocal', { position: p });
@@ -403,6 +476,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     } else eng.play('sentry_alert', { position: p });
   });
   ev.on('enemy:attack', ({ type, position, kind }) => {
+    if (type === 'soldier') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'foreman') { eng.play(kind === 'melee' ? 'foreman_slam' : 'arm_reach', { position: p }); return; }
     if (type === 'skitter') eng.play('skitter_attack', { position: p });
@@ -410,6 +484,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     else eng.play('sentry_fire', { position: p });
   });
   ev.on('enemy:damaged', ({ type, point }) => {
+    if (type === 'soldier') return;
     eng.play('impact_robot', { position: point });
     const r = Math.random();
     if (type === 'skitter' && r < 0.6) eng.play('skitter_hurt', { position: point });
@@ -418,6 +493,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
     else if (type === 'foreman' && r < 0.4) eng.play('husk_hurt', { position: point, pitch: 0.8 });
   });
   ev.on('enemy:died', ({ type, position }) => {
+    if (type === 'soldier') return;
     const p = lift(position, ENEMY_Y[type]);
     if (type === 'foreman') {
       for (let i = 0; i < 3; i++) eng.play('husk_death', { position: p, delay: i * 0.35, pitch: 0.8 + i * 0.15, variant: i % 2 });
@@ -429,6 +505,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   ev.on('enemy:step', ({ type, position }) => {
     if (type === 'sentry') return;
     const p = lift(position, 0.05);
+    if (type === 'soldier') { eng.play('soldier_step', { position: p, variant: soldierStepVariant(position) }); return; }
     if (type === 'skitter') eng.play('skitter_step', { position: p });
     else if (type === 'foreman') eng.play('foreman_step', { position: p });
     else { eng.play('husk_step', { position: p }); if (Math.random() < 0.2) eng.play('husk_joint', { position: lift(position, 1.2, tmpC) }); }
@@ -466,6 +543,9 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
       case 'habitat_restore': setMood(false); break;
       // level 4: the clean side's lights-out (§4.3) — beds go to the sealed hum; emit it again when restoring past it
       case 'l4_lights_out': if (level.id === 4) setMood(true); break;
+      // level 5 (§4.7 L): lights_out5 — spine5 / sub5 go to amb_dark (the level plays lights_out_dock itself); emitted
+      // again when a checkpoint restores past it (§7 cp5_door)
+      case 'l5_dark': if (level.id === 5) setMood(true); break;
       case 'choir_speaks':
         eng.play('glitch', { volume: 0.8 });
         break;

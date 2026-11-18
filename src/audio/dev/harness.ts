@@ -17,6 +17,8 @@
  *                      + its `carbine_tail` (click a cell); &live=1 runs the real system on level 4 and records which ids the
  *                      game events trigger (carbine burst + tail, reloads, armour, body hits, floors, lights-out mood).
  *                      The new ids themselves: `mode=sounds&filter=<rev9 ids>` (see SOUNDS.md → Level 4).
+ *   l5               — level 5 (stage 3c): room presets normal / lights-out with `tray_crash`; &live=1 event wiring + the
+ *                      play log; &voice=1 the radio / radio:1 / throat chains and their levels (see modeL5).
  * Results on window.__audioReport; window.__game = { ready: true } when done.
  */
 import * as THREE from 'three';
@@ -283,6 +285,200 @@ async function modeL4() {
     report.live = out;
   }
   head.textContent = `l4: ${Object.keys(ROOMS_L4).length} level-4 rooms (normal / lights-out) — click to hear a 3-round burst + tail in the room`;
+}
+
+/**
+ * Level 5 (stage 3c W2b): every room preset (normal / after lights_out5) auditioned with `tray_crash` (click a cell);
+ * &live=1 runs the real system on level 5 with a stub level (rooms with floors, a wet region) and records which ids the
+ * game events trigger (flashlight cell, soldier events, soldier fire + its burst tail, passing rounds, d5_gate, wet /
+ * grate / deck footsteps, the crawl and magazine sub-rooms, l5_dark) and what `audio.debug.log` holds;
+ * &voice=1 renders voice lines through `radio`, `radio:1`, `throat` (lead, duration, level) and measures `throat` at
+ * 6.7 m against the in-ear reference on the voice bus.
+ */
+async function modeL5() {
+  const { ROOMS_L5, presetFor } = await import('../impulses');
+  const crash = (await renderDef(SOUND_MAP.get('tray_crash')!))[0];
+  const rows: Record<string, unknown> = {};
+  const W = 340, H = 80;
+  if (q.get('rooms') !== '0') for (const id of Object.keys(ROOMS_L5)) {
+    for (const dark of [false, true]) {
+      const p = presetFor(id, 5, dark);
+      if (dark && p === presetFor(id, 5, false)) continue;
+      const oc = new OfflineAudioContext(1, Math.ceil((crash.duration + 4) * SR), SR);
+      const src = oc.createBufferSource(); src.buffer = crash;
+      const dry = oc.createGain(); dry.gain.value = 0.5;
+      const conv = oc.createConvolver(); conv.buffer = makeIR(p.ir, SR);
+      const wet = oc.createGain(); wet.gain.value = p.wet * 0.5;
+      src.connect(dry); dry.connect(oc.destination); src.connect(conv); conv.connect(wet); wet.connect(oc.destination);
+      src.start();
+      const r = await oc.startRendering();
+      const st = stats(chansOf(r), SR);
+      rows[`${id}${dark ? ':dark' : ''}`] = { ir: p.ir, wet: p.wet, bed: p.bed, quiet: !!p.quiet, events: Object.keys(p.events), local: (p.local ?? []).map((e) => e.id), tailMs: st.tailMs };
+      const cv = cell(`${id}${dark ? ' DARK' : ''}  ir=${p.ir} wet=${p.wet}${p.quiet ? ' quiet' : ''}\nbed ${JSON.stringify(p.bed)}\ntail ${st.tailMs}ms`, W, H);
+      draw(cv, chansOf(r), SR);
+      cv.style.cursor = 'pointer';
+      cv.onclick = () => audition(r, false, 1);
+    }
+  }
+  report.rooms = rows;
+  if (q.get('live') || q.get('voice')) {
+    const ctx = fakeCtx() as unknown as GameContext & { levelId: number; level: any; player: any; events: ReturnType<typeof createEvents> };
+    (ctx as any).levelId = 5;
+    // a stub of level 5: spine5 with its crawl floors, sub5 with a gallery, arm5 with the magazine, a wet patch
+    const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) => new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1));
+    const rooms = [
+      { id: 'spine5', name: 'THE SPINE', bounds: box(8, 44, -1.9, 3.2, -18, -14), floors: [{ y: -1.4, box: [16.4, 36.2, -16.6, -15.4], nav: false }, { y: -1.4, box: [36.2, 38.6, -17.6, -15.4], nav: false }] },
+      { id: 'arm5', name: 'ARMOURY', bounds: box(14, 22, -3.1, 3.2, -28, -18), floors: [{ y: -1.4, box: [16.4, 17.6, -20, -18], nav: false }, { y: -2.6, box: [14.2, 21.8, -27.8, -21.4], nav: false }] },
+      { id: 'sub5', name: 'SUB BAY', bounds: box(22, 46, -0.5, 12, -56, -18), floors: [{ y: 4.8, box: [22.2, 25, -55.8, -18.2] }] },
+      { id: 'mess5', name: 'MESS', bounds: box(24, 38, -0.5, 3.2, -14, -2) },
+      { id: 'heads5', name: 'WASHROOM', bounds: box(12, 20, -0.5, 2.8, -2, 4) },
+    ];
+    ctx.level = {
+      rooms, regions: { wet: [box(30, 32, 0, 0.05, -40, -38)] },
+      roomAt: (p: THREE.Vector3) => rooms.find((r) => p.x >= r.bounds.min.x && p.x <= r.bounds.max.x && p.z >= r.bounds.min.z && p.z <= r.bounds.max.z) ?? null,
+      object: () => undefined,
+    };
+    (ctx.physics as any).lineOfSight = () => true;
+    const audio = await createAudio(ctx);
+    await audio.unlock();
+    const dbg = (audio as any).debug;
+    const eng = dbg.engine;
+    const played: string[] = [];
+    const orig = eng.play.bind(eng);
+    eng.play = (id: string, p?: { variant?: number; retry?: boolean }) => { if (!p?.retry) played.push(p?.variant !== undefined ? `${id}#${p.variant}` : id); orig(id, p as never); };
+    const tick = async (ms: number) => { const end = performance.now() + ms; while (performance.now() < end) { ctx.camera.updateMatrixWorld(); audio.update(0.016); await new Promise((r) => setTimeout(r, 16)); } };
+    const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+    const E = ctx.events;
+    const out: Record<string, unknown> = { level: eng.level };
+    const take = (k: string) => { out[k] = played.splice(0); };
+    E.emit('game:state', { state: 'playing', prev: 'menu' });
+    await tick(300); take('setup');
+    if (q.get('live')) {
+      // flashlight cell (every level: the same wiring)
+      E.emit('player:flashlight', { on: true, cause: 'toggle' }); E.emit('player:flashlight', { on: false, cause: 'toggle' }); take('torchToggle');
+      E.emit('player:flashlight', { on: false, cause: 'empty' }); take('torchEmpty');
+      await tick(250);
+      E.emit('player:flashlight', { on: false, cause: 'refused' }); take('torchRefused');
+      E.emit('player:flashlight', { on: true, cause: 'story' }); take('torchStory');
+      // soldier events: nothing from audio but his steps
+      const sp = V(20, 0, -20);
+      E.emit('enemy:woke', { id: 9, type: 'soldier', position: sp }); E.emit('enemy:alerted', { id: 9, type: 'soldier', position: sp });
+      E.emit('enemy:attack', { id: 9, type: 'soldier', position: sp, kind: 'ranged' } as never);
+      E.emit('enemy:damaged', { id: 9, type: 'soldier', point: sp, direction: V(0, 0, 1), amount: 14 });
+      E.emit('enemy:died', { id: 9, type: 'soldier', position: sp, group: 'g5_s1' }); take('soldierEventsSilent');
+      E.emit('enemy:step', { id: 9, type: 'soldier', position: V(12, 0, -16) }); await tick(60);
+      E.emit('enemy:step', { id: 9, type: 'soldier', position: V(20, 0, -16) }); await tick(60);
+      E.emit('enemy:step', { id: 9, type: 'soldier', position: V(31, 0, -39) }); await tick(60);
+      E.emit('enemy:step', { id: 9, type: 'soldier', position: V(23, 4.8, -30) }); take('soldierSteps_deck_grate_wet_gallery');
+      // a carbine burst (W3b's calls) → one tail after the burst; a pistol pair → one tail
+      for (let i = 0; i < 3; i++) { audio.play('soldier_carbine_fire', { position: V(20, 1.5, -30) }); await tick(110); }
+      await tick(600); take('carbineBurstThenTail');
+      for (let i = 0; i < 2; i++) { audio.play('soldier_pistol_fire', { position: V(-10, 1.5, -30) }); await tick(350); }
+      await tick(600); take('pistolPairThenTail');
+      audio.play('bullet_crack', { position: V(1, 1.6, 4) }); audio.play('bullet_whiz', { position: V(-1, 1.6, 4) }); take('passingRounds');
+      audio.play('soldier_step', { position: V(20, 0, -16) }); take('soldierStepByCall_grate');
+      // the gate owns its sound; other doors keep door_open
+      E.emit('door:opening', { id: 'd5_gate', position: V() }); E.emit('door:closing', { id: 'd5_gate', position: V() });
+      E.emit('door:opening', { id: 'd5_duty', position: V() }); take('doors');
+      // player footsteps: deck (mess tile), grating (spine), wet patch, gallery, crawl / magazine sub-rooms
+      const step = async (x: number, y: number, z: number) => {
+        ctx.player.position.set(x, y, z); await tick(600);
+        E.emit('player:footstep', { position: V(x, y, z), surface: 'metal', running: false });
+        return { room: eng.roomId, ir: eng.room.ir, bed: eng.room.bed, step: played.slice(-1)[0] };
+      };
+      out.walk = {
+        mess: await step(30, 0, -8), spineDeck: await step(12, 0, -16), spineGrate: await step(25, 0, -16),
+        crawl: await step(25, -1.4, -16), magazine: await step(18, -2.6, -24), armCrawl: await step(17, -1.4, -19),
+        bayFloor: await step(34, 0, -30), bayWet: await step(31, 0, -39), gallery: await step(23, 4.8, -30), heads: await step(15, 0, 1),
+      };
+      played.length = 0;
+      // lights out: spine / sub to amb_dark; the crawl's dark form
+      ctx.player.position.set(12, 0, -16); await tick(600);
+      const before = { ir: eng.room.ir, bed: eng.room.bed };
+      E.emit('story:beat', { id: 'l5_dark' });
+      out.lightsOut = { before, after: { room: eng.roomId, bed: eng.room.bed, cold: eng.cold } };
+      ctx.player.position.set(34, 0, -30); await tick(600);
+      out.bayDark = { room: eng.roomId, bed: eng.room.bed };
+      ctx.player.position.set(30, 0, -8); await tick(600);
+      out.messUnchanged = { room: eng.roomId, bed: eng.room.bed };
+      // loops (lazy)
+      for (const id of ['fan_loop', 'radio_static_bed', 'sub_systems_hum']) { const h = audio.loop(id, { position: V(2, 1, 0) }); await tick(400); h.stop(0.1); }
+      out.log = dbg.log.slice(-12);
+      out.logSize = dbg.log.length;
+      out.bank = ['flashlight_die', 'flashlight_dead', 'gate_open_heavy', 'booth_door_shut', 'soldier_carbine_fire', 'soldier_step', 'amb_post', 'amb_dark', 'tray_crash', 'hull_groan_long']
+        .map((id) => `${id}:${eng.buffers(id) ? 'ready' : 'missing'}`);
+      report.live = out;
+    }
+    if (q.get('voice')) {
+      // the three new chains over existing takes (W9's l5 lines are not on main yet): lead, duration, level
+      const table = loadVoiceTable();
+      const ids = (q.get('ids') ?? 'l4_sunde_2,l3_choir_pa_residents,l4_unit_gate').split(',');
+      const dec = new OfflineAudioContext(1, 1, FX_SR);
+      const base = (import.meta as any).env?.BASE_URL ?? '/';
+      const vres: Record<string, unknown> = {};
+      for (const id of ids) {
+        const e = table.get(id);
+        if (!e?.generated) { vres[id] = 'not generated'; continue; }
+        const bufs = await Promise.all(e.files.map((f) => fetch(base + f).then((r) => r.arrayBuffer()).then((a) => dec.decodeAudioData(a))));
+        const row: Record<string, unknown> = {};
+        for (const fx of ['headset', 'radio', 'radio:1', 'throat']) {
+          const b = await renderVoiceFx(fx, bufs, id, e.lead);
+          const ch = chansOf(b);
+          const st = stats(ch, b.sampleRate);
+          // onset of the voice = first 10 ms frame above 0.1 × p95 speech level after the squelch (≥ 30 ms in)
+          const x = ch[0], fr = Math.floor(b.sampleRate * 0.01);
+          const lv: number[] = [];
+          for (let i = 0; i + fr <= x.length; i += fr) { let s2 = 0; for (let k = 0; k < fr; k++) s2 += x[i + k] ** 2; lv.push(Math.sqrt(s2 / fr)); }
+          const p95 = [...lv].sort((a2, b2) => a2 - b2)[Math.floor(lv.length * 0.95)];
+          const on = lv.findIndex((v, i2) => i2 >= 3 && v > 0.25 * p95);
+          row[fx] = { dur: st.dur, srcDur: +(bufs[0].duration - e.lead).toFixed(3), peakDb: st.peakDb, speechRms: +speechRms(ch).toFixed(4), clip: st.clip, centroid: st.centroid, onsetMs: on * 10 };
+          if (q.get('draw') !== '0') {
+            const cv = cell(`${id} → ${fx}\n${st.dur}s pk ${st.peakDb}dB onset ${on * 10}ms cen ${st.centroid}`, 520, 100);
+            draw(cv, ch, b.sampleRate);
+            cv.style.cursor = 'pointer';
+            cv.onclick = () => audition(b, false, 1);
+          }
+        }
+        vres[id] = row;
+      }
+      report.voiceFx = vres;
+      // throat at 6.7 m against the in-ear reference, measured on the voice bus (as check-voice-level does)
+      const ac: AudioContext = eng.ctx;
+      const cap: Float32Array[] = [];
+      const spn = ac.createScriptProcessor(4096, 2, 2);
+      const mute = ac.createGain(); mute.gain.value = 0;
+      eng.buses.voice.connect(spn); spn.connect(mute); mute.connect(ac.destination);
+      let on = false;
+      spn.onaudioprocess = (ev) => { if (on) { const l = ev.inputBuffer.getChannelData(0), r = ev.inputBuffer.getChannelData(1); const m = new Float32Array(l.length); for (let i = 0; i < l.length; i++) m[i] = Math.sqrt((l[i] * l[i] + r[i] * r[i]) / 2); cap.push(m); } };
+      const measure = async (id: string, o?: { position?: THREE.Vector3; fx?: string }) => {
+        await audio.preloadVoice([id]);
+        if (o?.fx) await dbg.voice.processed(id, o.fx);
+        cap.length = 0; on = true;
+        const h = audio.say(id, o as never);
+        await h.done; await tick(200); on = false;
+        // gate as speechRms: frames above 0.25 × p95
+        const all = cap.flatMap((a2) => Array.from(a2));
+        const hop = 480, fr: number[] = [];
+        for (let i = 0; i + hop <= all.length; i += hop) { let s2 = 0; for (let k = 0; k < hop; k++) s2 += all[i + k] ** 2; fr.push(Math.sqrt(s2 / hop)); }
+        const p95 = [...fr].sort((a2, b2) => a2 - b2)[Math.floor(fr.length * 0.95)] ?? 0;
+        let s2 = 0, n = 0; for (const v of fr) if (v > 0.25 * p95) { s2 += v * v; n++; }
+        return Math.sqrt(s2 / Math.max(1, n));
+      };
+      ctx.camera.position.set(0, 1.65, 0); ctx.camera.lookAt(0, 1.65, -5); ctx.camera.updateMatrixWorld();
+      await tick(100);
+      const lineId = ids.find((i) => table.get(i)?.generated) ?? 'l3_choir_pa_residents';
+      const ref = await measure('l3_choir_pa_residents');
+      const throat67 = await measure(lineId, { position: V(0, 1.6, -6.7), fx: 'throat' });
+      const radio2d = await measure(lineId, { fx: 'radio' });
+      const radio2 = await measure(lineId, { position: V(0, 1.0, -2), fx: 'radio' });
+      const radio6 = await measure(lineId, { position: V(0, 1.0, -6), fx: 'radio' });
+      const radio12 = await measure(lineId, { position: V(0, 1.0, -12), fx: 'radio' });
+      const dB = (x: number) => +(20 * Math.log10(x / ref)).toFixed(1);
+      report.voiceLevel = { line: lineId, refRms: +ref.toFixed(4), throat_6_7m_dB: dB(throat67), radio2D_dB: dB(radio2d), radioBody_2m_dB: dB(radio2), radioBody_6m_dB: dB(radio6), radioBody_12m_dB: dB(radio12) };
+      report.voiceTrace = dbg.voice.trace.slice(-6).map((t: any) => ({ id: t.id, fx: t.fx, fxLead: t.fxLead, dist: t.dist, occluded: t.occluded, distGain: t.distGain }));
+    }
+  }
+  head.textContent = `l5: ${Object.keys(ROOMS_L5).length} level-5 rooms (normal / lights-out) — click to hear the tray crash in the room`;
 }
 
 async function loadMusicBank(): Promise<Map<string, AudioBuffer[]>> {
@@ -673,6 +869,7 @@ async function modeVoice() {
     else if (mode === 'live') await modeLive();
     else if (mode === 'hab') await modeHab();
     else if (mode === 'l4') await modeL4();
+    else if (mode === 'l5') await modeL5();
     else await modeSounds();
   } catch (e) {
     report.error = String((e as Error)?.stack ?? e);

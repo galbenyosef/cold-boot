@@ -92,9 +92,13 @@ const POS: Record<string, { ref: number; rolloff: number; send: number; gain?: n
   choir: { ref: 8, rolloff: 0.5, send: 1 },
   room: { ref: 2.5, rolloff: 1.1, send: 0.35 }, // a small speaker / a person in an office
   door: { ref: 2, rolloff: 1.3, send: 0.3 }, // behind a sealed cabin door
-  // stage 3c — K placeholders (W2b sets the real profiles: radio 2-D at conversation level, throat ref 5.5)
-  radio: { ref: 1.5, rolloff: 1.0, send: 0.3 },
-  throat: { ref: 8, rolloff: 0.5, send: 1 },
+  // stage 3c §6.1: Kessler's radio — 2-D (the HUD radio) at conversation level (the chain's output RMS, no POS gain);
+  // positioned (the radio on the first soldier's body) a small speaker: ref 2 m, rolloff 1.0, normal occlusion
+  radio: { ref: 2, rolloff: 1.0, send: 0.3 },
+  // CHOIR through a taken soldier, at his head: ref 5.5 m (S5: 5.5 / 6.7 = −1.7 dB at the cutscene distance), with the
+  // in-room gain of `clean` (the HRTF panner's loss against the in-ear reference, measured for `clean`) so that −1.7 dB
+  // is what arrives (§8.13: ≥ −3 dB at 6.7 m). The occlusion probes (OCC_PROBES) clear his own capsule.
+  throat: { ref: 5.5, rolloff: 1.0, send: 0.25, gain: 1.3 },
 };
 /** fx whose rendering already IS the barrier (a voice through a sealed door): no run-time occlusion on top of it. */
 const NO_OCCLUDE = new Set(['door']);
@@ -385,6 +389,7 @@ export class VoiceBank {
     const rec: VoiceTrace = { id: String(id), fx: String(opts?.fx || e?.fx || ''), dur: duration, vol: Math.max(0, opts?.volume ?? 1), fxLead: fxLead(parseFx(opts?.fx || e?.fx).name), askP: performance.now(), askT: this.eng.now, positional: !!h.pos };
     this.trace.push(rec);
     if (this.trace.length > TRACE_MAX) this.trace.splice(0, this.trace.length - TRACE_MAX);
+    this.eng.logPlay(String(id), h.pos);
     h.trace = rec;
     if (!e) {
       this.warnOnce(String(id), `[audio] unknown voice line "${id}"`);
