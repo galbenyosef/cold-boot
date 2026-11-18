@@ -131,3 +131,10 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `check:cutscene` all + `l6 --strict6`. Expect test-side fixes on first runs against ST. Confirm ids used by tests:
   `ping_far`/`ping_near`, `shear_fire`, `splash_big`, `winch_brake`. `--dry`/B5 write `player.weapons[*].reserve` (needs
   to be writable or a hook). `--scares` is long by design (caps up to 90 s per scare).
+- 3d D1: PERF RISK views (1) 176 / (2) 166 calls with no enemies (budget 200 incl. F1's 2 soldiers + 2 husks; greybox
+  alone 140 in view 1) — IB must cut the greybox base; perf (1),(2) with F1 and (3) with F2; `check:dark` tunnel views;
+  doors `d6_tube`/`d6_bay`/`d6_he`; `check:decals`; reach/nav L6 (kerb, shelves, body box, bay coil; stand points
+  `p6_lock_ammo`, `p6_rep_*`, `p6_bay_*`); `--scares` audit `v6_tent`, `tun6_far_out`. Fix §10.6 rep6 perf view yaw
+  (use `1,0,-81,-45`). Weak: body lumpy close up, coverall grease blotchy, flap dark outside, rep6 dim/brown, vault
+  haunch reads as a beam, trunk yellow bands wider than the cable. User listens: tarp_flap/lamp_creak timing,
+  lights_out_dock at 0.6.
