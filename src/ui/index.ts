@@ -12,6 +12,8 @@ import { MainMenu } from './menu';
 import { Cards, DeathScreen, EndingScreen, LogReader, PauseMenu, resumeGate } from './screens';
 import { CHOIR, ENDING } from '../story/text';
 import { NoteCard } from './note';
+import { RadioStrip } from './radio';
+import { Keypad } from './keypad';
 
 export async function createUI(ctx: GameContext): Promise<UISystem> {
   if (!document.getElementById('cb-style')) {
@@ -40,6 +42,8 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
   const hud = new Hud(ctx, root);
   const subs = new Subtitles(ctx, root);
   const note = new NoteCard(ctx, root);
+  const radio = new RadioStrip(ctx, root);
+  const keypad = new Keypad(ctx, root);
   const black = h('div', 'layer black', root);
   const log = new LogReader(ctx, root);
   const cards = new Cards(ctx, root);
@@ -105,15 +109,11 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
     showEnding() { return ending.show(); },
     setHudVisible(v) { hudWanted = v; syncHud(); },
     showSkip(progress) { hud.showSkip(progress); },
-    // stage 3c §8.6 — K placeholder (W2a): the HUD radio strip
-    radio(_o) { /* no-op until W2a */ },
-    // stage 3c §8.5 — K placeholder (W2a): resolves at once with the test-injected code (consumed) or null
-    keypad(_o) {
-      const code = ctx.debug.keypadInput ?? null;
-      ctx.debug.keypadInput = null;
-      return Promise.resolve(code);
-    },
-    closeKeypad() { /* K placeholder: nothing is ever open */ },
+    // stage 3c §8.6: the HUD radio strip
+    radio(o) { radio.set(o); },
+    // stage 3c §8.5: the keypad overlay (pointer stays locked; honours ctx.debug.keypadInput)
+    keypad(o) { return keypad.open(o); },
+    closeKeypad() { keypad.close(); },
 
     eyelids(open, seconds) { setLids(open, seconds); },
     blur(px, seconds) { setBlur(px, seconds); },
@@ -137,9 +137,12 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
       subs.compact = note.isOpen;
       hud.update(dt);
       subs.update(dt);
+      radio.update(dt);
+      const kpEsc = keypad.isOpen && ctx.input.pressed('Escape');
+      keypad.update(dt);
       log.update(dt);
       // Esc on an open note only closes the note (it must not also open the pause menu this frame).
-      const noteEsc = note.isOpen && ctx.input.pressed('Escape');
+      const noteEsc = (note.isOpen && ctx.input.pressed('Escape')) || kpEsc;
       note.update(dt);
       menu.update(dt);
       death.update(dt);

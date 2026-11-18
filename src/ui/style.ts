@@ -224,6 +224,9 @@ export function buildCss(noise: string): string {
   text-shadow: 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 0 0 18px rgba(255,80,60,.22); }
 .cb .subs .sub.rec .spk { color: #a9b2b6; }
 .cb .subs .sub.rec .line { color: #d9dee0; font-weight: 300; font-style: italic; }
+.cb .subs .sub.radio .spk { color: #f0d9a8; }
+.cb .subs .sub.radio .line { color: #fbf0d6; font-weight: 300; letter-spacing: .03em;
+  text-shadow: 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 0 0 20px rgba(240,200,120,.2); }
 
 /* intercom "live" tag (above the vitals) */
 .cb .icom { position: absolute; left: 44px; bottom: 148px; z-index: 4; display: flex; align-items: center; gap: 9px; color: #ffc27e;
@@ -235,6 +238,55 @@ export function buildCss(noise: string): string {
 .cb .icom .lbl { color: #ffc27e; letter-spacing: .3em; text-shadow: 0 0 2px #000, 0 1px 8px rgba(0,0,0,.95); }
 .cb .icom .bars { display: inline-flex; align-items: center; gap: 2px; height: 12px; margin-left: 2px; }
 .cb .icom .bars i { width: 2px; height: 12px; background: currentColor; opacity: .85; display: block; transform-origin: 50% 50%; transform: scaleY(.15); }
+
+/* radio strip (level 5): the intercom tag's sibling, pale amber, with the Q hint under it */
+.cb .rstrip { position: absolute; left: 44px; bottom: 196px; z-index: 4; display: flex; flex-direction: column; gap: 7px; color: #f0d9a8;
+  opacity: 0; transform: translateY(4px); transition: opacity .35s ease, transform .35s ease; pointer-events: none; }
+.cb .rstrip.show { opacity: .7; transform: none; }
+.cb .rstrip.show.live { opacity: 1; }
+.cb .rstrip .rrow { display: flex; align-items: center; gap: 9px; font: 500 10px/1 var(--f-mono); }
+.cb .rstrip .ic { width: 14px; height: 14px; display: inline-block; }
+.cb .rstrip .ic svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; display: block; filter: drop-shadow(0 0 3px rgba(0,0,0,.9)); }
+.cb .rstrip .live { width: 6px; height: 6px; border-radius: 50%; background: rgba(240,217,168,.25); transition: background .2s, box-shadow .2s; }
+.cb .rstrip.live .live { background: #ff5a3c; box-shadow: 0 0 8px #ff5a3c; animation: cb-breathe 1.1s ease-in-out infinite; }
+.cb .rstrip .lbl { letter-spacing: .3em; text-shadow: 0 0 2px #000, 0 1px 8px rgba(0,0,0,.95); }
+.cb .rstrip .bars { display: inline-flex; align-items: center; gap: 2px; height: 12px; margin-left: 2px; }
+.cb .rstrip .bars i { width: 2px; height: 12px; background: currentColor; opacity: .85; display: block; transform-origin: 50% 50%; transform: scaleY(.15); }
+.cb .rstrip .rhint { display: flex; align-items: center; gap: 8px; margin-left: 23px; font: 500 9px/1 var(--f-mono); letter-spacing: .3em; text-transform: uppercase; color: var(--dim); text-shadow: 0 0 2px #000, 0 1px 8px rgba(0,0,0,.95); }
+.cb .rstrip .rhint b { font-weight: 600; color: #f0d9a8; border: 1px solid rgba(240,217,168,.5); padding: 3px 5px 2px; letter-spacing: 0; }
+
+/* while the keypad is open the subtitles ride above it (Kessler reads the code out) */
+.cb.kp-open .subs { bottom: calc(9vh + 360px); }
+.cb .subs { transition: bottom .3s ease; }
+/* keypad overlay (level 5): centred low, the pointer stays locked, a virtual cursor does the pointing */
+.cb .keypad { position: absolute; inset: 0; z-index: 7; pointer-events: none; opacity: 0; transition: opacity .25s ease; }
+.cb .keypad.show { opacity: 1; }
+.cb .keypad .kp-panel { position: absolute; left: 50%; bottom: 9vh; transform: translateX(-50%); width: 262px; padding: 18px 20px 14px;
+  background: linear-gradient(180deg, rgba(5,12,17,.9), rgba(3,8,12,.94)); border: 1px solid var(--faint); box-shadow: 0 0 40px rgba(0,0,0,.7), inset 0 0 24px rgba(116,228,255,.04); }
+.cb .keypad .kp-panel::before, .cb .keypad .kp-panel::after { content: ''; position: absolute; width: 10px; height: 10px; border: 1px solid var(--cyan-2); }
+.cb .keypad .kp-panel::before { left: -1px; top: -1px; border-right: 0; border-bottom: 0; }
+.cb .keypad .kp-panel::after { right: -1px; bottom: -1px; border-left: 0; border-top: 0; }
+.cb .keypad .kp-title { font: 600 9px/1.5 var(--f-mono); letter-spacing: .34em; text-transform: uppercase; color: var(--fg-2); text-align: center; margin-bottom: 12px; }
+.cb .keypad .kp-display { display: flex; justify-content: center; gap: 8px; }
+.cb .keypad .kp-cell { width: 40px; height: 48px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--faint); background: rgba(0,0,0,.45);
+  font: 300 28px/1 var(--f-thin); color: var(--cyan); font-variant-numeric: tabular-nums; }
+.cb .keypad .kp-cell.full { border-color: var(--cyan-2); text-shadow: 0 0 10px rgba(116,228,255,.6); }
+.cb .keypad .kp-cell.next { border-color: rgba(116,228,255,.4); animation: cb-pulse 1s ease-in-out infinite; }
+.cb .keypad .kp-display.bad .kp-cell { border-color: var(--red); color: var(--red); animation: none; }
+.cb .keypad .kp-status { margin: 9px 0 12px; text-align: center; font: 500 9px/1 var(--f-mono); letter-spacing: .4em; color: var(--dim); }
+.cb .keypad .kp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.cb .keypad .kp-key { height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--faint); background: rgba(116,228,255,.035);
+  font: 400 17px/1 var(--f-thin); color: var(--fg); transition: background .08s, border-color .08s, color .08s; }
+.cb .keypad .kp-key.fn { font: 600 10px/1 var(--f-mono); letter-spacing: .24em; color: var(--dim); }
+.cb .keypad .kp-key.ent { border-color: rgba(255,178,74,.4); color: var(--amber); }
+.cb .keypad .kp-key.hover { border-color: var(--cyan); background: rgba(116,228,255,.13); box-shadow: 0 0 10px rgba(116,228,255,.25); }
+.cb .keypad .kp-key.ent.hover { border-color: var(--amber); background: rgba(255,178,74,.14); box-shadow: 0 0 10px rgba(255,178,74,.25); }
+.cb .keypad .kp-key.down { background: rgba(116,228,255,.38); color: #fff; }
+.cb .keypad .kp-key.ent.down { background: rgba(255,178,74,.4); }
+.cb .keypad .kp-hint { margin-top: 12px; text-align: center; font: 500 8px/1 var(--f-mono); letter-spacing: .22em; color: var(--dim); opacity: .8; }
+.cb .keypad .kp-cursor { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.cb .keypad .kp-cursor::before { content: ''; position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border: 1px solid #fff; border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,.9), 0 0 8px rgba(116,228,255,.5); }
+.cb .keypad .kp-cursor::after { content: ''; position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: #fff; }
 
 /* ───────────── note card (short fragments; never pauses, never fills the screen) */
 .cb .note { position: absolute; left: 50%; bottom: 24vh; transform: translateX(-50%) translateY(10px); width: min(560px, 84vw); z-index: 5;

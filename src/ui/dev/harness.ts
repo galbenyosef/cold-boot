@@ -47,6 +47,29 @@ function paintBackdrop(canvas: HTMLCanvasElement) {
   g.putImageData(img, 0, 0);
 }
 
+/** Scripted input on top of the real one (frame-scoped): window.__inj.dx / dy / press(code) / click(); locked is always true. */
+const inj = { dx: 0, dy: 0, keys: new Set<string>(), click: false };
+(window as any).__inj = {
+  move(dx: number, dy: number) { inj.dx += dx; inj.dy += dy; },
+  press(code: string) { inj.keys.add(code); },
+  click() { inj.click = true; },
+  consumed: [] as string[],
+};
+function injectable(real: ReturnType<typeof createInput>): ReturnType<typeof createInput> {
+  return {
+    down: (c) => inj.keys.has(c) || real.down(c),
+    pressed: (c) => inj.keys.has(c) || real.pressed(c),
+    mouseDown: (b) => real.mouseDown(b),
+    mousePressed: (b) => (b === 0 && inj.click) || real.mousePressed(b),
+    get mouseDX() { return inj.dx || real.mouseDX; },
+    get mouseDY() { return inj.dy || real.mouseDY; },
+    get wheel() { return real.wheel; },
+    get pointerLocked() { return true; },
+    requestPointerLock() {}, exitPointerLock() {},
+    endFrame() { real.endFrame(); inj.dx = 0; inj.dy = 0; inj.keys.clear(); inj.click = false; },
+  } as ReturnType<typeof createInput>;
+}
+
 async function main() {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   paintBackdrop(canvas);
@@ -57,11 +80,11 @@ async function main() {
     yaw: 0, pitch: 0, health: 100, maxHealth: 100, armor: 0, maxArmor: 100, alive: true, controlsEnabled: true, flashlightOn: false,
     weapons: { pistol: weapon('pistol', 9, 12, 36), shotgun: weapon('shotgun', 4, 6, 18), carbine: weapon('carbine', 30, 30, 90) }, currentWeapon: null as any,
     focus: null as any, hitMarker: 0, keys: new Set<string>(),
-    damage() {}, heal() {}, give() {}, hasKey: () => false, addKey() {}, teleport() {}, shake() {}, lookAt() {}, update() {},
+    damage() {}, heal() {}, give() {}, consumeKey(c: string) { (window as any).__inj.consumed.push(c); }, hasKey: () => false, addKey() {}, teleport() {}, shake() {}, lookAt() {}, update() {},
   } as any;
   const stats = { time: 734, kills: 17, logs: 4, logsTotal: 5 };
   const ctx = {
-    canvas, uiRoot: document.getElementById('ui')!, events, input: createInput(canvas),
+    canvas, uiRoot: document.getElementById('ui')!, events, input: injectable(createInput(canvas)),
     debug: { autostart: !screen.startsWith('pause'), spawn: null, noEnemies: true, noStory: true, god: true, giveAll: false, quality: null, verbose: false, fps: 60 },
     time: 0, state: 'loading' as GameState, ready: false,
     setState(s: GameState) { if (s === ctx.state) return; const prev = ctx.state; ctx.state = s; events.emit('game:state', { state: s, prev }); },
@@ -101,7 +124,7 @@ async function main() {
   requestAnimationFrame(loop);
 
   const dev = document.getElementById('dev')!;
-  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'hud-armour', 'hud-armour-break', 'hud-carbine', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2', 'menu-l3', 'card-end-l3', 'skip-0', 'skip-50', 'skip-100', 'place-1', 'place-2']) {
+  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'hud-armour', 'hud-armour-break', 'hud-carbine', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2', 'menu-l3', 'card-end-l3', 'skip-0', 'skip-50', 'skip-100', 'place-1', 'place-2', 'radio-idle', 'radio-live', 'sub-kessler', 'sub-soldier', 'sub-choir-radio', 'keypad', 'keypad-typed', 'keypad-auto', 'toast-q']) {
     const a = document.createElement('a'); a.href = `?screen=${s}`; a.textContent = s; dev.appendChild(a);
   }
 
@@ -213,6 +236,39 @@ async function main() {
       (ctx.level as any).roomAt = () => (screen === 'place-1'
         ? { id: 'atrium2', name: 'GARDEN ATRIUM — DECK 2' }
         : { id: 'outer', name: 'BIOLOGICAL SYSTEMS — OUTER LOCK' });
+      break;
+    // stage 3c W2a: radio strip (idle / live), subtitle classes, keypad, toasts (level 5 fake world)
+    case 'radio-idle':
+    case 'radio-live':
+    case 'sub-kessler':
+    case 'sub-soldier':
+    case 'sub-choir-radio':
+      playing();
+      player.currentWeapon = 'carbine'; player.armor = 50; player.health = 88; player.flashlightOn = true;
+      emit('story:objective', { text: 'Open the spine door — keypad' });
+      ui.radio?.({ label: 'POST 4 — CMD — CH 1', live: screen !== 'radio-idle' });
+      if (screen === 'sub-kessler' || screen === 'radio-live')
+        emit('story:subtitle', { speaker: 'KESSLER', text: 'Four. Seven. One. Nine. Do not write it down — say it back.', duration: 60 });
+      if (screen === 'sub-soldier')
+        emit('story:subtitle', { speaker: 'BREKKE', text: 'The situation is under control, Technician.', duration: 60 });
+      if (screen === 'sub-choir-radio')
+        emit('story:subtitle', { speaker: 'CHOIR', text: 'He is tired, Technician. Please let him rest.', duration: 60 });
+      break;
+    case 'toast-q':
+      playing();
+      emit('story:objective', { text: 'Open the spine door — keypad' });
+      ui.radio?.({ label: 'POST 4 — CMD — CH 1', live: false });
+      setTimeout(() => emit('story:toast', { text: 'Q — radio Kessler' }), 200);
+      break;
+    case 'keypad':
+    case 'keypad-typed':
+    case 'keypad-auto':
+      playing();
+      player.currentWeapon = 'carbine'; player.armor = 50;
+      emit('story:objective', { text: 'Open the spine door — keypad' });
+      if (screen === 'keypad-auto') (ctx.debug as any).keypadInput = q.get('code') ?? '4719';
+      (window as any).__kp = ui.keypad({ digits: 4, title: 'SPINE — AUTHORISED ACCESS' }).then((v) => { (window as any).__kpResult = v ?? 'null'; return v; });
+      if (screen === 'keypad-typed') setTimeout(() => { for (const k of ['Digit4', 'Digit7', 'Digit1']) (window as any).__inj.press(k); }, 600);
       break;
     case 'dialogue':
     case 'dialogue-note': {
