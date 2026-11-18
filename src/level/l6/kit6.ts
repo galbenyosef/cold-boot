@@ -252,13 +252,23 @@ const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vect
  * mesh guards, the tarp). Kept in a per-level list (see `moveOnlyColliders6`); `nav` (true) also makes it a nav
  * obstacle exactly like `b.collide` does.
  */
-export function collideMoveOnly(b: Builder, L: LevelBuild, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, nav = true) {
-  const m = b.m.clone().multiply(new THREE.Matrix4().compose(_p.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), _q.identity(), _s.set(Math.abs(x1 - x0), Math.abs(y1 - y0), Math.abs(z1 - z0))));
+export function collideMoveOnly(b: Builder, L: LevelBuild, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, nav = true, cap = false) {
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, sx = Math.abs(x1 - x0), sz = Math.abs(z1 - z0);
+  // `cap` (rails, guards): a static collider's top is standable, so the top 0.3 m of a tall box is a NON-walkable dynamic
+  // box (as W4a's `moveOnlyCollider` in grey.ts) and the static box stops 0.3 m below it.
+  const capped = cap && y1 - y0 > 0.5;
+  const sy1 = capped ? y1 - 0.3 : y1;
+  const m = b.m.clone().multiply(new THREE.Matrix4().compose(_p.set(cx, (y0 + sy1) / 2, cz), _q.identity(), _s.set(sx, Math.abs(sy1 - y0), sz)));
   let list = MOVE_ONLY.get(L);
   if (!list) MOVE_ONLY.set(L, (list = []));
   list.push(m);
+  if (capped) {
+    const mc = b.m.clone().multiply(new THREE.Matrix4().compose(_p.set(cx, (sy1 + y1) / 2, cz), _q.identity(), _s.set(sx, y1 - sy1, sz)));
+    const pb = L.ctx.physics.addBox(aabbOf(mc, new THREE.Box3()), 'metal');
+    pb.walkable = false;
+  }
   if (nav) {
-    const box = aabbOf(m, new THREE.Box3());
+    const box = aabbOf(b.m.clone().multiply(new THREE.Matrix4().compose(_p.set(cx, (y0 + y1) / 2, cz), _q.identity(), _s.set(sx, Math.abs(y1 - y0), sz))), new THREE.Box3());
     if (box.max.y > 0.2 && box.min.y < 1.5) L.obstacles.push(box.clone());
     L.navSolids.push(box);
   }
@@ -1352,12 +1362,14 @@ export interface HatchSpec6 {
   topText?: string;
   /** A status lamp on the top side by the hinge (red dogged → green open). */
   lamp?: boolean;
+  /** W4a's stopper (grey.ts `STOPPER_*6`): a dynamic box over the exit stair's upper treads, enabled only while the lid is shut. */
+  stopper?: [number, number, number, number, number, number];
   rooms?: string[];
 }
 /** §2.6.7: the vault's trench hatch (1.2 × 2.4, opens from above, two-way, hinged on its south edge). */
-export const HATCH6_VAULT: HatchSpec6 = { name: 'hatch6_vault', x0: -13.0, x1: -11.8, z0: -160.4, z1: -158.0, wheel: 'top', topText: 'CABLE TRENCH\nTO HEAD-END\nCROUCH', rooms: ['vault6'] };
+export const HATCH6_VAULT: HatchSpec6 = { name: 'hatch6_vault', x0: -13.0, x1: -11.8, z0: -160.4, z1: -158.0, wheel: 'top', topText: 'CABLE TRENCH\nTO HEAD-END\nCROUCH', stopper: [-13.0, -1.4, -159.85, -11.8, -0.02, -158.0], rooms: ['vault6'] };
 /** §2.6.6: the head-end's trench exit (1.2 × 2.2, dogged from below, hinged on its south edge). */
-export const HATCH6_HE: HatchSpec6 = { name: 'hatch6_he', x0: 2.4, x1: 3.6, z0: -177.6, z1: -175.4, wheel: 'bottom', topText: 'TRENCH\nDOGGED FROM BELOW\nACCESS VIA VAULT', lamp: true, rooms: ['he6'] };
+export const HATCH6_HE: HatchSpec6 = { name: 'hatch6_he', x0: 2.4, x1: 3.6, z0: -177.6, z1: -175.4, wheel: 'bottom', topText: 'TRENCH\nDOGGED FROM BELOW\nACCESS VIA VAULT', lamp: true, stopper: [2.4, -1.4, -177.05, 3.6, -0.02, -175.4], rooms: ['he6'] };
 
 function handwheel(b: Builder, mat: Mat, R: number, t: number, spokes: number) {
   b.torus(mat, 0, 0, 0, R, t, 'z', 24);
@@ -1432,6 +1444,9 @@ export function hatchLid6(L: LevelBuild, b: Builder, s: HatchSpec6): THREE.Objec
   for (const x of [-w / 2 + 0.25, w / 2 - 0.25]) b.bx(steel, xc + x - 0.12, y - 0.12, s.z0 - 0.07, xc + x + 0.12, y + 0.005, s.z0 + 0.01);
   const box = L.ctx.physics.addBox(new THREE.Box3(), 'metal');
   box.owner = lid.mount;
+  box.walkable = true;
+  const sb = s.stopper ? L.ctx.physics.addBox(new THREE.Box3(new THREE.Vector3(s.stopper[0], s.stopper[1], s.stopper[2]), new THREE.Vector3(s.stopper[3], s.stopper[4], s.stopper[5])), 'metal') : null;
+  if (sb) sb.owner = lid.mount;
   const corners = Array.from({ length: 8 }, () => new THREE.Vector3());
   let k = 0, dk = 0;
   const apply = () => {
@@ -1443,10 +1458,12 @@ export function hatchLid6(L: LevelBuild, b: Builder, s: HatchSpec6): THREE.Objec
     for (const xx of [-w / 2, w / 2]) for (const yy of [0, T]) for (const zz of [0, d]) corners[i++].set(xx, yy, zz).applyMatrix4(mw);
     box.box.setFromPoints(corners);
     if (k > 0.98) { box.box.min.z = s.z0 - T; box.box.max.z = s.z0; }
+    box.walkable = k < 0.5;
+    if (sb) sb.enabled = k < 0.5;
   };
   apply();
   const root = lid.mount, ud = root.userData;
-  ud.spec = s; ud.box = box; ud.k = 0;
+  ud.spec = s; ud.box = box; ud.stopper = sb; ud.k = 0;
   ud.open = (v: number) => { k = clamp01(v); ud.k = k; apply(); };
   ud.dogs = (v: number) => { dk = clamp01(v); apply(); };
   ud.lamp = (st: 'red' | 'green' | 'off') => { if (!lampMat) return; lampMat.emissive.set(st === 'green' ? 0x30ff60 : 0xff1a0a); lampMat.emissiveIntensity = st === 'off' ? 0 : 4; lampMat.color.set(st === 'green' ? 0x08300f : 0x300806); };
@@ -1632,7 +1649,7 @@ export function rail6(b: Builder, L: LevelBuild, o: { pts: [number, number][]; y
     b.rod(M, ax, y + h, az, bx, y + h, bz, 0.024, 8);
     b.rod(M, ax, y + h * 0.5, az, bx, y + h * 0.5, bz, 0.016, 6);
     if (o.toe !== false) { b.push((ax + bx) / 2, y, (az + bz) / 2, Math.atan2(bx - ax, bz - az)); b.bx(M, -0.004, 0.012, -len / 2, 0.004, 0.11, len / 2); b.pop(); }
-    if (o.collide !== false && (Math.abs(ax - bx) < 1e-3 || Math.abs(az - bz) < 1e-3)) collideMoveOnly(b, L, Math.min(ax, bx) - 0.03, y, Math.min(az, bz) - 0.03, Math.max(ax, bx) + 0.03, y + h, Math.max(az, bz) + 0.03);
+    if (o.collide !== false && (Math.abs(ax - bx) < 1e-3 || Math.abs(az - bz) < 1e-3)) collideMoveOnly(b, L, Math.min(ax, bx) - 0.03, y, Math.min(az, bz) - 0.03, Math.max(ax, bx) + 0.03, y + h, Math.max(az, bz) + 0.03, true, true);
   }
   for (const [px, pz] of [pts[0], pts[pts.length - 1]]) b.sphere(M, px, y + h, pz, 0.03, 8);
 }
@@ -1710,7 +1727,7 @@ export function barGuard(b: Builder, L: LevelBuild, o: { pts: [number, number][]
       b.detail(() => { for (let u = -len / 2 + pitch; u < len / 2 - pitch * 0.5; u += pitch) b.bx(M, u - 0.0125, 0.11, -0.0125, u + 0.0125, h - 0.06, 0.0125); });
     }
     b.pop();
-    if (o.collide !== false) collideMoveOnly(b, L, Math.min(ax, bx) - 0.03, y, Math.min(az, bz) - 0.03, Math.max(ax, bx) + 0.03, y + h, Math.max(az, bz) + 0.03);
+    if (o.collide !== false) collideMoveOnly(b, L, Math.min(ax, bx) - 0.03, y, Math.min(az, bz) - 0.03, Math.max(ax, bx) + 0.03, y + h, Math.max(az, bz) + 0.03, true, true);
   }
 }
 

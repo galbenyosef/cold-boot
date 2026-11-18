@@ -942,7 +942,7 @@ export function frame6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.Obje
 
   // ── pump pedestal
   const [px0, px1, pz0, pz1] = F.pump, pxm = (px0 + px1) / 2;
-  b.bx(navy, px0 + 0.05, Y, pz0 + 0.05, px1 - 0.05, -15.3, pz1 - 0.05);
+  b.bx(navy, px0 + 0.05, Y + 0.03, pz0 + 0.05, px1 - 0.05, -15.3, pz1 - 0.05);
   b.bx(dark, px0, Y, pz0, px1, Y + 0.06, pz1);
   b.cyl('painted_orange', pxm, -15.18, -168.6, 0.13, 0.62, 'x', 16);
   b.bx(steel, pxm - 0.15, -15.32, -168.75, pxm + 0.15, -15.0, -168.45);
@@ -953,7 +953,7 @@ export function frame6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.Obje
 
   // ── lever post
   const [lx0, lx1, lz0, lz1] = F.lever, lxm = (lx0 + lx1) / 2;
-  b.bx(navy, lx0 + 0.05, Y, lz0 + 0.05, lx1 - 0.05, -14.75, lz1 - 0.05);
+  b.bx(navy, lx0 + 0.05, Y + 0.03, lz0 + 0.05, lx1 - 0.05, -14.75, lz1 - 0.05);
   b.bx(dark, lx0, Y, lz0, lx1, Y + 0.06, lz1);
   b.bx(steel, lxm - 0.06, -14.88, lz1 - 0.05, lxm + 0.06, -14.76, lz1 - 0.02);
   b.sign('FIRE', 'danger', lxm, -15.05, lz1 - 0.048, 0.24, 0.08, '+z');
@@ -1308,7 +1308,7 @@ export function console6(L: LevelBuild, b: Builder, o: PieceOpts & { glass?: boo
   const [scx, scy, scz] = C.screen;
   // desk
   b.bx(navy, C.x0 + 0.02, Y, C.z0 + 0.06, C.x1 - 0.02, Y + 0.95, C.z1);
-  b.bx(dark, C.x0 + 0.06, Y, C.z0 + 0.05, C.x1 - 0.06, Y + 0.1, C.z0 + 0.065);
+  b.bx(dark, C.x0 + 0.06, Y, C.z0 + 0.03, C.x1 - 0.06, Y + 0.1, C.z0 + 0.045);
   b.bx('plastic_dark', C.x0, Y + 0.95, C.z0 - 0.03, C.x1, Y + C.h, C.z1 + 0.02);
   const top = Y + C.h;
   b.bx('plastic_dark', scx - 0.24, top, -158.42, scx + 0.24, top + 0.025, -158.26);
@@ -1533,8 +1533,9 @@ export function feed6(L: LevelBuild, o: { rooms?: string[]; lights?: boolean } =
   b.bx('ceiling_panel', x0 - 0.2, h, z0 - 0.2, x1 + 0.2, h + 0.3, z1 + 0.2);
   for (let z = 2; z <= 22; z += 3) for (const x of [x0 + 0.26, x1 - 0.26]) b.box(navy, x, h / 2, z, 0.12, h, 0.3);
   // galleries + bridge (grating decks, steel stringers, rails)
-  const gal = (ax: number, bx: number, az: number, bz: number) => { b.bx(grate, ax, G - 0.05, az, bx, G, bz); b.bx(steel, ax, G - 0.22, az, bx, G - 0.18, bz); };
-  gal(x0 + 0.2, x0 + 3.0, z0 + 0.2, z1 - 0.2); gal(x1 - 3.0, x1 - 0.2, z0 + 0.2, z1 - 0.2); gal(x0 + 3.0, x1 - 3.0, 20.0, 22.0);
+  // each deck runs 0.05 into the hull (W4a's grey wall face is 0.1 in; or 0.1 under the neighbouring gallery) so no end face is coplanar with a wall or a deck's side
+  const gal = (ax: number, bx: number, az: number, bz: number, dy = 0) => { b.bx(grate, ax, G - 0.05 + dy, az, bx, G + dy, bz); b.bx(steel, ax, G - 0.22 + dy, az, bx, G - 0.18 + dy, bz); };
+  gal(x0 + 0.15, x0 + 3.0, z0 + 0.15, z1 - 0.15); gal(x1 - 3.0, x1 - 0.15, z0 + 0.15, z1 - 0.15); gal(x0 + 2.9, x1 - 2.9, 20.0, 22.0, -0.02); // the bridge deck sits 2 cm lower where it overlaps the galleries' ends
   const rail = (ax: number, az: number, bx2: number, bz: number) => {
     b.rod('trim_steel', ax, G + 1.1, az, bx2, G + 1.1, bz, 0.025, 6).rod('trim_steel', ax, G + 0.55, az, bx2, G + 0.55, bz, 0.02, 6);
     const n = Math.max(1, Math.round(Math.hypot(bx2 - ax, bz - az) / 1.5));
