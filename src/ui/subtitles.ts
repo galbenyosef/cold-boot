@@ -11,7 +11,7 @@ import type { GameContext, LevelInfo } from '../core/types';
 import { levelOf } from '../core/progress';
 import { h, setText, toggle, Typewriter, glyph, svg } from './dom';
 
-type Kind = 'choir' | 'pa' | 'tomas' | 'unit' | 'rec' | 'radio' | '';
+type Kind = 'choir' | 'pa' | 'tomas' | 'unit' | 'rec' | 'radio' | 'phone' | '';
 
 /** Seconds an older line stays once a new speaker has taken over. */
 const OLD_HOLD = 1.6;
@@ -24,6 +24,8 @@ function classify(speaker: string, style: LevelInfo['subtitles']): Kind {
   if (/^(SOLDIER|BREKKE)\b/.test(s)) return 'choir';
   // level 5: Kessler on the handset (CHOIR on the radio keeps the CHOIR class above)
   if (/^KESSLER\b|^RADIO\b/.test(s)) return 'radio';
+  // level 6: Aas on the sound-powered handset (fx 'phone'): pale grey, small
+  if (/^(LT\.? ?(L\.? )?)?AAS\b|^HANDSET\b/.test(s)) return 'phone';
   if (style === 'single') return ''; // level 1 keeps its original look for every other speaker
   if (/TOMAS|INTERCOM|LINE CONTROL|HEADSET/.test(s)) return 'tomas';
   if (/RECORD|HALE|TAPE|LOG\b|VOICE MEMO/.test(s)) return 'rec';
@@ -72,7 +74,7 @@ class Entry {
     this.kind = kind;
     this.intercom = kind === 'tomas' && onIntercom(speaker);
     const r = this.root;
-    for (const k of ['choir', 'pa', 'tomas', 'unit', 'rec', 'radio'] as const) toggle(r, k, kind === k);
+    for (const k of ['choir', 'pa', 'tomas', 'unit', 'rec', 'radio', 'phone'] as const) toggle(r, k, kind === k);
     setText(this.spkName, kind === 'pa' ? 'CHOIR · PUBLIC ADDRESS' : speaker.toUpperCase());
     toggle(this.spk, 'hidden', !speaker);
     // Reveal so the whole line is readable for at least ~45% of its time on screen.

@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import type { GameContext, PickupKind, WeaponId } from '../core/types';
 import { h, setText, toggle, Scrambler, svg, ICONS } from './dom';
 import { BossPips } from './boss';
+import { LoaderPips } from './loader';
+import { GripMeter } from './grip';
 import { SkipRing } from './extra';
 import { levelOf } from '../core/progress';
 
@@ -51,6 +53,8 @@ export class Hud {
   private reserve: HTMLDivElement;
   private pips: HTMLDivElement;
   private wStatus: HTMLDivElement;
+  private loaderPips: LoaderPips;
+  private grip: GripMeter;
   private xhair: HTMLDivElement;
   private ticks: HTMLDivElement;
   private tickEls: HTMLDivElement[] = [];
@@ -174,6 +178,8 @@ export class Hud {
     h('i', '', this.cpEl);
     // foreman head pips (level 2 boss), under the checkpoint corner
     this.boss = new BossPips(ctx, root);
+    this.loaderPips = new LoaderPips(ctx, root);
+    this.grip = new GripMeter(ctx, root);
 
     // damage direction arcs
     const dmg = h('div', 'dmg', root);
@@ -417,6 +423,8 @@ export class Hud {
 
     if (this.cpLeft > 0 && (this.cpLeft -= dt) <= 0) this.cpEl.classList.remove('show');
     this.boss.update(dt);
+    this.loaderPips.update(dt);
+    this.grip.update(dt);
 
     // ── objective freshness
     this.objScr.update(dt);

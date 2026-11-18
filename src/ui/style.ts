@@ -148,6 +148,8 @@ export function buildCss(noise: string): string {
 .cb .boss .head.dead path:last-child { stroke: rgba(200,215,225,.25); }
 .cb .boss .head.die { animation: cb-head-die .7s ease-out; }
 .cb .boss.hit .heads { animation: cb-boss-hit .25s ease-out; }
+.cb .boss.loader .head.clank { animation: cb-pip-clank .45s linear; }
+@keyframes cb-pip-clank { 0%, 100% { transform: none; } 12% { transform: translate(-3px, 1px); } 28% { transform: translate(3px, -1px); } 44% { transform: translate(-2px, 0); } 60% { transform: translate(2px, 1px); } 78% { transform: translate(-1px, 0); } }
 @keyframes cb-head-die { 0% { transform: scale(1.6); filter: drop-shadow(0 0 10px #fff) brightness(3); opacity: 1; } 100% { transform: none; } }
 @keyframes cb-boss-hit { 0% { transform: translateX(-2px); } 50% { transform: translateX(2px); } 100% { transform: none; } }
 .cb .xhair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transition: opacity .15s; }
@@ -224,6 +226,8 @@ export function buildCss(noise: string): string {
   text-shadow: 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 0 0 18px rgba(255,80,60,.22); }
 .cb .subs .sub.rec .spk { color: #a9b2b6; }
 .cb .subs .sub.rec .line { color: #d9dee0; font-weight: 300; font-style: italic; }
+.cb .subs .sub.phone .spk { color: #aab4b8; font-size: .85em; letter-spacing: .3em; }
+.cb .subs .sub.phone .line { color: #c4ccd0; font-size: 16px; font-weight: 300; letter-spacing: .04em; text-shadow: 0 0 2px #000, 0 2px 10px rgba(0,0,0,.95); }
 .cb .subs .sub.radio .spk { color: #f0d9a8; }
 .cb .subs .sub.radio .line { color: #fbf0d6; font-weight: 300; letter-spacing: .03em;
   text-shadow: 0 0 2px #000, 0 2px 14px rgba(0,0,0,.95), 0 0 20px rgba(240,200,120,.2); }

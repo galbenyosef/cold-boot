@@ -80,7 +80,7 @@ async function main() {
     yaw: 0, pitch: 0, health: 100, maxHealth: 100, armor: 0, maxArmor: 100, alive: true, controlsEnabled: true, flashlightOn: false,
     weapons: { pistol: weapon('pistol', 9, 12, 36), shotgun: weapon('shotgun', 4, 6, 18), carbine: weapon('carbine', 30, 30, 90) }, currentWeapon: null as any,
     focus: null as any, hitMarker: 0, keys: new Set<string>(),
-    damage() {}, heal() {}, give() {}, consumeKey(c: string) { (window as any).__inj.consumed.push(c); }, hasKey: () => false, addKey() {}, teleport() {}, shake() {}, lookAt() {}, update() {},
+    damage() {}, heal() {}, give() {}, consumeKey(c: string) { (window as any).__inj.consumed.push(c); }, hasKey(k: string) { return this.keys.has(k); }, addKey(k: string) { this.keys.add(k); }, gripProgress: -1, teleport() {}, shake() {}, lookAt() {}, update() {},
   } as any;
   const stats = { time: 734, kills: 17, logs: 4, logsTotal: 5 };
   const ctx = {
@@ -124,7 +124,7 @@ async function main() {
   requestAnimationFrame(loop);
 
   const dev = document.getElementById('dev')!;
-  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'hud-armour', 'hud-armour-break', 'hud-carbine', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2', 'menu-l3', 'card-end-l3', 'skip-0', 'skip-50', 'skip-100', 'place-1', 'place-2', 'radio-idle', 'radio-live', 'sub-kessler', 'sub-soldier', 'sub-choir-radio', 'keypad', 'keypad-typed', 'keypad-auto', 'toast-q']) {
+  for (const s of ['menu', 'hud', 'hud-low', 'hud-quiet', 'hud-armour', 'hud-armour-break', 'hud-carbine', 'choir', 'pa', 'note', 'note-terminal', 'note-tag', 'note-voice', 'log', 'console', 'pause', 'card-intro', 'card-title', 'death', 'ending', 'gate', 'wake', 'menu-l2', 'dialogue', 'dialogue-note', 'boss', 'card-title-l2', 'card-end-l2', 'pause-l2', 'menu-l3', 'card-end-l3', 'skip-0', 'skip-50', 'skip-100', 'place-1', 'place-2', 'radio-idle', 'radio-live', 'sub-kessler', 'sub-soldier', 'sub-choir-radio', 'keypad', 'keypad-typed', 'keypad-auto', 'toast-q', 'grip', 'grip-paused', 'loader-pips', 'sub-phone', 'card-end-ch3']) {
     const a = document.createElement('a'); a.href = `?screen=${s}`; a.textContent = s; dev.appendChild(a);
   }
 
@@ -254,6 +254,37 @@ async function main() {
       if (screen === 'sub-choir-radio')
         emit('story:subtitle', { speaker: 'CHOIR', text: 'He is tired, Technician. Please let him rest.', duration: 60 });
       break;
+    // stage 3d W2a: grip meter (grip = advancing, grip-paused = E released), key strip, loader pips, phone subtitle, chapter card
+    case 'grip':
+    case 'grip-paused': {
+      playing();
+      player.currentWeapon = 'carbine'; player.armor = 50;
+      player.keys.add('key6_a'); player.keys.add('key6_b');
+      emit('story:objective', { text: 'The changeover switch — east wall' });
+      let g = 0;
+      setInterval(() => { if (screen === 'grip') g = (g + 0.01) % 1.2; else g = 0.42; player.gripProgress = g > 1 ? -1 : g; }, 33);
+      break;
+    }
+    case 'loader-pips': {
+      playing();
+      player.currentWeapon = 'carbine';
+      const parts: Record<string, number> = { ram_w: 4, ram_e: 4, pod: 6 };
+      (ctx.enemies as any).all = [{ id: 7, type: 'loader', group: 'loader6', alive: true, health: 100 }];
+      (ctx.enemies as any).boss = () => ({ partHp: (p: string) => parts[p] ?? 0 });
+      const at = new THREE.Vector3();
+      emit('enemy:alerted', { id: 7, type: 'loader', position: at });
+      // 0-damage hits shake the pip; a destroyed ram darkens its lamp
+      setTimeout(() => emit('enemy:damaged', { id: 7, type: 'loader', point: at, direction: at, amount: 0, part: 'ram_e' }), 800);
+      setTimeout(() => emit('enemy:damaged', { id: 7, type: 'loader', point: at, direction: at, amount: 0, part: 'pod' }), 1600);
+      setTimeout(() => { parts.ram_w = 0; emit('enemy:part-destroyed', { id: 7, type: 'loader', part: 'ram_w', position: at }); }, 2600);
+      break;
+    }
+    case 'sub-phone':
+      playing();
+      player.currentWeapon = 'carbine';
+      emit('story:subtitle', { speaker: 'LT. L. AAS', text: 'Hello? ... Is somebody there? They have got me walking. I cannot stop my hands.', duration: 60 });
+      break;
+    case 'card-end-ch3': ctx.setState('ended'); void ui.showCard(['END OF CHAPTER 3'], { style: 'title', skippable: true, seconds: 60 }); break;
     case 'toast-q':
       playing();
       emit('story:objective', { text: 'Open the spine door — keypad' });
