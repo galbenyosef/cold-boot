@@ -150,3 +150,15 @@ object, `collide: false`, attachment points returned in world space)
 - Open drains are 1 m holes inside the `voids` region (as level 4's sump).
 - Known, for integration: walking straight up `STAIR5_W` the player drifts ~0.8 m west (suspected physics edge resolution on
   the slope slab's diagonal); the `drain_b` skitter arrival is noisy (9.6–13 s vs a 14 s bound).
+
+## Soldier — as joined and tuned (supersedes the two soldier sections above where they differ)
+- The real body drives the behaviour; `stubrig.ts` is gone (test arena in `src/enemies/soldier/arena.ts`).
+- Crouch on the real body: eye 0.97 m, chest 0.69 m, helmet top 1.15 m — under every 1.2 m cover object. At high cover he
+  steps 0.3 m to the peek side while rising, aiming and firing.
+- Threat (measured, player standing in the open): pistol soldier at 15 m ≈ 4.3–4.8 damage/s, carbine at 20 m ≈ 4.0; time to
+  kill the player ≈ 26 s (≈ 35 s with 50 armour); behind a 1.2 m crate with aimed pop-ups: 0. Two soldiers: 6.8/s, capped at
+  18 in any second. Telegraph ≥ 0.82 s from rise (light on) to the first round. Bursts: pistol 4 rounds, carbine 5; gap
+  0.4–0.9 s; he relocates after 2–3 bursts at 2.2 m/s (walks between points are exposed by design).
+- To kill him: 7 body / 3 head / 8 limb hits with pistol or carbine; shotgun 2 shells within 6 m (buckshot rule).
+- Clasp mark: red in hold and in combat, never cyan; out 1.52 s after death. In the dark at 8 / 15 / 25 m he is a red point
+  from behind and a glint / muzzle flash from the front — nothing else: emergency lighting decides how fair that is.
