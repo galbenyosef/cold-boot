@@ -25,16 +25,10 @@ import { Halvorsen } from './human/halvorsen-actor';
 import { loadHalvorsenHead } from './human/head2';
 import { levelOf } from '../core/progress';
 import { Soldier } from './soldier/soldier';
-import { StubSoldierRig, buildSoldierArena, type SoldierRig, type SoldierRigOpts } from './soldier/stubrig';
-
-/**
- * Stage 3c §8.2.2: THE ONE PLACE that builds a soldier body. Until W3a's rig lands this is the `StubSoldierRig`; at
- * integration replace the body of this function with W3a's factory (same `SoldierRig` interface) — nothing else in the
- * behaviour changes.
- */
-function makeSoldierRig(ctx: GameContext, o: SoldierRigOpts): SoldierRig {
-  return new StubSoldierRig(ctx, o);
-}
+import { buildSoldierArena } from './soldier/arena';
+import { buildSoldierTemplate, type SoldierTemplate } from './soldier/model';
+import { createSoldierRig } from './soldier/rig';
+import { SoldierActor, createSoldierActor } from './soldier/actor';
 
 export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   const t0 = performance.now();
@@ -115,12 +109,19 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
       tpl.scan = null;
     }
   }
-  // stage 3c D5: the taken soldier (W3b behaviour on the §8.2.2 rig). Actors (§8.2.8) use the same class as a puppet
-  // until W3a's actor.ts is routed here at integration.
+  // stage 3c D5: the taken soldier — W3b's behaviour (soldier.ts) on W3a's body (model.ts / rig.ts, §8.2.2). One
+  // template, built on first use or up front (pre-warm, below); actors (§8.2.8) are W3a's puppet (actor.ts).
+  let soldierTpl: SoldierTemplate | null = null;
+  const getSoldier = () => (soldierTpl ??= buildSoldierTemplate(ctx));
   let soldierSeed = 0;
-  const soldier: EnemyFactory = (world, group, position, yaw, o) =>
-    new Soldier(world, group, position, yaw, { ...o, rig: makeSoldierRig(ctx, { arms: o.arms ?? 'carbine', actor: !!o.actor, name: nextName, seed: ++soldierSeed }) });
+  /** `ActorOpts.name` of the soldier actor being created (FactoryOpts does not carry it; see the actor() wrapper). */
   let nextName: string | undefined;
+  const soldier: EnemyFactory = (world, group, position, yaw, o) => {
+    if (o.actor) return createSoldierActor(world, getSoldier(), position, yaw, { ...o, name: nextName });
+    const arms = o.arms ?? 'carbine';
+    const rig = createSoldierRig(ctx, getSoldier(), { arms, seed: ++soldierSeed * 7.13 + 0.37, managedLod: true });
+    return new Soldier(world, group, position, yaw, { ...o, arms, rig });
+  };
   const manager = createManager(ctx, { husk, skitter, sentry, foreman, soldier }, extra);
   // §8.8: route ActorOpts.who to the human factory and expose Halvorsen's props on his handle (`prop?(name, value)`).
   {
@@ -135,7 +136,7 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
         const e = (manager as unknown as { actors: unknown[] }).actors[n0];
         if (e instanceof Halvorsen) made = e;
         if (made) { const m = made; (h as unknown as { prop(n: string, v: unknown): void }).prop = (n, v) => m.prop(n, v); }
-        if (e instanceof Soldier) { const sd = e; (h as unknown as { prop(n: string, v: unknown): void }).prop = (n, v) => sd.prop(n, v); }
+        if (e instanceof SoldierActor) { const sd = e; (h as unknown as { prop(n: string, v: unknown): void }).prop = (n, v) => sd.prop(n, v); }
         return h;
       } finally { nextWho = undefined; nextName = undefined; }
     };
@@ -144,6 +145,7 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   if (foremanTpl) templates.foreman = foremanTpl;
   if (humanTpl) templates.human = humanTpl;
   if (halvTpl) templates.halvorsen = halvTpl;
+  if (soldierTpl) templates.soldier = soldierTpl;
   for (const [k, t] of huskSkins) templates['husk_' + k] = t;
   for (const [k, t] of sentrySkins) templates['sentry_' + k] = t;
   (manager as any).templates = templates;
@@ -157,9 +159,13 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
   if (cast.human && (cast.tomasHead || !wantHalv)) warm.push(human);
   if (wantHalv) warm.push((world, group, position, yaw, o) => new Halvorsen(world, getHalv(), group, position, yaw, o));
   // stage 3c §8.2.6 (S4): the soldier is pre-warmed when the level spawns one OR has a soldier actor (level 5's cutscene)
-  if (cast.soldier || (ctx.level?.enemySpawns ?? []).some((s) => s.type === 'soldier') || arena) {
-    warm.push((world, group, position, yaw, o) => soldier(world, group, position, yaw, { ...o, arms: 'carbine' }));
-    warm.push((world, group, position, yaw, o) => soldier(world, group, position, yaw, { ...o, arms: 'pistol' }));
+  // (two puppets — carbine and pistol — so both weapons' programs compile; the template is built here, not on first sight)
+  const wantSoldier = cast.soldier || (ctx.level?.enemySpawns ?? []).some((s) => s.type === 'soldier') || !!arena;
+  if (wantSoldier) {
+    const tpl = getSoldier();
+    templates.soldier = tpl;
+    warm.push((world, _g, position, yaw, o) => createSoldierActor(world, tpl, position, yaw, { ...o, arms: 'carbine' }));
+    warm.push((world, _g, position, yaw, o) => createSoldierActor(world, tpl, position, yaw, { ...o, arms: 'pistol' }));
   }
   for (const { type, skin } of skinned) {
     const f = type === 'husk' ? husk : sentry;

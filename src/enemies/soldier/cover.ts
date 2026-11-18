@@ -18,6 +18,8 @@ export interface CoverAsk {
   position: THREE.Vector3;
   /** The point he holds now (a candidate with a small stay bonus), or null. */
   current: CoverPoint | null;
+  /** A point id never to choose (relocation: the one he is leaving). */
+  exclude?: string;
   /** His last two points (novelty). */
   recent: readonly string[];
   /** The threat: the player's eye (or where it was last known) and feet. */
@@ -81,6 +83,7 @@ export function chooseCover(world: EnemyWorld, dir: SoldierDirector, ask: CoverA
     const cp = c.position;
     if (Math.abs(cp.y - p.y) > 3) continue;
     const dMe = Math.hypot(cp.x - p.x, cp.z - p.z);
+    if (ask.exclude === c.id) continue;
     const isCur = ask.current?.id === c.id;
     if (dMe > C.radius && !isCur) continue;
     if (dir.claimed(c, ask.id)) continue;
@@ -100,10 +103,12 @@ export function chooseCover(world: EnemyWorld, dir: SoldierDirector, ask: CoverA
     const bc = angAbs(bearing(tf, cp), bCur);
     if (!isCur && bc > C.flankMax && dMe > 1.0) continue;
     // reachable within 20 m of path
+    let path = dMe;
     if (!isCur && start >= 0) {
       let n = dir.coverNode.get(c.id);
       if (n === undefined) { n = nav.nearestNode(cp, true, nav.decks); dir.coverNode.set(c.id, n); }
       if (n < 0 || nav.costTo(n) > C.path) continue;
+      path = Math.max(dMe, nav.costTo(n));
     }
     let pre = rangeFit(ask.arms, dPl);
     if (ask.set && c.set !== ask.set) pre *= C.otherSet;
@@ -115,6 +120,8 @@ export function chooseCover(world: EnemyWorld, dir: SoldierDirector, ask: CoverA
         pre *= dPl < dCur - 0.5 ? 0.7 : 1 + Math.min(0.3, (dPl - dCur) * 0.05);
       } else if (dPl < dCur && dCur - dPl <= C.advanceMax) pre *= 1 + C.advanceBonus;
       if (bc >= C.flankMin && bc <= C.flankMax) pre *= 1 + C.flankBonus;
+      // the walk between points is his exposed time: a short move beats a long one (−3.5 % per m, floor × 0.5)
+      pre *= Math.max(C.travelFloor, 1 - C.travel * path);
     }
     cands.push({ c, pre, dist: dMe });
   }

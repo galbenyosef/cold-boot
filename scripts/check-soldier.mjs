@@ -1,22 +1,26 @@
-// The taken soldier (stage 3c §8.2, §8.2.10; task W3b). On a static build (vite build + vite preview).
-//   node scripts/check-soldier.mjs [--url http://127.0.0.1:4173] [--only ttk,first,hitrate,telegraph,cover,supp,misses,cap,death,perception,hold,exits,grating,actor,cost]
-//                                  [--watch [--seconds 24] [--fp]] [--real]
+// The taken soldier (stage 3c §8.2, §8.2.10; W3b, joined with W3a's body at the soldier-in-motion review). On a static
+// build (vite build + vite preview).
+//   node scripts/check-soldier.mjs [--url http://127.0.0.1:4173]
+//        [--only ttk,threat,first,hitrate,telegraph,cover,supp,misses,cap,death,perception,hold,exits,grating,actor,cost,dark]
+//        [--watch [--seconds 20] [--fp] [--dark] [--quality low|medium] [--out dir]] [--real]
 // Default: the TEST ARENA (`?level=5&nostory=1&soldierArena=1`: lane, cover yard with 10 cover points in the contract's
-// format, a crawl trench under a solid grating with one exit, a switchable dark region; src/enemies/soldier/stubrig.ts).
+// format, a crawl trench under a solid grating with one exit, a switchable dark region, lights-out; src/enemies/soldier/arena.ts).
 // The game loop is stepped synchronously in the page at 60 Hz (player, level, enemies, fx) — numbers do not depend on
 // the headless frame rate. The player is kept alive (health topped up after every hit; the shots are logged and the
 // time-to-kill is computed from them with the as-built armour rule, ⅔ absorbed while it lasts).
-//   1 ttk        player → soldier with the debug aim lock: pistol 7 body / 3 head / 8 limb, carbine 7 / 3 / 8, shotgun 2
-//                shells at 5 m; carbine hip vs aimed at 20 m with real spread (shots + seconds, aimed ≤ hip); soldier →
-//                player: pistol at 15 m and carbine at 20 m, one soldier as tuned, 60 s, TTK with armour 0 and 50
+//   1 ttk        player → soldier on the real body with the debug aim lock: pistol 7 body / 3 head / 8 limb, carbine
+//                7 / 3 / 8, shotgun 2 shells at 5 m (12 kills) and at 2 m (never one); carbine hip vs aimed at 20 m
+//  1b threat     soldier → player (SOLDIER_TUNING): one soldier on a still player in the open, 300 s — pistol 15 m ≈ 4.5 /s,
+//                carbine 20 m ≈ 4.0 /s (± 15 %), telegraph ≥ 0.8 s, TTK at armour 0 / 50; the player in cover peeking
+//                with aimed fire ≤ 0.3 × that; two soldiers reach the 18 / s cap and never pass it
 //   2 first      the first burst of an engagement never hits (20 engagements at 8 m); a peek-and-hide under 12 s unseen
 //                gets no new free miss, ≥ 12 s does
 //   3 hitrate    hit fraction, player still in the open, 8 / 15 / 25 m within ±0.08 of 0.75 / 0.55 / 0.35; strafing 3.6 m/s
 //                ≤ 0.6 ×; crouched behind a 1.0 m crate ≤ 0.45 ×
 //   4 telegraph  every burst preceded by rise + aim ≥ 0.75 s with the light on from the rise; one aim click per burst;
 //                one 18-damage hit in the aim does not cancel it, a head hit does
-//   5 cover      yard, player firing at him: his chest hidden from the player's eye ≥ 70 % of his non-firing time; he
-//                changes points within 1.5 s of being flanked
+//   5 cover      yard, player firing at him, 45 s: chest hidden ≥ 90 % while he holds a point (walks reported); ≥ 3
+//                points, ≤ 3 bursts from one point; he changes points within 1.5 s of being flanked
 //   6 supp       3 s of carbine fire within 1 m of his head: gain ≤ 0.8 / s; no rise while ≥ 1.0; peeks again within
 //                1.5 s + the decay time after the fire stops
 //   7 misses     every miss impact 0.4 … 1.5 m from the player's body axis; a whiz / crack for every miss passing ≤ 2.5 m
@@ -32,6 +36,8 @@
 //  12 grating    soldier above, player below: no sight either way, the player's bullets stop at the grating
 //  13 actor      enemies.actor('soldier'): moveTo resolves, setPose / lookAt / speak / setEyes / prop do not throw
 //  14 cost       5 soldiers + 4 husks fighting: enemies update ≤ 1.5 ms per frame (mean, in page)
+//  17 dark       lights out, lamp off: the Clasp red from behind, weapon light + glint and a muzzle flash from the front,
+//                at 8 / 15 / 25 m, read from the real frames
 // Always: no soldier hit lands on a player he has no line to (checked on every `enemy:fired` hit).
 // --watch: real-time frame sequence (10 fps, shots/soldier/) of a soldier fighting a scripted player in the yard, seen
 //          from an observer camera beside him (`--fp`: the player's own view).
@@ -39,7 +45,7 @@
 //         has no cover data (K's stub).
 // Exit 1 on any failure.
 import { launch, parseArgs, writeJson } from './lib/check-common.mjs';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 
 const args = parseArgs();
 const base = (args.url ?? 'http://127.0.0.1:4173').replace(/\/$/, '');
@@ -179,15 +185,21 @@ async function caseTTK() {
     // shotgun: shells fired; the others: shots that hit (a pistol round off the leg's thin capsule is a miss, not a hit)
     return { n: weapon === 'shotgun' ? n : hits, shots: n, alive: e.alive, t: +(S.t() - t0).toFixed(2), pellets, dealt: +dealt.toFixed(1) };
   }, [weapon, part, dist]);
-  const want = [['pistol', 'torso', 8, 7], ['pistol', 'head', 8, 3], ['pistol', 'limb', 8, 8], ['carbine', 'torso', 8, 7], ['carbine', 'head', 8, 3], ['carbine', 'limb', 8, 8], ['shotgun', 'torso', 5, 2]];
+  const want = [['pistol', 'torso', 8, 7], ['pistol', 'head', 8, 3], ['pistol', 'limb', 8, 8], ['carbine', 'torso', 8, 7], ['carbine', 'head', 8, 3], ['carbine', 'limb', 8, 8], ['shotgun', 'torso', 5, 2], ['shotgun', 'torso', 2, 2]];
   for (const [w, part, d, n] of want) {
+    if (w === 'shotgun') {
+      // the plan's number on the real body: 2 shells at 5 m, every time (9 pellets × 9 × 0.8 — ≥ 14 of 18 pellets on the
+      // torso volumes); 12 kills, each shell's pattern rotated at random as in play
+      const N = d > 3 ? 12 : 4, runs = [];
+      for (let k = 0; k < N; k++) runs.push(await shotsToKill(w, part, d));
+      res[`${w}_${part}_${d}`] = runs;
+      const per = runs.reduce((a, r) => a + r.pellets, 0) / Math.max(1, runs.reduce((a, r) => a + r.n, 0));
+      check(runs.every((r) => !r.alive && r.n === n), `${w} ${part} at ${d} m: ${n} shells in ${N} of ${N} kills (${runs.map((r) => r.n).join(' ')}; ${fmt(per, 1)} pellets / shell on the body${d <= 3 ? '; never one shell at contact' : ''})`);
+      continue;
+    }
     const r = await shotsToKill(w, part, d);
     res[`${w}_${part}`] = r;
-    if (w === 'shotgun') {
-      // 2 shells need ≥ 7 of 9 pellets on the torso per shell (9 × 9 × 0.8); the pellet count depends on the body's width
-      const per = r.pellets / Math.max(1, r.n);
-      check(!r.alive && (r.n === n || per < 7), `${w} ${part} at ${d} m: ${r.n} shells (${fmt(per, 1)} pellets / shell landed; 2 shells when ≥ 7 land — W3a's wider body decides)`);
-    } else check(!r.err && !r.alive && r.n === n, `${w} ${part} at ${d} m: ${n} hits (got ${r.n}${r.err ? ', ' + r.err : ''})`);
+    check(!r.err && !r.alive && r.n === n, `${w} ${part} at ${d} m: ${n} hits (got ${r.n}${r.err ? ', ' + r.err : ''})`);
   }
   // carbine hip vs aimed at 20 m, real spread, aimed at the chest centre, single taps at 0.25 s
   const spread = async (aimed) => ev((aimed) => {
@@ -215,39 +227,113 @@ async function caseTTK() {
   const hip = await spread(false), ads = await spread(true);
   res.carbine20 = { hip, ads };
   check(!hip.alive && !ads.alive && ads.shots <= hip.shots, `carbine at 20 m (taps every 0.25 s): hip ${hip.shots} shots / ${hip.t} s, aimed ${ads.shots} shots / ${ads.t} s (aimed ≤ hip)`);
-  // soldier → player: one soldier as tuned, player still in the open, 60 s
-  const sToP = async (arms, dist) => ev(([arms, dist]) => {
-    const S = window.__S, g = window.__game, p = g.player;
+  report.ttk = res;
+}
+
+// ───────────────────────────────────────────────────────────── 1b threat (the S3 tuning, soldier → player)
+/** Hits → time to kill a player from full health (as-built armour: ⅔ absorbed while it lasts). */
+const ttkFrom = (shots, armor) => {
+  let h = 100, a = armor;
+  const t0 = shots.length ? shots[0][0] : 0;
+  for (const [t, hit, dmg] of shots) {
+    if (!hit) continue;
+    const ab = Math.min(a, dmg * 2 / 3);
+    a -= ab; h -= dmg - ab;
+    if (h <= 0) return +(t - t0).toFixed(1);
+  }
+  return null;
+};
+async function caseThreat() {
+  console.log('══════════ 1b threat: sustained damage on the player (SOLDIER_TUNING) ══════════');
+  const T = await ev(() => window.__game.enemies.debug.tuning());
+  const res = { tuning: { rise: T.rise, aim: T.aim, burst: T.burst, gap: T.gap, holdAfter: T.holdAfter, back: T.back, damage: T.damage, cap: T.cap, tokens: T.tokens } };
+  // the table as settled at the soldier-in-motion review (W3a + W3b joined): a change here is a deliberate retune
+  const want = { rise: 0.35, aim: 0.45, holdAfter: 0.3, back: 0.4, cap: 18, tokens: 2, firstMissReset: 12, cancelDamage: 25,
+    burst: { pistol: { n: 4, interval: 0.52 }, carbine: { n: 5, interval: 0.11 } }, gap: { pistol: [0.4, 0.9], carbine: [0.4, 0.8] },
+    damage: { pistol: 9, carbine: 7 }, mult: { head: 2, torso: 0.8, limb: 0.7 }, buckshot: { range: 6, mult: 1.4, shellMax: 90 } };
+  const got = Object.fromEntries(Object.keys(want).map((k) => [k, T[k]]));
+  check(JSON.stringify(got) === JSON.stringify(want), `SOLDIER_TUNING as reviewed (${JSON.stringify(got)})`);
+  // a) one soldier, the player standing still in the open, 120 s (health topped up; armour 0)
+  const open1 = (arms, dist, secs) => ev(([arms, dist, secs]) => {
+    const S = window.__S;
     S.clear();
     S.place(202, 0, 8, 0, 0);
     const id = S.spawn(202, 8 - dist, Math.PI, { arms });
     S.sol(id).debugSet({ noMove: true });
-    S.secs(60);
-    return S.log().filter((l) => l.id === id && l.ev === 'shot').map((l) => [l.t, l.hit]);
-  }, [arms, dist]);
-  const ttkFrom = (shots, dmg, armor) => {
-    let h = 100, a = armor;
-    const t0 = shots.length ? shots[0][0] : 0;
-    for (const [t, hit] of shots) {
-      if (!hit) continue;
-      const ab = Math.min(a, dmg * 2 / 3);
-      a -= ab; h -= dmg - ab;
-      if (h <= 0) return +(t - t0).toFixed(1);
-    }
-    return null;
-  };
-  for (const [arms, d, dmg] of [['pistol', 15, 9], ['carbine', 20, 7]]) {
-    const shots = await sToP(arms, d);
-    const hits = shots.filter((s) => s[1]).length;
-    const dps = hits * dmg / 60;
-    const t0 = ttkFrom(shots, dmg, 0), t50 = ttkFrom(shots, dmg, 50);
-    res[`soldier_${arms}_${d}`] = { shots: shots.length, hits, dps: +dps.toFixed(2), ttk0: t0, ttk50: t50 };
-    // the table (§8.2.5) as built: rise 0.35 + aim 0.45 + burst + hold 0.3 + back 0.4 + gap ≈ 4 s per burst. NOTE for the
-    // soldier-in-motion review: §5.3 quotes ≈ 4.5 / s (pistol 15 m) and ≈ 4.0 / s (carbine 20 m); the table gives about half.
-    check(dps >= 1.2 && (t0 === null || t0 >= 8), `${arms} soldier at ${d} m on a still unarmoured player: ${fmt(dps)} damage / s, TTK ${t0 === null ? '> 60' : t0} s (${hits}/${shots.length} hits; a threat: ≥ 1.2 / s)`);
-    console.log(`       … with 50 armour: ${t50 === null ? '> 60 s' : t50 + ' s'}`);
+    const t0 = S.t();
+    S.secs(secs);
+    const L = S.log().filter((l) => l.id === id);
+    const shots = L.filter((l) => l.ev === 'shot').map((l) => [l.t, l.hit, arms === 'pistol' ? 9 : 7]);
+    // telegraph: rise → first round of each burst
+    const tele = [];
+    let rise = null;
+    for (const l of L) { if (l.ev === 'rise') rise = l.t; if (l.ev === 'burst' && rise !== null) { tele.push(l.t - rise); rise = null; } }
+    return { shots, secs: S.t() - t0, bursts: L.filter((l) => l.ev === 'burst').length, tele: Math.min(...tele) };
+  }, [arms, dist, secs]);
+  const plan = { pistol: [15, 4.5], carbine: [20, 4.0] };
+  for (const arms of ['pistol', 'carbine']) {
+    const [d, target] = plan[arms];
+    const r = await open1(arms, d, 300);
+    const hits = r.shots.filter((x) => x[1]).length;
+    const dps = hits * (arms === 'pistol' ? 9 : 7) / r.secs;
+    const k = `${arms}_${d}`;
+    res[k] = { dps: +dps.toFixed(2), hits, shots: r.shots.length, bursts: r.bursts, cycle: +(r.secs / r.bursts).toFixed(2), tele: +r.tele.toFixed(2), ttk0: ttkFrom(r.shots, 0), ttk50: ttkFrom(r.shots, 50) };
+    check(Math.abs(dps - target) <= 0.15 * target, `${arms} soldier at ${d} m, player still in the open: ${fmt(dps)} damage / s (plan ≈ ${target} ± 15 %; ${hits}/${r.shots.length} hits, a burst every ${res[k].cycle} s)`);
+    check(r.tele >= 0.8, `  telegraph: rise (light on) → first round ≥ 0.8 s (min ${fmt(r.tele, 3)} s)`);
+    console.log(`       … time to kill an unarmoured player ${res[k].ttk0} s, with 50 armour ${res[k].ttk50 ?? '> 300'} s`);
   }
-  report.ttk = res;
+  // b) the player uses cover: crouched behind a 1.2 m crate (the level's low cover), up for 1.2 s every 4 s with the
+  //    carbine aimed (RMB), three aimed taps at his chest each time; the carbine soldier at 20 m in the open
+  const covered = await ev(() => {
+    const S = window.__S, g = window.__game, p = g.player;
+    S.clear();
+    S.A.crate.on(true, 1.2);
+    S.place(202, 0, 1.0, 0, 0);
+    p.give('carbine', 300); p.debug.switchTo('carbine'); S.secs(1);
+    p.debug.crouch(true); S.secs(0.6);
+    const id = S.spawn(202, -19, Math.PI, { arms: 'carbine' });
+    const e = S.sol(id);
+    e.debugSet({ noMove: true });
+    let dmg = 0, k = 0, tap = 0, killed = null;
+    const off = g.events.on('player:damaged', (x) => { dmg += x.amount; });
+    const t0 = S.t();
+    S.secs(60, () => {
+      k += S.DT;
+      const up = (k % 4) > 2.8;
+      p.debug.crouch(!up); p.debug.aim(up);
+      if (up && e.alive) {
+        tap -= S.DT;
+        const [yw, pi] = S.lookYP(p.eye, e.rig.chest);
+        p.teleport(p.position.clone(), yw, pi);
+        if (tap <= 0 && (k % 4) > 3.1) { tap = 0.25; p.weapons.carbine.clip = 30; p.debug.fire(); }
+      }
+      if (!e.alive && killed === null) killed = S.t() - t0;
+      e.health = Math.max(e.health, e.alive ? 25 : 0);  // keep him in the fight for the whole minute
+    });
+    off?.();
+    p.debug.aim(false); p.debug.crouch(false);
+    return { dps: dmg / (S.t() - t0), hits: S.log().filter((l) => l.id === id && l.ev === 'shot' && l.hit).length };
+  });
+  res.cover = { dps: +covered.dps.toFixed(2), hits: covered.hits };
+  check(covered.dps <= 0.3 * res.carbine_20.dps, `the player in cover, peeking with aimed fire: ${fmt(covered.dps)} damage / s from a carbine soldier at 20 m (≤ 0.3 × the open ${res.carbine_20.dps})`);
+  // c) two soldiers on a still player (pistol 15 m + carbine 20 m, no first-burst miss): the sum, the cap reached, never passed
+  const two = await ev(() => {
+    const S = window.__S;
+    S.clear();
+    S.place(202, 0, 8, 0, 0);
+    const a = S.spawn(201, -12, Math.PI, { arms: 'carbine' }), b = S.spawn(203.5, -7, Math.PI, { arms: 'pistol' });
+    for (const id of [a, b]) S.sol(id).debugSet({ noMove: true, noFirstMiss: true });
+    const t0 = S.t();
+    S.secs(120);
+    const hits = S.log().filter((l) => l.ev === 'shot' && l.hit).map((l) => [l.t, l.id === a ? 7 : 9]);
+    const capped = S.log().filter((l) => l.ev === 'shot' && l.capped).length;
+    let worst = 0;
+    for (let i = 0; i < hits.length; i++) { let s = 0; for (let j = i; j < hits.length && hits[j][0] - hits[i][0] < 1.0; j++) s += hits[j][1]; worst = Math.max(worst, s); }
+    return { dps: hits.reduce((x, h) => x + h[1], 0) / (S.t() - t0), worst, capped, hits: hits.length };
+  });
+  res.two = { dps: +two.dps.toFixed(2), worst: two.worst, capped: two.capped };
+  check(two.worst <= 18 && two.worst >= 16, `two soldiers (pistol 15 m + carbine 20 m): ${fmt(two.dps)} damage / s, worst 1 s window ${two.worst} (reaches the 18 cap, never passes it; ${two.capped} rounds turned to misses by it)`);
+  report.threat = res;
 }
 
 // ───────────────────────────────────────────────────────────── 2 first burst
@@ -404,14 +490,16 @@ async function caseCover() {
     p.give('carbine', 200); p.debug.switchTo('carbine'); S.secs(1);
     const id = S.spawn(227, -20, Math.PI, { arms: 'carbine', cover: 'yard' });
     const e = S.sol(id);
-    let free = 0, exposed = 0, shotT = 0, covers = new Set();
+    let free = 0, exposed = 0, held = 0, heldExp = 0, moving = 0, shotT = 0, covers = new Set(), seq = [];
     S.secs(45, () => {
       const row = S.row(id);
-      if (row.cover) covers.add(row.cover);
+      if (row.cover) { covers.add(row.cover); if (seq[seq.length - 1] !== row.cover) seq.push(row.cover); }
       const firing = row.fire === 'rise' || row.fire === 'aim' || row.fire === 'burst' || row.fire === 'after' || row.fire === 'back';
       const chest = e.rig.chest;
       const vis = g.physics.lineOfSight(p.eye, chest);
       if (!firing) { free++; if (vis) exposed++; }
+      if (!firing && !row.moving && row.cover) { held++; if (vis) heldExp++; }
+      if (!firing && row.moving) moving++;
       shotT -= S.DT;
       if (vis && shotT <= 0) { shotT = 0.5; p.debug.aimLock(chest.x, chest.y, chest.z); p.weapons.carbine.clip = 30; p.debug.fire(); }
       e.health = Math.max(e.health, 60);  // keep him alive and out of the HP retreat
@@ -437,10 +525,23 @@ async function caseCover() {
       }
       if (!flank) S.secs(1);
     }
-    return { free, exposed, frac: free ? exposed / free : 1, covers: [...covers], flank };
+    // bursts fired from each stay at a point (the log: cover_at … burst … cover_go)
+    const L = S.log().filter((l) => l.id === id);
+    const stays = [];
+    let cur = null;
+    for (const l of L) {
+      if (l.ev === 'cover_at') { cur = { cover: l.cover, bursts: 0 }; stays.push(cur); }
+      else if (l.ev === 'cover_go') cur = null;
+      else if (l.ev === 'burst' && cur) cur.bursts++;
+    }
+    return { free, exposed, frac: free ? exposed / free : 1, held, heldFrac: held ? heldExp / held : 1, moving, covers: [...covers], seq, stays: stays.map((x) => `${x.cover}:${x.bursts}`), flank };
   });
-  check(r.frac <= 0.3, `chest hidden from the player ${fmt((1 - r.frac) * 100, 0)} % of his non-firing time (≥ 70 %; points used: ${r.covers.join(', ')})`);
-  check(r.covers.length >= 1, `he fights from cover points (${r.covers.join(', ')}; a change is tested by the flank below)`);
+  // §8.2.10 case 5 measured "non-firing time" when he used one point for the whole fight; since the review he relocates
+  // after 2–3 bursts (or when pressed), and the walks between points are exposed by design (the window to push). So:
+  // cover itself must hide him (≥ 90 % while he holds a point), and the walking share is reported.
+  check(r.heldFrac <= 0.1, `holding a point (not firing): chest hidden from the player ${fmt((1 - r.heldFrac) * 100, 0)} % of ${fmt(r.held / 60, 1)} s (≥ 90 %)`);
+  console.log(`       all non-firing time (${fmt(r.free / 60, 1)} s, ${fmt(r.moving / 60, 1)} s of it walking between points): hidden ${fmt((1 - r.frac) * 100, 0)} %`);
+  check(r.covers.length >= 3 && r.stays.slice(0, -1).every((x) => Number(x.split(':')[1]) <= 3), `the fight moves: ${r.covers.length} points in 45 s (${r.seq.join(' → ')}; bursts per stay ${r.stays.join(' ')}; ≤ 3 from one point)`);
   check(r.flank && r.flank.left !== null && r.flank.left <= 1.5, `flanked at ${r.flank?.from} from ${JSON.stringify(r.flank?.at)}: he leaves in ${fmt(r.flank?.left)} s (≤ 1.5 s)`);
   report.cover = r;
 }
@@ -819,71 +920,231 @@ async function caseActor() {
   report.cost = c;
 }
 
+// ───────────────────────────────────────────────────────────── 17 dark marks (the player tracks him in the dark)
+// Lights out in the lane (two dim red lamps), the player's lamp off, the real frames read back (screenshot → pixels round
+// the projected point): at 8 / 15 / 25 m (a) from behind, the blinking Clasp: a red spot (r ≫ g, b; never cyan), ≥ 2 px,
+// in at least one frame of 1.2 s; (b) from the front, the weapon light on: the lens glint, a bright spot; (c) a muzzle
+// flash (rig.fire): a bright spot at the muzzle the frame after.
+async function caseDarkMarks() {
+  console.log('══════════ 17 dark: Clasp from behind, weapon light + glint from the front, muzzle flash — 8 / 15 / 25 m ══════════');
+  const res = {};
+  // 1080p (the plan's pixel figures), the HUD (crosshair, counters) off: only the 3D picture is measured
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.waitForTimeout(500);
+  await ev(() => { for (const el of document.querySelectorAll('body > *:not(canvas)')) el.style.visibility = 'hidden'; });
+  /** Pixel stats in a box (±r px) round the screen point of `what` ('nape' | 'muzzle'), over `n` frames 100 ms apart. */
+  const sample = async (id, what, n, fire = false) => {
+    let best = { red: 0, bright: 0, peak: [0, 0, 0], cyan: 0 };
+    for (let i = 0; i < n; i++) {
+      if (fire) await ev((id) => window.__S.sol(id).rig.fire(), id);
+      else await page.waitForTimeout(30 + Math.random() * 110);   // jittered: never in step with his 1 Hz blink
+      const pt = await ev(([id, what]) => {
+        const g = window.__game, e = window.__S.sol(id), v = (what === 'nape' ? e.rig.nape : e.rig.muzzle).clone().project(g.camera);
+        return [(v.x * 0.5 + 0.5) * innerWidth, (-v.y * 0.5 + 0.5) * innerHeight];
+      }, [id, what]);
+      const R = 14;
+      const clip = { x: Math.max(0, Math.round(pt[0] - R)), y: Math.max(0, Math.round(pt[1] - R)), width: 2 * R, height: 2 * R };
+      const buf = await page.screenshot({ clip, type: 'png' });
+      const st = await ev(async (b64) => {
+        const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+        const d = x.getImageData(0, 0, c.width, c.height).data;
+        let red = 0, bright = 0, cyan = 0, peak = [0, 0, 0], pl = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], gg = d[i + 1], b = d[i + 2], l = 0.3 * r + 0.59 * gg + 0.11 * b;
+          if (r >= 120 && r > 2 * gg && r > 2 * b) red++;
+          if (l >= 150) bright++;
+          if (b >= 120 && gg >= 120 && r < 0.6 * Math.min(gg, b)) cyan++;
+          if (l > pl) { pl = l; peak = [r, gg, b]; }
+        }
+        return { red, bright, cyan, peak };
+      }, buf.toString('base64'));
+      if (st.red > best.red || st.bright > best.bright) best = { ...best, red: Math.max(best.red, st.red), bright: Math.max(best.bright, st.bright), peak: st.bright >= best.bright ? st.peak : best.peak };
+      best.cyan = Math.max(best.cyan, st.cyan);
+    }
+    return best;
+  };
+  for (const d of [8, 15, 25]) {
+    const r = {};
+    // (a) from behind: he faces −z (away), the player behind him at +z
+    let id = await ev((d) => {
+      const S = window.__S, g = window.__game, p = g.player;
+      S.clear(); S.A.lightsOut(true); p.debug.flashlight(false);
+      const id = S.spawn(202, 6 - d, 0, { arms: 'carbine' });
+      S.sol(id).debugSet({ freeze: true, pose: 'hold' });
+      S.step(30);
+      S.placeLook(202, 0, 6, S.sol(id).rig.nape.toArray());
+      return id;
+    }, d);
+    r.behind = await sample(id, 'nape', 36);
+    // (b) from the front, the weapon light on (his rise): the glint toward the camera
+    id = await ev((d) => {
+      const S = window.__S, g = window.__game, p = g.player;
+      S.clear(); S.A.lightsOut(true); p.debug.flashlight(false);
+      const id = S.spawn(202, 6 - d, Math.PI, { arms: 'carbine' });
+      const e = S.sol(id);
+      S.place(202, 0, 6, 0, 0);
+      e.debugSet({ freeze: true, pose: 'aim', aimAt: p.eye.clone() });
+      e.rig.setLight(true);
+      S.step(40);
+      S.placeLook(202, 0, 6, e.rig.muzzle.toArray());
+      return id;
+    }, d);
+    r.light = await sample(id, 'muzzle', 4);
+    // (c) muzzle flash, the light off again
+    await ev((id) => window.__S.sol(id).rig.setLight(false), id);
+    await page.waitForTimeout(150);
+    r.dark = await sample(id, 'muzzle', 1);
+    r.flash = await sample(id, 'muzzle', 6, true);
+    res[d] = r;
+    check(r.behind.red >= 2 && r.behind.cyan === 0, `${d} m, from behind in the dark: the Clasp reads red — ${r.behind.red} red px (peak rgb ${r.behind.peak.join(',')}), cyan px ${r.behind.cyan}`);
+    check(r.light.bright >= 2 && r.light.bright > r.dark.bright, `${d} m, from the front: weapon light + glint ${r.light.bright} bright px (peak ${r.light.peak.join(',')}; light off ${r.dark.bright})`);
+    check(r.flash.bright >= 2 && r.flash.bright > r.dark.bright, `${d} m, from the front: muzzle flash ${r.flash.bright} bright px (peak ${r.flash.peak.join(',')})`);
+  }
+  await ev(() => { window.__S.A.lightsOut(false); window.__S.clear(); for (const el of document.querySelectorAll('body > *:not(canvas)')) el.style.visibility = ''; });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  report.darkMarks = res;
+}
+
 // ───────────────────────────────────────────────────────────── --watch
+// A full fight in three parts, real time, 10 fps → <out>/f###.jpg (+ log.txt): (1) a carbine soldier fights a scripted
+// player in the yard (walk to cover, crouch, rise with the light, bursts with tracers, hits on him, relocations) and dies
+// shot from the front ('back'); (2) a pistol soldier, killed from behind ('fwd'); (3) a carbine soldier, killed from
+// his side ('side'). --fp: the player's own view; else an observer camera beside the soldier. --dark: lights out (two
+// dim red lamps; the player's lamp off). --seconds: length of part 1 (parts 2 / 3 are 0.6 × it).
+// --quality low|medium. --out <dir> (default shots/soldier).
 async function watch() {
-  const secs = Number(args.seconds ?? 24);
-  const dir = 'shots/soldier';
+  const secs = Number(args.seconds ?? 20);
+  const dir = args.out ?? 'shots/soldier';
   mkdirSync(dir, { recursive: true });
-  console.log(`══════════ watch: ${secs} s at 10 fps → ${dir}/ (${args.fp ? 'player view' : 'observer view'}) ══════════`);
-  await ev((obs) => { window.__OBS = obs; }, !args.fp);
-  await ev(() => {
+  console.log(`══════════ watch: ${dir}/ (${args.fp ? 'player view' : 'observer view'}${args.dark ? ', lights out' : ''}) ══════════`);
+  await ev(([obs, dark]) => {
     const S = window.__S, g = window.__game, p = g.player;
+    window.__OBS = obs;
     S.clear();
-    S.place(227, 0, 0, 0, 0);
-    p.give('carbine', 200); p.debug.switchTo('carbine');
-    const id = S.spawn(228, -20, 0, { arms: 'carbine', cover: 'yard' });
-    window.__W = { id, t: 0, leg: 0 };
-    // the observer: every rendered frame is drawn from a camera 7 m to the soldier's side, 3 m up, tracking him (the
-    // game itself still runs on the player's camera); the viewmodel (camera children) is hidden for that draw
-    if (window.__OBS) {
+    if (dark) { S.A.lightsOut(true); p.debug.flashlight(false); }
+    p.give('carbine', 300); p.debug.switchTo('carbine');
+    window.__W = { id: -1 };
+    if (obs) {
       const cam = g.camera, r0 = g.render.render.bind(g.render);
-      const sv = { p: cam.position.clone(), q: cam.quaternion.clone() }, at = new S.V(), eye = new S.V();
+      const sv = { p: cam.position.clone(), q: cam.quaternion.clone() }, at = new S.V(), eye = new S.V(), sm = new S.V(), smAt = new S.V();
+      let init = false;
+      const pick = (window.__PICK = { t: -1e9, p: new S.V(227, 2, 0) });
       g.render.render = (dt) => {
-        const e = S.sol(id);
+        const e = S.sol(window.__W.id);
         if (!e) return r0(dt);
         sv.p.copy(cam.position); sv.q.copy(cam.quaternion);
         const vis = cam.children.map((c) => c.visible);
         cam.children.forEach((c) => { c.visible = false; });
-        at.set(e.position.x, e.position.y + 1.0, e.position.z);
-        // beside and in front of him (the player's side), kept inside the arena walls
-        const sx = e.position.x > 229 ? -1 : 1;
-        eye.set(Math.min(242.5, Math.max(209.5, e.position.x + sx * 4.5)), 2.6, Math.min(22, e.position.z + 6));
-        cam.position.copy(eye); cam.lookAt(at); cam.updateMatrixWorld(true);
+        at.set(e.object.position.x, e.object.position.y + (e.alive ? 1.0 : 0.4), e.object.position.z);
+        // beside him, 4.5 m off across the player's line (or between him and the player), at the first spot with a clear
+        // view of his chest; re-chosen at most every 1.5 s, eased (no cuts), kept inside the arena walls
+        const lost = g.time - pick.t > 0.2 && !g.physics.lineOfSight(pick.p, e.alive ? e.rig.chest : new S.V(e.position.x, e.position.y + 0.25, e.position.z));
+        if (g.time - pick.t > (e.alive ? 1.5 : 0.4) || lost || !init) {
+          pick.t = g.time;
+          const px = p.position.x - e.position.x, pz = p.position.z - e.position.z, pl = Math.hypot(px, pz) || 1;
+          const tx = px / pl, tz = pz / pl, lx = -tz, lz = tx;
+          const cands = [[lx * 6 + tx * 2.5, lz * 6 + tz * 2.5], [-lx * 6 + tx * 2.5, -lz * 6 + tz * 2.5], [tx * 6.5 + lx * 2, tz * 6.5 + lz * 2], [lx * 5 - tx * 3, lz * 5 - tz * 3], [-lx * 5 - tx * 3, -lz * 5 - tz * 3]];
+          for (const [ox, oz] of cands) {
+            const c = new S.V(Math.min(243, Math.max(209, e.position.x + ox)), 2.0, Math.min(23, Math.max(-23, e.position.z + oz)));
+            if (Math.hypot(c.x - e.position.x, c.z - e.position.z) < 4) continue;
+            if (e.alive ? g.physics.lineOfSight(c, e.rig.chest) && g.physics.lineOfSight(c, e.rig.eye) : g.physics.lineOfSight(c, new S.V(e.position.x, e.position.y + 0.25, e.position.z)) && g.physics.lineOfSight(c, new S.V(e.rig.chest.x, e.position.y + 0.25, e.rig.chest.z))) { pick.p.copy(c); break; }
+          }
+        }
+        eye.copy(pick.p);
+        if (!init) { sm.copy(eye); smAt.copy(at); init = true; }
+        sm.lerp(eye, 0.12); smAt.lerp(at, 0.25);
+        cam.position.copy(sm); cam.lookAt(smAt); cam.updateMatrixWorld(true);
+        const fov0 = cam.fov; cam.fov = 40; cam.updateProjectionMatrix();
+        // LOD as the manager would choose it for THIS camera (12 / 10 m)
+        const od = sm.distanceTo(e.position);
+        if (e.lodRig) e.lodRig.setLod(od > 12 ? 1 : 0);
         r0(dt);
+        cam.fov = fov0; cam.updateProjectionMatrix();
         cam.position.copy(sv.p); cam.quaternion.copy(sv.q); cam.updateMatrixWorld(true);
         cam.children.forEach((c, i) => { c.visible = vis[i]; });
       };
     }
-  });
-  // the scripted player: walks between four spots, looks at the soldier, fires taps when he sees his chest
-  const spots = [[227, 0], [219, -2], [223, 2], [235, -1]];
-  const t0 = Date.now();
+  }, [!args.fp, !!args.dark]);
+  const parts = [
+    { arms: 'carbine', at: [228, -20], start: [227, 2], kill: 'back', secs },
+    { arms: 'pistol', at: [220, -19], start: [221, 3], kill: 'fwd', secs: secs * 0.6 },
+    { arms: 'carbine', at: [235, -19], start: [234, 3], kill: 'side', secs: secs * 0.6 },
+  ];
+  const spotsOf = (x0) => [[x0, 2], [x0 - 7, 0], [x0 - 3, 4], [x0 + 6, 1]];
   let k = 0;
-  while ((Date.now() - t0) / 1000 < secs) {
-    const sec = (Date.now() - t0) / 1000;
-    const spot = spots[Math.floor(sec / 6) % spots.length];
-    await ev(([x, z]) => {
-      const S = window.__S, g = window.__game, p = g.player, W = window.__W, e = S.sol(W.id);
-      if (!e) return;
-      const dx = x - p.position.x, dz = z - p.position.z, l = Math.hypot(dx, dz);
-      const c = e.alive ? e.rig.chest : e.position;
-      const [yw, pi] = S.lookYP(p.eye, c);
-      // strafe to the spot while looking at him
-      p.teleport(p.position.clone().setY(p.position.y), yw, pi);
-      if (l > 0.4) {
-        const f = (-Math.sin(yw) * dx - Math.cos(yw) * dz) / l, s = (Math.cos(yw) * dx - Math.sin(yw) * dz) / l;
-        p.debug.move(f, s, false);
-      } else p.debug.move(0, 0, false);
-      if (e.alive && g.physics.lineOfSight(p.eye, c) && Math.random() < 0.25) { p.weapons.carbine.clip = 30; p.debug.fire(); }
-      e.health = Math.max(e.health, 40);
-      p.health = 100;
-    }, spot);
-    await page.screenshot({ path: `${dir}/f${String(k).padStart(3, '0')}.jpg`, type: 'jpeg', quality: 75 });
+  const logs = [];
+  const shoot = async () => {
+    await page.screenshot({ path: `${dir}/f${String(k).padStart(3, '0')}.jpg`, type: 'jpeg', quality: 78 });
     k++;
-    await page.waitForTimeout(Math.max(0, k * 100 - (Date.now() - t0)));
+  };
+  for (const part of parts) {
+    await ev((pt) => {
+      const S = window.__S, g = window.__game, p = g.player;
+      for (const grp of S.groups) g.enemies.removeGroup(grp);
+      S.groups.length = 0;
+      S.place(pt.start[0], 0, pt.start[1], 0, 0);
+      p.health = 100;
+      window.__W.id = S.spawn(pt.at[0], pt.at[1], 0, { arms: pt.arms, cover: 'yard' });
+    }, part);
+    const t0 = Date.now(), k0 = k;
+    const spots = spotsOf(part.start[0]);
+    let n = 0;
+    while ((Date.now() - t0) / 1000 < part.secs) {
+      const sec = (Date.now() - t0) / 1000;
+      const spot = spots[Math.floor(sec / 5) % spots.length];
+      await ev(([x, z]) => {
+        const S = window.__S, g = window.__game, p = g.player, e = S.sol(window.__W.id);
+        if (!e) return;
+        const dx = x - p.position.x, dz = z - p.position.z, l = Math.hypot(dx, dz);
+        const c = e.rig.chest;
+        const [yw, pi] = S.lookYP(p.eye, c);
+        p.teleport(p.position.clone(), yw, pi);
+        if (l > 0.4) {
+          const f = (-Math.sin(yw) * dx - Math.cos(yw) * dz) / l, s = (Math.cos(yw) * dx - Math.sin(yw) * dz) / l;
+          p.debug.move(f, s, false);
+        } else p.debug.move(0, 0, false);
+        const sees = g.physics.lineOfSight(p.eye, c);
+        p.debug.aim(sees && l <= 0.4);
+        if (sees && Math.random() < 0.3) { p.weapons.carbine.clip = 30; p.debug.fire(); }
+        e.health = Math.max(e.health, 45);
+        p.health = 100;
+      }, spot);
+      await shoot(); n++;
+      await page.waitForTimeout(Math.max(0, t0 + n * 100 - Date.now()));
+    }
+    // the killing shot, from the side the death needs — when he is up (moving or aiming), not hidden behind his cover
+    for (let w = 0; w < 40; w++) {
+      const up = await ev(() => { const r = window.__S.row(window.__W.id); return r.moving || r.fire === 'aim' || r.fire === 'burst' || r.fire === 'after'; });
+      if (up) break;
+      await ev(() => { const S = window.__S, e = S.sol(window.__W.id); e.health = Math.max(e.health, 45); });
+      await shoot();
+      await page.waitForTimeout(100);
+    }
+    await ev((kind) => {
+      if (window.__PICK) window.__PICK.t = -1e9;
+      const S = window.__S, g = window.__game, p = g.player, e = S.sol(window.__W.id), V = S.V;
+      p.debug.move(0, 0, false); p.debug.aim(false);
+      const yaw = e.yaw, f = new V(-Math.sin(yaw), 0, -Math.cos(yaw)), r = new V(-f.z, 0, f.x);
+      const d = kind === 'back' ? f.clone().negate() : kind === 'fwd' ? f.clone() : r.clone();
+      if (!window.__OBS) {
+        const from = e.position.clone().addScaledVector(d, -7);
+        p.teleport(new V(from.x, e.position.y + 0.05, from.z), 0, 0);
+        const [yw, pi] = S.lookYP(p.eye, e.rig.chest); p.teleport(p.position.clone(), yw, pi);
+      }
+      p.weapons.carbine.clip = 30; p.debug.fire();
+      e.health = 1;
+      g.enemies.damage({ enemy: e, point: e.rig.chest.clone(), normal: d.clone().negate(), distance: 7, part: 'torso' }, 30, d);
+    }, part.kill);
+    const td = Date.now(); let m = 0;
+    while ((Date.now() - td) / 1000 < 2.6) { await shoot(); m++; await page.waitForTimeout(Math.max(0, td + m * 100 - Date.now())); }
+    const log = await ev(() => window.__S.log().filter((l) => l.id === window.__W.id).map((l) => `${l.t.toFixed(2)} ${l.ev}${l.cover ? ' ' + l.cover : ''}${l.kind ? ' ' + l.kind : ''}${l.hit !== undefined ? (l.hit ? ' HIT' : ' miss') : ''}`));
+    logs.push(`── part ${parts.indexOf(part) + 1} (${part.arms}, killed '${part.kill}'), frames ${k0} … ${k - 1}`, ...log);
   }
-  const log = await ev(() => window.__S.log().filter((l) => l.id === window.__W.id).map((l) => `${l.t.toFixed(2)} ${l.ev}${l.cover ? ' ' + l.cover : ''}${l.hit !== undefined ? (l.hit ? ' HIT' : ' miss') : ''}`));
-  console.log(`  ${k} frames; soldier log:\n    ` + log.slice(0, 120).join('\n    '));
+  writeFileSync(`${dir}/log.txt`, logs.join('\n'));
+  const fps = await ev(() => window.__game.debug.fps);
+  console.log(`  ${k} frames (log: ${dir}/log.txt); fps ${fps}`);
 }
 
 // ───────────────────────────────────────────────────────────── --real (level 5 as built)
@@ -918,10 +1179,11 @@ async function real() {
 // ───────────────────────────────────────────────────────────── run
 if (args.real) { await real(); }
 else {
-  await open();
+  await open(args.quality ? `&quality=${args.quality}` : '');
   if (args.watch) await watch();
   else {
     if (want('ttk')) await caseTTK();
+    if (want('threat')) await caseThreat();
     if (want('first')) await caseFirst();
     if (want('hitrate')) await caseHitrate();
     if (want('telegraph')) await caseTelegraph();
@@ -933,6 +1195,7 @@ else {
     if (want('perception')) await casePerception();
     if (want('exits') || want('grating')) await caseExits();
     if (want('actor') || want('cost')) await caseActor();
+    if (want('dark')) await caseDarkMarks();
     const v = await ev(() => window.__S.violations);
     check(v.length === 0, `no soldier hit on a player he had no line to (${v.length})`);
     if (want('hold')) await caseHold();

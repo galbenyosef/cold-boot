@@ -13,13 +13,20 @@ export const SOLDIER_TUNING = {
   hp: 100,
   /** Damage multipliers by hit volume part (plate carrier: torso 0.8 — pistol / carbine 7 body hits, 3 head). */
   mult: { head: 2.0, torso: 0.8, limb: 0.7 } as Record<string, number>,
+  /**
+   * Buckshot from ≤ `range` m (the player's shotgun): every pellet × `mult` on any part (× head 2.0 on the head) instead
+   * of the bullet multipliers above, and one shell deals at most `shellMax`. Measured on the real body at 5 m, aimed at
+   * the chest: ≈ 5.6 of 9 pellets land (torso 4.1, arms / legs 1.45, head 0.1) → ≈ 71 per shell; 2 shells need 8 of 18
+   * pellets; never 1 shell, even at contact (plan §5.3: 2 shells ≤ 6 m). Beyond 6 m the bullet table applies.
+   */
+  buckshot: { range: 6, mult: 1.4, shellMax: 90 },
   /** Rise over low cover / lean out of high cover / raise in the open (s); light + glint on from its start. */
   rise: 0.35,
   /** Steady aim before the burst (s); `soldier_aim_click` at its start. */
   aim: 0.45,
-  burst: { pistol: { n: 2, interval: 0.35 }, carbine: { n: 3, interval: 0.11 } } as Record<SoldierArms, { n: number; interval: number }>,
-  /** Between bursts (s, uniform). */
-  gap: { pistol: [1.6, 2.4], carbine: [1.8, 2.6] } as Record<SoldierArms, [number, number]>,
+  burst: { pistol: { n: 4, interval: 0.52 }, carbine: { n: 5, interval: 0.11 } } as Record<SoldierArms, { n: number; interval: number }>,
+  /** Between bursts (s, uniform); it runs on through a reload. */
+  gap: { pistol: [0.4, 0.9], carbine: [0.4, 0.8] } as Record<SoldierArms, [number, number]>,
   /** After the last round: hold the aim, then back into cover (s); the light goes off at the end of `back`. */
   holdAfter: 0.3, back: 0.4,
   /** Per hit on the player (`player.damage`, armour absorbs ⅔ while it lasts — as built). */
@@ -71,16 +78,30 @@ export const SOLDIER_TUNING = {
   /** ≤ this much health + armour damage per second from all soldiers together (excess shots resolve as misses). */
   cap: 18,
   walk: 1.6, retreatSpeed: 3.0,
+  /** Leaving a used / pressed / flanked point for the next (weapon up, never toward the player faster than `walk`). */
+  relocateSpeed: 2.2,
   reload: { pistol: { rounds: 12, time: 1.8 }, carbine: { rounds: 30, time: 2.4 }, audible: 20 } as const,
   cover: {
-    every: [2.5, 4] as [number, number], radius: 14, path: 20, claimExpire: 2, candidates: 12, rays: 24,
+    every: [2.5, 4] as [number, number],
+    /** Relocate (another point) after this many bursts from one point (uniform integer), or when suppressed / hurt there. */
+    relocate: [2, 3] as [number, number],
+    radius: 14, path: 20, claimExpire: 2, candidates: 12, rays: 24,
     rangeBand: { pistol: [6, 18], carbine: [10, 28] } as Record<SoldierArms, [number, number]>, rangeFloor: 0.3, rangeFall: 6,
     advanceMax: 6, advanceBonus: 0.15, minPlayer: 7,
     flankMin: 15 * DEG, flankMax: 40 * DEG, flankBonus: 0.2,
     novelty: 0.3, otherSet: 0.6, stay: 0.1,
+    /** Score × (1 − travel × path m), floor travelFloor: short moves preferred (the walk is his exposed time). */
+    travel: 0.035, travelFloor: 0.5,
+    /** Suppression / damage only count as "pressed at this point" once he has held it this long (s). */
+    settle: 1.2,
     huskClear: 3, separation: 1.2, doorClear: 1.0,
-    /** Low cover: crouched chest / head (eye 0.85); high: standing. */
-    lowChest: 0.55, lowHead: 0.9, highChest: 1.3, highHead: 1.65, peekEye: 1.6, lean: 0.35,
+    /**
+     * Low cover: the real kneeling body (W3a rig, measured): chest 0.69, eye 0.97, helmet top 1.15 — under every 1.2 m
+     * object (§13 S1e); the safety rays test the chest and a point 5 cm under the helmet top. High: standing.
+     */
+    lowChest: 0.69, lowHead: 1.1, highChest: 1.3, highHead: 1.65, peekEye: 1.6, lean: 0.35,
+    /** High cover: the body steps this far to the peek side for the lean (with the rig's own lean ≈ 0.45 m at the eye). */
+    leanStep: 0.3,
   },
   search: { after: 6, look: 4, maxPath: 30 },
   hold: { shotNear: 1.5, sees: 6 },
@@ -88,7 +109,7 @@ export const SOLDIER_TUNING = {
   miss: { min: 0.4, max: 1.2, band: 1.5, whiz: 2.5 },
   drops: { pistol: 8, carbine: 15, carbineGun: 30, touch: 1.2 },
   /** Eye heights of the behaviour's model (the rig's real eye is used for sight; these for cover geometry). */
-  eye: { stand: 1.6, crouch: 0.85 },
+  eye: { stand: 1.63, crouch: 0.97 },
 };
 
 export type SoldierTuning = typeof SOLDIER_TUNING;

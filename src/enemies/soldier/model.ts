@@ -10,7 +10,7 @@
  * Material keys (one skinned mesh each, LOD0): fatigue · vest · tape (the name tape, a per-soldier texture) · helmet
  * (shell + goggle lenses) · knit (balaclava) · boot (boots, gloves, pads, straps, goggle frame, the Clasp's body) ·
  * gun_c (carbine) · gun_p (pistol) — one of the two is hidden per soldier · glow (every dark-room mark). LOD1: fatigue ·
- * vest (+tape, boot) · helmet (+knit) · gun_c / gun_p (reduced) · glow. Shadow proxy: one position-only mesh.
+ * vest (+tape) · helmet (+knit, boot) · gun_c / gun_p (reduced) · glow. Shadow proxy: one position-only mesh.
  *
  * Marks (`RigBuilder.mark`, scale = brightness; no light, no extra draw call):
  *   mk_clasp   — the Clasp LED (4 mm) + its 4 cm halo, red, BLINKING 1 Hz / 0.12 s on (per-soldier phase via the
@@ -54,7 +54,7 @@ export const GUN = {
     muzzle: new THREE.Vector3(0, C_BORE, -C_MUZZLE - 0.004),
     /** Firing-hand grip centre (palm), the fore-end grip, the butt plate centre. */
     grip: new THREE.Vector3(0, -0.045, 0.028),
-    fore: new THREE.Vector3(0, C_BORE - 0.03, -0.225),
+    fore: new THREE.Vector3(0, C_BORE - 0.03, -0.19),
     butt: new THREE.Vector3(0, 0.01, 0.29),
     /** Rear sight (eye line). */
     sight: new THREE.Vector3(0, 0.096, -0.002),
@@ -89,12 +89,14 @@ export interface SoldierTemplate {
 
 export function buildSoldierTemplate(ctx: GameContext): SoldierTemplate {
   const M = ctx.materials;
-  const fatigue = libOr(ctx, 'fatigue_navy', 'fabric', { vertexColors: true }, { color: 0x2a3648, roughness: 0.92, metalness: 0 });
+  // the library's navy (0x4a5563 albedo) reads pale blue-grey under a close lamp on a whole figure: tinted down to a
+  // dark navy (×0.47 / 0.52 / 0.64); the helmet a little as well
+  const fatigue = libOr(ctx, 'fatigue_navy', 'fabric', { vertexColors: true, color: 0x7884a4 }, { color: 0x2a3648, roughness: 0.92, metalness: 0 });
   fatigue.name = 'soldier_fatigue';
   // plate carrier: `webbing` (W5, on main); the fabric fallback until then
   const vest = libOr(ctx, 'webbing' as MaterialName, 'fabric', { vertexColors: true }, { color: 0x262b33, roughness: 0.88, metalness: 0 });
   vest.name = 'soldier_vest';
-  const helmet = libOr(ctx, 'helmet_navy', 'plastic_dark', { vertexColors: true }, { color: 0x2c3440, roughness: 0.8, metalness: 0.0, map: null, roughnessMap: null, metalnessMap: null, envMapIntensity: 0.5 });
+  const helmet = libOr(ctx, 'helmet_navy', 'plastic_dark', { vertexColors: true, color: 0x8c95a8 }, { color: 0x2c3440, roughness: 0.8, metalness: 0.0, map: null, roughnessMap: null, metalnessMap: null, envMapIntensity: 0.5 });
   helmet.name = 'soldier_helmet';
   const knit = libOr(ctx, 'knit_black', 'fabric', { vertexColors: true }, { color: 0x141518, roughness: 1, metalness: 0 });
   knit.name = 'soldier_knit';
@@ -106,7 +108,7 @@ export function buildSoldierTemplate(ctx: GameContext): SoldierTemplate {
   const mats: Record<string, THREE.Material> = { glow: glowMaterial(), fatigue, vest, tape: tapeBase, helmet, knit, boot, gun_c: gun, gun_p: gun };
   const { template } = buildRigLods(authorSoldier, mats, {
     radius: 1.6, center: new THREE.Vector3(0, 0.9, 0),
-    lod: { k: 0.45, minFeature: 0.012, remap: { tape: 'vest', boot: 'vest', knit: 'vest' } },
+    lod: { k: 0.45, minFeature: 0.012, remap: { tape: 'vest', boot: 'helmet', knit: 'helmet' } },   // boots, gloves, pads and the balaclava stay dark (not the vest's olive) beyond 12 m
     proxy: { k: 0.3, minFeature: 0.03, exclude: ['glow', 'tape', 'gun_c', 'gun_p'] },
     colorize: { fatigue: clothShade, vest: vestShade, helmet: helmetShade, knit: knitShade, boot: bootShade },
   });
@@ -456,7 +458,8 @@ function authorSoldier(b: RigBuilder): void {
     const G = GUN[kind];
     const lens = G.light.clone().add(new THREE.Vector3(0, 0, -0.004));
     b.use('wpn');
-    b.mark(kind === 'carbine' ? 'mk_light_c' : 'mk_light_p', lens, new THREE.Vector3(0, 0, -1), 0.009, MARK_LENS, 0.3);
+    // the lit lens seen from in front of it flares (12 cm disc: ≈ 11 px at 8 m, 6 px at 15 m, 3.5 px at 25 m in 1080p), dims off-axis
+    b.mark(kind === 'carbine' ? 'mk_light_c' : 'mk_light_p', lens, new THREE.Vector3(0, 0, -1), 0.06, MARK_LENS, 0.45);
   }
 }
 

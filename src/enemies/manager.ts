@@ -8,7 +8,7 @@ import { EnemyBase, type EnemyWorld } from './ai';
 import { NavGraph } from './nav';
 import { raycastVolumes, volumeNormal, type HitVolume, type VolumeHit } from './shared/hit';
 import { syncShellEnv } from './husk/model';
-import { SoldierDirector } from './soldier/fire';
+import { SOLDIER_TUNING, SoldierDirector } from './soldier/fire';
 
 export interface FactoryOpts {
   dormant: boolean; pose?: string; emerge?: boolean; delay?: number;
@@ -434,9 +434,11 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
         setPose(p) { if (!removed) e.puppetPose(p); },
         lookAt(p) {
           if (removed) return;
-          // humans keep an object live (REVISION 6.1); the machines take its position now
+          // humans and soldier actors keep an object live (REVISION 6.1, §8.2.8: any puppet with `puppetLookObject`);
+          // the machines take its position now
           if (p && (p as THREE.Object3D).isObject3D) {
-            if (atype === 'human') { (e as unknown as { puppetLookObject(o: THREE.Object3D): void }).puppetLookObject(p as THREE.Object3D); return; }
+            const live = e as unknown as { puppetLookObject?(o: THREE.Object3D): void };
+            if (typeof live.puppetLookObject === 'function') { live.puppetLookObject(p as THREE.Object3D); return; }
             e.puppetLook((p as THREE.Object3D).getWorldPosition(new THREE.Vector3()));
             return;
           }
@@ -495,6 +497,7 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       },
       soldier(id: number) { return all.find((e) => e.id === id && e.type === 'soldier') ?? null; },
       director() { return world.soldiers(); },
+      tuning() { return JSON.parse(JSON.stringify(SOLDIER_TUNING)); },
     },
     update(dt) {
       dt *= manager.timeScale;

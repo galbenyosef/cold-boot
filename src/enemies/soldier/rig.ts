@@ -72,6 +72,11 @@ export interface SoldierRigOpts {
   name?: string;
   /** Per-soldier variation (blink phase, breathing); default random. */
   seed?: number;
+  /**
+   * The manager drives LOD through `lodRig` (EnemyBase.lodRig: 12 / 10 m, `forceLod`): the rig then only switches its
+   * shadow proxy (≤ 15 m) itself. Default false (the dev page: the rig switches LOD by the camera distance).
+   */
+  managedLod?: boolean;
 }
 
 export function createSoldierRig(ctx: GameContext, tpl: SoldierTemplate, opts: SoldierRigOpts = {}): SoldierRigEx {
@@ -189,6 +194,7 @@ class SoldierRigImpl implements SoldierRigEx {
 
   constructor(private ctx: GameContext, private tpl: SoldierTemplate, opts: SoldierRigOpts) {
     this.seed = opts.seed ?? Math.random() * 1000;
+    this.lodManual = !!opts.managedLod;
     this.arms = opts.arms ?? 'carbine';
     this.G = this.arms === 'pistol' ? GUN.pistol : GUN.carbine;
     this.reloadDuration = this.arms === 'pistol' ? 1.8 : 2.4;
@@ -340,6 +346,8 @@ class SoldierRigImpl implements SoldierRigEx {
   private dWall = 0.6;
   /** Debug: distance (m) from the sighting eye to the carbine's sight line point (cheek weld miss). */
   sightErr = 0;
+  /** Debug: that miss in model space (eye − sight point; +y = the eye is above the sight line). */
+  readonly sightMiss = new THREE.Vector3();
   private wRelease = 0.25;
 
   setName(name: string): void {
@@ -567,7 +575,7 @@ class SoldierRigImpl implements SoldierRigEx {
     const blade = this.arms === 'carbine' ? -0.42 * aimStance : -0.08 * aimStance;
     B.hips.position.set(0, hipsY, -0.035 * aimStance);
     // forward lean of a shooter (aggressive stance) + crouch-walk / kneel
-    const leanF = 0.05 + 0.2 * aimStance;
+    const leanF = 0.05 + (this.arms === 'pistol' ? 0.1 : 0.2) * aimStance;
     this.rotE(B.hips, leanF * 0.4, yawA * shY * 0.2 + blade * 0.45, 0, 'YXZ');
     this.rotE(B.spine1, leanF * 0.5 + br * 0.004 + Math.min(0, pitchA) * 0.12 * aimStance, yawA * shY * 0.35 + blade * 0.3, 0, 'YXZ');
     this.rotE(B.spine2, leanF * 0.5 + br * 0.01 + pitchA * 0.25 * aimStance - 0.03 * aimStance, yawA * shY * 0.45 + blade * 0.25, 0, 'YXZ');
@@ -583,7 +591,7 @@ class SoldierRigImpl implements SoldierRigEx {
     // kneel (crouch): right knee down, seated on the heel, hunched behind cover
     const kn = crouch * (1 - walkK);
     if (kn > 1e-3) {
-      B.hips.position.y = lerp(B.hips.position.y, 0.5, kn);
+      B.hips.position.y = lerp(B.hips.position.y, 0.47, kn);
       B.hips.position.z += -0.2 * kn;
       B.hips.position.x += 0.02 * kn;
       this.mulE(B.hips, 0.24 * kn, 0, 0);
@@ -735,7 +743,7 @@ class SoldierRigImpl implements SoldierRigEx {
       const hip = _v.setFromMatrixPosition(B['thigh_' + sfx].matrixWorld);
       // standing target: ankle over the plant (pitch lifts the ankle)
       const T = _v2.copy(f.pos); T.y += K.ankle + Math.abs(Math.sin(f.pitch)) * 0.03;
-      const pole = _v5.copy(f.fwd).addScaledVector(_fx.set(1, 0, 0).applyQuaternion(this.pivotQ), s * 0.12).normalize();
+      const pole = _v5.copy(f.fwd).addScaledVector(_fx.set(1, 0, 0).applyQuaternion(this.pivotQ), s * 0.3).normalize();   // knees over the toes, a touch out (never knock-kneed)
       if (kn > 1e-3) {
         // kneel: left ankle (0.12, 0.075, 0.30); right: knee on the floor ahead of the hip, ankle behind, raised
         const kT = s > 0 ? this.mw(0.13, K.ankle, 0.3, _fy) : this.mw(-0.11, 0.3, -0.46, _fy);
@@ -785,7 +793,8 @@ class SoldierRigImpl implements SoldierRigEx {
       this.fAim.p.sub(_v4.copy(G.sight).applyQuaternion(this.fAim.q)).addScaledVector(up, -0.012);
     } else {
       // butt in the right shoulder pocket (on the chest, moves with it), bore on the target
-      const pocket = this.boneW('spine2', [-0.1, 1.455, 0.07], _v3);
+      // (inboard of the shoulder joint and high enough that the comb comes up under the cheek)
+      const pocket = this.boneW('spine2', [CARB_POCKET[0], CARB_POCKET[1], CARB_POCKET[2]], _v3);
       this.gunQ(aimDir, up, -0.05, this.fAim.q);
       this.fAim.p.copy(pocket).sub(_v4.copy(G.butt).applyQuaternion(this.fAim.q));
     }
@@ -862,7 +871,7 @@ class SoldierRigImpl implements SoldierRigEx {
     const B = this.B;
     void dt;
     // the rest of the aim yaw / pitch after the torso: neck 40 %, head 60 %
-    const restY = yawA * (1 - shY), restP = pitchA * (1 - 0.25 * ready) - 0.35 * crouch * (1 - ready);
+    const restY = yawA * (1 - shY), restP = pitchA * (1 - 0.25 * ready) + 0.68 * crouch * (1 - ready);   // kneeling: the head lifts against the hunched spine — eyes level, over the cover
     this.mulE(B.neck, -restP * 0.35, restY * 0.4, 0, 'YXZ');
     this.mulE(B.head, -restP * 0.55, restY * 0.6, 0, 'YXZ');
     B.neck.updateMatrixWorld(true);
@@ -890,7 +899,11 @@ class SoldierRigImpl implements SoldierRigEx {
       }
       // what the neck could not reach, the gun gives: it slides to the eye (the butt leaves the pocket by that much)
       const miss = _v2.copy(this.boneW('head', K.eyeR, _v)).sub(target);
+      // only the miss ACROSS the sight line counts (the eye may sit anywhere along it): sliding the gun along the bore
+      // would push the butt off the shoulder and straighten the support arm
+      miss.addScaledVector(gaze, -miss.dot(gaze));
       this.sightErr = miss.length();
+      this.sightMiss.copy(miss).applyQuaternion(this.pivotQi);
       if (this.sightErr > 0.002) { this.fGun.p.addScaledVector(miss, sight); this.setGunBone(this.fGun); }
     }
   }
@@ -1219,6 +1232,8 @@ class SoldierRigImpl implements SoldierRigEx {
   private wRestFrom: THREE.Quaternion | null = null;
 }
 
+/** Carbine butt in the shoulder pocket (model bind space, carried by spine2). */
+const CARB_POCKET: [number, number, number] = [-0.075, 1.49, 0.07];
 const PALM_R = new THREE.Vector3(0.026, -0.058, 0.012);
 const PALM_L = new THREE.Vector3(-0.026, -0.058, 0.012);
 const ZERO3: [number, number, number] = [0, 0, 0];
@@ -1241,15 +1256,15 @@ function deathKeys(kind: DeathKind, side: number, wall: number): DKey[] {
     { t: 0.3, hips: [0, 0.74, 0.07], ease: 'in', r: { hips: [0.2, 0, 0], spine1: [0.2, 0, 0], spine2: [0.2, 0, 0], neck: [0.25, 0, 0], head: [0.2, 0, 0], thigh_l: [-0.85, 0, 0.04], thigh_r: [-0.8, 0, -0.04], shin_l: [1.6, 0, 0], shin_r: [1.55, 0, 0], foot_l: [-0.7, 0, 0], foot_r: [-0.7, 0, 0], ...arm(-0.25, 0.15, 0.6, -0.3, 0.15, 0.7) } },
     { t: 0.55, hips: [0, 0.5, 0.08], ease: 'in', r: { hips: [0.42, 0, 0], spine1: [0.3, 0, 0], spine2: [0.25, 0, 0], neck: [0.2, 0, 0], head: [0.15, 0, 0], thigh_l: [-0.45, 0, 0.04], thigh_r: [-0.4, 0, -0.04], shin_l: [1.7, 0, 0], shin_r: [1.65, 0, 0], foot_l: [0.6, 0, 0], foot_r: [0.6, 0, 0], ...arm(-0.8, 0.25, 0.35, -0.85, 0.25, 0.3) } },
     { t: 0.85, hips: [0, 0.36, 0.25], ease: 'in', r: { hips: [0.95, 0, 0], spine1: [0.2, 0, 0], spine2: [0.12, 0, 0], neck: [-0.1, 0, 0], head: [-0.1, 0, 0], thigh_l: [-0.65, 0, 0.05], thigh_r: [-0.6, 0, -0.05], shin_l: [1.4, 0, 0], shin_r: [1.35, 0, 0], foot_l: [0.7, 0, 0], foot_r: [0.7, 0, 0], ...arm(-1.6, 0.4, 0.4, -1.55, 0.4, 0.45) } },
-    { t: 1.12, hips: [0, 0.22, 0.72], ease: 'in', r: { hips: [1.5, 0, 0], spine1: [-0.04, 0, 0], spine2: [-0.06, 0, 0], neck: [-0.4, 0.3, 0], head: [-0.2, 0.85, 0.15], thigh_l: [-0.1, 0, 0.1], thigh_r: [-0.22, 0, -0.06], shin_l: [0.2, 0, 0], shin_r: [0.55, 0, 0], foot_l: [0.9, 0, 0], foot_r: [0.8, 0, 0], ...arm(-2.3, 0.5, 0.3, 0.15, 0.35, 0.1) } },
-    { t: 1.45, hips: [0, 0.21, 0.72], ease: 'out', r: { hips: [1.53, 0, 0.02], spine1: [-0.05, 0, 0], spine2: [-0.06, 0, 0], neck: [-0.38, 0.35, 0], head: [-0.18, 0.9, 0.2], thigh_l: [-0.1, 0, 0.12], thigh_r: [-0.25, 0, -0.06], shin_l: [0.15, 0, 0], shin_r: [0.6, 0, 0], foot_l: [0.95, 0, 0], foot_r: [0.85, 0, 0], ...arm(-2.4, 0.55, 0.3, 0.2, 0.3, 0.1) } },
+    { t: 1.12, hips: [0, 0.22, 0.72], ease: 'in', r: { hips: [1.5, 0, 0], spine1: [-0.04, 0, 0], spine2: [-0.06, 0, 0], neck: [0.0, 0.3, 0], head: [0.0, 0.85, 0.15], thigh_l: [-0.1, 0, 0.1], thigh_r: [-0.22, 0, -0.06], shin_l: [0.2, 0, 0], shin_r: [0.55, 0, 0], foot_l: [0.9, 0, 0], foot_r: [0.8, 0, 0], ...arm(-2.3, 0.5, 0.3, 0.15, 0.35, 0.1) } },
+    { t: 1.45, hips: [0, 0.21, 0.72], ease: 'out', r: { hips: [1.53, 0, 0.02], spine1: [-0.05, 0, 0], spine2: [-0.06, 0, 0], neck: [0.12, 0.35, 0], head: [0.08, 0.95, 0.22], thigh_l: [-0.1, 0, 0.12], thigh_r: [-0.25, 0, -0.06], shin_l: [0.15, 0, 0], shin_r: [0.6, 0, 0], foot_l: [0.95, 0, 0], foot_r: [0.85, 0, 0], ...arm(-2.4, 0.55, 0.3, 0.2, 0.3, 0.1) } },
   ];
   if (kind === 'back') return [
     stand,
     { t: 0.28, hips: [0, 0.8, -0.06], ease: 'in', r: { hips: [-0.15, 0, 0], spine1: [-0.12, 0, 0], spine2: [-0.15, 0, 0], neck: [0.25, 0, 0], head: [0.15, 0, 0], thigh_l: [-0.45, 0, 0.05], thigh_r: [-0.35, 0, -0.05], shin_l: [0.9, 0, 0], shin_r: [0.75, 0, 0], foot_l: [-0.45, 0, 0], foot_r: [-0.4, 0, 0], ...arm(-0.6, 0.5, 0.6, -0.5, 0.55, 0.6) } },
     { t: 0.62, hips: [0, 0.24, -0.32], ease: 'in', r: { hips: [-0.55, 0, 0], spine1: [-0.05, 0, 0], spine2: [0.05, 0, 0], neck: [0.3, 0, 0], head: [0.2, 0, 0], thigh_l: [-0.95, 0, 0.08], thigh_r: [-0.85, 0, -0.08], shin_l: [1.25, 0, 0], shin_r: [1.1, 0, 0], foot_l: [-0.3, 0, 0], foot_r: [-0.25, 0, 0], ...arm(-0.4, 0.8, 0.4, -0.3, 0.8, 0.4) } },
     { t: 0.95, hips: [0, 0.19, -0.5], ease: 'in', r: { hips: [-1.42, 0, 0], spine1: [0.02, 0, 0], spine2: [0.0, 0, 0], neck: [0.35, 0, 0], head: [0.2, 0, 0], thigh_l: [-0.75, 0, 0.1], thigh_r: [-0.5, 0, -0.1], shin_l: [1.1, 0, 0], shin_r: [0.7, 0, 0], foot_l: [-0.2, 0, 0], foot_r: [-0.1, 0, 0], ...arm(-0.2, 1.2, 0.3, -0.1, 1.1, 0.3) } },
-    { t: 1.35, hips: [0, 0.174, -0.52], ease: 'out', r: { hips: [-1.55, 0, 0], spine1: [0.04, 0, 0], spine2: [0.0, 0, 0], neck: [0.05, 0, 0], head: [0.0, 0.75, 0.05], thigh_l: [-0.55, 0, 0.45], thigh_r: [-0.12, 0, -0.08], shin_l: [1.05, 0, 0], shin_r: [0.15, 0, 0], foot_l: [-0.1, 0, 0], foot_r: [0.25, 0, 0], ...arm(-0.1, 1.3, 0.2, 0.05, 1.05, 0.5) } },
+    { t: 1.35, hips: [0, 0.174, -0.52], ease: 'out', r: { hips: [-1.55, 0, 0], spine1: [0.04, 0, 0], spine2: [0.0, 0, 0], neck: [-0.32, 0, 0], head: [-0.12, 0.75, 0.05], thigh_l: [-0.55, 0, 0.45], thigh_r: [-0.12, 0, -0.08], shin_l: [1.05, 0, 0], shin_r: [0.15, 0, 0], foot_l: [-0.1, 0, 0], foot_r: [0.25, 0, 0], ...arm(-0.1, 1.3, 0.2, 0.05, 1.05, 0.5) } },
   ];
   if (kind === 'sit') {
     const z = -clamp(wall - 0.2, 0.05, 0.62);

@@ -3,7 +3,9 @@
  * flashlight beam / the lit window / hearing / group knowledge), hold & release, cover-to-cover movement at walking
  * pace, the telegraphed fire cycle (rise / lean with light → aim 0.45 s → burst → hold → back), honest misses near the
  * player, suppression, retreat, search, the stand-off at a crawl exit, death, drops. Every number is in `fire.ts`
- * `SOLDIER_TUNING`. The body is a `SoldierRig` (§8.2.2; W3a's real rig, or the `StubSoldierRig` until it lands).
+ * `SOLDIER_TUNING`. The body is W3a's `SoldierRigEx` (rig.ts, §8.2.2): this class positions / turns the enemy object,
+ * sets pose / move / aim, then calls `rig.update(dt)` once per frame (also while dying, until the body is still and the
+ * Clasp mark is out). Cutscene actors are W3a's `SoldierActor` (actor.ts), not this class.
  *
  * Mapping to `Enemy.state`: hold / idle → 'idle'; combat → 'chase' ('attack' in rise / aim / burst / after);
  * search → 'alert'; stagger → 'stagger'; dead → 'dead'.
@@ -16,17 +18,16 @@ import type { HitVolume } from '../shared/hit';
 import { angleDiff } from '../shared/ik';
 import { SOLDIER_TUNING as T, hitChance, type DirectedSoldier, type SoldierDirector } from './fire';
 import { chooseCover, coverSafe, peekEye } from './cover';
-import type { SoldierPose, SoldierRig } from './stubrig';
+import type { SoldierPose, SoldierRigEx } from './rig';
 
-type Mode = 'puppet' | 'hold' | 'idle' | 'combat' | 'search' | 'standoff' | 'dying' | 'dead';
+type Mode = 'hold' | 'idle' | 'combat' | 'search' | 'standoff' | 'dying' | 'dead';
 type Impact = { point: THREE.Vector3; normal: THREE.Vector3; surface: Surface; owner?: HitOwner };
 type Fire = 'none' | 'rise' | 'aim' | 'burst' | 'after' | 'back' | 'reload';
 
-export interface SoldierFactoryOpts extends FactoryOpts { rig: SoldierRig }
+export interface SoldierFactoryOpts extends FactoryOpts { rig: SoldierRigEx }
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _d = new THREE.Vector3();
 const _pc = new THREE.Vector3(), _pe = new THREE.Vector3(), _aim = new THREE.Vector3(), _end = new THREE.Vector3(), _end2 = new THREE.Vector3(), _cl = new THREE.Vector3();
-const POSES = new Set<string>(['hold', 'walk', 'walk_aim', 'aim', 'crouch', 'rise_aim', 'lean_l', 'lean_r', 'reload', 'flinch', 'stagger']);
 const yawOf = (x: number, z: number) => Math.atan2(-x, -z);
 
 /** Test switches (`enemies.debug.soldier(id).debugSet({...})`). */
@@ -41,13 +42,15 @@ export interface SoldierDebugSet {
   noMove?: boolean;
   /** Fire at the player whenever he sees him (skip the cover peek logic). */
   aware?: boolean;
+  /** With `freeze`: where the frozen pose aims (world point), default none (low ready / the pose's own). */
+  aimAt?: THREE.Vector3 | null;
 }
 
 export class Soldier extends EnemyBase implements DirectedSoldier {
   readonly type = 'soldier' as const;
   readonly arms: SoldierArms;
   readonly coverSet: string | undefined;
-  readonly rig: SoldierRig;
+  readonly rig: SoldierRigEx;
   mode: Mode = 'idle';
   private fire: Fire = 'none';
   private fireT = 0;
@@ -70,7 +73,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   private peekBlockUntil = -1;
   private suppWasHigh = false;
   private recentHits: [number, number][] = [];
-  private frameDmg = 0; private frameHead = false;
+  private frameDmg = 0; private frameHead = false; private frameBuck = 0;
   private flinchT = 0; private staggerT = 0;
   // cover / movement
   private cover: CoverPoint | null = null;
@@ -95,13 +98,10 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   // search / stand-off
   private searchPhase = 0; private searchT = 0; private searched = false; private searchYaw = 0;
   private standNode = -1;
-  // hold walk (story extra) and puppet
+  // hold walk (story extra)
   private holdWalk: { to: THREE.Vector3; speed: number; done: () => void } | null = null;
-  private pTarget: THREE.Vector3 | null = null; private pSpeed = 1.4; private pDone: (() => void) | null = null;
-  private pLook: THREE.Vector3 | null = null;
   // pose
   private curPose: SoldierPose | '' = '';
-  private lodLevel: 0 | 1 = 0;
   // stats (H12)
   shots = 0; hits = 0; bursts = 0;
   private dbg: SoldierDebugSet = {};
@@ -109,7 +109,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
 
   constructor(world: EnemyWorld, group: string, position: THREE.Vector3, yaw: number, o: SoldierFactoryOpts) {
     super(world, group, position, yaw, 0.35, 1.8);
-    this.isActor = !!o.actor;
+    this.isActor = false;
     this.arms = o.arms ?? 'carbine';
     this.coverSet = o.cover;
     this.health = T.hp;
@@ -119,25 +119,24 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     this.spawnYaw = yaw;
     this.rig = o.rig;
     this.volumes = this.rig.volumes;
+    // the manager drives LOD (12 / 10 m, forceLod) and room visibility through the rig like every other enemy
+    this.lodRig = this.rig.lodRig;
     this.object.add(this.rig.root);
     this.awake = true;
-    if (this.isActor) { this.mode = 'puppet'; this.state = 'idle'; }
+    this.dir = world.soldiers();
+    this.dir.register(this);
+    if (o.pose === 'hold') { this.mode = 'hold'; this.state = 'idle'; }
+    else if (o.dormant) { this.mode = 'idle'; this.state = 'idle'; }
     else {
-      this.dir = world.soldiers();
-      this.dir.register(this);
-      if (o.pose === 'hold') { this.mode = 'hold'; this.state = 'idle'; }
-      else if (o.dormant) { this.mode = 'idle'; this.state = 'idle'; }
-      else {
-        // a spawn-mode group arrives knowing where the player is (CHOIR) and works toward him from cover
-        this.mode = 'idle'; this.state = 'idle';
-        if (o.emerge) this.becomeAware(world.playerPos, false);
-      }
+      // a spawn-mode group arrives knowing where the player is (CHOIR) and works toward him from cover
+      this.mode = 'idle'; this.state = 'idle';
+      if (o.emerge) this.becomeAware(world.playerPos, false);
     }
-    this.led('red');
+    this.rig.setLed('red');
     this.place();
     this.choosePose(0);
-    this.rig.update?.(0);
-    if (!this.isActor) this.emit('enemy:spawned');
+    this.rig.update(0);
+    this.emit('enemy:spawned');
   }
 
   // ───────────────────────────────────────────────────────── contract-ish extras
@@ -167,7 +166,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
       cover: this.cover?.id ?? null, hp: +this.health.toFixed(2), suppression: +this.supp.toFixed(3),
       shots: this.shots, hits: this.hits, bursts: this.bursts,
       // extras (tests)
-      ...({ mode: this.mode, fire: this.fire, sees: this.seesPlayer, firstMiss: this.firstMiss, moving: !!this.target, target: this.targetCover?.id ?? null, mag: this.mag, led: this.ledNow, standNode: this.standNode, yaw: +this.yaw.toFixed(3), pose: this.curPose } as object),
+      ...({ mode: this.mode, fire: this.fire, sees: this.seesPlayer, firstMiss: this.firstMiss, moving: !!this.target, target: this.targetCover?.id ?? null, mag: this.mag, led: this.rig.led, standNode: this.standNode, yaw: +this.yaw.toFixed(3), pose: this.curPose, rigPose: this.rig.pose, burstsHere: this.burstsHere, settledBody: this.rig.settled } as object),
     } as SoldierDebug;
   }
 
@@ -216,11 +215,12 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   update(dt: number): void {
     this.stateTime += dt;
     if (this.mode === 'dead') return;
-    if (this.mode === 'puppet') { this.tickPuppet(dt); return; }
     if (this.mode === 'dying') {
-      this.rig.update?.(dt);
-      // settle on the rig's promise, or at the latest 1.7 s after death (keyed falls are 1.2–1.6 s)
-      if (this.world.time - this.diedAt >= 1.7) this.settle();
+      this.place();
+      this.rig.update(dt);
+      // settled = the keyed fall is over (rig.settled, 1.35–1.55 s) AND the Clasp's 'fail' pattern has run out (1.5 s);
+      // then the manager stops updating him. A guard at 2.2 s.
+      if ((this.rig.settled && this.rig.led === 'off') || this.world.time - this.diedAt >= 2.2) this.settle();
       return;
     }
     const w = this.world;
@@ -235,29 +235,31 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     if (this.supp >= T.supp.noPeek) this.suppWasHigh = true;
     else if (this.suppWasHigh) { this.suppWasHigh = false; this.peekBlockUntil = w.time + T.supp.noPeekAfter; }
     this.sense(dt);
-    if (this.dbg.freeze) { this.place(); this.setPose(this.dbg.pose ?? 'aim'); this.rig.aim(null); this.rig.setMove(0, this.yaw); this.moveGround(dt, 0, 0, 0, 10); this.place(); this.rig.update?.(dt); return; }
+    if (this.dbg.freeze) { this.place(); this.setPose(this.dbg.pose ?? 'aim'); this.rig.aim(this.dbg.aimAt ?? null); this.rig.setMove(0, this.yaw); this.moveGround(dt, 0, 0, 0, 10); this.place(); this.rig.update(dt); return; }
     if (this.mode === 'hold') this.tickHold(dt);
     else if (this.mode === 'idle') { this.moveGround(dt, 0, 0, 0, 8); this.rig.setMove(0, this.yaw); }
     else this.tickAware(dt);
     this.choosePose(dt);
     this.chooseAim();
+    // the step out from high cover: out over the rise (0.35 s), back over 'back' (0.4 s)
+    const out = !!this.cover && this.cover.height === 'high' && (this.fire === 'rise' || this.fire === 'aim' || this.fire === 'burst' || this.fire === 'after');
+    this.stepOut = THREE.MathUtils.clamp(this.stepOut + (out ? dt / T.rise : -dt / T.back) * T.cover.leanStep, 0, T.cover.leanStep);
+    if (!this.cover) this.stepOut = 0;
     this.place();
-    this.rig.update?.(dt);
-    this.lod();
+    this.rig.update(dt);
   }
 
+  /** High cover: the step out to the peek side (m, eased over the rise / back) — the body (and its hit volumes) moves. */
+  private stepOut = 0;
   private place(): void {
     this.object.position.copy(this.body.position);
+    if (this.stepOut > 1e-3 && this.cover) {
+      const n = this.cover.normal;
+      this.object.position.x += -n.z * this.coverSide * this.stepOut;
+      this.object.position.z += n.x * this.coverSide * this.stepOut;
+    }
     this.object.rotation.y = this.yaw;
     this.object.updateMatrixWorld(true);
-  }
-
-  private lod(): void {
-    const cam = this.world.ctx.camera;
-    _v.setFromMatrixPosition(cam.matrixWorld);
-    const d = _v.distanceTo(this.body.position);
-    const want: 0 | 1 = this.lodLevel === 0 ? (d > 12 ? 1 : 0) : (d < 10 ? 0 : 1);
-    if (want !== this.lodLevel) { this.lodLevel = want; this.rig.lod(want); }
   }
 
   // ── perception (≤ 6 Hz)
@@ -429,28 +431,38 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
       this.flankedNow = flanked;
       this.huskPath();
     }
-    // choose cover: on a timer, on suppression ≥ 1.0, after ≥ 40 damage in 3 s, when flanked
+    // choose cover: on a timer, on suppression ≥ 1.0, after ≥ 40 damage in 3 s, when flanked — and RELOCATE (another
+    // point, never this one) after 2–3 bursts from one point or when suppressed / hurt at it, so a long fight moves
     this.coverTimer -= dt;
     const supHigh = this.supp >= T.supp.move;
     const hurt = this.recentDamage() >= T.retreat.damage;
     this.retreating = this.supp >= T.retreat.supp || this.health < T.retreat.hp || hurt;
-    if (this.coverTimer <= 0 || flanked || (supHigh && !this.retreatedFor) || (hurt && !this.retreatedFor)) {
+    const used = !!this.cover && this.burstsHere >= this.relocateAfter && this.fire === 'none';
+    // pressed AT THIS POINT: suppressed / hurt after he has settled here (fire taken on the way in does not count)
+    const settled = !this.cover || w.time - this.arrivedAt >= T.cover.settle;
+    const hurtHere = this.recentDamage(this.cover ? this.arrivedAt : -1e9) >= T.retreat.damage;
+    const pressed = settled && (supHigh || hurtHere) && !this.retreatedFor;
+    if (this.coverTimer <= 0 || flanked || pressed || used) {
       if (supHigh || hurt) this.retreatedFor = true;
       this.coverTimer = T.cover.every[0] + this.world.rand() * (T.cover.every[1] - T.cover.every[0]);
-      this.chooseCoverNow(flanked);
+      const moved = this.chooseCoverNow(flanked, !!this.cover && (used || pressed));
+      // nowhere else to go: stay, and try again after the next burst
+      if (used && !moved) this.burstsHere = this.relocateAfter - 1;
     }
     if (!supHigh && !hurt) this.retreatedFor = false;
   }
   private retreatedFor = false;
   private flankedNow = false;
 
-  private recentDamage(): number {
+  /** Damage taken in the last `retreat.window` s (only hits after `since`). */
+  private recentDamage(since = -1e9): number {
     const t = this.world.time;
     while (this.recentHits.length && this.recentHits[0][0] < t - T.retreat.window) this.recentHits.shift();
     let s = 0;
-    for (const [, d] of this.recentHits) s += d;
+    for (const [ht, d] of this.recentHits) if (ht >= since) s += d;
     return s;
   }
+  private arrivedAt = -1e9;
 
   private threatEye(out: THREE.Vector3): THREE.Vector3 {
     const w = this.world;
@@ -459,27 +471,34 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   }
 
   private coverTried = false;
-  private chooseCoverNow(flanked: boolean): void {
+  /** Bursts fired from the current point, and after how many (2–3, drawn on arrival) he relocates. */
+  private burstsHere = 0;
+  private relocateAfter = 2;
+  /** Choose a point (`relocate`: never the current one). True when he sets off for a new point. */
+  private chooseCoverNow(flanked: boolean, relocate = false): boolean {
     const w = this.world;
     this.coverTried = true;
     const threatFeet = this.seesPlayer ? w.playerPos : this.lastKnown;
     const res = chooseCover(w, this.dir!, {
-      id: this.id, set: this.coverSet, arms: this.arms, position: this.body.position, current: flanked ? null : this.cover,
+      id: this.id, set: this.coverSet, arms: this.arms, position: this.body.position, current: flanked || relocate ? null : this.cover,
+      exclude: relocate || flanked ? this.cover?.id : undefined,
       recent: this.recent, threatEye: this.threatEye(_pe), threatFeet, retreat: this.retreating,
     }, this.sightFn);
-    if (res && res.point === this.cover) { this.coverSide = res.side; return; }
+    if (res && res.point === this.cover) { this.coverSide = res.side; return false; }
     if (res) {
       this.leaveCover();
       this.dir!.claim(res.point, this.id);
       this.targetCover = res.point; this.coverSide = res.side;
       this.target = res.point.position.clone();
-      this.moveSpeed = this.retreating ? T.retreatSpeed : T.walk;
-      this.log('cover_go', { cover: res.point.id, score: +res.score.toFixed(3), retreat: this.retreating, flanked });
-      return;
+      const closer = res.point.position.distanceTo(threatFeet) < this.body.position.distanceTo(threatFeet) - 0.5;
+      this.moveSpeed = this.retreating ? T.retreatSpeed : (relocate || flanked) && !closer ? T.relocateSpeed : T.walk;
+      this.log('cover_go', { cover: res.point.id, score: +res.score.toFixed(3), retreat: this.retreating, flanked, relocate });
+      return true;
     }
     // nothing passes: keep a point that is still safe, else fight from here
-    if (this.cover && !flanked) return;
+    if (this.cover && !flanked) return false;
     if (this.cover) { this.leaveCover(); this.log('cover_lost', {}); }
+    return false;
   }
   private leaveCover(): void {
     if (this.cover) this.dir!.leave(this.cover, this.id);
@@ -492,6 +511,8 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
       this.cover = this.targetCover; this.targetCover = null;
       this.recent.push(this.cover.id); if (this.recent.length > 2) this.recent.shift();
       this.peekSight = false; this.checkT = 0; this.flankedNow = false;
+      this.arrivedAt = this.world.time;
+      this.burstsHere = 0; this.relocateAfter = T.cover.relocate[0] + Math.floor(this.world.rand() * (T.cover.relocate[1] - T.cover.relocate[0] + 1));
       this.log('cover_at', { cover: this.cover.id });
     }
   }
@@ -644,6 +665,8 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
         if (this.fireT >= T.back) this.endCycle();
         break;
       case 'reload':
+        // the gap runs on through a reload (a reload is part of the pause between bursts, not added to it)
+        if (this.gapT > 0) this.gapT -= dt;
         this.fireT += dt;
         if (this.fireT >= T.reload[this.arms].time) { this.mag = T.reload[this.arms].rounds; this.fire = 'none'; this.log('reloaded', {}); }
         break;
@@ -673,8 +696,6 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     this.sound('soldier_light_on', this.rig.muzzle, 0.7);
     this.log('rise', { cover: this.cover?.id ?? null, h: this.cover?.height ?? 'open' });
   }
-  private ledNow: 'red' | 'fail' | 'off' = 'red';
-  private led(st: 'red' | 'fail' | 'off'): void { this.ledNow = st; this.rig.setLed(st); }
   private setLight(on: boolean): void {
     if (this.lightOn === on) return;
     this.lightOn = on;
@@ -723,6 +744,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   private endCycle(): void {
     this.setLight(false);
     this.dir!.dropToken(this.id);
+    if (this.cover) this.burstsHere++;
     const [g0, g1] = T.gap[this.arms];
     this.gapT = this.dbg.gap ?? g0 + this.world.rand() * (g1 - g0);
     this.log('end', {});
@@ -897,7 +919,14 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     } else if (this.mode === 'hold') this.rig.aim(this.visRaw && this.seenDist <= T.sight.range ? w.playerEye : null);
     else if (this.mode === 'standoff') { const ex = w.nav.standOffExit; this.rig.aim(ex ? _aim.set(ex.x, ex.y + 0.6, ex.z) : null); }
     else if (this.aware && this.seesPlayer && this.fire !== 'reload') this.rig.aim(w.playerEye);
-    else this.rig.aim(null);
+    else if (this.aware && this.fire !== 'reload' && (this.target || !this.cover || this.cover.height === 'high') && this.mode !== 'search') {
+      // weapon up toward where the player was (moving cover to cover, standing at high cover) when that is in front
+      // of him; else low ready
+      const p = this.body.position;
+      const toYaw = yawOf(this.lastKnown.x - p.x, this.lastKnown.z - p.z);
+      if (Math.abs(angleDiff(toYaw, this.yaw)) < 1.4) this.rig.aim(_aim.set(this.lastKnown.x, this.lastKnown.y + 1.4, this.lastKnown.z));
+      else this.rig.aim(null);
+    } else this.rig.aim(null);
   }
 
   private sound(id: string, at: THREE.Vector3, volume: number): void {
@@ -924,8 +953,12 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   applyDamage(vol: HitVolume, amount: number, point: THREE.Vector3, dir: THREE.Vector3): void {
     if (!this.alive || this.isActor) return;
     const w = this.world;
-    const mult = T.mult[vol.part] ?? 1;
-    const dmg = amount * mult;
+    // the plate carrier (torso ×0.8) is for bullets; buckshot from ≤ 6 m bites on every part (S3 / §5.3: 2 shells)
+    const buck = w.ctx.player?.currentWeapon === 'shotgun' && point.distanceTo(w.playerEye) <= T.buckshot.range;
+    const mult = buck ? T.buckshot.mult * (vol.part === 'head' ? T.mult.head : 1) : T.mult[vol.part] ?? 1;
+    let dmg = amount * mult;
+    // one shell (all its pellets land in one frame) never deals more than `shellMax`: no one-shell kill, even at contact
+    if (buck) { dmg = Math.max(0, Math.min(dmg, T.buckshot.shellMax - this.frameBuck)); this.frameBuck += dmg; }
     this.health -= dmg;
     w.ctx.events.emit('enemy:damaged', { id: this.id, type: this.type, point, direction: dir, amount: dmg, part: vol.part });
     this.queueHit(vol, amount, point, dir);
@@ -944,7 +977,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   /** One frame's hits as ONE hit (a shotgun shell): flinch always; ≥ 25 or a head hit cancels the rise / aim, staggers. */
   private reactToHit(): void {
     const dmg = this.frameDmg, head = this.frameHead;
-    this.frameDmg = 0; this.frameHead = false;
+    this.frameDmg = 0; this.frameHead = false; this.frameBuck = 0;
     if (!this.alive) return;
     const heavy = head || dmg >= T.cancelDamage;
     if (heavy && (this.fire === 'rise' || this.fire === 'aim')) this.cancelCycle(head ? 'head' : 'heavy');
@@ -975,7 +1008,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const along = (dir.x * fx + dir.z * fz) / (Math.hypot(dir.x, dir.z) || 1);
     const kind = along < -0.5 ? 'back' : along > 0.5 ? 'fwd' : 'side';
-    this.led('fail');
+    // the rig plays the Clasp's 'fail' pattern (3 fast blinks, 1.5 s) and then puts it out (rig.die)
     this.sound('clasp_fail', this.rig.nape, 0.6);
     this.diedAt = w.time;
     this.log('died', { kind });
@@ -991,13 +1024,10 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     const w = this.world, p = this.body.position;
     this.mode = 'dead';
     this.settled = true;
-    this.led('off');
-    // the body: a walkable 0.15 m box over feet, chest and head (check:wreck)
+    if (this.rig.led !== 'off') this.rig.setLed('off');
+    // the body: the rig's box round the lying body, made the manager's walkable 0.15 m box (check:wreck)
     this.object.updateMatrixWorld(true);
-    const pts = [p, this.rig.chest, this.rig.eye];
-    const box = new THREE.Box3();
-    for (const q of pts) box.expandByPoint(_v.set(q.x, p.y, q.z));
-    box.min.x -= 0.25; box.min.z -= 0.25; box.max.x += 0.25; box.max.z += 0.25;
+    const box = this.rig.corpseBox(new THREE.Box3());
     box.min.y = p.y; box.max.y = p.y + 0.15;
     this.wreckBox = box;
     this.sound('soldier_fall', this.rig.chest, 0.9);
@@ -1007,35 +1037,6 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   }
 
   override corpseChest(out: THREE.Vector3): THREE.Vector3 | null { return out.copy(this.rig.chest); }
-
-  // ───────────────────────────────────────────────────────── puppet (minimal: W3a's actor.ts replaces it)
-
-  private tickPuppet(dt: number): void {
-    const p = this.body.position;
-    if (this.pTarget) {
-      const dx = this.pTarget.x - p.x, dz = this.pTarget.z - p.z, l = Math.hypot(dx, dz);
-      if (l < 0.15) { this.pTarget = null; this.moveGround(dt, 0, 0, 0, 8); this.setPose('hold'); const d = this.pDone; this.pDone = null; d?.(); }
-      else { this.moveGround(dt, dx / l, dz / l, Math.min(this.pSpeed, l * 2 + 0.2), 6); this.turnTo(yawOf(dx, dz), 3 * dt); this.rig.setMove(this.pSpeed, yawOf(dx, dz)); this.setPose('walk'); }
-    } else { this.moveGround(dt, 0, 0, 0, 8); this.rig.setMove(0, this.yaw); }
-    if (this.pLook) this.rig.aim(this.pLook);
-    this.place();
-    this.rig.update?.(dt);
-    this.lod();
-  }
-  override puppetMove(point: THREE.Vector3, speed: number | undefined, done: () => void): void {
-    if (this.pDone) { const d = this.pDone; this.pDone = null; d(); }
-    this.pTarget = point.clone(); this.pSpeed = THREE.MathUtils.clamp(speed ?? 1.4, 0.3, 3); this.pDone = done;
-  }
-  override puppetPose(pose: string): void { const p = pose === 'idle' ? 'hold' : pose; if (POSES.has(p)) this.setPose(p as SoldierPose); }
-  override puppetLook(point: THREE.Vector3 | null): void { this.pLook = point ? (this.pLook ?? new THREE.Vector3()).copy(point) : null; if (!point) this.rig.aim(null); }
-  override puppetEyes(on: boolean): void { this.led(on ? 'red' : 'off'); }
-  override puppetSpeak(seconds: number): void { this.rig.speak(seconds); }
-  override puppetStop(): void { if (this.pDone) { const d = this.pDone; this.pDone = null; d(); } this.pTarget = null; }
-  /** Actor props (§8.2.8): 'led' ('red' | 'fail' | 'off'), 'light' (bool). 'name' is the rig's (W3a). */
-  prop(name: string, value: unknown): void {
-    if (name === 'led' && (value === 'red' || value === 'fail' || value === 'off')) this.led(value);
-    else if (name === 'light') this.rig.setLight(!!value);
-  }
 
   override dispose(): void {
     this.setLight(false);
