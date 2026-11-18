@@ -31,7 +31,7 @@ import { fxLead } from '../../audio/voicefx';
 import { applyPhase6 } from '../../level/l6/phases';
 import { GROUPS6, V, type HooksL6 } from './base';
 import { Scenes6 } from './scenes';
-import { isRadio6, line6, phaseRank6, type Bark6 } from './dialogue';
+import { RULES6, isRadio6, line6, phaseRank6, type Bark6 } from './dialogue';
 import { FRAGMENTS6, HANDSET_LABEL6, OBJ6, PROMPT6, RADIO_LABEL6, READ_ROOM6, SCREEN6, TOAST6 } from './text';
 
 /** The manifest's per-line lead (what the audio skips): `cut` is in FILE time (3c W9 convention). */
@@ -82,6 +82,7 @@ export class ScriptL6 extends Scenes6 {
   // barks
   private lastBark = -1e9;
   private sawPlayer = new Set<number>();
+  private lastSaw = new Map<number, number>();
   private downDue = new Map<number, number>();
   private hitAt = new Map<number, number>();
   private soldierDeaths: { p: THREE.Vector3; t: number }[] = [];
@@ -226,7 +227,7 @@ export class ScriptL6 extends Scenes6 {
     // Q = ask Kessler (§6.2) — from the start (fact `radio`, carried in)
     try { if (s === 'playing' && this.ctx.input.pressed('KeyQ')) this.radioAsk(); } catch { /* ignore */ }
     // the HUD radio strip: live while a radio line plays; the handset's label while it is held
-    if (this.radioOwned() && !this.ended) {
+    if (this.radioOwned() && !this.ended && !this.inEndingNow) {
       const live = this.now < this.radioUntil;
       const label = this.held ? HANDSET_LABEL6 : RADIO_LABEL6;
       const key = `${label}|${live}`;
@@ -251,7 +252,7 @@ export class ScriptL6 extends Scenes6 {
     this.prompts();
     // launchAt (D16, S10d): pull + 90 s when the thud never set it
     if (f.pulled && this.prog.launchAt === null && this.t >= f.pullT + 90) this.prog.launchAt = f.pullT + 90;
-    this.calmWaiting = this.pendingCheckpoint !== null || (!f.he && this.inTrig('t6_he'));
+    this.calmWaiting = this.pendingCheckpoint !== null || (!f.he && this.inTrig('t6_he')) || this.bossCalmWait();
     if (this.director.mood !== 'tension' && this.w.active() > 0) this.director.setMood('tension');
     else if (this.director.mood === 'tension' && this.w.active() === 0 && this.now - this.lastCombat > 8) this.director.setMood('ambient');
   }
@@ -1146,7 +1147,7 @@ export class ScriptL6 extends Scenes6 {
 
   /** Q: the ack, then the context line. Cooldown 5 s; ignored while a note, a grip or a sequence holds the radio. */
   radioAsk(): boolean {
-    if (!this.radioOwned() || this.ended || this.noteOpen || this.grip || this.seqBusy || this.ctx.state !== 'playing') return false;
+    if (!this.radioOwned() || this.ended || this.noteOpen || this.grip || this.bossGripNow() || this.seqBusy || this.ctx.state !== 'playing') return false;
     if (this.now - this.lastQ < 5) return false;
     this.lastQ = this.now;
     this.S('q', async () => {
@@ -1225,15 +1226,23 @@ export class ScriptL6 extends Scenes6 {
       const head = e.position.clone().setY(e.position.y + 1.6);
       const sees = typeof r.sees === 'boolean' ? r.sees : this.los(head);
       if (sees && !this.sawPlayer.has(e.id)) { this.sawPlayer.add(e.id); this.downDue.set(e.id, this.now + 3); }
+      if (sees) this.lastSaw.set(e.id, this.now);
       const hit = this.now - (this.hitAt.get(e.id) ?? -1e9) <= 3;
       const felt = this.soldierDeaths.some((d) => this.now - d.t <= 4 && d.p.distanceTo(e.position) <= 20);
-      const b = { id: e.id, dist, sees, hitRecently: hit, felt };
+      // (ST-b: lost sight ≥ 3 s with a last-known position — the soldier still aware of him)
+      const seenAt = this.lastSaw.get(e.id);
+      const lostFor = !sees && r.aware && seenAt !== undefined ? this.now - seenAt : 0;
+      const b = { id: e.id, dist, sees, hitRecently: hit, felt, lostFor };
       let base: string | null = null;
       if (hit && sees && dist <= 15) base = 'l5_sol_need';
       else if (felt && sees && dist <= 15) base = 'l5_sol_felt';
       else if (sees && dist <= 25 && this.facts.darkWithLight) base = 'l5_sol_light';
       else if (sees && dist <= 15 && this.facts.wastingRounds) base = 'l5_sol_rounds';
       else if (sees && dist <= 15 && (this.downDue.get(e.id) ?? -1e9) >= this.now) base = 'l5_sol_down';
+      // (ST-b: the three level-6 pairs, §6.2 — their rules exist only when their lines do)
+      else if (sees && dist <= 30 && this.inTrig('t6_cage') && RULES6.l6_sol_frame_stop) base = 'l6_sol_frame';
+      else if (sees && dist >= 15 && this.f.shaftOpen && !this.f.pin && RULES6.l6_sol_reach_stop) base = 'l6_sol_reach';
+      else if (lostFor >= 3 && lostFor <= 12 && RULES6.l6_sol_lost_stop) base = 'l6_sol_lost';
       if (base) { pick = { base, e, b }; break; }
     }
     if (!pick) return;
@@ -1386,8 +1395,9 @@ export class ScriptL6 extends Scenes6 {
 
   /** H16: drive a grip — `'done'` completes it, `'abandon'` cancels it, a number holds E for that many seconds (real progress). */
   gripHook(id: string, mode: 'done' | 'abandon' | number): boolean {
-    if (!this.grip || this.grip.id !== id) this.onInteract(id);
-    const g = this.grip;
+    const cur = () => this.grip ?? this.bossGripNow();
+    if (!cur() || cur()!.id !== id) this.onInteract(id);
+    const g = cur();
     if (!g || g.id !== id) return false;
     const dbg = (this.ctx.player as unknown as { debug?: { grip?: (c?: string) => unknown; gripHold?: (on?: boolean) => unknown } }).debug;
     if (mode === 'done') dbg?.grip?.('done');
@@ -1459,7 +1469,7 @@ export class ScriptL6 extends Scenes6 {
 
   get debugState() {
     const f = this.f;
-    const g = this.grip;
+    const g = this.grip ?? this.bossGripNow();
     const bd = this.bossDebug();
     let keys: string[] = [];
     try { keys = [...this.ctx.player.keys].sort(); } catch { /* ignore */ }

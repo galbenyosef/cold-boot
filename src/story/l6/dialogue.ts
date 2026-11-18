@@ -61,6 +61,8 @@ export interface Bark6 {
   hitRecently: boolean;
   /** Another soldier died ≤ 4 s ago within 20 m of him. */
   felt: boolean;
+  /** Seconds since he last saw the player while still aware of him (0 while he sees him). */
+  lostFor?: number;
 }
 
 export interface Facts6 extends CommonFacts {
@@ -237,11 +239,12 @@ pair(RULES6, 'l5_sol_need', (F) => barkOk(F) && !!F.bark?.hitRecently, 'the spea
 pair(RULES6, 'l5_sol_felt', (F) => barkOk(F) && !!F.bark?.felt, 'another soldier died ≤ 4 s ago within 20 m of the speaker, sight', { max: 2 });
 pair(RULES6, 'l5_sol_rounds', (F) => barkOk(F) && F.wastingRounds, 'player fired ≥ 15 rounds in 8 s with no hit, sight ≤ 15 m', { max: 2 });
 pair(RULES6, 'l5_sol_light', (F) => barkOk(F, 25) && F.darkWithLight, 'player in regions.dark with the flashlight on, sight ≤ 25 m', { max: 2 });
-// (§6.2's three new soldier pairs `l6_sol_frame` / `_reach` / `_lost` are not in lines.l6.json yet — their rules are added
-// with the lines, so every rule keeps a manifest entry; see the ST-a report)
+// (§6.2's three new soldier pairs `l6_sol_frame` / `_reach` / `_lost`: a rule only when the line exists, so every rule
+// keeps a manifest entry; the script's bark picker asks them — ST-b)
 for (const [base, when, why] of [
   ['l6_sol_frame', (F: Facts6) => F.inCage && barkOk(F, 30), 'player in t6_cage, speaker has sight ≤ 30 m'],
   ['l6_sol_reach', (F: Facts6) => F.shaftOpen && !F.pinOut && !!F.bark && F.bark.sees && F.bark.dist >= 15, 'phase K, pin not out, sight at ≥ 15 m'],
+  ['l6_sol_lost', (F: Facts6) => !!F.bark && !F.bark.sees && (F.bark.lostFor ?? 0) >= 3, 'the speaker lost sight ≥ 3 s with a last-known position'],
 ] as const) if (LINES6.has(`${base}_stop`)) pair(RULES6, base, when, why, { max: 2 });
 
 export const L6_DIALOGUE: DialogueConfig<Facts6> = {
