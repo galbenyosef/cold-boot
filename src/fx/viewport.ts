@@ -122,6 +122,9 @@ const QSNOW: Record<Quality, number> = { low: 700, medium: 1100, high: 1500, ult
 const WIDE = 20;
 const QSTEPS_WIDE: Record<Quality, number> = { low: 4, medium: 6, high: 8, ultra: 8 };
 const QSNOW_WIDE: Record<Quality, number> = { low: 300, medium: 450, high: 600, ultra: 600 };
+/** Stage 3c (W6): a small port (width ≤ 2 m, the 0.6 m lock port) — the flecks scale with the pane, not a room's worth. */
+const SMALL = 2;
+const QSNOW_SMALL: Record<Quality, number> = { low: 90, medium: 140, high: 200, ultra: 200 };
 const QSHAPES: Record<Quality, number> = { low: 1, medium: 2, high: 3, ultra: 3 };
 const SNOW_MAX = 1500;
 const BIO_MAX = 40;
@@ -570,6 +573,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
   const W = N.clone().negate(); // outward
   const halfW = o.width / 2, halfH = o.height / 2;
   const wide = o.width >= WIDE;
+  const small = o.width <= SMALL;
   const depth = o.depth ?? 18;
   const spread = o.spread ?? 1.6;
   const vis = o.visibility ?? 4.5;
@@ -828,7 +832,7 @@ export function createViewport(o: ViewportOpts, parent: THREE.Object3D, quality:
       // snow
       const su = snowMat.uniforms;
       su.uPxScale.value = pixelScale;
-      sgeo.setDrawRange(0, (wide ? QSNOW_WIDE[q] : QSNOW[q]) ?? 600);
+      sgeo.setDrawRange(0, (wide ? QSNOW_WIDE[q] : small ? QSNOW_SMALL[q] : QSNOW[q]) ?? 600);
       void camera;
     },
   };

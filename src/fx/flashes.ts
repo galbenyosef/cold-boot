@@ -10,6 +10,16 @@ interface Slot {
   /** 0 = smooth decay, >0 = crackle (random flicker) */
   crackle: number;
   busy: boolean;
+  /** Stage 3c (W6): keyed flashes (the soldiers' muzzle light) — one slot per key, re-triggered without a dip. */
+  key: string | null;
+  /**
+   * Keyed envelope (0 = the plain flash): a hard pulse of `pulse` s from the peak, over a `tail` (fraction of the peak)
+   * that fades linearly over the whole duration — the light never drops to black between the rounds of a burst.
+   */
+  pulse: number;
+  tail: number;
+  /** Keyed: not aged by the update right after the fire (the first rendered frame shows the full peak). */
+  fresh: boolean;
 }
 
 const tmpColor = new THREE.Color();
@@ -35,7 +45,7 @@ export class Flashes {
         priority: 50, enabled: false, castShadow: false, flicker: 'none', group: 'fx_flash',
       });
       h.intensityScale = 0;
-      this.slots.push({ h, age: 0, dur: 0, peak: 0, crackle: 0, busy: false });
+      this.slots.push({ h, age: 0, dur: 0, peak: 0, crackle: 0, busy: false, key: null, pulse: 0, tail: 0, fresh: false });
     }
   }
 
@@ -52,7 +62,7 @@ export class Flashes {
     }
     if (!this.slots[best].busy || bestScore < intensity) {
       const s = this.slots[best];
-      s.busy = true; s.age = 0; s.dur = Math.max(0.016, duration); s.peak = intensity; s.crackle = crackle;
+      s.busy = true; s.age = 0; s.dur = Math.max(0.016, duration); s.peak = intensity; s.crackle = crackle; s.key = null; s.pulse = 0; s.tail = 0;
       this.place(s.h, p);
       tmpColor.set(color);
       s.h.setColor(tmpColor);
@@ -64,16 +74,50 @@ export class Flashes {
     return -1;
   }
 
+  /**
+   * Stage 3c (W6): a keyed flash — at most ONE light per key level-wide (the soldiers' muzzle light: D24 counts one
+   * muzzle point per view). Envelope: a hard `pulse` (s) from `intensity` over a `tail` (fraction) that fades linearly
+   * across `duration`. While the key's light is still lit, a new fire moves and re-triggers it (never a second light),
+   * so a burst reads as one flickering flare that never blacks out between rounds — not a strobe. Returns true when it
+   * was a re-trigger.
+   */
+  fireKeyed(key: string, p: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, duration: number, distance: number,
+    pulse: number, tail: number): boolean {
+    let s = this.slots.find((x) => x.busy && x.key === key);
+    const again = !!s;
+    if (!s) {
+      const i = this.fire(p, color, intensity, duration, distance);
+      if (i < 0) return false;
+      s = this.slots[i];
+    }
+    s.key = key; s.age = 0; s.dur = Math.max(0.016, duration); s.peak = intensity; s.crackle = 0;
+    s.pulse = Math.max(0.016, pulse); s.tail = tail; s.fresh = true;
+    this.place(s.h, p);
+    tmpColor.set(color); s.h.setColor(tmpColor);
+    s.h.desc.distance = distance;
+    s.h.intensityScale = intensity;
+    s.h.enabled = true;
+    return again;
+  }
+
   move(slot: number, p: THREE.Vector3) { if (slot >= 0) this.place(this.slots[slot].h, p); }
 
   update(dt: number) {
     for (const s of this.slots) {
       if (!s.busy) continue;
+      if (s.fresh) { s.fresh = false; s.h.intensityScale = s.peak; continue; }
       s.age += dt;
       const t = s.age / s.dur;
-      if (t >= 1) { s.busy = false; s.h.enabled = false; s.h.intensityScale = 0; continue; }
-      // fast attack (first 8%), then quadratic decay
-      let env = t < 0.08 ? 0.4 + 0.6 * (t / 0.08) : Math.pow(1 - (t - 0.08) / 0.92, 2);
+      if (t >= 1) { s.busy = false; s.h.enabled = false; s.h.intensityScale = 0; s.key = null; continue; }
+      let env: number;
+      if (s.pulse > 0) {
+        // keyed: the pulse over a linearly fading tail
+        const tp = s.age / s.pulse;
+        env = Math.max(tp < 1 ? (1 - tp) * (1 - tp) : 0, s.tail * (1 - t));
+      } else {
+        // fast attack (first 8%), then quadratic decay
+        env = t < 0.08 ? 0.4 + 0.6 * (t / 0.08) : Math.pow(1 - (t - 0.08) / 0.92, 2);
+      }
       if (s.crackle > 0) env = (1 - t * 0.3) * (Math.random() < 0.15 ? 0.1 : 0.45 + Math.random() * 0.75);
       s.h.intensityScale = s.peak * env;
     }

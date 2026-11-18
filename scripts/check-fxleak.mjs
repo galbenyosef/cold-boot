@@ -1,13 +1,17 @@
 // check:fxleak (stage 3b §8.6.6, D21, §13 S13) — no fx volume may be seen from a place it was not meant for, and no
 // reflection probe may contain one.
 //
-// Usage: node scripts/check-fxleak.mjs [--url http://127.0.0.1:5173] [--level 3|4|all] [--grid 8] [--shots N] [--verbose]
+// Usage: node scripts/check-fxleak.mjs [--url http://127.0.0.1:5173] [--level 3|4|5|all] [--grid 8] [--shots N] [--verbose]
 //          [--selftest]  (negative controls: a half-width aperture must trip the gap rule, a bake hiding nothing the probe rule)
 //
 // Boots `?level=N&nostory=1&noenemies=1&autostart=1` at 320 × 180, every door opened, `fx.debugVolumes(true)` (each
 // registered volume drawn in opaque unlit magenta, keeping its own clipping). View points: every room's centre and a
 // grid (--grid m) of walkable points in it (eye = floor + 1.65) × 8 yaws × pitch 0 / −20°, plus every door 1 m out on
-// both sides facing it, yaw −30 / 0 / +30°. Each view is rendered through the normal pipeline; when more than 4 magenta
+// both sides facing it, yaw −30 / 0 / +30°. Stage 3c (W6, level 5): every floor of a room is viewed — the `nav: false`
+// floors (the crawlway, the magazine) have no nav nodes, so their plan box gets a centre + grid of its own at the
+// floor's height — and every view point must stand inside a room interior (`roomAt` + 0.3 m inset from the room box;
+// a view in a wall or a void would pass for the wrong reason): points that do not are dropped and counted
+// (`skipped`), and a room left with none FAILS (rule `stand`). Each view is rendered through the normal pipeline; when more than 4 magenta
 // pixels show, each drawn volume is rendered alone to attribute them. A volume FAILS when, with > 4 of its pixels:
 //   (A) S13  — rendered with the room gate off, it shows in a view whose drawn room set contains none of its `rooms`
 //              (the gate would hide something visible: its room list is wrong or a portal is missing);
@@ -23,7 +27,7 @@ import { parseArgs, levelsOf, launch, bootLevel, writeJson } from './lib/check-c
 
 const args = parseArgs();
 const base = args.url ?? 'http://127.0.0.1:5173';
-const levels = args.level ? levelsOf(args) : [3, 4];
+const levels = args.level ? levelsOf(args).filter((l) => l >= 3) : [3, 4, 5];
 const opts = { grid: Number(args.grid ?? 8), maxPx: 4, shots: Number(args.shots ?? 12), verbose: !!args.verbose, selftest: !!args.selftest };
 
 /** Runs in the page: the whole check for the booted level. */
@@ -102,6 +106,16 @@ async function run(o) {
   // ── view points
   const views = [];
   const roomOfPoint = (p) => level.roomAt(p)?.id ?? null;
+  // 3c lesson: a view must stand inside a room interior (roomAt + 0.3 m inset); returns the room id or null
+  const standIn = (p) => {
+    const r = level.roomAt(p);
+    if (!r) return null;
+    const b = r.bounds;
+    if (p.x < b.min.x + 0.3 || p.x > b.max.x - 0.3 || p.z < b.min.z + 0.3 || p.z > b.max.z - 0.3) return null;
+    return r.id;
+  };
+  out.skipped = 0;
+  const standFails = [];
   const nodes = level.nav ?? [];
   for (const r of level.rooms) {
     const b = r.bounds;
@@ -122,8 +136,23 @@ async function run(o) {
     const cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2;
     pick(cx, cz, 1e9);
     for (let x = b.min.x + o.grid / 2; x < b.max.x; x += o.grid) for (let z = b.min.z + o.grid / 2; z < b.max.z; z += o.grid) pick(x, z, o.grid * 0.45);
+    // floors without nav nodes (stage 3c `nav: false`: the crawlway, the magazine): their own centre + grid
+    for (const f of r.floors ?? []) {
+      if (f.nav !== false) continue;
+      const [x0, x1, z0, z1] = f.box;
+      const add = (x, z) => { const q = new THREE_V(x, f.y, z); if (!pts.some((p) => p.distanceTo(q) < 1.5)) pts.push(q); };
+      add((x0 + x1) / 2, (z0 + z1) / 2);
+      for (let x = x0 + o.grid / 2; x < x1; x += o.grid) for (let z = z0 + o.grid / 2; z < z1; z += o.grid) add(x, z);
+    }
     if (!pts.length) { const y = r.floor ?? r.y0 ?? 0; pts.push(new THREE_V(cx, y, cz)); out.notes.push(`room ${r.id}: no nav nodes, centre used`); }
-    for (const p of pts) for (let k = 0; k < 8; k++) for (const pitch of [0, -20]) views.push({ kind: 'room', room: r.id, p: [p.x, p.y, p.z], yaw: k * 45, pitch });
+    let kept = 0;
+    for (const p of pts) {
+      const probe = new THREE_V(p.x, p.y + 0.9, p.z);
+      if (standIn(probe) === null) { out.skipped++; continue; }
+      kept++;
+      for (let k = 0; k < 8; k++) for (const pitch of [0, -20]) views.push({ kind: 'room', room: r.id, p: [p.x, p.y, p.z], yaw: k * 45, pitch });
+    }
+    if (!kept) standFails.push(r.id);
   }
   for (const d of level.doors) {
     const wall = d.spec?.wall;
@@ -131,6 +160,7 @@ async function run(o) {
     const fy = d.floor ?? 0;
     for (const s of [-1, 1]) {
       const p = wall === 'x' ? [d.position.x + s, fy, d.position.z] : [d.position.x, fy, d.position.z + s];
+      if (standIn(new THREE_V(p[0], fy + 0.9, p[2])) === null) { out.skipped++; continue; }
       // facing the door: direction (−s, 0) or (0, −s) → yaw (0 looks down −z, +90 = −x)
       const dx = wall === 'x' ? -s : 0, dz = wall === 'z' ? -s : 0;
       const yaw0 = Math.atan2(-dx, -dz) / deg;
@@ -148,6 +178,7 @@ async function run(o) {
     }
   };
 
+  for (const id of standFails) out.fails.push({ rule: 'stand', volume: '-', view: { kind: 'room', room: id, p: [0, 0, 0], yaw: 0 }, pixels: 0, from: id });
   const P = new THREE_V();
   const t0 = performance.now();
   for (const view of views) {
@@ -278,7 +309,7 @@ try {
     delete res.shots;
     const file = writeJson('fxleak', lv, { ...res, shots });
     console.log(`  volumes: ${res.volumes.map((v) => `${v.id} [${v.rooms.join(',')}]${v.seenFrom.length ? ` +seen [${v.seenFrom.join(',')}]` : ''}${v.apertures ? ` ap ${v.apertures}` : ''}`).join('; ') || '—'}`);
-    console.log(`  views: ${res.views} (${res.ms} ms); probe faces: bake ${res.probeFaces?.bake ?? '-'}, re-capture ${res.probeFaces?.recapture ?? '-'}`);
+    console.log(`  views: ${res.views} (${res.ms} ms; ${res.skipped} view point(s) outside a room interior dropped); probe faces: bake ${res.probeFaces?.bake ?? '-'}, re-capture ${res.probeFaces?.recapture ?? '-'}`);
     for (const n of res.notes) console.log(`  note: ${n}`);
     if (res.selftest) {
       console.log(`  selftest gap: ${res.selftest.gap}`);

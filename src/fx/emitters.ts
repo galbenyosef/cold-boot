@@ -1,4 +1,9 @@
-/** Continuous emitters: steam jets, sparking cables, drips, floating dust motes. Distance/frustum throttled. */
+/**
+ * Continuous emitters: steam jets, sparking cables, drips, floating dust motes. Distance/frustum throttled.
+ * Stage 3c (W6): `stream` — a running tap / pipe leak (a thin column of drops that splash; `rate` drops/s, default 45);
+ * `mist` — ballast-blow / vent mist (slow, wide, soft puffs that roll out and hang; `rate` puffs/s, default 18,
+ * `speed` scales the 1.2–2.2 m/s exit speed).
+ */
 import * as THREE from 'three';
 import type { DecalName, GameContext } from '../core/types';
 import type { Streaks } from './streaks';
@@ -6,7 +11,7 @@ import { ST } from './streaks';
 import type { Puffs } from './puffs';
 import { SHAPE } from './puffs';
 
-export type EmitterKind = 'steam' | 'sparks' | 'drip' | 'dust';
+export type EmitterKind = 'steam' | 'sparks' | 'drip' | 'dust' | 'stream' | 'mist';
 
 export interface EmitterDeps {
   ctx: GameContext;
@@ -71,14 +76,14 @@ export class Emitters {
     const dir = new THREE.Vector3();
     if (kind === 'dust') dir.set(0, 1, 0);
     else if (direction && direction.lengthSq() > 1e-8) dir.copy(direction).normalize();
-    else dir.set(0, kind === 'steam' ? 1 : -1, 0);
+    else dir.set(0, kind === 'steam' || kind === 'mist' ? 1 : -1, 0);
     const t1 = new THREE.Vector3(0, 1, 0);
     if (Math.abs(dir.y) > 0.9) t1.set(1, 0, 0);
     t1.cross(dir).normalize();
     const t2 = new THREE.Vector3().crossVectors(dir, t1);
     const em: Em = {
       kind, speed, jet, sink: sink ?? { puffs: this.d.puffs, streaks: this.d.streaks }, pos: point.clone(), dir, t1, t2,
-      rate: rate ?? (kind === 'steam' ? 70 : kind === 'sparks' ? 0.7 : kind === 'drip' ? 0.8 : 60),
+      rate: rate ?? (kind === 'steam' ? 70 : kind === 'sparks' ? 0.7 : kind === 'drip' ? 0.8 : kind === 'stream' ? 45 : kind === 'mist' ? 18 : 60),
       acc: 0, timer: Math.random() * 0.5, t: 0, seed: Math.random() * 100,
       floor: null, floorY: 0, ceil: null,
       ext: kind === 'dust' && direction ? new THREE.Vector3(Math.abs(direction.x) || 3, Math.abs(direction.y) || 1.5, Math.abs(direction.z) || 3) : new THREE.Vector3(3, 1.4, 3),
@@ -86,7 +91,7 @@ export class Emitters {
       handle: null as any, dead: false,
     };
     em.handle = { enabled: true, stop: () => { em.dead = true; } };
-    if (kind === 'drip' || kind === 'sparks') {
+    if (kind === 'drip' || kind === 'sparks' || kind === 'stream') {
       _q.copy(point); _q.y -= 0.01; // emitters often sit flush against a ceiling: start just below it
       const hit = this.d.ctx.physics.raycast(_q, new THREE.Vector3(0, -1, 0), 20);
       if (hit) { em.floor = new THREE.Plane().setFromNormalAndCoplanarPoint(hit.normal, hit.point); em.floorY = hit.point.y; }
@@ -112,9 +117,9 @@ export class Emitters {
       const dist = camPos.distanceTo(em.pos);
       if (dist > 25) { if (em.kind === 'dust') em.est *= 1 - dt / 8; continue; }
       sphere.center.copy(em.pos);
-      sphere.radius = em.kind === 'dust' ? Math.max(em.ext.x, em.ext.y, em.ext.z) + 0.5 : em.kind === 'steam' ? 2.5 : 1.5;
-      if (em.kind === 'steam') sphere.center.addScaledVector(em.dir, 1.2);
-      else if ((em.kind === 'drip' || em.kind === 'sparks') && em.floor) {
+      sphere.radius = em.kind === 'dust' ? Math.max(em.ext.x, em.ext.y, em.ext.z) + 0.5 : em.kind === 'steam' ? 2.5 : em.kind === 'mist' ? 3.5 : 1.5;
+      if (em.kind === 'steam' || em.kind === 'mist') sphere.center.addScaledVector(em.dir, 1.2);
+      else if ((em.kind === 'drip' || em.kind === 'sparks' || em.kind === 'stream') && em.floor) {
         // the visible part is the whole fall column down to the floor
         const h = Math.max(0, em.pos.y - em.floorY);
         sphere.center.y -= h * 0.5;
@@ -127,6 +132,8 @@ export class Emitters {
         case 'sparks': if (visible || dist < 6) this.sparkBurst(em, dt); break;
         case 'drip': this.drip(em, dt, visible); break;
         case 'dust': this.dust(em, dt, visible); break;
+        case 'stream': this.stream(em, dt, visible); break;
+        case 'mist': this.mist(em, dt, throttle); break;
       }
     }
   }
@@ -199,6 +206,51 @@ export class Emitters {
     S.size = r(0.004, 0.006); S.r = 0.25; S.g = 0.28; S.b = 0.3; S.alpha = 0.85; S.drag = 0.05;
     S.planeA = em.floor ? em.sink.streaks.planes.add(em.floor.normal.x, em.floor.normal.y, em.floor.normal.z, em.pos.x, em.floorY, em.pos.z) : -1;
     em.sink.streaks.spawn(S);
+  }
+
+  private stream(em: Em, dt: number, visible: boolean) {
+    if (!visible) { em.acc = 0; return; }
+    em.acc += em.rate * dt;
+    const S = this.d.streaks.s;
+    const h = Math.max(0.05, em.pos.y - em.floorY);
+    const pl = em.floor ? em.sink.streaks.planes.add(em.floor.normal.x, em.floor.normal.y, em.floor.normal.z, em.pos.x, em.floorY, em.pos.z) : -1;
+    let n = 0;
+    while (em.acc >= 1 && n < 12) {
+      em.acc -= 1; n++;
+      this.d.resetStreak(ST.DROP);
+      const back = Math.random() * dt;
+      const v0 = 0.5 + Math.random() * 0.25;
+      S.px = em.pos.x + (Math.random() - 0.5) * 0.008; S.py = em.pos.y; S.pz = em.pos.z + (Math.random() - 0.5) * 0.008;
+      S.vx = em.dir.x * v0 + (Math.random() - 0.5) * 0.03; S.vy = em.dir.y * v0; S.vz = em.dir.z * v0 + (Math.random() - 0.5) * 0.03;
+      S.px += S.vx * back; S.py += S.vy * back; S.pz += S.vz * back;
+      S.life = Math.sqrt((2 * h) / Math.abs(this.d.streaks.gravity)) + 0.4;
+      S.size = 0.0032 + Math.random() * 0.0022; S.r = 0.34; S.g = 0.38; S.b = 0.41; S.alpha = 0.7; S.drag = 0.05;
+      S.planeA = pl;
+      em.sink.streaks.spawn(S);
+    }
+    if (em.acc > 3) em.acc = 3;
+  }
+
+  private mist(em: Em, dt: number, throttle: number) {
+    em.acc += em.rate * dt * Math.max(0.3, throttle);
+    const P = this.d.puffs.s;
+    let n = 0;
+    while (em.acc >= 1 && n < 8) {
+      em.acc -= 1; n++;
+      this.d.resetPuff(SHAPE.SMOKE);
+      const a = Math.random() * Math.PI * 2, s = Math.random() * 0.45;
+      _n.copy(em.dir).addScaledVector(em.t1, Math.cos(a) * s).addScaledVector(em.t2, Math.sin(a) * s).normalize();
+      const sp = r(1.2, 2.2) * em.speed;
+      P.px = em.pos.x + _n.x * 0.05; P.py = em.pos.y + _n.y * 0.05; P.pz = em.pos.z + _n.z * 0.05;
+      P.vx = _n.x * sp; P.vy = _n.y * sp; P.vz = _n.z * sp;
+      P.life = r(2.6, 4.2); P.s0 = r(0.12, 0.2); P.s1 = r(1.1, 1.9); P.grow = 1.4;
+      P.alpha = r(0.09, 0.15); P.fadePow = 1.8; P.drag = r(1.6, 2.2); P.buoy = 0.12;
+      const v = r(0.78, 0.9);
+      P.r = v; P.g = v * 1.01; P.b = v * 1.04;
+      P.er0 = 0.1; P.er1 = 0.7; P.phase = 0.5; P.fadeIn = 0.2; P.rotV = r(-0.5, 0.5);
+      em.sink.puffs.spawn(P);
+    }
+    if (em.acc > 4) em.acc = 4;
   }
 
   private dust(em: Em, dt: number, visible: boolean) {

@@ -5,7 +5,9 @@
  * decals 1 per used (name, variant) batch, generic debris 1 per shard shape (4).
  * Everything is pooled and built at load; steady-state frames allocate nothing.
  *
- * Auto-handled events: 'bullet:impact' (decal + sparks/dust/chips by surface).
+ * Auto-handled events: 'bullet:impact' (decal + sparks/dust/chips by surface). Stage 3c (W6): an impact that ends an
+ * ENEMY round (its point is an `enemy:fired` point or a `tracer()` end of the same frame) lights nothing — a firefight
+ * must not light the room — and gets a hotter emissive glow instead; the player's impacts are as before.
  * Hits on machines are NOT handled here: the enemies module owns its hit effects (scaled by damage / part,
  * coalesced per enemy per frame) and calls sparks()/fluid()/flash() itself.
  */
@@ -24,12 +26,16 @@ import { createFog, type FogHandle, type FogOpts } from './fog';
 import { createViewport, type ViewportHandle, type ViewportOpts } from './viewport';
 import { createFalls, createPool, type FallsHandle, type FallsOpts, type PoolHandle, type PoolOpts } from './water';
 import { createLampGrid, type LampGridHandle, type LampGridOpts } from './lamps';
+import { EnemyTracers, MuzzleFlashes, type MuzzleKind } from './gunfire';
+import { WetPatches, type WetPatchHandle, type WetPatchOpts } from './wet';
 
 export type { ViewportHandle, ViewportOpts, ViewportState } from './viewport';
 export type { FallsHandle, FallsOpts, PoolHandle, PoolOpts, PoolSurfaceQuad } from './water';
 export type { LampGridHandle, LampGridOpts, LampSetOpts, LampState } from './lamps';
 export type { FxAperture, FxVolume, FxVolumeSpec } from './volumes';
 export type { FogHandle, FogOpts } from './fog';
+export type { WetPatchHandle, WetPatchOpts } from './wet';
+export type { MuzzleKind } from './gunfire';
 
 const QMUL: Record<Quality, number> = { low: 0.45, medium: 0.7, high: 1, ultra: 1.25 };
 
@@ -68,7 +74,7 @@ function cone(n: THREE.Vector3, spread: number) {
 
 const r = (a: number, b: number) => a + (b - a) * Math.random();
 
-export interface FxStats { streaks: number; puffs: number; debris: number; emitters: number; habitat: number; volumes: number; bounded: number }
+export interface FxStats { streaks: number; puffs: number; debris: number; emitters: number; habitat: number; volumes: number; bounded: number; tracers: number; muzzles: number; wet: number }
 
 /** Stage 3b §8.6.3: a bounded emitter — its particles live in a per-box set, fade at the box's faces, die on leaving it. */
 export interface EmitterOpts {
@@ -126,7 +132,41 @@ export interface FxHabitat {
   pool(o: PoolOpts): PoolHandle;
   lampGrid(o: LampGridOpts): LampGridHandle;
 }
-export type FxSystemEx = FxSystem & FxHabitat & FxVolumesApi & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> };
+/** Stage 3c §8.12 (W6) — enemy fire and level-5 helpers; reach them as `ctx.fx as FxSystemEx`. */
+export interface TracerOpts {
+  /** Hue (default the player's carbine tracer, HDR (6, 3.6, 1.6)). Components <= 1 are scaled to the tracer's HDR
+   *  brightness (x 6 / max component); a THREE.Color with components > 1 is used as HDR as it is. */
+  color?: THREE.ColorRepresentation;
+  /** m/s (default 170; it slows to 0.4 x within ~4 m of the eye so a close miss is seen passing). */
+  speed?: number;
+}
+export interface MuzzleOpts {
+  /** Flash size / tongue length (default 'carbine'). */
+  kind?: MuzzleKind;
+  /** The muzzle light (default true): ONE keyed light level-wide, 4.5 m, re-triggered through a burst without a dip. */
+  light?: boolean;
+  /** Size multiplier (default 1). */
+  scale?: number;
+  /** Gun-smoke wisp (default true). */
+  smoke?: boolean;
+}
+export interface FxCombat {
+  /** An enemy round: a pooled streak from `from` (the muzzle) to `to` (where the round ends). No light, no draw call per shot. */
+  tracer(from: THREE.Vector3, to: THREE.Vector3, o?: TracerOpts): void;
+  /** An enemy muzzle flash at `point` along `dir` (the barrel): additive star + tongue, one frame full, + the keyed light. */
+  muzzle(point: THREE.Vector3, dir: THREE.Vector3, o?: MuzzleOpts): void;
+  /** A wet floor patch (W5's `wet_steel` overlay) inscribed in `box`'s plan, on `box.min.y`; registered (D23). */
+  wetPatch(box: THREE.Box3, rooms: readonly string[], o?: WetPatchOpts): WetPatchHandle;
+  /** The wet patch under a foot point, or null (audio's `wet` footsteps). */
+  wetAt(p: THREE.Vector3): WetPatchHandle | null;
+  /** A bulb / caged lamp popping: a white flash (one light, 0.07 s), sparks and glass falling from `point`. */
+  bulbPop(point: THREE.Vector3, o?: { light?: boolean }): void;
+  /** Dust kicked up along the floor where a falling object lands (`size` = the object's footprint, m). No light. */
+  dustFall(point: THREE.Vector3, o?: { size?: number; color?: THREE.ColorRepresentation }): void;
+  /** Grit and dust sifting down from the ceiling over `box`'s plan (hull groan, an impact overhead). No light. */
+  dustSift(box: THREE.Box3, o?: { amount?: number }): void;
+}
+export type FxSystemEx = FxSystem & FxHabitat & FxVolumesApi & FxCombat & { stats(): FxStats; clearDecals(): void; decalList(): ReturnType<Decals['debugList']> };
 
 export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   const root = new THREE.Group();
@@ -141,7 +181,9 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   const decals = new Decals(ctx.materials);
   const arcs = new Arcs(pixelScale);
   const debris = new Debris(ctx.materials, ctx.scene);
-  root.add(puffs.mesh, streaks.mesh, arcs.mesh, decals.root, debris.root);
+  const tracers = new EnemyTracers();
+  const muzzles = new MuzzleFlashes();
+  root.add(puffs.mesh, streaks.mesh, arcs.mesh, decals.root, debris.root, tracers.mesh, muzzles.mesh);
   // warm-up: everything visible for render.prepare()/first frame so shaders compile at load
   decals.warm(true); debris.warm(true); arcs.mesh.visible = true;
   let warmed = false;
@@ -419,7 +461,8 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
         _n.copy(normal).normalize();
         dustBurst(point, _n, 3, 0.22, _dust, 0.22, 2.2, sp);
         if (surface === 'robot') fluidImpl(point, normal, 3, false);
-        if (flashBudget >= 1) { flashBudget = 0; _p.copy(point).addScaledVector(normal, 0.1); flashes.fire(_p, 0xffb070, 2.5, 0.06, 3); }
+        if (flashBudget >= 1) { flashBudget = 0; _p.copy(point).addScaledVector(normal, 0.1); impactLight(_p, point); }
+        else pendingImpact(point);
         break;
       }
       case 'concrete': {
@@ -456,6 +499,55 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
   }
 
   ctx.events.on('bullet:impact', (e) => impact(e.point, e.normal, e.surface, e.owner));
+
+  // ── stage 3c (W6): enemy rounds — their end points (this frame), impacts waiting for the frame's verdict
+  let fxClock = 0;
+  const ENDS = 24;
+  const ends = new Float32Array(ENDS * 4); // x y z t
+  let endNext = 0;
+  for (let i = 0; i < ENDS; i++) ends[i * 4 + 3] = -1e9;
+  const markEnd = (p: THREE.Vector3) => { const o = endNext * 4; ends[o] = p.x; ends[o + 1] = p.y; ends[o + 2] = p.z; ends[o + 3] = fxClock; endNext = (endNext + 1) % ENDS; };
+  const isEnemyEnd = (x: number, y: number, z: number) => {
+    for (let i = 0; i < ENDS; i++) {
+      const o = i * 4;
+      if (fxClock - ends[o + 3] > 0.05) continue;
+      const dx = ends[o] - x, dy = ends[o + 1] - y, dz = ends[o + 2] - z;
+      if (dx * dx + dy * dy + dz * dz < 0.3 * 0.3) return true;
+    }
+    return false;
+  };
+  ctx.events.on('enemy:fired', (e) => { if (!e.hit) markEnd(e.point); });
+  // impacts of this frame: [x y z, light?, lx ly lz] — resolved in update (the enemy's `enemy:fired` may come after)
+  const PEND = 8;
+  const pend = new Float32Array(PEND * 7);
+  let nPend = 0;
+  function impactLight(lp: THREE.Vector3, hit: THREE.Vector3) {
+    if (nPend >= PEND) return;
+    const o = nPend++ * 7;
+    pend[o] = hit.x; pend[o + 1] = hit.y; pend[o + 2] = hit.z; pend[o + 3] = 1; pend[o + 4] = lp.x; pend[o + 5] = lp.y; pend[o + 6] = lp.z;
+  }
+  function pendingImpact(hit: THREE.Vector3) {
+    if (nPend >= PEND) return;
+    const o = nPend++ * 7;
+    pend[o] = hit.x; pend[o + 1] = hit.y; pend[o + 2] = hit.z; pend[o + 3] = 0;
+  }
+  function resolveImpacts() {
+    for (let i = 0; i < nPend; i++) {
+      const o = i * 7;
+      _p.set(pend[o], pend[o + 1], pend[o + 2]);
+      if (isEnemyEnd(_p.x, _p.y, _p.z)) {
+        // an enemy round on steel: no light — a hotter, longer emissive glow marks the spot in the dark
+        glow(_p, 0.11, 9, 0.09, 1.0, 0.58, 0.24);
+        if (pend[o + 3]) flashBudget = 1; // (the budget it took was for a light that did not fire)
+        continue;
+      }
+      if (pend[o + 3]) { _q.set(pend[o + 4], pend[o + 5], pend[o + 6]); flashes.fire(_q, 0xffb070, 2.5, 0.06, 3); }
+    }
+    nPend = 0;
+  }
+  const _tc = new THREE.Color();
+  const _mz = new THREE.Vector3(), _md = new THREE.Vector3();
+  let muzzleLast = -10;
 
   // ── arcs
   const arcTick = (s: ArcSlot, dt: number) => {
@@ -523,6 +615,21 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
     const s = new Streaks(512, pixelScale);
     s.bounds = b.clone();
     s.gravity = streaks.gravity;
+    // (3c W6) drips / tap streams in a bounded set splash on landing, inside the same set
+    s.onLand = (type, x, y, z) => {
+      if (type !== ST.DROP) return;
+      const pl = s.hitPlane, S = s.s;
+      const k = 1 + ((Math.random() * 3) | 0);
+      for (let i = 0; i < k; i++) {
+        const a = Math.random() * Math.PI * 2, lat = r(0.2, 0.6);
+        S.type = ST.SPLASH; S.drag = 0.5; S.grav = 1; S.rest = 0.3; S.heat = 1; S.planeB = -1; S.age0 = 0;
+        S.px = x; S.py = y + 0.004; S.pz = z;
+        S.vx = Math.cos(a) * lat; S.vy = r(0.5, 1.2); S.vz = Math.sin(a) * lat;
+        S.life = 0.5; S.size = r(0.0016, 0.0028); S.r = 0.3; S.g = 0.34; S.b = 0.36; S.alpha = 0.85;
+        S.planeA = pl;
+        s.spawn(S);
+      }
+    };
     p.mesh.name = 'fx:bounded:puffs'; s.mesh.name = 'fx:bounded:streaks';
     group.add(p.mesh, s.mesh);
     group.userData.fxCenter = b.getCenter(new THREE.Vector3());
@@ -576,7 +683,124 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
     breath!.puffs.spawn(P);
   }
 
+  const wet = new WetPatches(root, ctx.materials, (spec) => registry.register(spec));
+
   const fx = {
+    // ── stage 3c (W6): enemy fire
+    tracer(from: THREE.Vector3, to: THREE.Vector3, o: TracerOpts = {}) {
+      let cr = 6, cg = 3.6, cb = 1.6;
+      if (o.color !== undefined) {
+        _tc.set(o.color);
+        const m = Math.max(_tc.r, _tc.g, _tc.b, 1e-4);
+        const k = m > 1 ? 1 : 6 / m;
+        cr = _tc.r * k; cg = _tc.g * k; cb = _tc.b * k;
+      }
+      tracers.spawn(from, to, cr, cg, cb, o.speed ?? tracers.speed);
+      markEnd(to);
+    },
+
+    muzzle(point: THREE.Vector3, dir: THREE.Vector3, o: MuzzleOpts = {}) {
+      const kind = o.kind ?? 'carbine';
+      _md.copy(dir); if (_md.lengthSq() < 1e-8) _md.set(0, 0, -1); else _md.normalize();
+      muzzles.spawn(point, _md, kind, o.scale ?? 1);
+      if (o.light !== false) {
+        // one keyed light level-wide; a follow-up round within the burst re-triggers it from where it is (no strobe)
+        _mz.copy(point).addScaledVector(_md, 0.12);
+        const follow = fxClock - muzzleLast < 0.3;
+        // first round: full (it is what shows him in the dark); follow-ups of the burst 65 %, all over a 55 % tail
+        const peak = (kind === 'pistol' ? 24 : 30) * (follow ? 0.65 : 1);
+        flashes.fireKeyed('muzzle', _mz, kind === 'pistol' ? 0xffb366 : 0xffa856, peak, 0.24, 5, 0.05, 0.55);
+        muzzleLast = fxClock;
+      }
+      if (o.smoke !== false) {
+        _col.setRGB(0.42, 0.42, 0.43);
+        _p.copy(point).addScaledVector(_md, 0.1);
+        smokeImpl(_p, 1, 0.16, _col, 0.15, 0.9, 0.1, 0.4, _md, 0.5);
+      }
+    },
+
+    wetPatch(box: THREE.Box3, rooms: readonly string[], o?: WetPatchOpts): WetPatchHandle { return wet.add(box, rooms, o); },
+    wetAt(p: THREE.Vector3): WetPatchHandle | null { return wet.patchAt(p); },
+
+    bulbPop(point: THREE.Vector3, o: { light?: boolean } = {}) {
+      if (o.light !== false) flashes.fire(point, 0xfff2dc, 14, 0.07, 5);
+      glow(point, 0.28, 9, 0.06, 1.0, 0.92, 0.75);
+      _n.set(0, -1, 0);
+      sparksImpl(point, _n, 12, 2.2, false, 1.5);
+      const pb = floorPlane(point);
+      const S = streaks.s;
+      const n = Math.max(6, Math.round(18 * Math.min(1, qmul() + 0.3)));
+      for (let i = 0; i < n; i++) {
+        resetStreak(ST.GLASS);
+        const a = Math.random() * Math.PI * 2, lat = r(0.3, 1.6);
+        S.px = point.x + Math.cos(a) * 0.03; S.py = point.y - 0.02; S.pz = point.z + Math.sin(a) * 0.03;
+        S.vx = Math.cos(a) * lat; S.vy = r(-0.5, 0.9); S.vz = Math.sin(a) * lat;
+        S.life = r(0.9, 1.6); S.size = r(0.003, 0.007); S.r = 0.7; S.g = 0.74; S.b = 0.76; S.drag = 0.6; S.rest = 0.25;
+        S.planeA = pb;
+        streaks.spawn();
+      }
+      _dust.setRGB(0.5, 0.5, 0.5);
+      smokeImpl(point, 1, 0.2, _dust, 0.1, 1.2, 0.12, 0.5);
+    },
+
+    dustFall(point: THREE.Vector3, o: { size?: number; color?: THREE.ColorRepresentation } = {}) {
+      const size = o.size ?? 0.6;
+      _dust.set(o.color ?? 0xb3ada2);
+      const pa = floorPlane(point, 3);
+      const P = puffs.s;
+      const big = Math.min(2, Math.sqrt(size / 0.6));
+      const n = Math.max(4, Math.round(10 * Math.min(1, qmul() + 0.3) * big));
+      for (let i = 0; i < n; i++) {
+        resetPuff(SHAPE.SMOKE);
+        const a = (i / n) * Math.PI * 2 + r(-0.3, 0.3), sp = r(0.6, 1.5) * big;
+        P.px = point.x + Math.cos(a) * size * 0.3; P.py = point.y + 0.06; P.pz = point.z + Math.sin(a) * size * 0.3;
+        P.vx = Math.cos(a) * sp; P.vy = r(0.05, 0.25); P.vz = Math.sin(a) * sp;
+        P.life = r(1.6, 2.8); P.s0 = size * 0.2; P.s1 = size * r(0.9, 1.4); P.grow = 1.6;
+        P.alpha = r(0.3, 0.45); P.fadePow = 1.6; P.drag = r(2.6, 3.6); P.buoy = 0.04;
+        const v = r(0.85, 1.1);
+        P.r = _dust.r * v; P.g = _dust.g * v; P.b = _dust.b * v;
+        P.er0 = 0.15; P.er1 = 0.8; P.phase = 0.3; P.fadeIn = 0.05; P.planeA = pa;
+        puffs.spawn();
+      }
+      const S = streaks.s;
+      for (let i = 0; i < 6; i++) {
+        resetStreak(ST.CHIP);
+        const a = Math.random() * Math.PI * 2, sp = r(0.5, 1.8);
+        S.px = point.x; S.py = point.y + 0.03; S.pz = point.z;
+        S.vx = Math.cos(a) * sp; S.vy = r(0.6, 1.6); S.vz = Math.sin(a) * sp;
+        S.life = r(0.5, 1.0); S.size = r(0.002, 0.004); S.r = _dust.r * 0.7; S.g = _dust.g * 0.7; S.b = _dust.b * 0.7; S.drag = 0.8;
+        S.planeA = pa;
+        streaks.spawn();
+      }
+    },
+
+    dustSift(box: THREE.Box3, o: { amount?: number } = {}) {
+      const amt = o.amount ?? 1;
+      const area = Math.max(0.25, (box.max.x - box.min.x) * (box.max.z - box.min.z));
+      _q.set((box.min.x + box.max.x) / 2, box.min.y + 0.2, (box.min.z + box.max.z) / 2);
+      const pa = floorPlane(_q, 4);
+      const S = streaks.s, P = puffs.s;
+      const n = Math.min(80, Math.round(area * 6 * amt * Math.min(1, qmul() + 0.3)));
+      for (let i = 0; i < n; i++) {
+        resetStreak(ST.CHIP);
+        S.px = r(box.min.x, box.max.x); S.py = box.max.y - 0.03; S.pz = r(box.min.z, box.max.z);
+        S.vx = r(-0.05, 0.05); S.vy = r(-0.4, 0); S.vz = r(-0.05, 0.05);
+        S.life = r(1.2, 2.6); S.size = r(0.002, 0.0038); S.r = 0.75; S.g = 0.72; S.b = 0.66; S.alpha = 1;
+        S.drag = r(1.5, 3); S.grav = r(0.25, 0.5); S.planeA = pa;
+        streaks.spawn();
+      }
+      const k = Math.min(12, Math.max(3, Math.round(area * 0.8 * amt)));
+      for (let i = 0; i < k; i++) {
+        resetPuff(SHAPE.SMOKE);
+        P.px = r(box.min.x, box.max.x); P.py = box.max.y - 0.15; P.pz = r(box.min.z, box.max.z);
+        P.vx = r(-0.04, 0.04); P.vy = r(-0.35, -0.15); P.vz = r(-0.04, 0.04);
+        P.delay = r(0, 0.6); P.life = r(2.2, 3.4); P.s0 = 0.12; P.s1 = r(0.6, 1.0); P.grow = 1.3;
+        P.alpha = r(0.16, 0.24); P.fadePow = 1.5; P.drag = 0.6; P.buoy = 0;
+        P.r = 0.72; P.g = 0.7; P.b = 0.66; P.er0 = 0.2; P.er1 = 0.8; P.phase = 0.3; P.fadeIn = 0.25; P.planeA = pa;
+        puffs.spawn();
+      }
+    },
+
     viewport(o: ViewportOpts): ViewportHandle {
       const h = createViewport(o, habitat, quality);
       const pane: FxAperture = { center: o.position.clone(), normal: o.normal.clone().setY(0).normalize(), width: o.width, height: o.height };
@@ -784,6 +1008,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
       const h = ctx.renderer?.domElement?.height || innerHeight;
       pixelScale.value = h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) * 0.5));
       fluidTokens = Math.min(5, fluidTokens + dt * 10);
+      resolveImpacts();
       flashBudget = Math.min(1, flashBudget + dt * 12);
 
       cam.updateMatrixWorld();
@@ -809,6 +1034,9 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
 
       streaks.update(dt);
       puffs.update(dt, cam);
+      tracers.update(dt, flashes.cam);
+      muzzles.update(dt, cam, flashes.cam);
+      fxClock += dt;
       // D21: last, after every handle's own visibility — a volume is drawn only while one of its rooms is drawn
       registry.update();
     },
@@ -816,7 +1044,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
     stats(): FxStats {
       let nb = breath ? breath.puffs.count : 0;
       for (const set of bounded.values()) nb += set.sink.puffs.count + set.sink.streaks.count;
-      return { streaks: streaks.count, puffs: puffs.count, debris: debris.activeCount, emitters: emitters.count, habitat: viewports.length + fallsList.length + pools.length + grids.length + fogs.length, volumes: registry.list.length, bounded: nb };
+      return { streaks: streaks.count, puffs: puffs.count, debris: debris.activeCount, emitters: emitters.count, habitat: viewports.length + fallsList.length + pools.length + grids.length + fogs.length, volumes: registry.list.length, bounded: nb, tracers: tracers.count, muzzles: muzzles.count, wet: wet.count };
     },
     clearDecals() { decals.clear(); },
     /** Checks / debug: live decals with their anchors. */
