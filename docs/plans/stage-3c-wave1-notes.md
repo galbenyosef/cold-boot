@@ -92,3 +92,16 @@
   `userData.palmPoint`), `boothBackDoor(L, b)` (`set(k)`, `settle(1.2, onLatch)`).
 - `mk5_launch` is the console's back edge; the operator looks north over it at the sail.
 - For integration (look): the boat uses private hull paint — swap in `sub_coating` keeping its self-light shader patch.
+
+## Soldier behaviour (W3b, `src/enemies/soldier/*`, tuning in `fire.ts` `SOLDIER_TUNING`)
+- Measured on the test arena: 7 body / 3 head / 8 limb hits to kill with pistol or carbine; telegraph ≥ 0.8 s from rise to
+  burst with the light on; first burst of an engagement misses; ≤ 2 soldiers firing; 18 damage/s cap.
+- **Level (W4):** `floorAt(p).exits` must list `mk5_exit_mag` only while `hatch5_mag` is open (the AI picks the nearest listed
+  exit); optionally publish the walkway keep-out as `regions.exit_keepout` (hard-coded in `enemies/nav.ts` for level 5 today).
+- **ST:** extras (not contract members): `enemies.debug.soldiers()` (H12 rows + `mode`, `fire`, `sees`, `firstMiss`, `led`),
+  `enemies.debug.soldierLog()`, `spawnSoldier()`, `soldier(id)`; `holdWalkTo(point, speed, light)` on a HOLDING soldier (the
+  `v5_boots` patrol walk) via `enemies.debug.soldier(id)`; `release(group)` emits `enemy:alerted`; a group spawned without
+  hold arrives already aware; when aware he takes cover first and does not fire from the open while the level has cover.
+- Sight passes through up to 3 glass panes but he fires only with a clear line; no sight or bullets through the grating.
+- `node scripts/check-soldier.mjs --url <url>` (`--real` on level 5 once the greybox has cover and `g5_s1`; `--watch
+  [--seconds 24] [--fp]` records frames to `shots/soldier/`).
