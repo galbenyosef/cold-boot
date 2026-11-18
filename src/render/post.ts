@@ -51,7 +51,7 @@ export function defaultLook(): LookSettings {
     mistDensity: 0.02,
     mistFalloff: 1.3,
     mistBase: 0.0,
-    mistFollow: false,
+    mistFollow: true,
     mistColor: new THREE.Color(0.006, 0.0095, 0.012),
   };
 }

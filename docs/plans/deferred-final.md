@@ -103,3 +103,12 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `src/fx/dev/trunk.html` with `render.settings.mistFollow = true` (or mistBase −40) before touching lights.ts.
   Weak: well floor reads as a crisp rectangle from above; wake rings perfect circles; heavy splash smoky; marine snow
   faint; spray not seen in motion. D3a: keep the well's surface quad opaque; aim outside floods at the tether.
+- Coordinator: the "black below y 0" (W6, W7) IS the height mist; `mistFollow` is now ON by default (base = min(0, feet))
+  — only spots below y 0 change on L1–5 (L5 magazine −2.6 / crawl, L4 pits): look at them. W4a need not set it.
+- 3d W7: zfight on dressed rooms; `check:physics`/`check:reach` with W7's move-only mesh (cage holds, frame usable only
+  from `t6_cage`) — W4a must push `moveOnlyColliders6(L)` from BOTH kit6.ts and setpieces6.ts (same name, two modules);
+  feed spike on a weaker GPU + E2 in the real level; fxleak fibre glow/beacons; user listens to the set-piece sounds.
+  ST-b: E2 feed from `feed6.userData` (cam/target/fov 52, pinLights, exposure 1.8) then `console6.page('feed', …)`;
+  `fire()` cues: splash ≈1.07 s (key the splash sound on `part` at 0.25 if the plan's timing is wanted). D3a: frame work
+  lamp at `frame6.userData.lampPoint`→`lampTarget`, bj glow at `bj6.userData.glowPoint`. Weak: tether poorly visible,
+  winch greybox-level, no fibre stubs on the ripped connector, lever guard a box, puddles flat black in the feed set.

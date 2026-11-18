@@ -35,7 +35,7 @@ minimal fx edits), W7, W8 — ports 4321–4330. **Held until IA5 merges** (they
 
 ## State at the usage-limit stop (2026-11-18)
 Merged: all of 3c finish (IA5, IB5a, IB5b, IB5c) and 3d K, W1, W2a, W2b, W3a (+ follow-up), W3b, W3c, W4b, W5, W6, W8, W9.
-Still running / unmerged at the stop: **W4a** (greybox, worktree agent-ab148b3f00163b184) and **W7** (set pieces,
+Still running / unmerged at the stop: **W4a** (greybox, worktree agent-ab148b3f00163b184) and W7 (set pieces — MERGED 7a95cc9,
 worktree agent-ad05c77a7c4e86e06) — merge their patches restricted to their rows when they report.
 Next: resolve the below-y-0 lighting question (deferred list, W6), then wave 2 (D1, D2, D3a, D3b, ST-a, T → ST-b), then
 IA/IB of 3d, then the whole deferred list.
