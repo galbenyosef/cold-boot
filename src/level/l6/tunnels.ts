@@ -404,7 +404,7 @@ function buildLock(L: LevelBuild) {
   transit(b, -2.35, 2.3, 0.2, 0.7, 0.6, '+z');
   trunkRun(b, L, { pts: [[-3.55, 2.3, 5.75], [-3.52, 2.2, 5.2], [-3.52, 2.2, 1.4], [-3.3, 2.24, 0.75], [-2.7, 2.3, 0.42], [-2.35, 2.3, 0.26]], bands: 2.0, cleats: 1.5 });
   // the tray-end shelf under p6_lock_ammo (item (3.4, 1.0, 1.2), 0.2 behind the shelf's west face x 3.2)
-  b.at(3.8, 0, 1.2, -PI / 2, () => wallShelf6(b, L, { w: 0.8, d: 0.6, top: 0.97, seed: 63 }));
+  b.at(3.8, 0, 1.2, -PI / 2, () => { wallShelf6(b, L, { w: 0.8, d: 0.6, top: 0.97, seed: 63, collide: false }); b.collide(-0.8 / 2, 0, 0, 0.8 / 2, 0.97, 0.6, 'metal', false); });
   // stencils (the shell's are skipped with `label: false`): the trunk's run, the sealed door's label
   stencil6(b, 'TRUNK — HEAD-END 200 M', -3.79, 1.5, 3.0, 1.8, 0.2, '+x', { style: 'navy' });
   stencil6(b, 'TRUNK TUNNEL', 0, 2.555, 5.674, 1.38, 0.13, '-z');
@@ -464,7 +464,7 @@ function buildTunA(L: LevelBuild) {
   // the centre-line drain (overlay grating flush with the invert, angle edges)
   drainRun(b, L, 0, -0.4, -79.6);
   // the dewatering pipe on the west wall at y 0.2 (a walkable kerb: collider to its top), broken at JB1 / JB3
-  const pipeRuns: [number, number][] = [[-0.3, -23.1], [-24.9, -55.1], [-56.9, -79.7]];
+  const pipeRuns: [number, number][] = [[-0.3, -22.4], [-25.6, -54.4], [-57.6, -79.7]]; // breaks widened so cover cv6_t1/t1b/t3/t3b stand clear of the kerb ends
   for (const [z0, z1] of pipeRuns) {
     const len = z0 - z1, zc = (z0 + z1) / 2;
     b.at(-2.3, 0, zc, PI / 2, () => dewaterPipe(b, L, { len, mat: 'painted_dark', collide: true }));
@@ -547,8 +547,8 @@ function buildRep(L: LevelBuild) {
   // a spare coil off the route (≥ 3 m from the line between the two mouths)
   b.at(-3.4, 0, -83.0, 0, () => spareCoil(b, L, {}));
   // the equipment shelf (east wall, z −90 … −88; items at x 15.6, 0.2 behind its face 15.4), the first-aid box
-  b.at(15.8, 0, -89.0, -PI / 2, () => wallShelf6(b, L, { w: 2.0, d: 0.4, top: 0.97, seed: 64 }));
-  b.at(-5.8, 0, -82.0, PI / 2, () => firstAidBox6(b, L));
+  b.at(15.8, 0, -89.0, -PI / 2, () => { wallShelf6(b, L, { w: 2.0, d: 0.4, top: 0.97, seed: 64, collide: false }); b.collide(-2.0 / 2, 0, 0, 2.0 / 2, 0.97, 0.4, 'metal', false); });
+  b.at(-5.8, 0, -82.0, PI / 2, () => { firstAidBox6(b, L, { collide: false }); b.collide(-0.3, 0.95, 0, 0.3, 1.5, 0.2, 'metal', false); });
   // the ceiling vent `vent6_rep`: a duct collar round the opening; the grille's stand-in visual → a steel grating
   b.detail(() => {
     for (const [x0, z0, x1, z1] of [[5.5, -84.5, 6.5, -84.4], [5.5, -83.6, 6.5, -83.5], [5.5, -84.4, 5.6, -83.6], [6.4, -84.4, 6.5, -83.6]] as const) b.bx('navy_grey', x0, 4.93, z0, x1, 5.0, z1);
@@ -696,7 +696,7 @@ function buildBay(L: LevelBuild) {
   });
   // the spare coil (SW corner, clear of the door and the spawn markers), the shelf (east wall) under the pickups
   b.at(15.5, 0, -105.0, 0, () => spareCoil(b, L, {}));
-  b.at(20.3, 0, -104.0, -PI / 2, () => wallShelf6(b, L, { w: 2.0, d: 0.4, top: 0.97, seed: 65 }));
+  b.at(20.3, 0, -104.0, -PI / 2, () => { wallShelf6(b, L, { w: 2.0, d: 0.4, top: 0.97, seed: 65, collide: false }); b.collide(-2.0 / 2, 0, 0, 2.0 / 2, 0.97, 0.4, 'metal', false); });
   // trays (north and south walls, y 2.0 / 2.6), the trunk's spare tail from the joint into the wall transit
   b.at(17.5, 0, -98.2, PI, () => cableTrays(b, L, { len: 5.4, tiers: [2.0, 2.6], fill: [3, 2], seed: 91 }));
   b.at(17.5, 0, -105.8, 0, () => cableTrays(b, L, { len: 5.4, tiers: [2.0], fill: [3], seed: 92 }));

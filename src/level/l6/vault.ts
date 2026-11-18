@@ -345,7 +345,7 @@ const vault6: RoomDress = {
     b.at(-18.5, 0, -163.0, 0, () => { drum = cableDrum(b, L, { mount: 'stand', ratchet: true, collide: false, name: 'cd2_drum6' }); });
     stencil6(b, 'CD 2 — SPARE SEA CABLE 96F', -16.49, 0.6, -163.6, 0.9, 0.08, '+x', { style: 'stencil' });
     // the brake post stands 0.22 m proud of the shell's drum collider: its own collider
-    b.collide(-16.44, 0, -162.09, -16.28, 2.8, -161.87, 'metal', true);
+    b.collide(-16.44, 0, -162.09, -16.36, 2.8, -161.87, 'metal', true);
     let slack: SlackCoil = null as unknown as SlackCoil;
     b.at(-15.7, 0.004, -163.45, -0.3, () => { slack = slackCoil(b, L, { len: 6.0, seed: 7, name: 'v6_drum_slack' }); });
     stencil6(b, 'BRAKE ON — CD 2 — JOB 6-114 (RØD)', -16.32, 1.95, -161.86, 0.5, 0.06, '+z', { style: 'label' });
