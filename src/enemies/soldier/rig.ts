@@ -325,6 +325,9 @@ class SoldierRigImpl implements SoldierRigEx {
     } else if (kind === 'back') {
       const a = Math.atan2(-d.dot(leftW), -d.dot(fwdW));
       this.dYaw1 = this.dYaw0 + clamp(a, -0.6, 0.6);
+      // (IB5a) which way the body rolls as it lands: away from the push's side component (else his seed)
+      const sd = d.dot(leftW);
+      this.dSide = Math.abs(sd) > 0.15 ? (sd > 0 ? -1 : 1) : noise1(this.seed, 5) >= 0 ? 1 : -1;
       // cover close behind him? then he sits back against it
       const wall = this.wallBehind();
       if (wall >= 0) { k = 'sit'; this.dYaw1 = this.dYaw0; this.dWall = wall; }
@@ -1259,13 +1262,29 @@ function deathKeys(kind: DeathKind, side: number, wall: number): DKey[] {
     { t: 1.12, hips: [0, 0.22, 0.72], ease: 'in', r: { hips: [1.5, 0, 0], spine1: [-0.04, 0, 0], spine2: [-0.06, 0, 0], neck: [0.0, 0.3, 0], head: [0.0, 0.85, 0.15], thigh_l: [-0.1, 0, 0.1], thigh_r: [-0.22, 0, -0.06], shin_l: [0.2, 0, 0], shin_r: [0.55, 0, 0], foot_l: [0.9, 0, 0], foot_r: [0.8, 0, 0], ...arm(-2.3, 0.5, 0.3, 0.15, 0.35, 0.1) } },
     { t: 1.45, hips: [0, 0.21, 0.72], ease: 'out', r: { hips: [1.53, 0, 0.02], spine1: [-0.05, 0, 0], spine2: [-0.06, 0, 0], neck: [0.12, 0.35, 0], head: [0.08, 0.95, 0.22], thigh_l: [-0.1, 0, 0.12], thigh_r: [-0.25, 0, -0.06], shin_l: [0.15, 0, 0], shin_r: [0.6, 0, 0], foot_l: [0.95, 0, 0], foot_r: [0.85, 0, 0], ...arm(-2.4, 0.55, 0.3, 0.2, 0.3, 0.1) } },
   ];
-  if (kind === 'back') return [
-    stand,
-    { t: 0.28, hips: [0, 0.8, -0.06], ease: 'in', r: { hips: [-0.15, 0, 0], spine1: [-0.12, 0, 0], spine2: [-0.15, 0, 0], neck: [0.25, 0, 0], head: [0.15, 0, 0], thigh_l: [-0.45, 0, 0.05], thigh_r: [-0.35, 0, -0.05], shin_l: [0.9, 0, 0], shin_r: [0.75, 0, 0], foot_l: [-0.45, 0, 0], foot_r: [-0.4, 0, 0], ...arm(-0.6, 0.5, 0.6, -0.5, 0.55, 0.6) } },
-    { t: 0.62, hips: [0, 0.24, -0.32], ease: 'in', r: { hips: [-0.55, 0, 0], spine1: [-0.05, 0, 0], spine2: [0.05, 0, 0], neck: [0.3, 0, 0], head: [0.2, 0, 0], thigh_l: [-0.95, 0, 0.08], thigh_r: [-0.85, 0, -0.08], shin_l: [1.25, 0, 0], shin_r: [1.1, 0, 0], foot_l: [-0.3, 0, 0], foot_r: [-0.25, 0, 0], ...arm(-0.4, 0.8, 0.4, -0.3, 0.8, 0.4) } },
-    { t: 0.95, hips: [0, 0.19, -0.5], ease: 'in', r: { hips: [-1.42, 0, 0], spine1: [0.02, 0, 0], spine2: [0.0, 0, 0], neck: [0.35, 0, 0], head: [0.2, 0, 0], thigh_l: [-0.75, 0, 0.1], thigh_r: [-0.5, 0, -0.1], shin_l: [1.1, 0, 0], shin_r: [0.7, 0, 0], foot_l: [-0.2, 0, 0], foot_r: [-0.1, 0, 0], ...arm(-0.2, 1.2, 0.3, -0.1, 1.1, 0.3) } },
-    { t: 1.35, hips: [0, 0.174, -0.52], ease: 'out', r: { hips: [-1.55, 0, 0], spine1: [0.04, 0, 0], spine2: [0.0, 0, 0], neck: [-0.32, 0, 0], head: [-0.12, 0.75, 0.05], thigh_l: [-0.55, 0, 0.45], thigh_r: [-0.12, 0, -0.08], shin_l: [1.05, 0, 0], shin_r: [0.15, 0, 0], foot_l: [-0.1, 0, 0], foot_r: [0.25, 0, 0], ...arm(-0.1, 1.3, 0.2, 0.05, 1.05, 0.5) } },
-  ];
+  if (kind === 'back') {
+    // (IB5a, B4) never a symmetric star: he lands rolled a little onto one side (s), the head turned that way, the arm on
+    // that side flung up past the head, the other arm fallen across his belt, one leg straight, the other knee up and
+    // fallen outward. `side` (+1 / −1) mirrors it (set from the push in `die`).
+    const s = side >= 0 ? 1 : -1, up = s > 0 ? 'l' : 'r', dn = s > 0 ? 'r' : 'l', o = (a: number, j: 'l' | 'r') => (j === 'l' ? a : -a);
+    const limbs = (k: number) => ({
+      ['uarm_' + up]: [-0.6 - 2.45 * k, 0, o(0.5 - 0.1 * k, up)] as [number, number, number], ['larm_' + up]: [-0.4 - 0.25 * k, 0, 0] as [number, number, number],
+      ['hand_' + up]: [0.3 * k, 0, o(-0.4 * k, up)] as [number, number, number],
+      ['uarm_' + dn]: [-0.5 + 0.1 * k, 0, o(0.55 - 0.65 * k, dn)] as [number, number, number], ['larm_' + dn]: [-0.5 - 1.05 * k, o(0.5 * k, dn), 0] as [number, number, number],
+      ['hand_' + dn]: [0.1, 0, o(0.3 * k, dn)] as [number, number, number],
+      ['thigh_' + up]: [-0.75 + 0.6 * k, 0.12 * k * s, o(0.1 + 0.05 * k, up)] as [number, number, number], ['shin_' + up]: [1.1 - 0.95 * k, 0, 0] as [number, number, number],
+      ['foot_' + up]: [-0.2 + 0.45 * k, 0, o(0.2 * k, up)] as [number, number, number],
+      ['thigh_' + dn]: [-0.6 - 0.25 * k, 0, o(0.1 + 0.52 * k, dn)] as [number, number, number], ['shin_' + dn]: [1.0 + 0.3 * k, 0, 0] as [number, number, number],
+      ['foot_' + dn]: [-0.15 + 0.1 * k, 0, o(0.15 * k, dn)] as [number, number, number],
+    });
+    return [
+      stand,
+      { t: 0.28, hips: [0, 0.8, -0.06], ease: 'in', r: { hips: [-0.15, 0, 0], spine1: [-0.12, 0, 0], spine2: [-0.15, 0, 0], neck: [0.25, 0, 0], head: [0.15, 0, 0], thigh_l: [-0.45, 0, 0.05], thigh_r: [-0.35, 0, -0.05], shin_l: [0.9, 0, 0], shin_r: [0.75, 0, 0], foot_l: [-0.45, 0, 0], foot_r: [-0.4, 0, 0], ...arm(-0.6, 0.5, 0.6, -0.5, 0.55, 0.6) } },
+      { t: 0.62, hips: [0, 0.24, -0.32], ease: 'in', r: { hips: [-0.55, 0, 0.04 * s], spine1: [-0.05, 0.04 * s, 0], spine2: [0.05, 0.04 * s, 0], neck: [0.3, 0.1 * s, 0], head: [0.2, 0.15 * s, 0], thigh_l: [-0.95, 0, 0.08], thigh_r: [-0.85, 0, -0.08], shin_l: [1.25, 0, 0], shin_r: [1.1, 0, 0], foot_l: [-0.3, 0, 0], foot_r: [-0.25, 0, 0], ...arm(-0.4, 0.8, 0.4, -0.3, 0.8, 0.4) } },
+      { t: 0.95, hips: [0.03 * s, 0.19, -0.5], ease: 'in', r: { hips: [-1.42, 0.06 * s, 0.06 * s], spine1: [0.02, 0.06 * s, 0.03 * s], spine2: [0.0, 0.08 * s, 0.02 * s], neck: [0.2, 0.25 * s, 0], head: [0.1, 0.45 * s, 0.05 * s], ...limbs(0.75) } },
+      { t: 1.35, hips: [0.04 * s, 0.18, -0.52], ease: 'out', r: { hips: [-1.5, 0.12 * s, 0.1 * s], spine1: [0.04, 0.1 * s, 0.05 * s], spine2: [0.02, 0.12 * s, 0.04 * s], neck: [-0.22, 0.32 * s, 0.04 * s], head: [-0.1, 0.72 * s, 0.12 * s], ...limbs(1) } },
+    ];
+  }
   if (kind === 'sit') {
     const z = -clamp(wall - 0.2, 0.05, 0.62);
     return [

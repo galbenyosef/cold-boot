@@ -35,7 +35,7 @@
  *    oilskin on its hook — a man-sized shape swings across the frost and back, the hook creaks; the fan keeps running
  *    (`fan_loop`). Close to the glass its clear corner shows the sleeve. Snap: fan running (its loop starts when the
  *    player is next near the galley), oilskin swaying idle.
- *  - `v5_body` (berths5 → spine5): silent; the contractor's body vanishes from `mk5_body_a` and lies at `mk5_body_b`
+ *  - `v5_body` (berths5 → spine5): silent; the galley cook's body (kit5 `navyBody`, B4) vanishes from `mk5_body_a` and lies at `mk5_body_b`
  *    (walkable 0.15 m box moves with it); the berths half of the drag smear (A → `d5_berth`) appears. The spine half is
  *    D2a's: this vignette shows `L.objects.get('v5_body_smear')` (calls `userData.show()` if it has one, else sets it
  *    visible). Snap: the same.
@@ -46,12 +46,12 @@ import type { FxSystemEx } from '../../fx';
 import type { Builder } from '../builder';
 import type { LevelBuild } from '../context';
 import { artMat, isStandin, mug, paint, paper, restyle } from '../l3/kit3';
-import { body } from '../l4/setpieces';
 import { addWet, box3, placeLights5, type LightRow5, type RoomId5 } from './grey';
 import type { RoomDress } from './index';
 import {
-  bunkRadio, frostedWindow, galleyRange, messTable, navySign, nightLightMat, noticeBoard, oilskin, openShelf, prepTable,
-  servingCounter, showerStalls, sinkRow, strip5, trayStack, tripleBunk, drainGrate, type BunkRadio, type Oilskin, type TrayStack,
+  bunkRadio, frostedWindow, navyBody, galleyRange, messTable, navySign, nightLightMat, noticeBoard, oilskin, openShelf, prepTable,
+  drapeGeo, servingCounter, serviceRun, showerStalls, sinkRow, strip5, trayStack, tripleBunk, drainGrate, vesselRoom,
+  type BunkRadio, type Oilskin, type TrayStack,
 } from './kit5';
 
 const PI = Math.PI;
@@ -167,14 +167,17 @@ const BUNKS: [number, number, number, number[], boolean[]][] = [
 ];
 const BUNK_MOVED: Box6 = [21.2, 0, -8.6, 23.2, 2.2, -7.7];
 const BODY_A = { x: 19.6, z: -12.4, ry: PI / 2 };
-const BODY_B = { x: 14.2, z: -16.9, ry: PI / 2 };
+/** (B4) Dragged out by the ankles, westward along the spine: the feet lead (local +z → −x), the head east. */
+const BODY_B = { x: 14.2, z: -16.9, ry: -PI / 2 };
 
 interface BodyParts { a: THREE.Group; b: THREE.Group; boxA: { enabled: boolean }; boxB: { enabled: boolean }; smear: THREE.Group }
 
 function berthsBody(L: LevelBuild): BodyParts {
   // one body drawn once (a part), shown at A and — after `v5_body` — at B (a clone sharing its geometry)
   const part = L.part('v5_body');
-  const info = body(L, part, 'lying_side', 'contractor5', { x: 0, y: 0, z: 0, ry: 0, hood: false, tape: false, collider: 'none', seed: 5150 });
+  // (B4) a navy cook in working dress and a white apron, face down, in the dragged pose (kit5 `navyBody`; no longer
+  // level 4's lab suit — and no `mk4_bodies` marker in level 5)
+  const info = navyBody(part, L, { seed: 5150 });
   const g = part.build();
   const mount = (name: string, room: string, p: { x: number; z: number; ry: number }, src: THREE.Object3D) => {
     const m = new THREE.Group();
@@ -217,12 +220,22 @@ function berthsBody(L: LevelBuild): BodyParts {
 
 const berths5: RoomDress = {
   label: false,
-  look: { floor: 'lino_navy', wall: 'navy_grey', ceiling: 'navy_grey' },
+  look: { floor: 'lino_navy', wall: 'hull_white', ceiling: 'navy_grey' },
   lights: [],
   build(L) {
     restyle(L, 'berths5_grey', isStandin, null);
     dropCollider(L, BUNK_MOVED);
     const b = L.builder('berths5_dress');
+    // ── the hull (B1): frames at the spine's pitch across the room, plate-and-beam deckhead, overhead services ──
+    {
+      const st = vesselRoom(b, L, {
+        x0: 12.2, x1: 23.8, z0: -13.8, z1: -2.2, h: 3.0, axis: 'z', web: 0.14,
+        clear: [['x1', -11.6, -6.3], ['z1', 14.2, 17.8], ['z0', 16.2, 19.8]],
+      });
+      const ceil = 3.0 - 0.152;
+      serviceRun(b, L, { along: 'z', a: -13.8, b: -2.2, c: 16.2, ceil, hangers: st, pipes: [[0.05, 0, 0.03, 'pipe'], [0.035, -0.17, 0.05, 'steel']] });
+      serviceRun(b, L, { along: 'z', a: -13.8, b: -2.2, c: 19.9, ceil, hangers: st, pipes: [[0.06, 0, 0.03, 'lagged']], tray: { w: 0.3, c: 0.3, drop: 0.08 } });
+    }
     // ── lights (§2.7.1: 2 red points all + the reading lamp medium+) ──
     const [r1, r2, reading] = lights(L, [
       { group: 'berths5', type: 'point', p: [18, 2.45, -11], color: RED, i: 7.5, d: 11 },
@@ -320,14 +333,20 @@ const berths5: RoomDress = {
 
 const heads5: RoomDress = {
   label: false,
-  look: { floor: 'tile_ceramic', wall: 'wall_clean', ceiling: 'navy_grey' },
+  look: { floor: 'tile_ceramic', wall: 'hull_white', ceiling: 'navy_grey' },
   lights: [],
   build(L) {
     restyle(L, 'heads5_grey', isStandin, null);
     const b = L.builder('heads5_dress');
     const fx = fxOf(L);
-    const [lamp] = lights(L, [{ group: 'heads5', type: 'point', p: [16, 2.52, 1], color: COOL, i: 9, d: 8, flicker: 'fluorescent' }]);
-    tubeFitting(b, L, lamp, 16, 2.8, 1.0, false, 'emissive_white');
+    // the hull (B1): two frames across the washroom, the beams over the showers; services along the north side
+    const st = vesselRoom(b, L, {
+      x0: 12.2, x1: 19.8, z0: -1.8, z1: 3.8, h: 2.8, axis: 'x', web: 0.14, stiff: 0,
+      clear: [['z0', 14.2, 17.8], ['z1', 14.2, 16.95]],
+    });
+    serviceRun(b, L, { along: 'x', a: 12.2, b: 19.8, c: 3.3, ceil: 2.8 - 0.152, hangers: st, pipes: [[0.04, 0, 0.03, 'pipe'], [0.03, -0.14, 0.04, 'steel'], [0.05, -0.32, 0.03, 'lagged']] });
+    const [lamp] = lights(L, [{ group: 'heads5', type: 'point', p: [16, 2.45, 1], color: COOL, i: 9, d: 8, flicker: 'fluorescent' }]);
+    tubeFitting(b, L, lamp, 16, 2.8 - 0.072, 1.0, false, 'emissive_white');
     // ── four sinks + mirror on the west wall (origin on the wall face x 12.2, front +x) ──
     // the sink counter's collider: a base to 0.72 + the rim strips (see header) instead of the slab to 0.9
     dropCollider(L, [12.2, 0, -1.0, 12.8, 0.9, 3.0]);
@@ -397,21 +416,32 @@ const heads5: RoomDress = {
 
 const mess5: RoomDress = {
   label: false,
-  look: { floor: 'lino_navy', wall: 'navy_grey', ceiling: 'navy_grey' },
+  look: { floor: 'lino_navy', wall: 'hull_white', ceiling: 'navy_grey' },
   lights: [],
   build(L) {
     restyle(L, 'mess5_grey', isStandin, null);
     const b = L.builder('mess5_dress');
     const fx = fxOf(L);
+    // ── the hull (B1): frames across the mess, plate-and-beam deckhead, services along both sides ──
+    const st = vesselRoom(b, L, {
+      x0: 24.2, x1: 37.8, z0: -13.8, z1: -2.2, h: 3.2, axis: 'z',
+      clear: [['x0', -9.7, -6.3], ['x0', -4.7, -3.3], ['z1', 26.9, 30.3], ['z1', 31.1, 36.0], ['z0', 29.2, 32.8], ['z0', 33.6, 35.4], ['z0', 36.1, 36.8]],
+    });
+    {
+      const ceil = 3.2 - 0.172;
+      serviceRun(b, L, { along: 'z', a: -13.8, b: -2.2, c: 37.0, ceil, hangers: st, pipes: [[0.05, 0, 0.04, 'pipe'], [0.035, -0.17, 0.06, 'steel'], [0.07, -0.42, 0.04, 'lagged']] });
+      serviceRun(b, L, { along: 'z', a: -13.8, b: -2.2, c: 25.0, ceil, hangers: st, pipes: [[0.04, 0, 0.05, 'pipe']], tray: { w: 0.34, c: 0.5, drop: 0.1 } });
+    }
+    const HB = 3.2 - 0.072;
     const hs = lights(L, [
       // (the LOW pair lights the tables AND the serving counter — the trays must read when they go)
-      { group: 'mess5', type: 'point', p: [28, 3.0, -9], color: WARM, i: 10, d: 10 },
-      { group: 'mess5', type: 'point', p: [31.5, 3.0, -4.2], color: WARM, i: 9, d: 9 },
-      { group: 'mess5', type: 'point', p: [34.5, 3.0, -10], color: WARM, i: 7, d: 8, min: 'medium' },
+      { group: 'mess5', type: 'point', p: [28, 2.95, -8.0], color: WARM, i: 10, d: 10 },
+      { group: 'mess5', type: 'point', p: [31.5, 2.95, -4.6], color: WARM, i: 9, d: 9 },
+      { group: 'mess5', type: 'point', p: [34.5, 2.95, -11.0], color: WARM, i: 7, d: 8, min: 'medium' },
     ]);
-    tubeFitting(b, L, hs[0], 28, 3.2, -9, false);
-    tubeFitting(b, L, hs[1], 31.5, 3.2, -4.2, true);
-    tubeFitting(b, L, hs[2], 34.5, 3.2, -10, false);
+    tubeFitting(b, L, hs[0], 28, HB, -8.0, false);
+    tubeFitting(b, L, hs[1], 31.5, HB, -4.6, true);
+    tubeFitting(b, L, hs[2], 34.5, HB, -11.0, false);
     // ── four fixed tables with their benches (the tables' colliders are the shell's; the benches get theirs) ──
     const meals: [number, number, number][] = [];
     for (const x of [27, 31]) for (const z of [-10, -6]) {
@@ -457,6 +487,77 @@ const mess5: RoomDress = {
     // ── the ready-use ammunition locker by the spine door (`p5_mess_ammo` (37.4, 1.0, −13.4) on its shelf) ──
     b.at(37.8, 0, -13.4, -PI / 2, () => openShelf(b, L, { w: 0.6, d: 0.55, h: 1.6, shelves: [0.45, 0.97, 1.4] }));
     b.detail(() => b.sign('READY USE — 5.56', 'stencil', 37.79, 1.75, -12.95, 0.6, 0.08, '-x'));
+    // ── lived in (B1): the tea counter and the telly, the stopped clock, darts, the card game, caps and jackets left behind
+    {
+      const red = paint(L, 0x8a3b2e, 0.35), cream = paint(L, 0xe8e2d6, 0.3), dark = 'painted_dark' as const;
+      // the tea counter between the east frames (x 37.2 … 37.8, z −9.25 … −6.75, top 0.9): urn, mug tree, sugar, plates, toaster
+      b.bx('navy_grey', 37.22, 0.08, -9.25, 37.8, 0.88, -6.75).bx('painted_dark', 37.26, 0, -9.2, 37.8, 0.08, -6.8);
+      b.bx('stainless', 37.18, 0.88, -9.27, 37.8, 0.905, -6.73);
+      b.collide(37.18, 0, -9.27, 37.8, 0.905, -6.73, 'metal', true);
+      b.detail(() => {
+        b.cyl('stainless', 37.5, 1.13, -8.8, 0.16, 0.45, 'y', 16).cyl(dark, 37.5, 1.37, -8.8, 0.12, 0.03, 'y', 14).cyl(dark, 37.5, 1.4, -8.8, 0.025, 0.04, 'y', 8);
+        b.bx(dark, 37.31, 1.0, -8.82, 37.35, 1.03, -8.78).bx(dark, 37.28, 0.98, -8.84, 37.31, 1.05, -8.76); // the urn's tap
+        b.bx('stainless', 37.3, 0.905, -8.95, 37.42, 0.91, -8.65); // drip tray
+        b.cyl('stainless', 37.5, 1.08, -7.95, 0.012, 0.36, 'y', 6).cyl('stainless', 37.5, 0.91, -7.95, 0.09, 0.012, 'y', 12); // mug tree
+        for (let k = 0; k < 4; k++) { const a = (k / 4) * 2 * PI + 0.4; b.rod('stainless', 37.5, 1.0 + k * 0.06, -7.95, 37.5 + Math.cos(a) * 0.1, 1.04 + k * 0.06, -7.95 + Math.sin(a) * 0.1, 0.005, 4); }
+        for (let i = 0; i < 9; i++) b.cyl(cream, 37.48, 0.913 + i * 0.009, -7.4, 0.11, 0.008, 'y', 18); // a stack of plates
+        b.cyl(cream, 37.62, 0.96, -7.15, 0.05, 0.11, 'y', 12).cyl(dark, 37.62, 1.02, -7.15, 0.052, 0.012, 'y', 12); // sugar tin
+        b.bx('stainless', 37.35, 0.905, -9.2, 37.62, 1.07, -9.02).bx(dark, 37.4, 1.07, -9.17, 37.57, 1.075, -9.05); // toaster
+        b.sign('TEA · COFFEE · RINSE YOUR MUG', 'stencil', 37.79, 1.35, -8.0, 1.6, 0.1, '-x');
+      });
+      for (const [z, k] of [[-7.8, 1], [-8.08, 2], [-7.68, 3]] as const) b.at(37.42 + (k === 2 ? 0.12 : 0), 0.905, z, 0.3 * k, () => mug(b, L, k));
+      // the telly on its bracket over the counter (off: its glass catches the lamps)
+      b.bx(dark, 37.72, 2.05, -8.05, 37.8, 2.15, -7.95).rod(dark, 37.74, 2.1, -8.0, 37.55, 2.1, -8.0, 0.02, 6);
+      b.bx(dark, 37.47, 1.88, -8.42, 37.55, 2.32, -7.58);
+      b.detail(() => b.quad(paint(L, 0x101214, 0.12), 37.469, 2.1, -8.0, 0.78, 0.4, '-x', 0, 'unit', 0.001));
+      // the clock over the counter's end of the north wall, stopped at 08:41 (the link drill was at 08:40)
+      b.cyl('navy_grey', 30.75, 2.62, -2.23, 0.17, 0.035, 'z', 24);
+      b.detail(() => {
+        b.cyl(cream, 30.75, 2.62, -2.265, 0.15, 0.006, 'z', 24);
+        for (let h = 0; h < 12; h++) { const a = (h / 12) * 2 * PI; b.bx(dark, 30.75 + Math.sin(a) * 0.13 - 0.004, 2.62 + Math.cos(a) * 0.13 - 0.012, -2.272, 30.75 + Math.sin(a) * 0.13 + 0.004, 2.62 + Math.cos(a) * 0.13 + 0.012, -2.268); }
+        const hand = (a: number, l: number, w: number, z: number) => b.rbox(dark, 30.75 + Math.sin(a) * l / 2, 2.62 + Math.cos(a) * l / 2, z, w, l, 0.003, 0, 0, -a);
+        hand(((8 + 41 / 60) / 12) * 2 * PI, 0.085, 0.012, -2.274);
+        hand((41 / 60) * 2 * PI, 0.12, 0.008, -2.278);
+        hand((14 / 60) * 2 * PI, 0.125, 0.003, -2.281); // the second hand, never moved again
+      });
+      // darts on the south wall west of the door: board, three darts in it, the oche line
+      b.cyl(dark, 26.4, 1.73, -13.775, 0.23, 0.05, 'z', 24);
+      b.detail(() => {
+        b.cyl(cream, 26.4, 1.73, -13.748, 0.2, 0.005, 'z', 24).cyl(red, 26.4, 1.73, -13.744, 0.13, 0.005, 'z', 24).cyl(dark, 26.4, 1.73, -13.74, 0.085, 0.005, 'z', 20).cyl(red, 26.4, 1.73, -13.736, 0.018, 0.005, 'z', 10);
+        for (const [dx, dy] of [[0.04, 0.06], [-0.07, -0.02], [0.11, -0.09]] as const) b.rod('steel_raw', 26.4 + dx, 1.73 + dy, -13.735, 26.4 + dx + 0.01, 1.73 + dy + 0.015, -13.62, 0.004, 4).cyl(red, 26.4 + dx + 0.01, 1.73 + dy + 0.015, -13.6, 0.012, 0.04, 'z', 6);
+        b.sign('THE OCHE', 'stencil', 26.4, 0.004, -11.3, 0.6, 0.08, '+y');
+      });
+      // a photograph of the detachment and the post's crest plaque on the south wall east of the door
+      b.bx('navy_grey', 34.3, 1.35, -13.8, 35.3, 2.05, -13.78);
+      b.detail(() => { b.quad(artMat(L, 'photo', 11), 34.8, 1.7, -13.775, 0.9, 0.6, '+z'); b.sign('POST 4 — DETACHMENT — DAY 1', 'label', 34.8, 1.31, -13.778, 0.9, 0.06, '+z'); });
+      b.bx('navy_grey', 36.2, 1.55, -13.8, 36.7, 2.1, -13.77).cyl('painted_yellow', 36.45, 1.86, -13.765, 0.15, 0.01, 'z', 6);
+      b.detail(() => b.sign('POST 4', 'navy', 36.45, 1.64, -13.764, 0.4, 0.07, '+z'));
+      // the fire extinguisher by the spine door
+      b.bx(dark, 33.65, 1.15, -13.8, 33.85, 1.2, -13.74);
+      b.cyl(red, 33.75, 0.88, -13.66, 0.08, 0.52, 'y', 14).cyl(dark, 33.75, 1.18, -13.66, 0.03, 0.08, 'y', 8).rod(dark, 33.75, 1.2, -13.66, 33.85, 1.15, -13.55, 0.012, 5);
+      // on the tables: a condiment caddy on each, a card game abandoned on one, a cap, a paperback, a jacket over a bench
+      for (const x of [27, 31]) for (const z of [-10, -6]) {
+        b.bx('stainless', x - 0.1, 0.765, z - 0.05, x + 0.1, 0.775, z + 0.05);
+        b.detail(() => {
+          b.cyl(red, x - 0.06, 0.84, z, 0.025, 0.13, 'y', 8).cyl(dark, x - 0.06, 0.915, z, 0.012, 0.025, 'y', 6);
+          b.cyl(cream, x, 0.81, z - 0.02, 0.016, 0.07, 'y', 8).cyl(dark, x + 0.03, 0.81, z + 0.02, 0.016, 0.07, 'y', 8);
+          b.bx(cream, x + 0.05, 0.775, z - 0.035, x + 0.09, 0.84, z + 0.035);
+        });
+      }
+      b.detail(() => {
+        const R = (k: number) => Math.sin(k * 12.9898) * 0.5;
+        for (let i = 0; i < 9; i++) b.quad(paper(L, 0xf2efe6), 31.0 + R(i) * 0.4, 0.767 + i * 0.0006, -5.3 + R(i + 9) * 0.3, 0.063, 0.088, '+y', R(i + 3) * 3);
+        b.bx(paper(L, 0xf2efe6), 30.85, 0.765, -5.75, 30.92, 0.79, -5.66); // the deck, squared
+        b.quad(paper(L, 0xf2efe6), 30.55, 0.004, -4.9, 0.063, 0.088, '+y', 0.7);  // one on the deck
+        b.quad(paper(L, 0xb8c4cc), 26.8, 0.767, -6.6, 0.13, 0.19, '+y', 0.4);       // a paperback, face down
+        b.cyl(paint(L, 0x26324a, 0.85), 27.3, 0.79, -9.3, 0.09, 0.05, 'y', 14).rbox(dark, 27.36, 0.77, -9.22, 0.12, 0.008, 0.08, 0, 0.6, 0); // a ship's cap
+      });
+      // a working-dress jacket thrown over the end of a bench
+      b.geo('fatigue_navy', drapeGeo([
+        { c: [0, 0.03, 0], rx: 0.2, rz: 0.05, fold: 0.01, nf: 4 }, { c: [0, -0.12, 0.02], rx: 0.22, rz: 0.06, fold: 0.016, nf: 5, ph: 1 },
+        { c: [0, -0.32, 0.05], rx: 0.21, rz: 0.04, fold: 0.02, nf: 6, ph: 2 },
+      ], 18, 41), 'box', new THREE.Matrix4().makeTranslation(31.775, 0.45, -11.0));
+    }
     // ── v5_trays ──
     const dip = (k: number) => { const s = k < 0.3 ? 1 - 0.5 * (k / 0.3) : 0.5 + 0.5 * ((k - 0.3) / 0.7); for (const h of hs) h.intensityScale = s; };
     const tc = cues(L);
@@ -484,7 +585,7 @@ const mess5: RoomDress = {
 
 const galley5: RoomDress = {
   label: false,
-  look: { floor: 'floor_plate', wall: 'wall_clean', ceiling: 'navy_grey' },
+  look: { floor: 'deck_nonslip', wall: 'hull_white', ceiling: 'navy_grey' },
   lights: [],
   build(L) {
     const glass = L.ctx.materials.get('glass');
@@ -494,10 +595,18 @@ const galley5: RoomDress = {
     const fx = fxOf(L);
     const [main, cold] = lights(L, [
       // (bounded to the galley side of the window: the coat behind the frost stays a silhouette)
-      { group: 'galley5', type: 'point', p: [33, 2.8, 1], color: WARM, i: 10, d: 9, bounds: [27.9, -0.1, -2.1, 37.9, 3.1, 4.1] },
+      { group: 'galley5', type: 'point', p: [33, 2.65, 1], color: WARM, i: 10, d: 9, bounds: [27.9, -0.1, -2.1, 37.9, 3.1, 4.1] },
       { group: 'galley5', type: 'point', p: [39.05, 1.7, 1.0], color: 0xcfe4ff, i: 3, d: 3, min: 'medium', bounds: [37.7, 0, -0.3, 39.5, 2.3, 2.3] },
     ]);
-    tubeFitting(b, L, main, 33, 3.0, 1.0, true, 'emissive_white');
+    tubeFitting(b, L, main, 33, 3.0 - 0.152, 1.0, true, 'emissive_white');
+    // ── the hull (B1): three frames across the galley (the range end wall and the cold-room wall are bulkheads) ──
+    {
+      const st = vesselRoom(b, L, {
+        x0: 28.2, x1: 37.8, z0: -1.8, z1: 3.8, h: 3.0, axis: 'x', web: 0.14,
+        clear: [['z0', 31.2, 34.8], ['z1', 28.2, 29.0], ['z1', 31.7, 34.3], ['x0', -0.6, 2.6], ['x1', -0.15, 3.65]],
+      });
+      serviceRun(b, L, { along: 'x', a: 28.2, b: 37.8, c: 3.25, ceil: 3.0 - 0.152, hangers: st, pipes: [[0.05, 0, 0.03, 'pipe'], [0.035, -0.17, 0.05, 'steel']], tray: { w: 0.3, c: -1.2, drop: 0.08 } });
+    }
     // ── the range on the west wall (origin on the wall face x 28.2, front +x), pots on it ──
     b.at(28.2, 0, 1.0, PI / 2, () => galleyRange(b, L, { len: 3.0, d: 0.8, collide: false }));
     b.detail(() => {

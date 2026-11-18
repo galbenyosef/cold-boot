@@ -56,11 +56,11 @@ import type { LightHandle } from '../../core/types';
 import type { FxSystemEx } from '../../fx/index';
 import type { Builder, Mat } from '../builder';
 import type { LevelBuild } from '../context';
-import { restyle, isStandin } from '../l3/kit3';
+import { restyle, isStandin, paint, paper as paperMat } from '../l3/kit3';
 import { deckLine, dialFaceMat, mat4 } from '../l4/kit4';
 import {
-  bench5, boardFrame, clearingBarrel, deskFan, equipmentGate, fence, filingCabinets, firstAidCabinet, gearCrate,
-  helmetRow, kitRack, lampLens5, lockerBank, looseHelmet, navySign, noticeBoard, turnstile, wallCamera,
+  bench5, boardFrame, clearingBarrel, deskFan, drapeGeo, equipmentGate, fence, filingCabinets, firstAidCabinet, gearCrate,
+  helmetRow, kitRack, lampLens5, lockerBank, looseHelmet, navySign, noticeBoard, serviceRun, turnstile, vesselRoom, wallCamera,
   wallShelf, watchDesk, type DeskFan, type LockerDoor, type LooseHelmet, type Turnstile,
 } from './kit5';
 import { boothBackDoor, gateLook } from './setpieces';
@@ -134,32 +134,6 @@ function cableTray(b: Builder, a: number, c: number, at: number, y: number, alon
   b.pop();
 }
 
-/** Pipe run along x or z (painted service pipe with brackets every ~1.5 m). */
-function pipeRun(b: Builder, a: number, c: number, at: number, y: number, along: 'x' | 'z', r: number, wallSide: number) {
-  const len = Math.abs(c - a), mid = (a + c) / 2;
-  b.detail(() => {
-    if (along === 'x') b.cyl('steel_raw', mid, y, at, r, len, 'x', 10);
-    else b.cyl('steel_raw', at, y, mid, r, len, 'z', 10);
-    const n = Math.max(1, Math.round(len / 1.5));
-    for (let i = 0; i <= n; i++) {
-      const u = Math.min(Math.max(a, c) - 0.05, Math.min(a, c) + 0.05 + (i * (len - 0.1)) / n);
-      if (along === 'x') b.bx('navy_grey', u - 0.025, y - r - 0.02, Math.min(at, at + wallSide * (r + 0.06)), u + 0.025, y + r + 0.02, Math.max(at, at + wallSide * (r + 0.06)));
-      else b.bx('navy_grey', Math.min(at, at + wallSide * (r + 0.06)), y - r - 0.02, u - 0.025, Math.max(at, at + wallSide * (r + 0.06)), y + r + 0.02, u + 0.025);
-    }
-  });
-}
-
-/** Pressure-vessel frame on a side wall at x = xw (inward sign s): channel posts at the given z, a header, a rub rail. */
-function wallFrames(b: Builder, xw: number, s: number, zs: number[], z0: number, z1: number, h: number) {
-  const xi = xw + s * 0.1, x0 = Math.min(xw, xi), x1 = Math.max(xw, xi);
-  for (const z of zs) {
-    b.bx('navy_grey', x0, 0, z - 0.07, x1, h, z + 0.07);
-    b.detail(() => b.bx('steel_raw', Math.min(xi, xi + s * 0.01), 0, z - 0.05, Math.max(xi, xi + s * 0.01), h, z + 0.05));
-  }
-  b.bx('navy_grey', x0, h - 0.4, z0, x1, h - 0.24, z1);
-  b.detail(() => b.bx('navy_grey', Math.min(xw, xw + s * 0.04), 1.12, z0, Math.max(xw, xw + s * 0.04), 1.2, z1));
-}
-
 /** A simple swivel / stool seat (floor prop, origin = floor centre): star base, column, seat; `back` adds a backrest (−z). */
 function chair(b: Builder, o: { seat?: number; back?: boolean } = {}) {
   const sh = o.seat ?? 0.48;
@@ -218,9 +192,10 @@ function buildLock(L: LevelBuild) {
   const glass = lens(L, 'lock5', WARM, 0xf0ece4), eglass = emergLens(L, 'lock5');
 
   // pressure-vessel frames on both side walls, steel benches between them (walkable 0.46), clear of the spawn (0, 3)
+  // the hull's frames (B1): legs at z 1.0 / 5.0 (the benches stand between them), the middle beam on headers
+  vesselRoom(b, L, { x0: -2.8, x1: 2.8, z0: 0.2, z1: 5.8, h: H, axis: 'z', at: [1.0, 3.0, 5.0], clear: [['x0', 1.5, 4.5], ['x1', 0.45, 4.5]], stiff: 0 });
   for (const s of [-1, 1]) {
     const xw = s * 2.8;
-    wallFrames(b, xw, -s, [0.9, 5.1], 0.2, 5.8, H);
     const xi = xw - s * 0.42, x0 = Math.min(xw, xi), x1 = Math.max(xw, xi), z0 = 1.6, z1 = 4.4;
     for (let k = 0; k < 4; k++) {
       const za = z0 + 0.02 + k * ((z1 - z0) / 4), zb = za + (z1 - z0) / 4 - 0.04;
@@ -265,10 +240,10 @@ function buildLock(L: LevelBuild) {
   b.detail(() => b.sign('KEEP CLEAR OF GATE', 'navy', 0, 0.003, 1.45, 1.4, 0.14, '+y'));
 
   // cable tray along the ceiling (nothing on the wall over the gate: the rising leaf's pocket, check:doors rule c)
-  cableTray(b, 0.3, 5.7, 1.8, 3.38, 'z');
+  cableTray(b, 0.3, 5.7, 1.8, H - 0.3, 'z');
 
   // the luminaire over the middle, the emergency fitting over the gate
-  batten(b, 0, H, 2.8, 'z', 1.5, glass);
+  batten(b, 0, H - 0.072, 2.0, 'x', 1.5, glass);
   b.at(2.25, 2.9, 0.2, 0, () => emergFitting(b, eglass));
 
   // a puddle where the tube's condensation runs down the north-east corner (wet steel; footsteps go wet)
@@ -282,8 +257,8 @@ function buildLock(L: LevelBuild) {
   L.afterDoors.push(() => (L.objects.get('d5_gate_dogs')?.userData.set as ((k: number) => void) | undefined)?.(1));
 
   const hs = lights(L, [
-    { group: 'lock5', type: 'spot', p: [0, 3.45, 4.4], t: [0, 0.9, 0.4], color: WARM, i: 14, d: 7.5, angle: 1.05, cast: true, min: 'medium' },
-    { group: 'lock5', type: 'point', p: [0, 3.35, 2.8], color: WARM, i: 9, d: 8.5 },
+    { group: 'lock5', type: 'spot', p: [0, 3.3, 4.2], t: [0, 0.9, 0.4], color: WARM, i: 14, d: 7.5, angle: 1.05, cast: true, min: 'medium' },
+    { group: 'lock5', type: 'point', p: [0, 3.2, 2.0], color: WARM, i: 9, d: 8.5 },
     emergRow('lock5_emerg', 2.25, 2.8, 0.6, 6, 10),
   ]);
   hs[1].bindEmissive(glass, 0.6);
@@ -371,19 +346,21 @@ function buildGate(L: LevelBuild): GateParts {
   // ── east wall: first-aid cabinet (`p5_gate_med` (5.4, 1.0, −6.0) on its dropped door) ──
   b.at(5.8, 1.0, -6.0, -PI / 2, () => firstAidCabinet(b, L));
   // west wall: the gate notices; the weapon-clearing barrel in the south-west corner (the shell's box is its collider)
-  b.at(-5.8, 1.55, -3.2, PI / 2, () => noticeBoard(b, L, { notices: ['SECURITY STATE\nBRAVO', 'ALL VISITORS\nSIGN IN AT THE BOOTH', 'NO PERSONAL DEVICES\nBEYOND THIS POINT', 'CLEAR ALL WEAPONS\nBEFORE THE DUTY ROOM'] }));
+  b.at(-5.8, 1.55, -3.65, PI / 2, () => noticeBoard(b, L, { notices: ['SECURITY STATE\nBRAVO', 'ALL VISITORS\nSIGN IN AT THE BOOTH', 'NO PERSONAL DEVICES\nBEYOND THIS POINT', 'CLEAR ALL WEAPONS\nBEFORE THE DUTY ROOM'] }));
   b.at(-5.2, 0, -8.6, PI / 2, () => clearingBarrel(b, L, { collide: false }));
   deckLine(b, L, -5.8, -7.85, -4.45, -7.85, { w: 0.06 });
   deckLine(b, L, -4.45, -9.8, -4.45, -7.85, { w: 0.06 });
 
   // ── structure: frames on the side walls, cable tray, pipes, two luminaires, the emergency fitting ──
-  wallFrames(b, -5.8, 1, [-0.8, -6.4, -9.2], -9.8, -0.2, H);
-  wallFrames(b, 5.8, -1, [-4.6, -7.6, -9.2], -9.8, -4.25, H);
-  cableTray(b, -9.75, -0.25, -3.6, 3.18, 'z');
-  pipeRun(b, -9.75, -0.25, 5.66, 3.0, 'z', 0.05, 1);
-  pipeRun(b, -9.75, -4.4, 5.66, 2.84, 'z', 0.035, 1);
-  batten(b, -2.5, H, -2.6, 'x', 1.5, glass);
-  batten(b, 0.5, H, -7.2, 'x', 1.5, glass);
+  const st = vesselRoom(b, L, {
+    x0: -5.8, x1: 5.8, z0: -9.8, z1: -0.2, h: H, axis: 'z', frameNo: 2,
+    clear: [['x1', -4.1, -0.1], ['z0', -3.6, -2.0], ['z0', -1.8, 1.8], ['z1', -4.7, -3.3], ['z1', -1.7, 1.7], ['z1', 2.3, 5.8]],
+  });
+  const ceil = H - 0.172;
+  serviceRun(b, L, { along: 'z', a: -9.8, b: -0.2, c: -5.05, ceil, hangers: st, pipes: [[0.05, 0, 0.04, 'pipe'], [0.03, 0.17, 0.06, 'steel']], tray: { w: 0.34, c: -4.45, drop: 0.12 } });
+  serviceRun(b, L, { along: 'z', a: -9.8, b: -4.1, c: 5.1, ceil, hangers: st, pipes: [[0.06, 0, 0.04, 'lagged'], [0.035, -0.2, 0.06, 'pipe']] });
+  batten(b, -2.5, H - 0.072, -1.3, 'x', 1.5, glass);
+  batten(b, 0.5, H - 0.072, -7.0, 'x', 1.5, glass);
   b.at(-3.2, 2.6, -9.8, 0, () => emergFitting(b, eglass));
   b.at(-5.8, 2.6, -2.2, PI / 2, () => emergFitting(b, eglass));
   navySign(b, 'DUTY ROOM →', -2.6, 2.1, -9.795, 0.8, 0.1, '+z');
@@ -391,8 +368,8 @@ function buildGate(L: LevelBuild): GateParts {
   b.decal('grime', 1, -4.2, 0.002, -2.6, 1.8, 1.4, '+y', 1.2);
 
   const hs = lights(L, [
-    { group: 'gate5', type: 'point', p: [-2.5, 3.25, -2.6], color: WARM, i: 10, d: 10 },
-    { group: 'gate5', type: 'point', p: [0.5, 3.25, -7.2], color: WARM, i: 10, d: 10 },
+    { group: 'gate5', type: 'point', p: [-2.5, 3.1, -1.3], color: WARM, i: 10, d: 10 },
+    { group: 'gate5', type: 'point', p: [0.5, 3.1, -7.0], color: WARM, i: 10, d: 10 },
     // the booth lamp (medium+, §2.7.1): on LOW the booth reads by the gatehouse lamps through the glass
     { group: 'gate5', type: 'point', p: [4.1, 2.45, -2.0], color: WARM, i: 3.5, d: 4.2, min: 'medium' },
     emergRow('gate5_emerg', -3.2, 2.45, -9.4, 8, 14),
@@ -452,7 +429,7 @@ function buildDuty(L: LevelBuild): DutyParts {
   });
   navySign(b, 'SPINE — AUTHORISED ACCESS — CODE', 7.795, 1.72, -13.9, 0.9, 0.07, '-x');
   // the duty camera, east wall high (its tally red: the cameras are on)
-  b.at(7.8, 2.95, -20.6, -PI / 2, () => wallCamera(b, L, { tilt: 0.38 }));
+  b.at(7.8, 2.6, -19.2, -PI / 2, () => wallCamera(b, L, { tilt: 0.38 }));
   // the shelf under `p5_duty_ammo` (7.5, 1.2, −11.0)
   b.at(7.8, 1.17, -11.0, -PI / 2, () => wallShelf(b, L, { w: 0.6, d: 0.4 }));
   // the brew table in the north-east corner: kettle, mugs (nobody has been here since Monday)
@@ -470,25 +447,29 @@ function buildDuty(L: LevelBuild): DutyParts {
   b.at(-4.6, 1.6, -10.2, PI, () => noticeBoard(b, L, { w: 1.4, notices: ['WATCH BILL\nDUTY ROOM — MON', 'LINK DRILL\nALL STATIONS 08:40', 'READINESS TRIAL\nDAY 9', 'SDV TERN\nDIVES — SEE DIVE BOARD'] }));
 
   // ── structure: frames, cable tray, pipes, luminaires, emergency fitting ──
-  wallFrames(b, -7.8, 1, [-11.0, -16.0, -20.8], -21.8, -10.2, H);
-  wallFrames(b, 7.8, -1, [-17.9, -21.0], -21.8, -18.0, H);
-  cableTray(b, -7.7, 7.7, -12.0, 3.18, 'x');
-  pipeRun(b, -7.7, 7.7, -21.62, 3.0, 'x', 0.05, -1);
-  batten(b, -2.6, H, -18.2, 'x', 1.5, glass);
-  batten(b, 3.6, H, -14.0, 'x', 1.5, glass);
-  batten(b, -4.6, H, -12.8, 'x', 1.5, glass);
-  batten(b, 4.6, H, -19.0, 'x', 1.5, glass);
-  b.at(-3.0, 3.4, -18.4, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); }); // (ceiling fittings)
-  b.at(4.0, 3.4, -13.6, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); });
+  const st = vesselRoom(b, L, {
+    x0: -7.8, x1: 7.8, z0: -21.8, z1: -10.2, h: H, axis: 'z', frameNo: 6,
+    clear: [['x0', -19.7, -16.3], ['x1', -17.8, -13.4], ['z1', -1.8, 1.8], ['z1', -5.4, -3.8], ['z1', 2.9, 4.7], ['z0', -5.8, -2.2], ['z0', 4.3, 5.7]],
+  });
+  const ceil = H - 0.172, HB = H - 0.072;
+  cableTray(b, -7.7, 7.7, -12.9, ceil - 0.1, 'x');
+  serviceRun(b, L, { along: 'z', a: -21.8, b: -10.2, c: 7.1, ceil, hangers: st, pipes: [[0.05, 0, 0.04, 'pipe'], [0.035, -0.18, 0.06, 'steel'], [0.06, -0.42, 0.04, 'lagged']] });
+  serviceRun(b, L, { along: 'z', a: -21.8, b: -10.2, c: -7.1, ceil, hangers: st, pipes: [[0.04, 0, 0.05, 'pipe']], tray: { w: 0.3, c: 0.45, drop: 0.1 } });
+  batten(b, -2.6, HB, -18.2, 'x', 1.5, glass);
+  batten(b, 3.6, HB, -14.0, 'x', 1.5, glass);
+  batten(b, -4.6, HB, -12.8, 'x', 1.5, glass);
+  batten(b, 4.6, HB, -19.0, 'x', 1.5, glass);
+  b.at(-3.0, HB, -18.9, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); }); // (ceiling fittings)
+  b.at(4.0, HB, -13.4, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); });
   b.decal('scratches', 1, -1.5, 0.002, -14.2, 2.6, 1.2, '+y');
 
   const hs = lights(L, [
     // over the soldier's mark / the ready door (the cutscene), and over the entry + the desk's front (the door opens on it)
-    { group: 'duty5', type: 'point', p: [-2.6, 3.25, -18.2], color: WARM, i: 15, d: 12.5 },
-    { group: 'duty5', type: 'point', p: [3.6, 3.25, -14.0], color: WARM, i: 15, d: 12.5 },
+    { group: 'duty5', type: 'point', p: [-2.6, 3.1, -18.2], color: WARM, i: 15, d: 12.5 },
+    { group: 'duty5', type: 'point', p: [3.6, 3.1, -14.0], color: WARM, i: 15, d: 12.5 },
     { group: 'duty5', type: 'spot', p: [desk.lamp.pos.x, desk.lamp.pos.y - 0.04, desk.lamp.pos.z], t: desk.lamp.target.toArray() as [number, number, number], color: LAMP, i: 6, d: 4, angle: 1.0, cast: true, prio: 0.8, min: 'medium' },
-    emergRow('duty5_emerg', -3.0, 3.2, -18.4, 10, 14),
-    emergRow('duty5_emerg', 4.0, 3.2, -13.6, 10, 14),
+    emergRow('duty5_emerg', -3.0, 3.1, -18.9, 10, 14),
+    emergRow('duty5_emerg', 4.0, 3.1, -13.4, 10, 14),
   ]);
   hs[0].bindEmissive(glass, 0.6);
   hs[3].bindEmissive(eglass, 1.2);
@@ -551,28 +532,98 @@ function buildReady(L: LevelBuild): ReadyParts {
   b.at(-11.8, 1.6, -25.6, PI / 2, () => noticeBoard(b, L, { notices: ['READY ROOM\nKIT CHECK DAILY 07:30', 'COLLAR CHECK\nMON 08:40 — ALL HANDS', 'WEAPON LIGHTS\nON — DARKEN SHIP'] }));
   navySign(b, 'READY ROOM — DETACHMENT', -4.0, 2.75, -37.795, 2.2, 0.14, '+z');
 
+  // ── lived in (B1): a carbine stripped for cleaning on C1, the radio chargers on C2, weapon lights on C3, kit bags,
+  // boots and a towel by the benches, jackets and a vest on hooks on the east wall, the team board on the west wall
+  {
+    const K: Mat = 'painted_dark', cloth = paint(L, 0x26324a, 0.85), olive = paint(L, 0x4d5442, 0.8), rag = paperMat(L, 0xd9d4c6);
+    const top = 1.2;
+    // C1 (x −4.6 … −3.4, z −29.9 … −29.1): a cleaning mat, the carbine in pieces, a rod, rags, an oil bottle, a mug
+    b.detail(() => {
+      b.bx(mat, -4.45, top, -29.82, -3.55, top + 0.006, -29.18);
+      b.rbox(K, -4.05, top + 0.03, -29.5, 0.55, 0.045, 0.07, 0, 0.12, 0);              // upper receiver + barrel
+      b.rbox(K, -3.72, top + 0.03, -29.33, 0.24, 0.06, 0.07, 0, -0.3, 0);              // lower + grip
+      b.rbox(K, -3.83, top + 0.025, -29.68, 0.2, 0.05, 0.035, 0, 0.5, 0);              // bolt carrier
+      b.rbox(K, -4.32, top + 0.02, -29.32, 0.13, 0.04, 0.05, 0, -0.9, 0);              // magazine
+      b.rod('steel_raw', -4.4, top + 0.012, -29.75, -3.65, top + 0.012, -29.8, 0.004, 4);  // cleaning rod
+      b.quad(rag, -3.68, top + 0.008, -29.62, 0.16, 0.13, '+y', 0.5);
+      b.quad(rag, -4.3, top + 0.008, -29.6, 0.12, 0.1, '+y', -0.7);
+      b.cyl(paint(L, 0x8a3b2e, 0.35), -3.62, top + 0.06, -29.24, 0.022, 0.11, 'y', 8);
+    });
+    // C2 (x −4.6 … −3.4, z −34.4 … −33.6): the radio charger rack, six bays, four sets in, their LEDs
+    {
+      const led = lampLens5(L, 'red', 0.5), ledG = lampLens5(L, 'warm', 0.45);
+      b.bx(K, -4.5, top, -34.25, -3.5, top + 0.08, -33.75);
+      b.detail(() => {
+        for (let i = 0; i < 6; i++) {
+          const x = -4.42 + i * 0.165;
+          b.bx(i % 3 === 2 ? led : ledG, x + 0.06, top + 0.06, -33.749, x + 0.08, top + 0.07, -33.745);
+          if (i === 1 || i === 4) continue;
+          b.bx(K, x - 0.03, top + 0.08, -34.08, x + 0.03, top + 0.28, -33.98).rod(K, x + 0.015, top + 0.28, -34.06, x + 0.015, top + 0.42, -34.06, 0.005, 4);
+        }
+        b.sign('RADIOS — SIGN OUT', 'label', -4.0, top + 0.04, -33.745, 0.5, 0.04, '+z');
+      });
+    }
+    // C3 (x 1.4 … 2.6, z −35.6 … −34.8): weapon lights and battery packs laid out
+    b.detail(() => {
+      for (let i = 0; i < 5; i++) b.cyl(K, 1.6 + i * 0.12, top + 0.02, -35.35, 0.018, 0.14, 'z', 8);
+      for (let i = 0; i < 6; i++) b.bx(olive, 1.62 + (i % 3) * 0.11, top, -35.05 + Math.floor(i / 3) * 0.1, 1.7 + (i % 3) * 0.11, top + 0.05, -34.98 + Math.floor(i / 3) * 0.1);
+    });
+    // benches: a kit bag, a helmet, a towel; boots under them; a bag on the deck by L1
+    b.cyl(cloth, -6.9, 0.6, -32.1, 0.16, 0.6, 'z', 12);
+    b.detail(() => { b.quad(rag, -6.9, 0.452, -31.0, 0.35, 0.6, '+y', 0.1); b.quad(paperMat(L, 0xb8c4cc), 0.72, 0.452, -28.1, 0.3, 0.5, '+y', -0.2); });
+    b.push(); b.m.identity();
+    b.at(0.72, 0.45, -27.1, 0.5, () => helmetRow(b, L, { n: 1, seed: 21 }));
+    b.pop();
+    const boots = (x: number, z: number, ry: number) => b.at(x, 0, z, ry, () => { for (const s of [-1, 1]) { b.rbox('rubber', s * 0.07, 0.02, 0, 0.1, 0.04, 0.29, 0, 0, 0); b.rbox(K, s * 0.07, 0.11, -0.05, 0.09, 0.16, 0.13, 0, 0, 0); } });
+    boots(-6.75, -30.6, 1.4); boots(0.95, -26.9, -1.6); boots(-7.15, -27.0, 0.2);
+    b.cyl(olive, -7.1, 0.17, -33.6, 0.17, 0.62, 'x', 12);
+    // the east wall between the frames at −29.5 and −26.5: a hook rail, two jackets and a plate carrier hanging
+    b.bx('steel_raw', 3.76, 1.78, -29.2, 3.8, 1.82, -26.8);
+    for (const [z, k] of [[-28.8, 0], [-28.0, 1], [-27.2, 2]] as const) {
+      b.rod('steel_raw', 3.78, 1.8, z, 3.7, 1.83, z, 0.008, 4);
+      if (k === 1) {
+        // the plate carrier on its shoulder straps
+        b.rbox('webbing', 3.62, 1.5, z, 0.08, 0.36, 0.3, 0, 0, 0.04);
+        b.detail(() => { for (const dz of [-0.09, 0.0, 0.09]) b.bx('webbing', 3.55, 1.38, z + dz - 0.035, 3.58, 1.5, z + dz + 0.035); });
+        b.rod('webbing', 3.7, 1.8, z - 0.1, 3.64, 1.68, z - 0.1, 0.012, 4).rod('webbing', 3.7, 1.8, z + 0.1, 3.64, 1.68, z + 0.1, 0.012, 4);
+      } else {
+        b.geo(k ? olive : 'fatigue_navy', drapeGeo([
+          { c: [0, -0.02, 0], rx: 0.04, rz: 0.06 }, { c: [0, -0.1, 0], rx: 0.07, rz: 0.2, fold: 0.004, nf: 4 },
+          { c: [0, -0.35, 0], rx: 0.08, rz: 0.21, fold: 0.012, nf: 6, ph: k }, { c: [0, -0.7, 0.005], rx: 0.09, rz: 0.22, fold: 0.018, nf: 7, ph: 1 + k },
+        ], 18, 30 + k, { top: 0.01 }), 'box', new THREE.Matrix4().makeTranslation(3.69, 1.82, z));
+      }
+    }
+    // the team board on the west wall between the frames at −35.5 and −32.5
+    b.bx('painted_white', -11.8, 1.15, -35.2, -11.78, 2.05, -33.8);
+    b.bx('steel_raw', -11.8, 1.12, -35.22, -11.77, 1.15, -33.78);
+    b.detail(() => b.sign('LINK DRILL 08:40\nTEAM A — SPINE · TEAM B — BAY\nKIT CHECK 07:30 — ALL HANDS', 'label', -11.776, 1.62, -34.5, 1.3, 0.75, '+x'));
+  }
+
   // ── structure: frames, cable trays, pipes, luminaires, emergency fitting ──
-  wallFrames(b, -11.8, 1, [-23.0, -28.0, -33.5, -37.0], -37.8, -22.2, H);
-  wallFrames(b, 3.8, -1, [-26.5, -31.5, -36.6], -37.0, -23.6, H);
-  cableTray(b, -11.7, 3.7, -24.0, 3.18, 'x');
-  cableTray(b, -24.2, -36.8, -9.6, 3.18, 'z');
-  pipeRun(b, -11.7, 3.7, -37.62, 3.0, 'x', 0.05, -1);
-  batten(b, -4.0, H, -28.5, 'x', 1.5, glass); // (one lamp per aisle: a lamp lights the locker faces either side of it)
-  batten(b, 2.0, H, -31.0, 'z', 1.5, glass);
-  batten(b, -9.9, H, -31.0, 'z', 1.5, glass);
-  batten(b, -4.0, H, -25.0, 'x', 1.5, glass);
-  batten(b, -4.0, H, -35.0, 'x', 1.5, glass);
-  batten(b, 2.0, H, -25.0, 'z', 1.5, glass);
-  b.at(-6.0, 3.4, -28.0, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); }); // (ceiling fittings over the aisles)
-  b.at(1.2, 3.4, -32.5, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); });
+  const st = vesselRoom(b, L, {
+    x0: -11.8, x1: 3.8, z0: -37.8, z1: -22.2, h: H, axis: 'z', frameNo: 10,
+    clear: [['z1', -5.8, -2.2], ['z1', -10.4, -9.6], ['z0', -5.2, -2.8], ['x0', -26.3, -24.9]],
+  });
+  const ceil = H - 0.172, HB = H - 0.072;
+  cableTray(b, -11.7, 3.7, -24.2, ceil - 0.1, 'x');
+  serviceRun(b, L, { along: 'z', a: -37.8, b: -22.2, c: -10.9, ceil, hangers: st, pipes: [[0.05, 0, 0.04, 'pipe'], [0.035, 0.17, 0.06, 'steel']], tray: { w: 0.34, c: -9.6, drop: 0.12 } });
+  serviceRun(b, L, { along: 'z', a: -37.8, b: -22.2, c: 3.1, ceil, hangers: st, pipes: [[0.06, 0, 0.04, 'lagged'], [0.035, -0.2, 0.06, 'pipe']] });
+  batten(b, -4.0, HB, -28.5, 'x', 1.5, glass); // (one lamp per aisle: a lamp lights the locker faces either side of it)
+  batten(b, 2.0, HB, -31.0, 'z', 1.5, glass);
+  batten(b, -9.9, HB, -31.0, 'z', 1.5, glass);
+  batten(b, -4.0, HB, -25.0, 'x', 1.5, glass);
+  batten(b, -4.0, HB, -34.9, 'x', 1.5, glass);
+  batten(b, 2.0, HB, -25.0, 'z', 1.5, glass);
+  b.at(-6.0, HB, -28.0, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); }); // (ceiling fittings over the aisles)
+  b.at(1.2, HB, -31.6, 0, () => { b.push(0, 0, 0, 0, PI / 2); emergFitting(b, eglass); b.pop(); });
   b.decal('scratches', 3, -6.0, 0.012, -29.5, 1.4, 3.0, '+y');
 
   const hs = lights(L, [
-    { group: 'ready5', type: 'point', p: [-4.0, 3.25, -28.5], color: WARM, i: 12, d: 12 },
-    { group: 'ready5', type: 'point', p: [2.0, 3.25, -31.0], color: WARM, i: 11, d: 11 },
-    { group: 'ready5', type: 'point', p: [-9.9, 3.25, -31.0], color: WARM, i: 8, d: 9, min: 'medium' },
-    emergRow('ready5_emerg', -6.0, 3.2, -28.0, 10, 14),
-    emergRow('ready5_emerg', 1.2, 3.2, -32.5, 10, 14),
+    { group: 'ready5', type: 'point', p: [-4.0, 3.1, -28.5], color: WARM, i: 12, d: 12 },
+    { group: 'ready5', type: 'point', p: [2.0, 3.1, -31.0], color: WARM, i: 11, d: 11 },
+    { group: 'ready5', type: 'point', p: [-9.9, 3.1, -31.0], color: WARM, i: 8, d: 9, min: 'medium' },
+    emergRow('ready5_emerg', -6.0, 3.1, -28.0, 10, 14),
+    emergRow('ready5_emerg', 1.2, 3.1, -31.6, 10, 14),
   ]);
   hs[0].bindEmissive(glass, 0.6);
   hs[3].bindEmissive(eglass, 1.2);
@@ -646,7 +697,8 @@ function readyVignettes(L: LevelBuild, r: ReadyParts) {
 
 // ═════════════════════════════════════════════════════════════ export
 
-const LOOK = { wall: 'navy_grey' as Mat, ceiling: 'ceiling_panel' as Mat, floor: 'deck_nonslip' as Mat };
+/** B1: the hull's plating on the walls, a plate deckhead between the beams, non-slip deck paint (ready room: + mats). */
+const LOOK = { wall: 'hull_white' as Mat, ceiling: 'navy_grey' as Mat, floor: 'deck_nonslip' as Mat };
 
 export const FORE_DRESS: Partial<Record<RoomId5, RoomDress>> = {
   lock5: { build: buildLock, lights: [], look: LOOK, label: false },

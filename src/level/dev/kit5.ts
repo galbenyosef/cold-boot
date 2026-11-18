@@ -104,7 +104,7 @@ defineInstances(L);
 type Wall = 'grey' | 'hull' | 'none';
 interface Entry { name: string; cell: number; mount: 'floor' | 'wall' | 'ceil'; x?: number; y?: number; z?: number; ry?: number; view?: [number, number, number]; build: (b: Builder) => void }
 const P: Record<string, unknown> = {};
-const cellWall = new Map<number, Wall>([[8, 'hull'], [9, 'hull'], [19, 'hull'], [22, 'hull'], [25, 'hull']]);
+const cellWall = new Map<number, Wall>([[8, 'hull'], [9, 'hull'], [19, 'hull'], [22, 'hull'], [25, 'hull'], [27, 'hull']]);
 const E: Entry[] = [
   // gatehouse
   { name: 'turnstile', cell: 0, mount: 'floor', x: -1.4, view: [35, -18, 2.6], build: (b) => { b.at(-0.5, 0, 0, 0, () => { P.turn = K.turnstile(b, L, { name: 'dev_turn_a' }); }); b.at(0.5, 0, 0, 0, () => K.turnstile(b, L, { name: 'dev_turn_b' })); } },
@@ -185,6 +185,16 @@ const E: Entry[] = [
     b.at(1.5, 0.6, 0.6, 0, () => K.bulkheadLamp(b, L, { color: 'amber', mount: 'ceiling', caged: false }));
   } },
   { name: 'navySign', cell: 26, mount: 'wall', build: (b) => { K.navySign(b, 'BILGE ACCESS — CRAWLWAY TO MAGAZINE — CROUCH', 0, 1.3, 0.001, 2.8, 0.2, '+z'); K.hullNumber(b, 'FR 112', -2.4, 2.9, 0.001, '+z'); K.navySign(b, 'TRUNK — HEAD-END 200 M ←', 1.2, 0.8, 0.001, 1.8, 0.16, '+z', { plate: true }); } },
+  // IB5a: the vessel shell (a 6 × 3.2 m compartment corner), the navy body (B4) and its hand on a stair tread
+  { name: 'vesselRoom', cell: 27, mount: 'floor', view: [25, 10, 5.5], build: (b) => {
+    K.vesselRoom(b, L, { x0: -3.4, x1: 3.4, z0: -2.8, z1: 3.4, h: 3.2, axis: 'z', at: [-1.5, 1.5], frameNo: 41 });
+    K.serviceRun(b, L, { along: 'z', a: -2.8, b: 3.4, c: 2.6, ceil: 3.2 - 0.172, hangers: [-1.5, 1.5], tray: { w: 0.34, c: -1.0, drop: 0.12 } });
+  } },
+  { name: 'navyBody', cell: 28, mount: 'floor', ry: Math.PI / 2, view: [35, -35, 3.2], build: (b) => { K.navyBody(b, L); } },
+  { name: 'navyHand', cell: 28, mount: 'floor', x: 2.2, z: 1.6, view: [40, -40, 1.1], build: (b) => {
+    b.bx('navy_grey', -0.6, 0, -0.5, 0.6, 0.3, 0.0).bx('navy_grey', -0.6, 0, -1.0, 0.6, 0.6, -0.5);
+    b.at(0, 0.3, -0.12, 0, () => K.navyHand(b, L, { over: 0.12 }));
+  } },
 ];
 const CELL = 7, PER_ROW = 6, WALL_Z = -2.8;
 const cellPos = (c: number) => new THREE.Vector3((c % PER_ROW) * CELL * 1.25, 0, -Math.floor(c / PER_ROW) * CELL * 1.25);

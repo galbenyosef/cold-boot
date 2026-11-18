@@ -1807,36 +1807,129 @@ export function frostedWindow(b: Builder, L: LevelBuild, o: { w?: number; h?: nu
  * (returns `dur`; the vignette plays `hook_creak` at `creak`); `sway(on)` = an idle sway; `at(t)` scrubs the swing; `snap()`
  * = swaying idle. */
 export interface Oilskin extends MovingPart5 { swing(): { dur: number; creak: number }; sway(on: boolean): void; at(t: number): void; snap(): void }
+/** One ring of a `drapeGeo` tube: centre, half-widths, vertical fold amplitude (m) and count, phase. */
+interface DRing { c: [number, number, number]; rx: number; rz: number; fold?: number; nf?: number; ph?: number }
 /**
- * Yellow oilskin coat on a hook (`mk5_oilskin`, behind the frosted window; `v5_galley_shape`). Ceiling / hook prop: origin
- * = the hook point, the coat hangs 1.35 m down −y, its FRONT +z (face the window), swinging about local z (= across a
- * window lying in local x-y): hood, shoulders, a body widening to the hem, sleeves hanging with cuffs, pockets.
- * Calls: 1 static (steel_raw hook) + 1 moving (oilskin yellow).
+ * Soft cloth tube through horizontal rings (a hanging coat body, a sleeve, a hood): elliptic sections with vertical drape
+ * folds (two sine families + a little noise, growing with `fold`), smooth normals, an optional cap at the first / last
+ * ring, and an inner layer (reversed, 6 mm in) so an open hem or cuff reads as cloth from below.
+ */
+export function drapeGeo(rings: DRing[], seg: number, seed: number, cap: { top?: number; bottom?: number } = {}): THREE.BufferGeometry {
+  const R = srand(seed), pos: number[] = [], idx: number[] = [];
+  const jit = rings.map(() => Array.from({ length: seg }, () => (R() - 0.5) * 0.3));
+  const ringPts = (shrink: number) => rings.map((r, i) => {
+    const out: [number, number, number][] = [];
+    for (let j = 0; j < seg; j++) {
+      const a = (j / seg) * 2 * PI, f = r.fold ?? 0, nf = r.nf ?? 9, ph = r.ph ?? 0;
+      const d = f * (0.62 * Math.sin(nf * a + ph) + 0.38 * Math.sin(2.2 * nf * a + ph * 1.7 + 0.5) + jit[i][j]);
+      out.push([r.c[0] + Math.cos(a) * (r.rx + d - shrink), r.c[1], r.c[2] + Math.sin(a) * (r.rz + d * 0.8 - shrink)]);
+    }
+    return out;
+  });
+  const layer = (pts: [number, number, number][][], flip: boolean) => {
+    const base = pos.length / 3;
+    for (const ring of pts) for (const v of ring) pos.push(...v);
+    for (let i = 0; i < pts.length - 1; i++) for (let j = 0; j < seg; j++) {
+      const a = base + i * seg + j, b = base + i * seg + ((j + 1) % seg), c = a + seg, d = b + seg;
+      if (flip) idx.push(a, b, c, b, d, c); else idx.push(a, c, b, b, c, d);
+    }
+    const capAt = (i: number, dy: number, down: boolean) => {
+      const r = rings[i], ci = pos.length / 3;
+      pos.push(r.c[0], r.c[1] + dy, r.c[2]);
+      for (let j = 0; j < seg; j++) {
+        const a = base + i * seg + j, b = base + i * seg + ((j + 1) % seg);
+        if (down !== flip) idx.push(ci, a, b); else idx.push(ci, b, a);
+      }
+    };
+    if (!flip && cap.top !== undefined) capAt(0, cap.top, false);
+    if (!flip && cap.bottom !== undefined) capAt(pts.length - 1, -cap.bottom, true);
+  };
+  layer(ringPts(0), false);
+  if (cap.top === undefined || cap.bottom === undefined) layer(ringPts(0.006), true);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Yellow oilskin coat on a hanger on a hook (`mk5_oilskin`, behind the frosted window; `v5_galley_shape`; B3). Hook prop:
+ * origin = the hook point, the coat hangs 1.36 m down −y, its FRONT +z (face the window), swinging about local z (= across
+ * a window lying in local x-y). Built as cloth, not blocks: a steel hanger whose neck and hook show above a stand-up
+ * collar; sloping shoulders (no head: the HOOD hangs empty down the back); a body widening to the hem in soft vertical
+ * drape folds; a placket with toggles, pocket flaps; the sleeves hang slightly forward, bunched at the elbow, their
+ * cuffs at the window's clear corner. At rest the shape is a coat; when the draught takes it (`swing()`) it swings and
+ * twists and the sleeves lag a beat behind the shoulders — only then does it move like someone.
+ * Calls: 1 static (steel_raw hook) + 3 moving (coat yellow + hanger steel + the sleeves on their own pivot).
  */
 export function oilskin(b: Builder, L: LevelBuild, o: { name?: string } = {}): Oilskin {
-  const S: Mat = 'steel_raw', Y = oilskinMat(L);
+  const S: Mat = 'steel_raw', Y = oilskinMat(L), name = o.name ?? 'oilskin5';
   b.bx(S, -0.03, 0.0, -0.03, 0.03, 0.04, 0.03);
   b.rod(S, 0, 0, 0, 0, -0.08, 0.02, 0.006, 5).rod(S, 0, -0.08, 0.02, 0, -0.05, 0.06, 0.006, 5);
-  const part = part5(b, L, o.name ?? 'oilskin5', 0, -0.06, 0.04, (p) => {
-    p.torus(Y, 0, -0.03, 0, 0.03, 0.006, 'z', 8); // hanging loop
-    p.sphere(Y, 0, -0.22, -0.02, 0.15, 12, 1.15, 0.85, 1.0); // hood (empty, slumped)
-    p.rbox(Y, 0, -0.38, 0, 0.5, 0.12, 0.24, 0, 0, 0); // shoulders
-    const seg: [number, number, number, number][] = [[-0.44, -0.7, 0.48, 0.26], [-0.7, -0.98, 0.54, 0.28], [-0.98, -1.22, 0.6, 0.3], [-1.22, -1.36, 0.64, 0.31]];
-    for (const [y0, y1, w, d] of seg) p.bx(Y, -w / 2, y1 - 0.02, -d / 2, w / 2, y0, d / 2); // (each overlaps the next: no shared faces)
-    for (const s of [-1, 1]) {
-      p.rod(Y, s * 0.25, -0.4, 0, s * 0.31, -1.0, 0.04, 0.065, 8);
-      p.cyl(Y, s * 0.31, -1.02, 0.04, 0.07, 0.06, 'y', 8);
-      p.bx(Y, s * 0.16 - 0.09, -1.12, 0.15, s * 0.16 + 0.09, -0.96, 0.17); // pocket flaps
-    }
-    p.bx(Y, -0.012, -1.36, 0.14, 0.012, -0.44, 0.16); // front fly
+  const SH = -0.215; // the shoulder line (pivot space): the sleeves' own pivot
+  const part = part5(b, L, name, 0, -0.06, 0.04, (p) => {
+    // the hanger: hook over the peg, neck, arms inside the shoulders
+    p.torus(S, 0, -0.025, 0, 0.022, 0.004, 'z', 10);
+    p.rod(S, 0, -0.045, 0, 0, -0.1, 0, 0.004, 5);
+    for (const s of [-1, 1]) p.rod(S, 0, -0.1, 0, s * 0.2, -0.175, 0, 0.006, 5);
+    // collar (stand-up, open) and the body (capped inside at the collar's base)
+    p.geo(Y, drapeGeo([{ c: [0, -0.085, 0.004], rx: 0.07, rz: 0.06 }, { c: [0, -0.13, 0.002], rx: 0.078, rz: 0.068 }], 20, 3), 'box');
+    p.geo(Y, drapeGeo([
+      { c: [0, -0.125, 0], rx: 0.08, rz: 0.07 },
+      { c: [0, -0.15, 0], rx: 0.165, rz: 0.1 },
+      { c: [0, -0.185, 0], rx: 0.215, rz: 0.118 },
+      { c: [0, -0.24, 0], rx: 0.245, rz: 0.13, fold: 0.003, nf: 5 },
+      { c: [0, -0.4, 0.003], rx: 0.24, rz: 0.138, fold: 0.007, nf: 7, ph: 0.4 },
+      { c: [0, -0.62, 0.006], rx: 0.245, rz: 0.142, fold: 0.012, nf: 8, ph: 0.9 },
+      { c: [0.004, -0.88, 0.008], rx: 0.262, rz: 0.15, fold: 0.019, nf: 9, ph: 1.3 },
+      { c: [0.008, -1.12, 0.01], rx: 0.282, rz: 0.158, fold: 0.026, nf: 9, ph: 1.6 },
+      { c: [0.012, -1.3, 0.012], rx: 0.298, rz: 0.165, fold: 0.031, nf: 10, ph: 1.9 },
+      { c: [0.012, -1.355, 0.012], rx: 0.3, rz: 0.166, fold: 0.031, nf: 10, ph: 2.0 },
+    ], 36, 7, { top: 0.012 }), 'box');
+    // the hood, empty, hanging down the back from the collar (a soft peaked bag against the back)
+    p.geo(Y, drapeGeo([
+      // (it starts BELOW the shoulder line at the back: seen from the front, nothing rises above the collar but the hook)
+      { c: [0, -0.15, -0.09], rx: 0.07, rz: 0.03 },
+      { c: [0, -0.23, -0.155], rx: 0.14, rz: 0.055, fold: 0.006, nf: 4 },
+      { c: [0.005, -0.35, -0.175], rx: 0.155, rz: 0.06, fold: 0.01, nf: 5, ph: 1 },
+      { c: [0.01, -0.47, -0.17], rx: 0.12, rz: 0.05, fold: 0.008, nf: 4, ph: 2 },
+      { c: [0.015, -0.54, -0.155], rx: 0.045, rz: 0.02 },
+    ], 20, 11, { bottom: 0.03 }), 'box');
+    // placket, toggles, pocket flaps (on the front, following the drape)
+    p.rbox(Y, 0.006, -0.73, 0.15, 0.05, 1.18, 0.012, 0, 0, 0.01);
+    for (let k = 0; k < 4; k++) p.cyl('painted_dark', 0.006, -0.3 - k * 0.22, 0.158, 0.013, 0.012, 'z', 8);
+    for (const s of [-1, 1]) p.rbox(Y, s * 0.15, -0.82, 0.155, 0.17, 0.07, 0.014, -0.08, 0, s * 0.12);
   });
+  // the sleeves on their own pivot at the shoulder line (they lag the swing)
+  const sl = L.part(`${name}:sleeves`);
+  for (const s of [-1, 1]) {
+    const A: [number, number, number] = [s * 0.225, -0.02, 0.0], B: [number, number, number] = [s * 0.3, -0.79, 0.045];
+    const at = (k: number, r: number, f = 0, ph = 0): DRing => ({ c: [A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k, A[2] + (B[2] - A[2]) * k], rx: r, rz: r * 0.92, fold: f, nf: 5, ph });
+    sl.geo(Y, drapeGeo([at(0, 0.07), at(0.12, 0.078, 0.003), at(0.35, 0.074, 0.006, 1), at(0.5, 0.079, 0.01, 2), at(0.58, 0.072, 0.006, 3), at(0.8, 0.068, 0.006, 4), at(0.96, 0.064, 0.004, 5), at(1, 0.07)], 16, 17 + s, { top: 0.0, bottom: 0.02 }), 'box');
+  }
+  const sPivot = new THREE.Group();
+  sPivot.name = `${name}:sleeves`;
+  sPivot.position.set(0, SH, 0);
+  sPivot.add(sl.build());
+  part.pivot.add(sPivot);
+
   let sway = false, st = 0;
+  const env = (t: number) => smooth(t / 0.35) * Math.exp(-0.75 * Math.max(0, t));
+  const swingZ = (t: number) => 0.6 * Math.sin((2 * PI * t) / 2.3) * env(t);
+  const swingY = (t: number) => 0.45 * Math.sin((2 * PI * t) / 1.7) * env(t);
   const swingAt = (t: number) => {
-    const env = smooth(t / 0.35) * Math.exp(-0.75 * t);
-    part.pivot.rotation.set(0, 0.45 * Math.sin((2 * PI * t) / 1.7) * env, 0.6 * Math.sin((2 * PI * t) / 2.3) * env, 'YXZ');
+    part.pivot.rotation.set(0, swingY(t), swingZ(t), 'YXZ');
+    // the sleeves trail the shoulders by ~0.2 s and swing out on the turn
+    sPivot.rotation.set(0.25 * (swingY(Math.max(0, t - 0.15)) - swingY(t)), 0, 0.8 * (swingZ(Math.max(0, t - 0.2)) - swingZ(t)), 'XYZ');
   };
   const DUR = 4.2, tl = timeline(L, DUR, swingAt);
-  L.updaters.push((dt) => { if (!sway || tl.playing) return; st += dt; part.pivot.rotation.set(0, 0.06 * Math.sin(st * 1.9), 0.05 * Math.sin((2 * PI * st) / 2.3), 'YXZ'); });
+  L.updaters.push((dt) => {
+    if (!sway || tl.playing) return;
+    st += dt;
+    part.pivot.rotation.set(0, 0.06 * Math.sin(st * 1.9), 0.05 * Math.sin((2 * PI * st) / 2.3), 'YXZ');
+    sPivot.rotation.set(0, 0, 0.02 * Math.sin((2 * PI * st) / 2.3) - 0.02 * Math.sin((2 * PI * (st - 0.2)) / 2.3), 'XYZ');
+  });
   return { ...part, swing() { sway = true; st = 0; tl.play(0); return { dur: DUR, creak: 0.35 }; }, sway(on) { sway = on; }, at(t) { tl.at(t); }, snap() { tl.at(DUR); sway = true; } };
 }
 
@@ -2254,5 +2347,310 @@ export function trunkCable(b: Builder, L: LevelBuild, o: { pts: [number, number,
       b.rod('painted_yellow', p.x - dir.x * 0.04, p.y - dir.y * 0.04, p.z - dir.z * 0.04, p.x + dir.x * 0.04, p.y + dir.y * 0.04, p.z + dir.z * 0.04, r + 0.01, 12);
     }
     run += seg;
+  }
+}
+
+// ═════════════════════════════════════════════════════════════ VESSEL SHELL (IB5a, B1)
+
+/** A wall of a rectangular compartment: x0 / x1 (the west / east wall faces), z0 / z1 (the south / north wall faces). */
+export type VWall = 'x0' | 'x1' | 'z0' | 'z1';
+export interface VesselRoom {
+  /** Interior wall faces (room box ± 0.2 for the 0.4 m greybox walls) and the deckhead height. */
+  x0: number; x1: number; z0: number; z1: number; h: number;
+  /** The frames stand on the walls PARALLEL to this axis; the deck beams span across it. */
+  axis: 'x' | 'z';
+  /** Frame stations along the axis (world). Default: the spine's 3 m grid (≡ 0.5 mod 3), ≥ 0.45 m from the end walls. */
+  at?: number[];
+  /** Wall spans with no frame leg / stiffener (doors and their pockets, boards, shelves): [wall, from, to] along the wall. */
+  clear?: [VWall, number, number][];
+  /** Deck-beam depth (0.16). */
+  web?: number;
+  /** Deckhead longitudinals (flat bars) between the beams every `lon` m across the room (0.75; 0 = none). */
+  lon?: number;
+  /** Vertical stiffeners on the END bulkheads (the walls across the axis) every `stiff` m (1.5; 0 = none). */
+  stiff?: number;
+  /** A rubbing strip / stringer along the side walls at this height (null = none). */
+  stringer?: number | null;
+  /** Frame numbers painted on the second side wall's plating (the first station's number; null = none). */
+  frameNo?: number | null;
+  mat?: Mat;
+}
+/**
+ * The inside of the hull for a compartment the greybox built as a box (B1: the gatehouse, duty, ready room, berths, heads,
+ * mess and galley read as the spine and the sub bay do): transverse FRAMES at the spine's 3 m pitch — a T-section leg on
+ * each side wall (web 0.11, face flange 0.09), a knee bracket into the deck beam, the DECK BEAM spanning the deckhead
+ * (web `web`, flanged) — plus deckhead longitudinals (plate-and-beam deckhead), vertical stiffeners on the end
+ * bulkheads, an optional stringer, painted frame numbers. A leg is dropped where `clear` spans a wall (the beam then
+ * lands on a short header plate). Builder frame = world (zone builders). Visual only (no colliders, no shadow casting:
+ * `detail`). Calls: 1 (`mat`, navy_grey — shared with the zone's other navy_grey detail) + the sign atlas.
+ * Returns the stations (place ceiling fittings between them).
+ */
+export function vesselRoom(b: Builder, L: LevelBuild, o: VesselRoom): number[] {
+  void L;
+  const N: Mat = o.mat ?? 'navy_grey', web = o.web ?? 0.16, h = o.h, t = 0.012, fl = 0.045, dp = 0.11, kn = 0.36;
+  const ax = o.axis, a0 = ax === 'x' ? o.x0 : o.z0, a1 = ax === 'x' ? o.x1 : o.z1, c0 = ax === 'x' ? o.z0 : o.x0, c1 = ax === 'x' ? o.z1 : o.x1;
+  const st = o.at ?? (() => { const r: number[] = []; for (let s = Math.ceil((a0 + 0.45 - 0.5) / 3) * 3 + 0.5; s <= a1 - 0.45; s += 3) r.push(s); return r; })();
+  const sideW: [VWall, VWall] = ax === 'x' ? ['z0', 'z1'] : ['x0', 'x1'];
+  const endW: [VWall, VWall] = ax === 'x' ? ['x0', 'x1'] : ['z0', 'z1'];
+  const clear = (w: VWall, u: number, half: number) => (o.clear ?? []).some(([cw, p, q]) => cw === w && u + half > Math.min(p, q) && u - half < Math.max(p, q));
+  // a box in (along-axis a, up y, across c)
+  const B = (aa0: number, y0: number, cc0: number, aa1: number, y1: number, cc1: number) => {
+    if (ax === 'x') b.bx(N, Math.min(aa0, aa1), y0, Math.min(cc0, cc1), Math.max(aa0, aa1), y1, Math.max(cc0, cc1));
+    else b.bx(N, Math.min(cc0, cc1), y0, Math.min(aa0, aa1), Math.max(cc0, cc1), y1, Math.max(aa0, aa1));
+  };
+  // a flat bar in the frame plane from (c, y) = (ca, ya) to (cb, yb), `w` wide along the axis
+  const bar = (a: number, ca: number, ya: number, cb: number, yb: number, w: number) => {
+    const dc = cb - ca, dy = yb - ya, len = Math.hypot(dc, dy), cm = (ca + cb) / 2, ym = (ya + yb) / 2;
+    if (ax === 'x') b.rbox(N, a, ym, cm, w, t, len, Math.atan2(-dy, dc), 0, 0);
+    else b.rbox(N, cm, ym, a, len, t, w, 0, 0, Math.atan2(dy, dc));
+  };
+  b.detail(() => {
+    for (const s of st) {
+      // the deck beam: web + bottom flange, wall to wall
+      B(s - t / 2, h - web, c0, s + t / 2, h, c1);
+      B(s - fl, h - web - t, c0 + 0.002, s + fl, h - web, c1 - 0.002);
+      sideW.forEach((w, i) => {
+        const sg = i === 0 ? 1 : -1, cw = i === 0 ? c0 : c1, ci = cw + sg * dp;
+        if (clear(w, s, fl + 0.02)) {
+          // no leg here (a door / a board): the beam lands on a short header plate on the wall
+          B(s - 0.12, h - web - 0.05, cw, s + 0.12, h - web, cw + sg * 0.03);
+          return;
+        }
+        const top = h - web - kn;
+        B(s - t / 2, 0, cw, s + t / 2, top, ci);                  // web
+        B(s - fl, 0, ci, s + fl, top, ci + sg * t);               // face flange
+        // knee bracket: the web plate (stepped triangle) + its sloping face bar from the leg top to the beam
+        for (let k = 0; k < 4; k++) B(s - t / 2, top + kn * (k / 4), cw, s + t / 2, top + kn * ((k + 1) / 4), ci + sg * (kn - dp) * ((k + 0.5) / 4));
+        bar(s, ci + sg * t / 2, top, cw + sg * (kn + 0.02), h - web - t, fl * 2);
+      });
+    }
+    // deckhead longitudinals between the beams
+    const lon = o.lon ?? 0.75;
+    if (lon > 0) for (let c = c0 + lon; c < c1 - 0.2; c += lon) B(a0 + 0.004, h - 0.07, c - 0.005, a1 - 0.004, h, c + 0.005);
+    // end-bulkhead stiffeners (vertical flat bars with a face), clear of doors / boards
+    const sp = o.stiff ?? 1.5;
+    if (sp > 0) endW.forEach((w, i) => {
+      const sg = i === 0 ? 1 : -1, aw = i === 0 ? a0 : a1;
+      for (let c = c0 + sp; c < c1 - 0.3; c += sp) {
+        if (clear(w, c, 0.04)) continue;
+        B(aw, 0.1, c - 0.005, aw + sg * 0.075, h - 0.002, c + 0.005);
+        B(aw + sg * 0.075, 0.1, c - 0.03, aw + sg * 0.085, h - 0.072, c + 0.03);
+      }
+    });
+    // stringer (a flat bar on edge with a capping flat) along the side walls, broken at the clear spans
+    if (o.stringer != null) {
+      const y = o.stringer;
+      sideW.forEach((w, i) => {
+        const sg = i === 0 ? 1 : -1, cw = i === 0 ? c0 : c1;
+        const cuts = (o.clear ?? []).filter(([w2]) => w2 === w).map(([, p, q]) => [Math.min(p, q), Math.max(p, q)] as [number, number]).sort((p, q) => p[0] - q[0]);
+        let a = a0 + 0.004;
+        for (const [p, q] of [...cuts, [a1 - 0.004, 1e9] as [number, number]]) {
+          const e = Math.min(p, a1 - 0.004);
+          if (e - a > 0.15) { B(a, y - 0.05, cw, e, y + 0.05, cw + sg * 0.012); B(a, y + 0.038, cw + sg * 0.012, e, y + 0.05, cw + sg * 0.055); }
+          a = Math.max(a, q);
+        }
+      });
+    }
+  });
+  // frame numbers on the second side wall's plating, beside every other leg
+  if (o.frameNo != null) {
+    const w = sideW[1], cw = c1, face: Face = ax === 'x' ? '-z' : '-x';
+    st.forEach((s, i) => {
+      if (i % 2 || clear(w, s + 0.45, 0.3)) return;
+      const text = `FR ${o.frameNo! + i}`;
+      if (ax === 'x') hullNumber(b, text, s + 0.45, h - web - 0.6, cw - 0.002, face, 0.14);
+      else hullNumber(b, text, cw - 0.002, h - web - 0.6, s + 0.45, face, 0.14);
+    });
+  }
+  return st;
+}
+
+/**
+ * An overhead service run under the deck beams (B1: pipes and a cable tray in every compartment), along x or z from `a`
+ * to `b` at `c` across, under the beams' underside `ceil`: `pipes` [r, offset across, drop below `ceil` to the pipe's
+ * top, kind] (painted service pipe / lagged / bare steel, flanged every 3 m), an optional cable tray {w, c, drop} with
+ * four cables, all hung on drop rods + straps at `hangers` (stations along the run). Builder frame = world. Visual only.
+ * Calls: steel_raw + pipe paint (+ lagging) + rubber — materials the zones already draw.
+ */
+export function serviceRun(b: Builder, L: LevelBuild, o: { along: 'x' | 'z'; a: number; b: number; c: number; ceil: number; hangers?: number[]; pipes?: [number, number, number, 'pipe' | 'lagged' | 'steel'][]; tray?: { w: number; c: number; drop: number } | null }) {
+  const P = pipePaint(L), S: Mat = 'steel_raw';
+  const lo = Math.min(o.a, o.b), hi = Math.max(o.a, o.b), len = hi - lo, mid = (lo + hi) / 2;
+  const pipes = o.pipes ?? [[0.05, 0, 0.06, 'pipe'], [0.035, 0.16, 0.08, 'steel']];
+  const at = (u: number, c: number): [number, number] => (o.along === 'x' ? [u, c] : [c, u]);
+  const box = (u0: number, y0: number, cc0: number, u1: number, y1: number, cc1: number) => {
+    const [xa, za] = at(u0, cc0), [xb, zb] = at(u1, cc1);
+    b.bx(S, Math.min(xa, xb), y0, Math.min(za, zb), Math.max(xa, xb), y1, Math.max(za, zb));
+  };
+  b.detail(() => {
+    for (const [r, dc, drop, k] of pipes) {
+      const y = o.ceil - drop - r, [x, z] = at(mid, o.c + dc);
+      const m: Mat = k === 'pipe' ? P : k === 'lagged' ? tint5(L, 'lagging', 'painted_white', 0xd4d0c4, { roughness: 0.85 }) : S;
+      b.cyl(m, x, y, z, k === 'lagged' ? r + 0.02 : r, len, o.along, 10);
+      for (let u = lo + 1.5; u < hi - 0.3; u += 3) { const [fx, fz] = at(u, o.c + dc); b.cyl(S, fx, y, fz, r + (k === 'lagged' ? 0.035 : 0.022), 0.03, o.along, 10); }
+    }
+    if (o.tray) {
+      const { w, c, drop } = o.tray, y = o.ceil - drop;
+      for (const s of [-1, 1]) box(lo, y, c + s * w / 2 - 0.004, hi, y + 0.07, c + s * w / 2 + 0.004);
+      for (let u = lo + 0.15; u < hi; u += 0.3) box(u - 0.012, y, c - w / 2, u + 0.012, y + 0.01, c + w / 2);
+      for (let i = 0; i < 4; i++) { const [x, z] = at(mid, c - w / 2 + 0.06 + i * (w - 0.12) / 3); b.cyl('rubber', x, y + 0.026 + (i % 2) * 0.01, z, 0.016 + (i % 3) * 0.004, len, o.along, 6); }
+    }
+    for (const u of o.hangers ?? []) {
+      if (u < lo + 0.1 || u > hi - 0.1) continue;
+      for (const [r, dc, drop, k] of pipes) {
+        const rr = k === 'lagged' ? r + 0.02 : r, yb = o.ceil - drop - r - rr - 0.01, [x0, z0] = at(u, o.c + dc);
+        b.rod(S, x0, o.ceil, z0, x0, yb + 0.01, z0, 0.006, 4);
+        box(u - 0.015, yb, o.c + dc - rr - 0.02, u + 0.015, yb + 0.01, o.c + dc + rr + 0.02);
+      }
+      if (o.tray) {
+        const { w, c, drop } = o.tray;
+        for (const s of [-1, 1]) { const [x0, z0] = at(u, c + s * (w / 2 + 0.02)); b.rod(S, x0, o.ceil, z0, x0, o.ceil - drop, z0, 0.006, 4); }
+        box(u - 0.02, o.ceil - drop - 0.02, c - w / 2 - 0.03, u + 0.02, o.ceil - drop, c + w / 2 + 0.03);
+      }
+    }
+  });
+}
+
+// ═════════════════════════════════════════════════════════════ NAVY BODY (IB5a, B4)
+
+type P3 = [number, number, number];
+/** Frame for a cloth / limb tube from A down to B (local −y → B − A), local x as close to `side` as possible. */
+function tubeFrame(A: P3, B: P3, side: P3 = [1, 0, 0]): THREE.Matrix4 {
+  const y = new THREE.Vector3(A[0] - B[0], A[1] - B[1], A[2] - B[2]).normalize();
+  const x = new THREE.Vector3(...side).addScaledVector(y, -new THREE.Vector3(...side).dot(y));
+  if (x.lengthSq() < 1e-6) x.set(0, 0, 1).addScaledVector(y, -y.z);
+  x.normalize();
+  const z = new THREE.Vector3().crossVectors(x, y).normalize();
+  return new THREE.Matrix4().makeBasis(x, y, z).setPosition(A[0], A[1], A[2]);
+}
+/**
+ * A cloth / flesh tube from A to B (radii ra → rb, section `flat` = depth / width), rounded ends, with `bunch` (0 … 1)
+ * horizontal bunching rings and vertical creases (cloth), as one `drapeGeo` placed by `tubeFrame`.
+ */
+function limb(b: Builder, M: Mat, A: P3, B: P3, ra: number, rb: number, o: { seed: number; bunch?: number; flat?: number; side?: P3; ends?: boolean; seg?: number }) {
+  const len = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]), bunch = o.bunch ?? 0, flat = o.flat ?? 1, R = srand(o.seed);
+  const rings: DRing[] = [];
+  const ends = o.ends !== false;
+  if (ends) for (const [k, s] of [[0.85, 0.35], [0.5, 0.72]] as const) rings.push({ c: [0, ra * k, 0], rx: ra * s, rz: ra * s * flat });
+  const n = Math.max(3, Math.round(len / 0.03)), ph = R() * 6.28, fr = (2 * PI) / (0.07 + R() * 0.03);
+  for (let i = 0; i <= n; i++) {
+    const k = i / n, y = -k * len;
+    const r = (ra + (rb - ra) * k) * (1 + bunch * 0.07 * Math.sin(-y * fr + ph) * (0.6 + 0.4 * Math.sin(k * 7 + ph)));
+    rings.push({ c: [0, y, 0], rx: r, rz: r * flat, fold: bunch * r * 0.09, nf: 4 + (i % 3), ph: ph + k * 2.4 });
+  }
+  if (ends) for (const [k, s] of [[0.5, 0.72], [0.85, 0.35]] as const) rings.push({ c: [0, -len - rb * k, 0], rx: rb * s, rz: rb * s * flat });
+  b.geo(M, drapeGeo(rings, o.seg ?? 14, o.seed, ends ? { top: ra * 0.1, bottom: rb * 0.1 } : {}), 'box', tubeFrame(A, B, o.side));
+}
+
+/** Materials of the navy body: working-dress navy, boots, skin, hair, the cook's white apron. */
+function bodyMats(L: LevelBuild) {
+  return {
+    cloth: 'fatigue_navy' as Mat,
+    boot: tint5(L, 'body_boot', 'rubber', 0x1c1d20, { roughness: 0.65 }) as Mat,
+    skin: paint5(L, 'body_skin', 0x9a8a80, 0.72) as Mat,
+    hair: tint5(L, 'body_hair', 'fabric', 0x2b231d, { roughness: 0.95 }) as Mat,
+    apron: paint5(L, 'body_apron', 0xcdc9bd, 0.93) as Mat,
+  };
+}
+
+/** A hand (skin): palm block + four curled fingers + thumb, from the wrist W toward `dir`, palm facing `palm`. */
+function deadHand(b: Builder, M: Mat, W: P3, dir: P3, palm: P3, curl: number, seed: number) {
+  const d = new THREE.Vector3(...dir).normalize(), pn = new THREE.Vector3(...palm).normalize();
+  const sd = new THREE.Vector3().crossVectors(d, pn).normalize();
+  const at = (u: number, v: number, w: number): P3 => { const p = new THREE.Vector3(...W).addScaledVector(d, u).addScaledVector(sd, v).addScaledVector(pn, w); return [p.x, p.y, p.z]; };
+  limb(b, M, at(-0.005, 0, 0), at(0.085, 0, 0.002), 0.03, 0.036, { seed, flat: 0.45, side: [sd.x, sd.y, sd.z], seg: 10 });
+  const R = srand(seed);
+  for (let i = 0; i < 4; i++) {
+    const v = -0.03 + i * 0.02, l1 = 0.042 - Math.abs(i - 1.3) * 0.005, c = curl * (0.7 + R() * 0.6);
+    const k1 = at(0.09, v, 0.004), k2 = at(0.09 + l1 * Math.cos(c * 0.6), v, 0.004 + l1 * Math.sin(c * 0.6));
+    const k3 = at(0.09 + l1 * Math.cos(c * 0.6) + 0.03 * Math.cos(c * 1.4), v, 0.004 + l1 * Math.sin(c * 0.6) + 0.03 * Math.sin(c * 1.4));
+    limb(b, M, k1, k2, 0.0095, 0.009, { seed: seed + i, seg: 6 });
+    limb(b, M, k2, k3, 0.009, 0.0075, { seed: seed + i + 9, seg: 6 });
+  }
+  limb(b, M, at(0.02, 0.038, 0.004), at(0.065, 0.052, 0.02 + 0.02 * curl), 0.012, 0.009, { seed: seed + 20, seg: 6 });
+}
+
+/**
+ * The navy body (B4: `v5_body` — one of the Post 4 galley crew, a cook in navy working dress with a white apron — and the
+ * dead hand on the stair). Floor prop, origin = under the pelvis, lying FACE DOWN along local z, head toward −z, feet
+ * +z. Pose `dragged`: pulled by the ankles — legs straight and together, toes trailing, arms dragged up past the head
+ * (one palm up), the shirt ridden up to the shoulder blades (a band of bare back above the belt), the sleeves rucked,
+ * the apron's strings tied at the back and the apron bunched out from under the hips, the face into the deck (hair,
+ * an ear, the nape — never a face). Cloth (shirt, trousers, apron) is tubes with bunching and creases (the lab suits'
+ * lesson); 2.25 m long from boots to fingertips, 0.75 m wide. Returns the footprint box (builder frame, 0.18 high).
+ * Calls: 5 (fatigue, boot, skin, hair, apron). Collider: none (the caller adds the walkable 0.15 m box).
+ */
+export function navyBody(b: Builder, L: LevelBuild, o: { seed?: number } = {}): { box: THREE.Box3 } {
+  const M = bodyMats(L), seed = o.seed ?? 5150, R = srand(seed);
+  const J = {
+    sh: [0, 0.118, -0.52] as P3, chest: [0.0, 0.12, -0.36] as P3, waist: [0.005, 0.105, -0.08] as P3, hip: [0.0, 0.112, 0.06] as P3,
+    neck: [0.012, 0.1, -0.62] as P3, head: [0.035, 0.1, -0.775] as P3,
+    shL: [0.19, 0.115, -0.53] as P3, elL: [0.27, 0.068, -0.83] as P3, wrL: [0.245, 0.042, -1.09] as P3,
+    shR: [-0.19, 0.115, -0.53] as P3, elR: [-0.33, 0.07, -0.76] as P3, wrR: [-0.37, 0.048, -1.02] as P3,
+    hiL: [0.095, 0.1, 0.1] as P3, knL: [0.115, 0.074, 0.53] as P3, anL: [0.125, 0.078, 0.94] as P3,
+    hiR: [-0.095, 0.1, 0.1] as P3, knR: [-0.13, 0.074, 0.52] as P3, anR: [-0.115, 0.082, 0.93] as P3,
+  };
+  // ── torso: the shirt ridden up (bunched at the shoulder blades), bare back above the belt, trousers, belt
+  limb(b, M.cloth, J.sh, J.chest, 0.2, 0.185, { seed: seed + 1, bunch: 1.6, flat: 0.55, side: [1, 0, 0], seg: 24 });
+  limb(b, M.cloth, J.chest, [0.004, 0.11, -0.16], 0.185, 0.165, { seed: seed + 2, bunch: 1.0, flat: 0.6, side: [1, 0, 0], seg: 24, ends: false });
+  // the rucked hem: a thick roll of cloth
+  b.geo(M.cloth, drapeGeo([{ c: [0, 0.012, 0], rx: 0.17, rz: 0.1, fold: 0.008, nf: 7 }, { c: [0, -0.02, 0], rx: 0.178, rz: 0.108, fold: 0.01, nf: 9, ph: 1 }, { c: [0, -0.05, 0], rx: 0.166, rz: 0.1 }], 24, seed + 3), 'box', tubeFrame([0.004, 0.11, -0.15], [0.004, 0.11, -0.2], [1, 0, 0]));
+  limb(b, M.skin, [0.004, 0.106, -0.17], J.waist, 0.155, 0.152, { seed: seed + 4, flat: 0.58, side: [1, 0, 0], seg: 22, ends: false });
+  limb(b, M.cloth, [0.005, 0.106, -0.09], J.hip, 0.162, 0.175, { seed: seed + 5, bunch: 0.6, flat: 0.62, side: [1, 0, 0], seg: 24 });
+  limb(b, 'painted_dark', [0.005, 0.107, -0.095], [0.005, 0.107, -0.055], 0.166, 0.166, { seed: seed + 6, flat: 0.64, side: [1, 0, 0], seg: 24, ends: false });
+  // apron strings tied in a bow over the belt, the apron bunched out from under the hips on both sides
+  b.detail(() => {
+    b.rbox(M.apron, 0.0, 0.178, -0.075, 0.33, 0.006, 0.018, 0, 0.02, 0);
+    for (const s of [-1, 1]) b.rbox(M.apron, s * 0.035, 0.182, -0.072, 0.06, 0.012, 0.035, 0.2, s * 0.5, 0);
+    b.rbox(M.apron, 0.02, 0.18, -0.04, 0.012, 0.006, 0.09, 0, 0.3, 0);
+    b.rbox(M.apron, -0.015, 0.18, -0.035, 0.012, 0.006, 0.1, 0, -0.25, 0);
+  });
+  // (the apron's skirt, out from under the hips beside the thighs — clear of them)
+  for (const s of [-1, 1]) b.geo(M.apron, drapeGeo([{ c: [0, 0, 0], rx: 0.045, rz: 0.008, fold: 0.004, nf: 3 }, { c: [0, -0.14, 0], rx: 0.06, rz: 0.008, fold: 0.008, nf: 4, ph: 1 }, { c: [0, -0.27, 0], rx: 0.075, rz: 0.007, fold: 0.01, nf: 5, ph: 2 }], 16, seed + 7 + s), 'box',
+    tubeFrame([s * 0.235, 0.012, -0.06], [s * (0.27 + 0.03 * R()), 0.01, 0.2], [1, 0, 0]));
+  // ── neck, head (face down, turned a little: crown, back of the skull, an ear), hair
+  limb(b, M.skin, [0.004, 0.11, -0.54], J.neck, 0.058, 0.055, { seed: seed + 8, seg: 12 });
+  b.sphere(M.skin, J.head[0], J.head[1], J.head[2], 0.1, 16, 0.92, 0.88, 1.06);
+  b.sphere(M.hair, J.head[0] - 0.004, J.head[1] + 0.022, J.head[2] - 0.012, 0.096, 16, 0.78, 0.9, 1.04);
+  b.rbox(M.skin, J.head[0] + 0.083, J.head[1] + 0.005, J.head[2] + 0.01, 0.018, 0.055, 0.035, 0, 0, 0.2); // ear
+  // ── arms: dragged up past the head, sleeves rucked toward the wrists; left palm down, right palm up and curled
+  limb(b, M.cloth, J.shL, J.elL, 0.068, 0.058, { seed: seed + 10, bunch: 1.2, side: [0, 1, 0] });
+  limb(b, M.cloth, J.elL, J.wrL, 0.06, 0.054, { seed: seed + 11, bunch: 1.6, side: [0, 1, 0] });
+  limb(b, M.cloth, J.shR, J.elR, 0.068, 0.058, { seed: seed + 12, bunch: 1.2, side: [0, 1, 0] });
+  limb(b, M.cloth, J.elR, J.wrR, 0.06, 0.054, { seed: seed + 13, bunch: 1.6, side: [0, 1, 0] });
+  limb(b, M.skin, [J.wrL[0] + 0.004, J.wrL[1] - 0.006, J.wrL[2] + 0.04], [J.wrL[0] - 0.004, J.wrL[1] - 0.012, J.wrL[2] - 0.04], 0.03, 0.028, { seed: seed + 14, flat: 0.75, seg: 10 });
+  limb(b, M.skin, [J.wrR[0] + 0.006, J.wrR[1] - 0.006, J.wrR[2] + 0.04], [J.wrR[0] - 0.006, J.wrR[1] - 0.01, J.wrR[2] - 0.04], 0.03, 0.028, { seed: seed + 15, flat: 0.75, seg: 10 });
+  deadHand(b, M.skin, [J.wrL[0] - 0.006, 0.028, J.wrL[2] - 0.04], [-0.05, 0, -1], [0, -1, 0], 0.5, seed + 16);
+  deadHand(b, M.skin, [J.wrR[0] - 0.01, 0.034, J.wrR[2] - 0.04], [-0.15, 0, -1], [0, 1, 0], 1.1, seed + 17);
+  // ── legs together, straight, trousers bunched at the knees and ridden up the boots; toes trailing
+  limb(b, M.cloth, J.hiL, J.knL, 0.092, 0.07, { seed: seed + 20, bunch: 0.9, side: [1, 0, 0] });
+  limb(b, M.cloth, J.knL, J.anL, 0.07, 0.062, { seed: seed + 21, bunch: 1.4, side: [1, 0, 0] });
+  limb(b, M.cloth, J.hiR, J.knR, 0.092, 0.07, { seed: seed + 22, bunch: 0.9, side: [1, 0, 0] });
+  limb(b, M.cloth, J.knR, J.anR, 0.07, 0.062, { seed: seed + 23, bunch: 1.4, side: [1, 0, 0] });
+  for (const [an, sx] of [[J.anL, 0.01], [J.anR, -0.02]] as const) {
+    // boot shaft up the shin, then the foot: toes down on the deck, the sole facing back (+z, up)
+    limb(b, M.boot, [an[0], an[1], an[2] - 0.09], [an[0], an[1] + 0.005, an[2] + 0.05], 0.06, 0.058, { seed: seed + 30, seg: 12 });
+    limb(b, M.boot, [an[0], an[1] + 0.012, an[2] + 0.03], [an[0] + sx, 0.045, an[2] + 0.2], 0.058, 0.044, { seed: seed + 31, flat: 0.78, side: [1, 0, 0], seg: 12 });
+    b.sphere(M.boot, an[0], an[1] + 0.045, an[2] + 0.02, 0.05, 10, 0.8, 0.9, 1.0); // the heel, up
+  }
+  return { box: new THREE.Box3(new THREE.Vector3(-0.47, 0, -1.25), new THREE.Vector3(0.36, 0.2, 1.24)) };
+}
+
+/**
+ * The dead hand on the stair (B4; §2.7.3 / §2.8: "a hand on the stair (flashlight)"): the navy body's forearm and hand
+ * only — the rest is below the stair's edge, out of sight. Origin = the wrist on the tread, the forearm going back down
+ * along local −z (into the dark, 0.32 m shown, sleeve with a cuff), the hand along +z, palm down, the fingers curled
+ * over the nosing at local z = `over` (0.1) and hanging down. Calls: 2 (fatigue, skin).
+ */
+export function navyHand(b: Builder, L: LevelBuild, o: { over?: number; seed?: number } = {}) {
+  const M = bodyMats(L), seed = o.seed ?? 77, over = o.over ?? 0.1;
+  limb(b, M.cloth, [0.005, 0.03, -0.38], [0, 0.034, -0.06], 0.058, 0.052, { seed, bunch: 1.4, side: [0, 1, 0] });
+  limb(b, M.skin, [0, 0.03, -0.07], [0, 0.026, 0.0], 0.03, 0.028, { seed: seed + 1, flat: 0.75, seg: 10 });
+  // the palm flat on the tread, the thumb along its edge, the fingers over the nosing (last joints down the riser)
+  limb(b, M.skin, [0, 0.022, -0.005], [0.002, 0.02, 0.08], 0.03, 0.036, { seed: seed + 2, flat: 0.45, side: [1, 0, 0], seg: 10 });
+  limb(b, M.skin, [0.034, 0.02, 0.015], [0.05, 0.012, 0.06], 0.012, 0.009, { seed: seed + 3, seg: 6 });
+  for (let i = 0; i < 4; i++) {
+    const v = 0.028 - i * 0.019, z = Math.max(0.09, over) + 0.004 * Math.sin(i * 2);
+    limb(b, M.skin, [v, 0.016, 0.082], [v, 0.012, z], 0.0095, 0.009, { seed: seed + 5 + i, seg: 6 });
+    limb(b, M.skin, [v, 0.012, z], [v + 0.002, -0.028 - 0.006 * (i % 2), z + 0.012], 0.0088, 0.0072, { seed: seed + 9 + i, seg: 6 });
   }
 }

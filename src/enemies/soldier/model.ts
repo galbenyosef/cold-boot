@@ -198,10 +198,10 @@ function authorSoldier(b: RigBuilder): void {
 
   // ── fatigues: blouse torso (mostly under the vest), collar, long sleeves with cuffs ──────────────────────
   b.use('spine2').mat('fatigue');
-  b.addSkinned(loft([
+  b.addSkinned(creased(loft([
     R(0, 0.95, 0.0, 0.152, 0.1, 2.5), R(0, 1.05, 0.002, 0.146, 0.096, 2.5), R(0, 1.16, 0.01, 0.152, 0.1, 2.4), R(0, 1.27, 0.014, 0.165, 0.106, 2.5),
     R(0, 1.36, 0.008, 0.176, 0.104, 2.5), R(0, 1.41, 0.0, 0.18, 0.098, 2.4), R(0, 1.445, -0.008, 0.15, 0.086, 2.3), R(0, 1.475, -0.016, 0.085, 0.07, 2.2),
-    R(0, 1.49, -0.018, 0.064, 0.06, 2.1)], 30, { sub: 3, capA: true, capB: false }), shoulderBlend(torsoW));
+    R(0, 1.49, -0.018, 0.064, 0.06, 2.1)], 30, { sub: 4, capA: true, capB: false })), shoulderBlend(torsoW));
   // collar: a stand-up band round the balaclava's neck
   b.addSkinned(loft([R(0, 1.46, -0.016, 0.078, 0.072, 2.2), R(0, 1.5, -0.017, 0.07, 0.066, 2.2), R(0, 1.525, -0.018, 0.068, 0.064, 2.2)], 20, { sub: 2, capA: false, capB: false }),
     chain(['spine2', 'neck'], [[0, 1.4, -0.02], [0, 1.47, -0.02], [0, 1.6, -0.02]], [0, 0.03]));
@@ -210,9 +210,9 @@ function authorSoldier(b: RigBuilder): void {
     const wy = K.shoulderY - K.uarm - K.larm;
     const armW = chain(['spine2', 'uarm_' + sfx, 'larm_' + sfx, 'hand_' + sfx], [[0.06 * s, 1.44, z], [x, K.shoulderY, z], [x, K.shoulderY - K.uarm, z], [x, wy, z], [x, wy - 0.1, z]], [0, 0.055, 0.05, 0.03]);
     // the sleeve's cap is buried in the shoulder (deltoid); slightly baggy, gathered at the cuff
-    b.addSkinned(loft([R(x - 0.05 * s, 1.44, z, 0.03, 0.045), R(x - 0.012 * s, 1.425, z, 0.05, 0.058), R(x + 0.004 * s, 1.38, z, 0.056, 0.06), R(x + 0.002 * s, 1.3, z, 0.053, 0.056),
+    b.addSkinned(creased(loft([R(x - 0.05 * s, 1.44, z, 0.03, 0.045), R(x - 0.012 * s, 1.425, z, 0.05, 0.058), R(x + 0.004 * s, 1.38, z, 0.056, 0.06), R(x + 0.002 * s, 1.3, z, 0.053, 0.056),
       R(x, 1.2, z - 0.002, 0.049, 0.052), R(x, 1.14, z - 0.004, 0.047, 0.05), R(x, 1.07, z, 0.046, 0.047), R(x, 0.99, z, 0.042, 0.04), R(x, 0.935, z, 0.036, 0.034), R(x, 0.915, z, 0.038, 0.036)], 18,
-      { sub: 3, capA: true, capB: false }), armW);
+      { sub: 6, capA: true, capB: false })), armW);
     // shoulder pocket flap on the upper sleeve (outer face)
     b.addSkinned(box(0.012, 0.07, 0.06, 0.004), armW, new THREE.Matrix4().makeTranslation(x + 0.054 * s, 1.31, z + 0.004));
   }
@@ -224,14 +224,14 @@ function authorSoldier(b: RigBuilder): void {
       return [['hips', 1 - wt], ['thigh_' + sd, wt]];
     };
     b.use('hips').mat('fatigue');
-    b.addSkinned(loft([R(0, 1.04, 0.0, 0.15, 0.098, 2.4), R(0, 0.98, 0.0, 0.16, 0.106, 2.4), R(0, 0.92, -0.004, 0.168, 0.112, 2.5), R(0, 0.86, -0.004, 0.162, 0.108, 2.5), R(0, 0.82, -0.002, 0.115, 0.084, 2.3)], 28, { sub: 3 }), pelvW);
+    b.addSkinned(creased(loft([R(0, 1.04, 0.0, 0.15, 0.098, 2.4), R(0, 0.98, 0.0, 0.16, 0.106, 2.4), R(0, 0.92, -0.004, 0.168, 0.112, 2.5), R(0, 0.86, -0.004, 0.162, 0.108, 2.5), R(0, 0.82, -0.002, 0.115, 0.084, 2.3)], 28, { sub: 5 })), pelvW);
   }
   for (const s of [-1, 1]) {
     const sfx = s > 0 ? 'l' : 'r', x = K.hipX * s;
     const legW = chain(['hips', 'thigh_' + sfx, 'shin_' + sfx, 'foot_' + sfx], [[x, 1.0, 0], [x, K.hipY, 0], [x, K.hipY - K.thigh, 0.004], [x, K.ankle, -0.004], [x, -0.05, 0]], [0, 0.07, 0.06, 0.05]);
     b.mat('fatigue');
-    b.addSkinned(loft([R(x + 0.006 * s, 0.92, -0.004, 0.09, 0.094), R(x + 0.002 * s, 0.8, 0.004, 0.086, 0.088), R(x, 0.66, 0.006, 0.077, 0.08), R(x, 0.53, 0.012, 0.069, 0.072), R(x, 0.47, 0.01, 0.067, 0.07),
-      R(x, 0.36, -0.004, 0.066, 0.068), R(x, 0.27, -0.004, 0.068, 0.07), R(x, 0.215, 0.0, 0.072, 0.075), R(x, 0.19, 0.0, 0.064, 0.068)], 20, { sub: 3 }), legW);
+    b.addSkinned(creased(loft([R(x + 0.006 * s, 0.92, -0.004, 0.09, 0.094), R(x + 0.002 * s, 0.8, 0.004, 0.086, 0.088), R(x, 0.66, 0.006, 0.077, 0.08), R(x, 0.53, 0.012, 0.069, 0.072), R(x, 0.47, 0.01, 0.067, 0.07),
+      R(x, 0.36, -0.004, 0.066, 0.068), R(x, 0.27, -0.004, 0.068, 0.07), R(x, 0.215, 0.0, 0.072, 0.075), R(x, 0.19, 0.0, 0.064, 0.068)], 22, { sub: 6 })), legW);
     // cargo pocket with flap on the outer thigh
     b.addSkinned(loft([R(x + 0.078 * s, 0.73, 0.0, 0.014, 0.052, 3), R(x + 0.082 * s, 0.63, 0.002, 0.018, 0.055, 3), R(x + 0.078 * s, 0.575, 0.004, 0.012, 0.05, 3)], 12, { sub: 2 }), legW);
     b.addSkinned(box(0.02, 0.022, 0.115, 0.004), legW, new THREE.Matrix4().makeTranslation(x + 0.088 * s, 0.735, 0.001));
@@ -615,9 +615,73 @@ function claspGeos(): THREE.BufferGeometry[] {
 
 // ───────────────────────────────────────────────────────────── vertex colours
 
+// ───────────────────────────────────────────────────────────── fatigue folds (IB5a, B4: as level 4's suits got)
+
+/** Abs-sine ridge: 1 on the crease line, falling off to 0 (cloth folds are sharp valleys between soft rolls). */
+const ridge = (u: number) => { const r = 1 - Math.abs(Math.sin(u)); return r * r * r; };
+const ELBOW_Y = K.shoulderY - K.uarm, KNEE_Y = K.hipY - K.thigh;
+/**
+ * Fold displacement (m, along the normal; − = into a crease) of the fatigues at a bind-pose model point: bunching rings
+ * at the elbows and the knees, the blousing above the boots, gathers under the belt, diagonal drag lines from the crotch
+ * and across the seat, the inside of the elbow and behind the knee pinched, slack sleeve twists, plus a fine ridge
+ * noise all over (the poplin's own wrinkles). Shared by the geometry (`creased`) and the shading (`clothShade`).
+ */
+function creaseD(x: number, y: number, z: number): number {
+  const ax = Math.abs(x);
+  let d = 0;
+  // fine all-over wrinkles (three ridge families, slanted)
+  d += 0.002 * (ridge(x * 31 + y * 19 + z * 7) + ridge(y * 26 - z * 22 + x * 5 + 1.3) + ridge(x * 13 - y * 33 + z * 17 + 2.1) - 0.7);
+  if (ax > 0.12 && y > 0.9 && y < 1.45) {
+    // sleeves: bunching round the elbow, twist creases down the forearm, the inner elbow pinched
+    const e = sm(0.11, 0.0, Math.abs(y - ELBOW_Y));
+    d += e * (0.0085 * (ridge((y - ELBOW_Y) * 52 + ax * 9) - 0.35) - 0.004 * sm(0.0, 0.03, z - K.shoulderZ));
+    d += 0.004 * sm(1.12, 0.95, y) * (ridge(y * 40 + Math.atan2(z - K.shoulderZ, ax - K.shoulderX) * 2.2) - 0.3);
+    d += 0.0035 * sm(1.42, 1.3, y) * sm(1.2, 1.3, y) * (ridge(y * 34 - z * 30) - 0.3); // under the shoulder
+  } else if (y < 1.06) {
+    if (y > 0.9) d += 0.005 * sm(1.05, 0.98, y) * (ridge(Math.atan2(x, z) * 9) - 0.35);            // gathers under the belt
+    if (y > 0.6 && y < 0.9 && ax < 0.17) {
+      // crotch drag lines (front: down and out from the fly; back: across the seat)
+      const t = (0.86 - y) * 1.6 + ax * (z > 0 ? 2.4 : -1.5);
+      d += 0.006 * sm(0.6, 0.78, y) * sm(0.17, 0.05, ax) * (ridge(t * 22) - 0.3);
+    }
+    // knees: stacked rings, deeper behind (the back of the knee folds when he walks)
+    const kn = sm(0.12, 0.0, Math.abs(y - KNEE_Y));
+    d += kn * (0.0085 * (ridge((y - KNEE_Y) * 46 + x * 6) - 0.35) - (z < 0 ? 0.003 : 0));
+    // bloused over the boots: tight, irregular rolls
+    const bl = sm(0.33, 0.27, y) * sm(0.18, 0.21, y);
+    d += bl * 0.009 * (ridge(y * 70 + Math.sin(Math.atan2(x - Math.sign(x) * K.hipX, z) * 3) * 1.4) - 0.3);
+    // slack down the shins: long vertical-ish wrinkles
+    d += 0.003 * sm(0.42, 0.34, y) * sm(0.27, 0.33, y) * (ridge(Math.atan2(x - Math.sign(x) * K.hipX, z) * 5 + y * 6) - 0.4);
+  }
+  return d;
+}
+/** Bake `creaseD` into a fatigue loft: move each vertex along its normal, tilt the normal by the fold's slope. */
+function creased(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  if (!g.getAttribute('normal')) g.computeVertexNormals();
+  const pos = g.getAttribute('position'), nor = g.getAttribute('normal');
+  const p = new THREE.Vector3(), n = new THREE.Vector3(), gr = new THREE.Vector3(), e = 0.004;
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i); n.fromBufferAttribute(nor, i);
+    const d = creaseD(p.x, p.y, p.z);
+    gr.set(
+      (creaseD(p.x + e, p.y, p.z) - creaseD(p.x - e, p.y, p.z)) / (2 * e),
+      (creaseD(p.x, p.y + e, p.z) - creaseD(p.x, p.y - e, p.z)) / (2 * e),
+      (creaseD(p.x, p.y, p.z + e) - creaseD(p.x, p.y, p.z - e)) / (2 * e),
+    );
+    gr.addScaledVector(n, -gr.dot(n));
+    pos.setXYZ(i, p.x + n.x * d, p.y + n.y * d, p.z + n.z * d);
+    n.sub(gr).normalize();
+    nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  pos.needsUpdate = true; nor.needsUpdate = true;
+  return g;
+}
+
 function clothShade(p: THREE.Vector3, n: THREE.Vector3, out: THREE.Color): void {
   const big = vnoise(p.x * 8 + p.z * 3, p.y * 7), fine = vnoise(p.x * 41 + 3, p.y * 37 + p.z * 23);
   let k = 1.03 - big * 0.08 - fine * 0.05;
+  // the folds' valleys hold shadow, their crests catch a little light (as the lab suits')
+  { const c = creaseD(p.x, p.y, p.z); k += c < 0 ? Math.max(-0.2, c * 30) : Math.min(0.06, c * 8); }
   k -= Math.max(0, -n.y) * 0.16;
   // creases behind the knees and at the elbows' inside, the crotch
   if (p.y < 0.55 && p.y > 0.42 && p.z < 0) k -= 0.1;
