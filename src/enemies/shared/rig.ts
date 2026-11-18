@@ -186,10 +186,13 @@ export class RigBuilder {
    * of cos(angle to the viewer) (faceMin ≤ −1.5: omnidirectional). Brightness / size follow the bone's world scale
    * (1 = full, 0.3 = dim standby, 1e-4 = off). `tint`: linear HDR colour. Exempt from LOD feature culling.
    */
-  mark(bone: string, p: THREE.Vector3, n: THREE.Vector3, radius: number, tint: [number, number, number], faceMin = -0.15): this {
+  mark(bone: string, p: THREE.Vector3, n: THREE.Vector3, radius: number, tint: [number, number, number], faceMin = -0.15, opts?: MarkOpts): this {
     const bi = this.idx(bone);
     const C = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
     const pos = new Float32Array(18), nor = new Float32Array(18), col = new Float32Array(18), uv = new Float32Array(12), mk = new Float32Array(24);
+    // stage 3c W3a: per-mark blink (hz, on-fraction); 0 = steady (every mark built before 3c)
+    const bk = new Float32Array(12);
+    if (opts?.blink && opts.blink.hz > 0 && opts.blink.on > 0 && opts.blink.on < 1) for (let i = 0; i < 6; i++) { bk[i * 2] = opts.blink.hz; bk[i * 2 + 1] = opts.blink.on; }
     const si = new Uint16Array(24), sw = new Float32Array(24);
     _n.copy(n).normalize();
     for (let i = 0; i < 6; i++) {
@@ -205,6 +208,7 @@ export class RigBuilder {
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('mark', new THREE.BufferAttribute(mk, 4));
+    geo.setAttribute('markBlink', new THREE.BufferAttribute(bk, 2));
     geo.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
     geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
     this.chunks.push({ geo, mat: 'glow', bone: bi, mark: true });
@@ -218,6 +222,7 @@ export class RigBuilder {
     for (const g of list) {
       const n = g.getAttribute('position').count;
       if (needMark && !g.getAttribute('mark')) g.setAttribute('mark', new THREE.BufferAttribute(new Float32Array(n * 4), 4));
+      if (needMark && !g.getAttribute('markBlink')) g.setAttribute('markBlink', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
       if (needColor && !g.getAttribute('color')) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
     }
   }
@@ -252,7 +257,7 @@ export class RigBuilder {
         if (c.bone !== bi || c.mark) continue;
         const g = c.geo.clone();
         g.deleteAttribute('skinIndex'); g.deleteAttribute('skinWeight');
-        g.deleteAttribute('color'); g.deleteAttribute('mark');
+        g.deleteAttribute('color'); g.deleteAttribute('mark'); g.deleteAttribute('markBlink');
         g.applyMatrix4(inv);
         let l = groups.get(c.mat);
         if (!l) groups.set(c.mat, (l = []));
@@ -339,10 +344,30 @@ export function glowMaterial(): THREE.MeshBasicMaterial {
   if (!_glow) {
     _glow = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
     _glow.name = 'enemy_glow';
-    markShader(_glow);
+    markShader(_glow, { value: 0 });
   }
   return _glow;
 }
+
+/**
+ * Stage 3c W3a: per-mark blink (`RigBuilder.mark(…, { blink })`). A blinking mark is lit for the first `on` fraction of
+ * every 1 / `hz` s of `markTime()` shifted by the material's phase; between, its disc collapses (nothing drawn). The
+ * shared `glowMaterial()` has phase 0; `blinkGlowMaterial(phase)` is a private copy (same program, own phase) for
+ * one instance (`RigTemplate.instantiate({ glow })`), so each soldier blinks on his own beat. Steady marks (every
+ * mark built before 3c) ignore all of it.
+ */
+export interface MarkOpts { blink?: { hz: number; on: number } }
+export function blinkGlowMaterial(phase: number): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+  m.name = 'enemy_glow';
+  markShader(m, { value: ((phase % 1) + 1) % 1 });
+  return m;
+}
+/** Clock of every blinking mark (seconds; the game sets it from world time, else performance time is used). */
+const uMarkTime = { value: 0 };
+let markClockSet = false;
+export function setMarkTime(t: number): void { uMarkTime.value = t; markClockSet = true; }
+export function markTime(): number { return uMarkTime.value; }
 
 /**
  * Dark-room marks (RigBuilder.mark): the glow material grows each mark's disc to at least MARK_PX (fraction of the
@@ -351,22 +376,26 @@ export function glowMaterial(): THREE.MeshBasicMaterial {
  * renders exactly as before. The disc is pulled toward the viewer by its radius (+ ≤ 6 cm once grown) so its own housing does not clip it.
  */
 const MARK_FRAC = 0.0026, MARK_MIN_PX = 2.2;
-function markShader(m: THREE.MeshBasicMaterial): void {
+function markShader(m: THREE.MeshBasicMaterial, uPhase: { value: number }): void {
   const uH = { value: 720 }, uPx = { value: 2.2 };
   const vp = new THREE.Vector4();
   m.onBeforeRender = (renderer) => {
     renderer.getCurrentViewport(vp);
     const h = vp.w > 0 ? vp.w : 720;
     uH.value = h; uPx.value = Math.max(MARK_MIN_PX, h * MARK_FRAC);
+    if (!markClockSet) uMarkTime.value = performance.now() / 1000;
   };
-  m.customProgramCacheKey = () => 'enemy_glow_marks_1';
+  m.customProgramCacheKey = () => 'enemy_glow_marks_2';
   m.onBeforeCompile = (sh) => {
-    sh.uniforms.uMarkH = uH; sh.uniforms.uMarkPx = uPx;
+    sh.uniforms.uMarkH = uH; sh.uniforms.uMarkPx = uPx; sh.uniforms.uMarkTime = uMarkTime; sh.uniforms.uMarkPhase = uPhase;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec4 mark;
+attribute vec2 markBlink;
 uniform float uMarkH;
 uniform float uMarkPx;
+uniform float uMarkTime;
+uniform float uMarkPhase;
 varying vec3 vMark;`)
       .replace('#include <project_vertex>', `#include <project_vertex>
 vMark = vec3(0.0, 0.0, -1.0);
@@ -376,8 +405,9 @@ if (mark.z > 0.0) {
   vec3 toCam = normalize(-mvPosition.xyz);
   float face = mark.w < -1.5 ? 1.0 : smoothstep(mark.w, mark.w + 0.45, dot(normalize(transformedNormal), toCam));
   float px = -mvPosition.z * 2.0 / (projectionMatrix[1][1] * uMarkH);
-  float rNat = mark.z * s;
-  float r = max(rNat, 0.5 * uMarkPx * px * step(0.05, s) * face);
+  float bl = (markBlink.x > 0.0 && markBlink.y > 0.0 && markBlink.y < 1.0) ? step(fract(uMarkTime * markBlink.x + uMarkPhase), markBlink.y) : 1.0;
+  float rNat = mark.z * s * bl;
+  float r = max(rNat, 0.5 * uMarkPx * px * step(0.05, s) * face * bl);
   vec3 c = mvPosition.xyz + toCam * (rNat + min((r - rNat) * 1.5, 0.06));
   mvPosition = vec4(c + vec3(mark.xy * r, 0.0), 1.0);
   gl_Position = projectionMatrix * mvPosition;
