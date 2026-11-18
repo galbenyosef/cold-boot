@@ -25,6 +25,7 @@
 // there are (the lower ship stairs carry none); `shipStairs`: the PLAYER capsule walks up each ship stair (lids
 // snapped open); `cover`: every cover point has a nav node within 1.5 m reachable from its set's soldier spawn.
 // Usage: node scripts/check-nav.mjs [--url http://127.0.0.1:5173] [--level 1|2|3|4|5|all|greybox] [--no-sim] [--verbose]
+//        [--case id,id]   (only these reach cases of the level's navCases; no stand-off / sentry / ramp runs)
 // Exit code 1 on any failure.
 import { parseArgs, launch, bootLevel } from './lib/check-common.mjs';
 
@@ -132,9 +133,12 @@ function install() {
   const attacks = new Map();
   g.events.on('enemy:attack', (e) => { if (!attacks.has(e.id)) attacks.set(e.id, []); attacks.get(e.id).push({ t: g.time, kind: e.kind }); });
   let groupN = 0;
-  const spawn = (type, p, yaw = 0) => {
+  const spawn = (type, p, yaw = 0, so = null) => {
     const grp = `navtest_${++groupN}`;
-    const e = g.enemies.spawn(type, new V(p[0], p[1] + 0.02, p[2]), yaw, grp);
+    // (a level-5 soldier case may name his weapon / preferred cover set: `arms`, `cover`)
+    const e = so && type === 'soldier' && g.enemies.debug?.spawnSoldier
+      ? g.enemies.debug.spawnSoldier(p[0], p[1] + 0.02, p[2], yaw, grp, so)
+      : g.enemies.spawn(type, new V(p[0], p[1] + 0.02, p[2]), yaw, grp);
     return { e, grp };
   };
   const kill = (grp) => { try { g.enemies.removeGroup(grp); } catch { /* */ } step(2); };
@@ -284,7 +288,7 @@ function install() {
       if (c.phase) level.applyPhase(c.phase, { snap: true });
       const yaw = Math.atan2(-(c.spawn[0] - c.player[0]), -(c.spawn[2] - c.player[2]));
       place(c.player, yaw);
-      const { e, grp } = spawn(c.type ?? 'husk', c.spawn, Math.atan2(-(c.player[0] - c.spawn[0]), -(c.player[2] - c.spawn[2])));
+      const { e, grp } = spawn(c.type ?? 'husk', c.spawn, Math.atan2(-(c.player[0] - c.spawn[0]), -(c.player[2] - c.spawn[2])), c.cover ? { arms: c.arms ?? 'carbine', cover: c.cover } : null);
       step(2); e.alert?.();
       if (c.rush) g.enemies.rush?.(grp, c.within + 5);
       const pp = g.player.position;
@@ -502,7 +506,9 @@ for (const target of targets) {
   if (sims) {
     // a level that declares its own cases (the greybox, level 3) runs those; levels 1–2 get seeded random ones
     const own = await page.evaluate(() => window.__game.level.navCases ?? null);
-    const cases = own ?? { reach: await page.evaluate(() => window.__nav.autoCases(4)) };
+    let cases = own ?? { reach: await page.evaluate(() => window.__nav.autoCases(4)) };
+    // `--case a,b`: only these reach cases (no stand-off / sentry / ramp / ship-stair runs) — a targeted re-run
+    if (args.case) { const only = String(args.case).split(','); cases = { reach: cases.reach.filter((c) => only.includes(c.id)) }; }
     for (const c of cases.reach) {
       const r = await page.evaluate((c) => window.__nav.reach(c), c);
       const vias = (c.via ?? []).filter((v) => !r[v]);

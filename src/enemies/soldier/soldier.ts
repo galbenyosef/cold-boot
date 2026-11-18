@@ -367,6 +367,7 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
       this.lastKnown.copy(w.playerPos); this.lastSeenT = w.time;
       if (this.mode === 'search') { this.mode = 'combat'; this.target = null; this.searchPhase = 0; this.coverTimer = 0.3; }
       this.searched = false;
+      this.sawPlayer = true;
     } else this.unseenT += dt;
     if (this.dbg.noFirstMiss) this.firstMiss = false;
     // stand-off at a crawl exit (the player on a nav:false floor)
@@ -401,7 +402,8 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
     }
     if (this.mode === 'search') { this.tickSearch(dt); return; }
     // search: unseen 6 s and nothing better to do
-    if (!this.dbg.noMove && !this.seesPlayer && !this.searched && w.time - this.lastSeenT > T.search.after && !this.target) {
+    const searchAfter = !this.sawPlayer && !this.cover && this.coverTried ? T.search.fresh : T.search.after;
+    if (!this.dbg.noMove && !this.seesPlayer && !this.searched && w.time - this.lastSeenT > searchAfter && !this.target) {
       this.mode = 'search'; this.searchPhase = 1; this.leaveCover();
       this.target = this.lastKnown.clone(); this.moveSpeed = T.walk;
       this.log('search', { at: this.lastKnown.toArray().map((v) => +v.toFixed(2)) });
@@ -471,6 +473,8 @@ export class Soldier extends EnemyBase implements DirectedSoldier {
   }
 
   private coverTried = false;
+  /** He has had the player in sight at least once (a fresh spawn has not: it searches sooner, `T.search.fresh`). */
+  private sawPlayer = false;
   /** Bursts fired from the current point, and after how many (2–3, drawn on arrival) he relocates. */
   private burstsHere = 0;
   private relocateAfter = 2;

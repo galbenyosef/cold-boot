@@ -255,6 +255,11 @@ export class ScriptL5 extends Scenes5 {
     // view timers
     this.launchSeen = this.sees(this.mk('mk5_launch').setY(this.mk('mk5_launch').y + 1.0), 4.5, 60) ? this.launchSeen + step : 0;
     this.boardSeen = this.sees(this.mk('mk5_tern_board'), 40, 40) ? this.boardSeen + step : 0;
+    // §6.2 `l5_kes_boat`: also when the launch console has been in view ≤ 4 m for 2 s (not only on the refused palm)
+    if (f.radio && !this.boatAsked && this.launchSeen >= 2 && !this.talk.heard.has('l5_kes_boat')) {
+      this.boatAsked = true;
+      this.S('kes_boat_view', () => this.kesLater('l5_kes_boat', 20));
+    }
     this.selfWaking();
     this.magRules(step);
     this.patrolRules();
@@ -337,6 +342,7 @@ export class ScriptL5 extends Scenes5 {
     S('units', () => this.unitsThread());
     S('s1', () => this.s1Thread());
     S('radio_seq', () => this.radioSequence());
+    S('power_guard', () => this.powerGuard());
     S('spine', () => this.spineThread());
     S('door', () => this.doorBeat());
     S('cmd', () => this.cmdThread());
@@ -495,7 +501,8 @@ export class ScriptL5 extends Scenes5 {
       this.markTriggered('g5_s1');
       this.stamp('s1_free');
       if (this.ctx.debug.verbose) console.log(`[story] g5_s1 released (${why})`);
-      this.S('out_g5_s1', () => this.fightOut('g5_s1', 90));
+      // (never removed as stranded: the radio — the only way on — is on his body)
+      this.S('out_g5_s1', () => this.fightOut('g5_s1', 90, { keep: () => !this.f.radio }));
     }
     for (const e of this.members('g5_s1')) this.downDue.set(e.id, this.now + 3);
   }
@@ -677,7 +684,8 @@ export class ScriptL5 extends Scenes5 {
         for (const [id, gap] of SEQ_A) {
           end = await this.seqLine(id, first ? (end as number) : (end as number) + gap);
           first = false;
-          if (end === false) return;
+          // (a line dropped — a cut, a missing take — never strands the player: the keypad still gets its power; Q says the code)
+          if (end === false) { if (!this.ended) this.powerCue(); return; }
         }
         this.powerCue();
       }
@@ -738,6 +746,14 @@ export class ScriptL5 extends Scenes5 {
   /** The dialogue channel's current voice handle (read-only use). */
   private currentHandle(): unknown {
     try { return (this.talk as unknown as { current?: { handle?: unknown } }).current?.handle ?? null; } catch { return null; }
+  }
+  /** Soft-lock guard: the radio taken and no power 45 s later (the sequence stalled) → the power cue anyway. */
+  private async powerGuard(): Promise<void> {
+    await this.until(() => this.f.radio);
+    if (this.f.powered) return;
+    const t0 = this.now;
+    await this.until(() => this.f.powered || this.ended || this.now - t0 >= 45);
+    if (!this.f.powered && !this.ended) { console.warn('[story] level 5: no power cue 45 s after the radio — powered by the guard'); this.powerCue(); }
   }
   /** At `l5_kes_4`'s end (S2): the keypad lights, phase K, Q live, the objective; `cp5_radio` armed. */
   private powerCue(): void {
@@ -918,10 +934,11 @@ export class ScriptL5 extends Scenes5 {
       if (!this.api('door5_cmd')?.pulse) this.w.vignette('cmd5_line');
       this.call('door5_cmd', 'tally', 'amber');
       this.call('door5_cmd', 'watch', this.ctx.player.eye.clone());
+      // (a dropped line never ends the beat: the check, V and lights-out must always follow)
       let end = await this.seqLine('l5_kes_door_1', this.now);
-      if (end === false) return;
+      if (end === false) end = this.now;
       end = await this.seqLine('l5_kes_door_2', end + 0.5);
-      if (end === false) return;
+      if (end === false) end = this.now;
       // the check (B3)
       await this.until(() => this.forced.has('verify') || (this.now >= (end as number) + 0.6 && this.inTrig('t5_cmd_line', 0.3)) || this.ended);
       if (this.ended) return;
@@ -965,10 +982,10 @@ export class ScriptL5 extends Scenes5 {
       // check done: "Clean." — fact l5_door, beat l5_verified (with the line's start)
       this.beat('l5_verified');
       end = await this.seqLine('l5_kes_door_4', this.now + (this.channelFree() ? 0 : 0.16));
-      if (end === false) return;
+      if (end === false) end = this.now;
       for (const [id, gap] of DOOR_AFTER) {
         end = await this.seqLine(id, (end as number) + gap, id === 'l5_kes_door_7' ? () => this.verifiedNow() : undefined);
-        if (end === false) return;
+        if (end === false) end = this.now;
       }
       this.verifiedNow();
       const cid = this.choiceId('l5_choir_door');
@@ -1269,7 +1286,9 @@ export class ScriptL5 extends Scenes5 {
     if (!has('v5_bunk_radio') && f.radio && this.inFor('berths5') >= 3 && this.scareOk('v5_bunk_radio')) {
       this.fireScare('v5_bunk_radio');
       this.S('names', async () => {
-        await this.hold(0.6);
+        // the voice comes in on the set's own clock (quarters.ts publishes RADIO5 on the marker: voiceAt 0.9 s)
+        const v5 = this.api('mk5_bunk_radio')?.v5 as { voiceAt?: number } | undefined;
+        await this.hold(typeof v5?.voiceAt === 'number' ? v5.voiceAt : 0.9);
         let nEnd = this.now;
         const ok = await this.say('l5_choir_names', { pri: 'scene', now: true, gap: 0.1, cue: this.now, at: this.mk('mk5_bunk_radio'), onStart: (d) => { nEnd = this.now + d; } });
         if (ok || this.talk.heard.has('l5_choir_names')) await this.kesLater('l5_kes_names', 12, { at: nEnd + 1.0 });
@@ -1299,6 +1318,7 @@ export class ScriptL5 extends Scenes5 {
     if (!this.choirSubAsked && !has('v5_sub_check') && this.atLeast('V') && this.boardSeen >= 2) this.S('choir_sub', () => this.choirSub());
   }
   private choirSubAsked = false;
+  private boatAsked = false;
   private async choirSub(): Promise<void> {
     if (this.choirSubAsked) return;
     this.choirSubAsked = true;

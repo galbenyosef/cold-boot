@@ -385,7 +385,7 @@ function markShader(m: THREE.MeshBasicMaterial, uPhase: { value: number }): void
     uH.value = h; uPx.value = Math.max(MARK_MIN_PX, h * MARK_FRAC);
     if (!markClockSet) uMarkTime.value = performance.now() / 1000;
   };
-  m.customProgramCacheKey = () => 'enemy_glow_marks_2';
+  m.customProgramCacheKey = () => 'enemy_glow_marks_3';
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uMarkH = uH; sh.uniforms.uMarkPx = uPx; sh.uniforms.uMarkTime = uMarkTime; sh.uniforms.uMarkPhase = uPhase;
     sh.vertexShader = sh.vertexShader
@@ -407,11 +407,14 @@ if (mark.z > 0.0) {
   float px = -mvPosition.z * 2.0 / (projectionMatrix[1][1] * uMarkH);
   float bl = (markBlink.x > 0.0 && markBlink.y > 0.0 && markBlink.y < 1.0) ? step(fract(uMarkTime * markBlink.x + uMarkPhase), markBlink.y) : 1.0;
   float rNat = mark.z * s * bl;
-  float r = max(rNat, 0.5 * uMarkPx * px * step(0.05, s) * face * bl);
+  // a BLINKING mark (only the soldier's Clasp: W3a's per-mark blink) grows to 1.5 × the minimum and burns 1.4 ×
+  // brighter — it must be picked out at 20–30 m in the dark bay (≥ 3 px at 25 m on 720p; IA5 / B7)
+  float grow = markBlink.x > 0.0 ? 1.5 : 1.0;
+  float r = max(rNat, 0.5 * uMarkPx * grow * px * step(0.05, s) * face * bl);
   vec3 c = mvPosition.xyz + toCam * (rNat + min((r - rNat) * 1.5, 0.06));
   mvPosition = vec4(c + vec3(mark.xy * r, 0.0), 1.0);
   gl_Position = projectionMatrix * mvPosition;
-  vMark = vec3(mark.xy, min(s, 1.6) * mix(0.3, 1.0, face));
+  vMark = vec3(mark.xy, min(s, 1.6) * mix(0.3, 1.0, face) * (grow > 1.0 && r > rNat ? 1.4 : 1.0));
 }
 #endif`);
     sh.fragmentShader = sh.fragmentShader

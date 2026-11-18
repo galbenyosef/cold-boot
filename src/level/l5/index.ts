@@ -241,7 +241,10 @@ export const NAV_CASES5 = {
     { id: 'ready_duty', label: 'g5_duty husk (rushed) from the ready-room spawn → player in the duty room', type: 'husk', rush: true, spawn: [-4, 0, -23.6], player: [0, 0, -13], within: 6 },
     { id: 'dive_spine_husk', phase: 'S_dive', label: 'g5_spine husk (rushed) from the dive locker → spine mid (sub bay, d5_bay)', type: 'husk', rush: true, spawn: [49, 0, -31], player: [26, 0, -16], within: 12 },
     { id: 'dive_spine_soldier', phase: 'S_dive', label: 'g5_spine soldier (1.6 m/s) from the dive locker → spine mid', type: 'soldier', spawn: [48, 0, -34], player: [26, 0, -16], within: 30, arrive: 8 },
-    { id: 'lockacc_north', phase: 'V_lock', label: 'soldier from the launch-lock access → north gallery via STAIR5_E', type: 'soldier', spawn: [42, 0, -58], player: [34, 4.8, -20], within: 50, arrive: 6, via: ['stair'] },
+    // (IA5: a soldier does not climb to a player he can see on a gallery — a 1.1 m parapet is no cover against the same
+    // deck (§8.2.4 safety rule), so he fights from floor cover below; the case is his engagement time. The stair route
+    // itself is proved by `lockacc_wheel` (STAIR5_W) and the drain cases.)
+    { id: 'lockacc_north', phase: 'V_lock', label: 'soldier from the launch-lock access engages a player on the north gallery (from floor cover)', type: 'soldier', spawn: [42, 0, -58], player: [34, 4.8, -20], within: 50 },
     { id: 'lockacc_wheel', phase: 'W_lock', label: 'g5_bay_b husk (rushed) from the launch-lock access → the wheel on the west gallery via STAIR5_W', type: 'husk', rush: true, spawn: [41, 0, -57.6], player: [23.6, 4.8, -52], within: 15, via: ['stair'] },
     { id: 'drain_a_bridge', phase: 'V', label: 'drain A skitter (landed) → player on the bridge', type: 'skitter', spawn: [28, 0, -48], player: [34, 4.8, -35], within: 14 },
     { id: 'drain_b_bridge', phase: 'V', label: 'drain B skitter (landed) → player on the bridge', type: 'skitter', spawn: [39, 0, -36.5], player: [34, 4.8, -35], within: 14 },

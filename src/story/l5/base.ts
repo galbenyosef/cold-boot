@@ -380,6 +380,8 @@ export abstract class Base5 extends StageBase<Flags5, PhaseId5, CheckpointIdL5, 
     const groups = new Set(live.map((e) => e.group));
     for (const g of groups) {
       if (!g || g.startsWith('test')) continue;
+      // (the first soldier carries the radio — the only way on: he is fought, never removed)
+      if (g === 'g5_s1' && !this.f.radio) continue;
       const m = this.members(g);
       if (m.some((e) => this.isHolding(e))) continue;
       const awake = m.filter((e) => e.state !== 'dormant');

@@ -57,7 +57,9 @@ export abstract class Scenes5 extends Base5 {
       T.T7 = T.T6 + d6 + g6;
       T.T8 = T.T7 + 1.60;
       T.T9 = T.T8 + hold8;
-      T.T10 = T.T9 + 2.30;
+      // (as built: the actor eases into his walk — 2.3 s left him in the doorway when the leaves closed; 2.9 s puts
+      // him ≈ 0.55 m past the door plane, measured on the real body)
+      T.T10 = T.T9 + 2.90;
       T.H = T.T10 + 0.30;
       return T;
     };
@@ -81,6 +83,13 @@ export abstract class Scenes5 extends Base5 {
     return neck;
   };
   protected solChest = (): V3 => this.bonePoint(this.sol?.object, ['spine2', 'chest'], 1.3, this._c);
+
+  /** The actor is through a door: his capsule (r 0.32) clear of its 0.4 m wall on the far side from the camera. */
+  protected solClear(d: { position: THREE.Vector3 }): boolean {
+    const o = this.sol?.object;
+    if (!o) return true;
+    return o.position.z <= d.position.z - 0.2 - 0.35;
+  }
 
   protected makeSoldierActor(): EnemyActor | null {
     this.dropSoldierActor();
@@ -167,9 +176,15 @@ export abstract class Scenes5 extends Base5 {
       // he turns away toward the ready door: his back (and the Clasp) to the camera
       { t: T.T7, run: () => { this.lookAt(a, doorP.clone().setY(1.6)); this.faceTo(a, doorP, 1.0); } },
       { t: T.T9, run: () => this.holdOpen('d5_ready') },
-      { t: T.T9 + 0.3, run: () => { this.pose(a, 'walk'); void this.walk(a, [doorP, outP], 1.4); } },
+      // (one straight leg through the door: a waypoint at the door made him slow to a stop in the doorway)
+      { t: T.T9 + 0.3, run: () => { this.pose(a, 'walk'); void this.walk(a, [outP], 1.4); } },
       { t: T.T9 + 1.0, run: () => say('l5_reyes_c1_5') },
-      { t: T.T10, run: () => { const d = this.door('d5_ready'); try { d?.close(); d?.lock(); } catch { /* ignore */ } } },
+      // the leaves close behind him — never on him: if he is not yet clear of the wall, they wait for him (≤ 0.6 s)
+      { t: T.T10, run: () => { this.S('l5_c1_door', async () => {
+        const d = this.door('d5_ready');
+        if (d) await this.untilOr(() => !this.sol || this.solClear(d), 0.6);
+        try { d?.close(); d?.lock(); } catch { /* ignore */ }
+      }); } },
     ];
     // (stamp each cue's script time when it runs: the playthrough compares lines with their cues)
     const shots: CamShot[] = [
@@ -205,7 +220,16 @@ export abstract class Scenes5 extends Base5 {
    */
   protected sceneEnd(result: 'played' | 'skipped'): void {
     this.sceneResult = result;
-    this.dropSoldierActor();
+    // (played: he is removed once the ready door is shut on him — never in view; skipped / a load: at once)
+    const d = this.door('d5_ready');
+    const a = this.sol;
+    if (result === 'played' && a && d && !this.isShut(d)) {
+      this.S('l5_c1_drop', async () => {
+        await this.untilOr(() => this.isShut(d), 1.5);
+        if (this.sol === a) this.dropSoldierActor();
+        else this.drop(a);
+      });
+    } else this.dropSoldierActor();
     this.f.inScene = false;
     if (!this.f.scene) this.set('scene', true);
     else this.syncPhase();

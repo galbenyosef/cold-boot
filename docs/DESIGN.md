@@ -150,7 +150,8 @@ After the breaker: story enables `fab` fully for 3 s, then kills it and enables 
 - **Pistol** — 12-round, semi-auto, 20 dmg, accurate. **Shotgun** — 6-shell tube, 9 pellets × 9 dmg, pump.
 - Detailed first-person viewmodels (procedural meshes), recoil, muzzle flash light, shell ejection,
   reload animations, sway/bob, sprint lowering. Controls: WASD, mouse, Shift sprint, Space jump,
-  C crouch, LMB fire, R reload, 1/2/wheel switch, F flashlight, E use, Esc pause.
+  C crouch, LMB fire, **RMB (hold) aim the carbine**, R reload, 1/2/3/wheel switch (3 = carbine), F flashlight,
+  E use, Q radio (level 5, once the radio is carried), Esc pause. (REVISION 10: carbine, aim, radio.)
 
 ## Story beats (ids for `story:beat`)
 
@@ -1332,3 +1333,82 @@ source, recorded in `docs/ASSETS.md`. Everyone else is covered (hoods, helmets).
   Halvorsen says "till tomorrow".
 - **CHOIR's 3a line** keys on the choice only.
 - Stale wording above: read "outdoors" in the build order as "sea and water".
+
+---
+
+# REVISION 10 — stage 3c "POST 4" (technical level 5) AS BUILT
+
+Source of detail: `docs/plans/stage-3c.md` (the plan, §13 wins inside it), `docs/plans/stage-3c-wave1-notes.md` (as built,
+wins over the plan where the plan was silent), `docs/plans/stage-3c-integration.md`. This section records what is now
+canon and what every later stage may rely on. Stages 3a / 3b (REVISIONS 8 / 9 in their plans) were not copied here; their
+plans stay the record.
+
+## Systems now in the game (all levels)
+- **Flashlight battery** (`player/flashlight.ts` `TORCH`): burns 10 s, recharges 4 s only while off (after a 0.25 s
+  settle), cannot be switched on below 15 %, the last 2 s sag and stutter, 0.5 s death flicker. No drain in cutscenes,
+  the safe state, pause or death. Saved in checkpoints (restored ≥ 50 % if it was saved on); never carried between
+  levels (a new level starts full). `player:flashlight` `cause: 'toggle' | 'empty' | 'refused' | 'story'`; sounds
+  `flashlight_die` / `flashlight_dead`. Tests: `?torch=inf`, `player.debug.torch(v)`. **Design rule:** every dark space
+  on a main route is followable with the lamp OFF (strips, lit panels, emergency pools; no dark stretch > 8 m) and
+  readable with it on — the lamp is for detail and faces.
+- **Carbine** (slot 3) and **aim down the sights**: right mouse button, hold only. Raise 0.20 s / drop 0.15 s,
+  FOV 72° → 50°, aimed spread at 20 m 0.8 cm (hip 4.3 cm), climb × 0.6, walk × 0.55, no sprint; reload and switch drop
+  the aim. Level-5 encounters are tuned for aimed fire at 15–30 m.
+- **Enemy dark-room marks** (`RigBuilder.mark()`): small emissive points in the rig (no light, no extra draw call,
+  ≥ 2.2 px to 25 m). Red steady = awake / hunting; dim cyan = powered standby / dormant / worker; out = dead. **The
+  taken soldier's Clasp is his own rule: red, blinking 1 Hz, in every living state, never cyan** — and it shows only
+  from behind the neck (±60°).
+- **The taken soldier** (`src/enemies/soldier/`, enemy type `soldier`): a human rig, pistol or carbine, cover from
+  level data (`Level.cover`, sets per area), telegraphed fire (light + glint ≥ 0.8 s before a burst; the first burst of
+  an engagement misses; ≤ 2 soldiers firing; ≤ 18 damage/s from all of them), suppression, relocates after 2–3 bursts,
+  CHOIR's voice through `throat` fx. 7 body / 3 head / 8 limb hits. Not saveable, no weak spot (7.1). He sees less in
+  the dark (`regions.dark`: 12 m and 0.8 s with the lamp off; 30 m at once with it on; a player who fires is lit 1.5 s).
+  No sight or bullets through grating. A holding soldier (`hold`) reports `idle`, is not hunting, and is released by the
+  story (`EnemyManager.release`); a story wave spawned aware out of a sealed room that has not seen the player and has
+  no cover in reach sets off after 1 s (`SOLDIER_TUNING.search.fresh`, IA5). He fights a player on a gallery from floor
+  cover below — a 1.1 m parapet is no cover against someone on the same deck.
+- **Keypad** (`ui.keypad`), **radio item** (`ui.radio` HUD strip; **Q** = ask Kessler), voice fx `radio`, `radio:1`
+  (CHOIR on the channel) and `throat`.
+- `nav: false` floors with exits (the crawl under the spine, the magazine): enemies stand off 2–5 m from an exit, never in
+  the walkway box beside the hatch pit; one-way hatches (dogged from below).
+
+## Level 5 canon (POST 4)
+- Reyes arrives in Post 4's gate lock (the far side of level 4's gate) and the pressure gate `d5_gate` rises.
+  Lieutenant **Aas** (the XO) is the palm that opened it — on screens only (booth palm plate, gate log), never spoken,
+  never explained in 3c.
+- The first sailor met (PO1 **Brekke**) is taken: "The situation is under control" in CHOIR's voice; the Clasp blinks on
+  his nape; he becomes the first soldier fight. His radio is the only way on.
+- **Commander Kessler** is sealed in the shielded command module with **Dr. Sunde** (Sunde's debt from 3b is paid: she
+  came up on Monday to warn the CO) and the four `NO SIGNAL` sailors of 3b's roster — Risa, Ødegård, Hagen, Knutsen —
+  who had the module watch. In the module they are still themselves; if the door opens they are CHOIR's. **The door
+  never opens.** CHOIR hears every word on the channel.
+- **Keypad code 4719**, fixed, said once by Kessler; the panel has no power until her cue (knowing it early does nothing).
+- **The neck check**: the door camera says Reyes is clean; the cameras are CHOIR's, so Kessler checks his neck with her
+  own eyes through the port — the player stands on the yellow line with his back to the door (yaw within ±50° of −x)
+  for 1.2 s. **CHOIR's answer is the lights**: the spine and sub-bay mains die; emergency lighting is hard-wired (a
+  lockout) and stays.
+- **SDV TERN** sits in a dry dock cradle on rails into a 5 m horizontal launch lock (not a moon pool — 3d owns that). It
+  launches on an officer's palm (CO or XO). CHOIR requested its pre-launch check; it is ready. 3d's open ending uses the
+  empty cradle.
+- 3c ends in the trunk tunnel: "The head-end is two hundred metres on." End card `POST 4` / `TO BE CONTINUED`.
+
+## Level 5 flow (phases `src/level/l5/phases.ts`; beats `l5_*`)
+A arrival (gate rises) → B gatehouse → B2 gate latched → C the cutscene "Under control" (first person, ≤ 25 s) → D0/D the
+two units through the ready-room door, then the held soldier released → the radio on his body → Kessler's pickup
+sequence, power cue at `l5_kes_4`'s end → K keypad → S Post 4 (the spine wave out of the dive locker; optional berths,
+heads, mess, galley, armoury, the crawl and the magazine; the sub bay and its pre-launch check) → the door beat and
+neck check → V verified + lights-out + the vent wave → the sub bay in the dark (wave A from the launch-lock access) → the
+gallery wheel (4.0 s, wave B: the dock sentry, drain skitters) → W tunnel released → X latched in the tunnel → end.
+Checkpoints `cp5_start`, `cp5_duty`, `cp5_ready`, `cp5_radio`, `cp5_spine`, `cp5_door`, `cp5_bay`. Ten scares
+(`v5_turnstile` … `v5_sub_check`), each once, only when calm, order-independent, snapped on load.
+
+## As built — decisions recorded at integration (IA5)
+- Latches: every `closeBehind` / latch is armed only once the player is past the doorway (the tunnel's trigger started
+  inside the doorway, so the latch always failed; same fix on level 4's gate lock).
+- Soft-lock guards: the first soldier is never removed as stranded while the radio is on him; the power cue comes even if
+  a pickup-sequence line is dropped (and 45 s after the take at the latest); a dropped line in the door sequence never
+  stops V / lights-out.
+- The cutscene on the real soldier body: one straight walk through the ready-room door; the door closes at T9 + 2.9 s
+  (not 2.3: his walk eases in) and never on him; he is removed only once the door is shut.
+- Weak by design and left: a soldier with a gallery cover set does not climb to a player he can see on the same deck.
+

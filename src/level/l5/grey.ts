@@ -299,12 +299,18 @@ function sealedOpening(G: GreyGrid, id: string, x: number, y: number, z: number,
  * opening — and `userData.isOpen()`. A registered mover (decals ride it). The vignettes that open it belong to the
  * dressing (§11); `placeholders5` registers greybox ones.
  */
-function grillePanel(L: LevelBuild, id: string, x0: number, z0: number, x1: number, z1: number, yBottom: number, mat: Mat, sound: string) {
+function grillePanel(L: LevelBuild, id: string, x0: number, z0: number, x1: number, z1: number, yBottom: number, mat: Mat, sound: string, rooms: string[]) {
+  // (built about the opening's centre: the 'drop' tilt turns about the grille itself, not the world origin — B5)
+  // (the meshes keep world x / z and sit at (−cx, 0, −cz) in the group, so a dressing that already re-centred them the
+  // same way — spine.ts sets each child to (−30, 0, 16) — stays right)
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   const part = L.part(`${id}:panel`);
   part.bx(mat, x0, 0, z0, x1, 0.06, z1);
   const g = part.build();
-  g.position.y = yBottom;
+  for (const c of g.children) c.position.set(-cx, 0, -cz);
+  g.position.set(cx, yBottom, cz);
   g.name = id;
+  g.userData.rooms = rooms;
   L.root.add(g);
   L.objects.set(id, g);
   L.ctx.physics.addMover?.(g);
@@ -318,10 +324,10 @@ function grillePanel(L: LevelBuild, id: string, x0: number, z0: number, x1: numb
     pb.enabled = false;
     const end = (k: number) => {
       if (mode === 'drop') { g.position.y = yBottom - 2.9 * k * k; g.rotation.x = 0.5 * k; if (k >= 1) g.visible = false; }
-      else { g.position.y = yBottom + 0.12 * Math.min(1, k * 3); g.position.x = 1.3 * Math.max(0, k * 1.5 - 0.5); }
+      else { g.position.y = yBottom + 0.12 * Math.min(1, k * 3); g.position.x = cx + 1.3 * Math.max(0, k * 1.5 - 0.5); }
     };
     if (snap) { end(1); return; }
-    L.sfx(sound, (x0 + x1) / 2, yBottom, (z0 + z1) / 2, 0.8);
+    L.sfx(sound, cx, yBottom, cz, 0.8);
     L.tween(0, mode === 'drop' ? 0.55 : 0.7, (k) => end(k));
   };
 }
@@ -441,7 +447,7 @@ export const SHELLS5: Record<RoomId5, Shell> = {
     stand(b, standin, 4.4, 0, -3.6, 5.6, 0.95, -0.4);                // inner counter (the palm plate, the monitor, the mug)
     L.screen('aas_palm', 'palm', 0.22, 0.28, 4.6, 1.1, -2.0, '-x', { text: 'white|done|AAS, L. (LT.) — PALM — LIVE' });
     L.marker('mk5_aas_palm', 4.6, 1.1, -2.0, -PI / 2);
-    L.screen('gate_log', 'terminal_idle', 0.42, 0.3, 4.38, 1.35, -1.1, '-x', { text: 'GATE 4 — LAST AUTHORISED: AAS, L. (LT.) — PALM — LIVE' });
+    L.screen('gate_log', 'terminal_idle', 0.56, 0.36, 4.38, 1.35, -1.1, '-x', { text: 'GATE 4 — LAST AUTHORISED: AAS, L. (LT.) — PALM — LIVE' });
     L.interact('note5_visitors', 'log', 'Read log', 2.3, 1.05, -2.0);
     // ── turnstile line z −5.0: two tripods, the open equipment gate x −1.0 … 1.2 (the route), fences h 1.2 ──
     stand(b, standin, -3.0, 0, -5.15, -2.1, 1.0, -4.85);
@@ -532,7 +538,7 @@ export const SHELLS5: Record<RoomId5, Shell> = {
     }
     // ── the ceiling vent (30.0, 3.2, −16.0): a void above the ceiling closed by a grille (`vent5_spine`) ──
     airIn(G, 'spine5', VOIDS5.vent5_spine, ['spine5'], 'spine5');
-    grillePanel(L, 'vent5_spine_grille', 29.6, -16.4, 30.4, -15.6, 3.2, standin, 'vent_grille');
+    grillePanel(L, 'vent5_spine_grille', 29.6, -16.4, 30.4, -15.6, 3.2, standin, 'vent_grille', ['spine5']);
     L.marker('mk5_vent_spine', 30.0, 3.2, -16.0, 0);
     // ── Kessler's door (sealed; W7 dresses it): 2.0 × 2.6, the port, the yellow stand line at x 42.5 ──
     // (the 2.5 × 3.0 opening W7's `cmdDoor` frames; the greybox door in it is a placeholder, `placeholders5`)
@@ -689,7 +695,7 @@ export const SHELLS5: Record<RoomId5, Shell> = {
     // ── floor drains (voids under grilles flush with the floor) ──
     for (const [id, bx] of [['drain5_a', VOIDS5.drain5_a], ['drain5_b', VOIDS5.drain5_b]] as const) {
       airIn(G, 'sub5', bx, ['sub5'], 'sub5');
-      grillePanel(L, `${id}_grille`, bx[0], bx[2], bx[3], bx[5], -0.06, standin, 'sump_lift');
+      grillePanel(L, `${id}_grille`, bx[0], bx[2], bx[3], bx[5], -0.06, standin, 'sump_lift', ['sub5']);
       L.obstacles.push(box3([bx[0], -1.0, bx[2], bx[3], 1.0, bx[5]])); // (no nav node on a hole)
     }
     L.marker('mk5_drain_a', 28.0, 0, -48.0, 0);

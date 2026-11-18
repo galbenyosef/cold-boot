@@ -103,7 +103,12 @@ export const SOLDIER_TUNING = {
     /** High cover: the body steps this far to the peek side for the lean (with the rig's own lean ≈ 0.45 m at the eye). */
     leanStep: 0.3,
   },
-  search: { after: 6, look: 4, maxPath: 30 },
+  /**
+   * `fresh`: a soldier spawned aware (a story wave out of a sealed room) that has not yet seen the player and found no
+   * cover in reach sets off toward where he was told the player is after this long — not after `after` (IA5, A4: the
+   * dive-locker soldier stood 6 s at his spawn).
+   */
+  search: { after: 6, fresh: 1.0, look: 4, maxPath: 30 },
   hold: { shotNear: 1.5, sees: 6 },
   friendly: { clear: 0.5, wait: 0.3, tries: 3 },
   miss: { min: 0.4, max: 1.2, band: 1.5, whiz: 2.5 },
