@@ -53,7 +53,6 @@
 import * as THREE from 'three';
 import type { LightHandle } from '../../core/types';
 import type { FxSystemEx, ViewportHandle, WellHandle } from '../../fx';
-import type { RenderSystemEx } from '../../render';
 import type { Builder, Mat } from '../builder';
 import type { LevelBuild } from '../context';
 import { isStandin, restyle } from '../l3/kit3';
