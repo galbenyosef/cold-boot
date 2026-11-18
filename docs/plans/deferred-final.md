@@ -52,3 +52,10 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   listens: wading steps, rescue muffle/fade. Weak: grip hands small / arms long at 0.9–1.3 m (shoulder lean), crank+pin
   hands share a knob, no lean-back on pull, no bubbles, grounded flicker in deep water; `keyName` not on the Player
   contract (W2a reads `hasKey` + its own names — dedupe with `src/player/keys.ts`).
+- 3d W2b: `check-voice-level` L1–5 (L5 body radio ref 2 → 5) and `--level 6` incl. ASR of `l6_aas_2` through `phone`;
+  `play:l5` body squawk leads at 6–12 m; `play:l6 --scares` owner audit; listening pass of the boss layer and beds in
+  dressed rooms (user: see W2b's listen list in the dev audio page `?mode=sounds&filter=…`, `?mode=l6&music=1&voice=1`).
+  Re-measure music RMS after the boss-layer raise. Weak: hanging handset at 3 m −21 dB may be too faint; sea_groan /
+  far_lock_flood sub-bass on laptops; crank/pump bright; gallery-grate rule hard-coded y > −13.5 → level data.
+  Contracts for others: ST re-emits `l6_quiet` on restore past the quiet; W3b plays loader ids itself, `loader_hum` via
+  `loop()`, re-emits `boss:stage` on `boss.restore()`; W7/ST fire `ping_far`/`ping_near` from the ping6 machine.
