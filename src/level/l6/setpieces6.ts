@@ -691,7 +691,9 @@ export function beachJoint6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE
   const leafPart = (name: string, east: boolean) => {
     const p = R.part(name);
     const w = leaf / 2, T = leafT / 2;
-    R.box(PAL.navy, 0, 0, 1.02, 0, leaf, 2.0, leafT, 0, 0, 0, p);
+    // (the west leaf is 4 mm narrower on its meeting side: the east leaf's astragal overlaps it — zfight)
+    if (east) R.box(PAL.navy, 0, 0, 1.02, 0, leaf, 2.0, leafT, 0, 0, 0, p);
+    else R.box(PAL.navy, 0, -0.002, 1.02, 0, leaf - 0.004, 2.0, leafT, 0, 0, 0, p);
     for (const y of [0.62, 1.42]) R.box(PAL.navy, 0, 0, y, T + 0.006, leaf - 0.14, 0.05, 0.012, 0, 0, 0, p);
     for (const sx of [-1, 1]) R.box(PAL.navy, 0, sx * (w - 0.03), 1.02, T + 0.006, 0.06, 1.98, 0.012, 0, 0, 0, p);
     R.box(PAL.dark, 0, 0, 0.016, 0, leaf - 0.2, 0.008, leafT - 0.01, 0, 0, 0, p);
@@ -714,7 +716,7 @@ export function beachJoint6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE
       R.box(PAL.brass, 1, -0.53, 1.2, T + 0.13, 0.06, 0.012, 0.03, 0, 0, 0, p);
       R.box(PAL.red, 1, -0.53, 1.165, T + 0.13, 0.03, 0.04, 0.004, 0, 0, 0, p);
       R.box(PAL.steel, 2, -0.64, 1.165, T + 0.025, 0.08, 0.025, 0.02, 0, 0, 0, p);
-      R.box(PAL.rubber, 0, -0.6, 1.02, T + 0.0075, 0.06, 1.96, 0.015, 0, 0, 0, p);
+      R.box(PAL.rubber, 0, -0.6, 1.02, T + 0.0095, 0.06, 1.96, 0.011, 0, 0, 0, p);
     } else {
       R.box(PAL.steel, 0, 0.555, 1.165, T + 0.025, 0.07, 0.07, 0.04, 0, 0, 0, p);
     }
