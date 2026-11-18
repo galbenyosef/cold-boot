@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { LevelInfo, ScreenKind } from '../core/types';
 import { containment, videoLog, videoLogBeforeSet, roster, theatreCam } from './screens4';
 import { keypad, launch, dockStatus, onpost, NAVY_INK } from './screens5';
+import { mimic, manifest, interlock, dockBoard, gauge, feedOsd, size6, TRUNK_KINDS, patchOsd, setOsd } from './screens6';
 
 const MONO = 'ui-monospace, Menlo, "SF Mono", Consolas, monospace';
 const SANS = '"Arial Narrow", "Helvetica Neue", Arial, sans-serif';
@@ -48,7 +49,8 @@ const INTENSITY: Record<ScreenKind, number> = {
   containment: 2.6, video_log: 2.2, roster: 2.4, theatre_cam: 2.2,
   // stage 3c §8.9 (screens5.ts): navy panels are dark glass with bright type; the ON POST LEDs are the brightest
   keypad: 2.6, launch: 2.4, dock_status: 2.5, onpost: 3.0,
-  mimic: 2.6, manifest: 2.6, interlock: 2.6, dock_board: 2.6, gauge: 2.6, // K placeholder (stage 3d, W5)
+  // stage 3d §8.8 (screens6.ts): the dock board is read across the chamber in the dark fight — a little brighter
+  mimic: 2.5, manifest: 2.5, interlock: 2.6, dock_board: 2.8, gauge: 2.6,
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
@@ -58,13 +60,15 @@ const RATE: Record<ScreenKind, number> = {
   containment: 8, video_log: 12, roster: 12, theatre_cam: 12,
   // stage 3c: the boards flip in over 0.45 s and the counter rolls over 0.4 s (12 Hz shows both); the keypad blinks
   keypad: 8, launch: 8, dock_status: 12, onpost: 12,
-  mimic: 10, manifest: 10, interlock: 10, dock_board: 10, gauge: 10, // K placeholder (stage 3d, W5)
+  // stage 3d: the mimic's traffic dots 10 Hz, the gauge needle eases at 20 Hz (unchanged frames are not uploaded)
+  mimic: 10, manifest: 12, interlock: 8, dock_board: 12, gauge: 20,
 };
 /**
  * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must
  * be read from across the room: on a wide quad they get a 2048 px canvas (everything else 512 / 256).
  */
 function sizeFor(kind: ScreenKind, aspect: number): [number, number] {
+  const s6 = size6(kind, aspect); if (s6) return s6;   // stage 3d kinds
   // (the roster is a 2.4 m wall board with 23 names: 1024 wide; so are stage 3c's dock boards — 3 m and 4 m wide)
   const base = kind.startsWith('door') || kind === 'badge' ? 256 : kind.startsWith('choice') && aspect >= 2.4 ? 2048 : kind === 'roster' || kind === 'dock_status' ? 1024 : 512;
   return aspect >= 1 ? [base, Math.max(16, Math.round(base / aspect))] : [Math.round(base * aspect), base];
@@ -189,7 +193,9 @@ export class ScreenManager {
    *   in navy glass, a log in which CHOIR only ever appears as the facility system that requests maintenance (§1: no
    *   navy screen says CHOIR controls anyone), and long `[plain]` lines wrapped at ` — ` instead of shrunk.
    */
-  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial, level: Pick<LevelInfo, 'screenHeader' | 'camLabel' | 'idleText'>, private navy = false) {
+  constructor(private track: (m: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial, level: Pick<LevelInfo, 'screenHeader' | 'camLabel' | 'idleText'>, private navy = false,
+    /** stage 3d: the trunk level — screens carry the feed OSD patch (screens6.ts), wide trunk boards are mip-mapped */
+    private trunk = false) {
     this.header = level.screenHeader;
     this.camLabel = level.camLabel;
     this.idleText = level.idleText;
@@ -204,6 +210,7 @@ export class ScreenManager {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
     tex.anisotropy = 4;
+    if (W > 1024 && TRUNK_KINDS.has(kind)) { tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = 8; }
     const mat = new THREE.MeshStandardMaterial({
       name: `screen_${kind}`,
       color: 0x040505, roughness: 0.12, metalness: 0,
@@ -219,6 +226,7 @@ export class ScreenManager {
       seed, rand: rng(seed), lines: [], lineTimer: 0, scroll: 0, noise: null, noiseCv: null, ext: null, aux: {},
     };
     mat.onBeforeRender = () => { s.lastSeen = this.frame; };
+    if (this.trunk) patchOsd(mat, tex);
     mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? ''; // what it shows (tests, debugging)
     this.bindFeed(s, opts?.texture);
     this.prime(s);
@@ -239,6 +247,7 @@ export class ScreenManager {
     const lazy = s.kind === 'theatre_cam' && kind === 'theatre_cam';
     // stage 3c: the counter rolls from the number it showed (and a board flips from its old text)
     if (s.kind === kind) s.aux.prev = s.text;
+    else delete s.aux.key6;   // (stage 3d kinds skip unchanged redraws: another kind drew over the canvas)
     s.kind = kind; s.text = opts?.text;
     mat.userData.screenKind = kind; mat.userData.screenText = opts?.text ?? '';
     if (!same) { s.t = 0; mat.emissiveIntensity = INTENSITY[kind]; }
@@ -300,7 +309,7 @@ export class ScreenManager {
       const s = this.screens[(this.cursor + k) % n];
       if (this.frame - s.lastSeen > 3 && s.drawn) continue;
       if (s.since < 1 / RATE[s.kind]) continue;
-      if (s.ext) { s.since = 0; continue; }     // a live feed: the feed pass updates the texture itself
+      if (s.ext && !(this.trunk && s.text)) { s.since = 0; continue; }     // a live feed: the feed pass updates the texture itself (stage 3d: its OSD is drawn)
       this.draw(s);
       draws++;
     }
@@ -310,6 +319,7 @@ export class ScreenManager {
   private draw(s: Screen) {
     const { g, W, H } = s;
     s.since = 0; s.drawn = true;
+    if (this.trunk) setOsd(s.mat, s.kind === 'feed' && !!s.ext && !!s.text);
     g.globalCompositeOperation = 'source-over';
     g.globalAlpha = 1;
     switch (s.kind) {
@@ -328,7 +338,7 @@ export class ScreenManager {
       case 'pressure': this.pressure(s); break;
       case 'habitat_status': this.habitatStatus(s); break;
       case 'badge': this.badge(s); break;
-      case 'feed': this.noSignal(s); break;
+      case 'feed': if (this.trunk && s.ext) { if (!feedOsd(this.s5(s))) return; } else this.noSignal(s); break;
       case 'cctv': this.camera(s); break;    // §8.4 fallback not taken (the live feed was accepted): plain CCTV loop
       case 'containment': containment(this.s4(s)); break;
       case 'video_log': videoLog(this.s4(s)); break;
@@ -339,7 +349,12 @@ export class ScreenManager {
       case 'launch': launch(this.s5(s)); break;
       case 'dock_status': dockStatus(this.s5(s)); break;
       case 'onpost': onpost(this.s5(s)); break;
-      case 'mimic': case 'manifest': case 'interlock': case 'dock_board': case 'gauge': this.terminal(s); break; // K placeholder (stage 3d, W5)
+      // stage 3d §8.8 (screens6.ts; each returns false when nothing changed: no upload)
+      case 'mimic': if (!mimic(this.s5(s))) return; break;
+      case 'manifest': if (!manifest(this.s5(s))) return; break;
+      case 'interlock': if (!interlock(this.s5(s))) return; break;
+      case 'dock_board': if (!dockBoard(this.s5(s))) return; break;
+      case 'gauge': if (!gauge(this.s5(s))) return; break;
     }
     g.globalAlpha = 1;
     // (the wall-sized cards are seen from far and at a slant: a sub-pixel grid would only alias into moiré)

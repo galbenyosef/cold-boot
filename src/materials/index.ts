@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { DecalName, GameContext, MaterialLibrary, MaterialName, ScreenKind, SignStyle } from '../core/types';
 import { Baker, type BakedTextures } from './baker';
-import { SPECS, EMISSIVE, HABITAT_FROM, CLINICAL_FROM, NAVY_FROM, type MatSpec } from './defs';
+import { SPECS, EMISSIVE, HABITAT_FROM, CLINICAL_FROM, NAVY_FROM, TRUNK_FROM, type MatSpec } from './defs';
 import { advanceWater, applyMacro, macroConfigOf } from './macro';
 import { DecalFactory, DECAL_COUNT } from './decals';
 import { createSign } from './signs';
@@ -59,9 +59,10 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   // the clinical set (stage 3b) likewise from level 4 on, the navy dock set (stage 3c) from level 5 on
   const habitatNow = (ctx.levelId ?? 1) >= HABITAT_FROM;
   const [clinicalNow, navyNow] = [(ctx.levelId ?? 1) >= CLINICAL_FROM, (ctx.levelId ?? 1) >= NAVY_FROM];
+  const trunkNow = (ctx.levelId ?? 1) >= TRUNK_FROM;   // (stage 3d: the trunk set from level 6 on)
   const names = allNames.filter((n) => {
     const sp = SPECS[n] as MatSpec;
-    return sp.habitat ? habitatNow : sp.clinical ? clinicalNow : sp.navy ? navyNow : true;
+    return sp.habitat ? habitatNow : sp.clinical ? clinicalNow : sp.navy ? navyNow : sp.trunk ? trunkNow : true;
   });
   await baker.precompile(names.map((n) => ({ key: n, ...SPECS[n].tex! })).filter((d) => d.glsl));
   const tCompile = performance.now();
@@ -70,7 +71,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   const bakeOne = (n: keyof typeof SPECS) => {
     const spec = SPECS[n] as MatSpec;
     if (!spec.tex) return;
-    const size = (spec.habitat || spec.clinical || spec.navy) && lowQ ? Math.min(spec.tex.size, 512) : spec.tex.size;
+    const size = (spec.habitat || spec.clinical || spec.navy || spec.trunk) && lowQ ? Math.min(spec.tex.size, 512) : spec.tex.size;
     const tex = baker.bake({ key: n, ...spec.tex, size });
     const rep = 1 / spec.tex.tile;
     for (const t of [tex.map, tex.normalMap, tex.orm, tex.emissiveMap]) if (t) t.repeat.set(rep, rep);
@@ -163,7 +164,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   };
 
   const signCache = new Map<string, THREE.MeshStandardMaterial>();
-  const screens = new ScreenManager((m) => track(m, 0.8), levelOf(ctx), navyNow);
+  const screens = new ScreenManager((m) => track(m, 0.8), levelOf(ctx), navyNow, trunkNow);
 
   const lib: MaterialLibrary = {
     get,

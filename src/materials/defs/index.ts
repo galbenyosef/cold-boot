@@ -3,7 +3,7 @@
  * Tile sizes are in metres (geometry UVs are metres), see TILE in the final report / README of the module.
  */
 import * as THREE from 'three';
-import type { MaterialName, TrunkMaterialName } from '../../core/types';
+import type { MaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
@@ -12,6 +12,7 @@ import { ROBOT_SHELL } from './robot';
 import { WOOD, TWILL, CARPET, PLASTER, TERRAZZO, LIMESTONE, TILE, LINO, SOIL, LEAF, BARK, WATER, GLASS_CLEAN } from './habitat';
 import { WALL_CLEAN, FLOOR_EPOXY, CEILING_CLEAN, FROST, TYVEK, NAVY_GREY, DECK_NONSLIP } from './clinical';
 import { HULL_WHITE, DECK_GRATE, WET_STEEL, FATIGUE, KNIT, WEBBING, RUBBER_MAT, SUB_COATING, LINO_NAVY, BLANKET, HAZARD_DECK } from './navy';
+import { TRUNK_SPECS, type TrunkExtraName } from './trunk';
 
 export interface MatSpec {
   tex?: Omit<TexDef, 'key'>;
@@ -34,6 +35,8 @@ export interface MatSpec {
   clinical?: boolean;
   /** Stage 3c navy dock set: baked at load only on level `NAVY_FROM` and later, elsewhere on first `get`. */
   navy?: boolean;
+  /** Stage 3d trunk / dock set (defs/trunk.ts): baked at load only on level `TRUNK_FROM` and later, elsewhere on first `get`. */
+  trunk?: boolean;
   /** `kind: 'water'`: the ripple flow the library instance starts with (`userData.flow`, default 1). */
   flow?: number;
 }
@@ -44,6 +47,8 @@ export const HABITAT_FROM = 3;
 export const CLINICAL_FROM = 4;
 /** First level id that bakes the navy dock set at load. */
 export const NAVY_FROM = 5;
+/** First level id that bakes the trunk set at load. */
+export const TRUNK_FROM = 6;
 
 /**
  * Stage 3c look extras (W5): navy dock materials the contract's `NavyDockMaterialName` does not name yet. They are
@@ -108,7 +113,7 @@ const U_WOOD_ = (o: { a: number; b: number; leaf: number; ring: number; warp: nu
 });
 const col = (c: number) => ({ uCol: { value: srgb(c) } });
 
-export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | TrunkMaterialName> | NavyExtraName, MatSpec> = { // K placeholder (stage 3d): W5 removes `| TrunkMaterialName`
+export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`> | NavyExtraName | TrunkExtraName, MatSpec> = {
   wall_panel: {
     tex: { size: HERO, tile: 2, depth: 0.02, glsl: G_WALL, uniforms: wall(0x4f5b55, 0.9), aoRadius: 0.03, seed: 1 },
     params: {}, env: 1, macro: [0.25, 0.25],
@@ -411,6 +416,8 @@ export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | TrunkMat
       uniforms: { uColA: { value: srgb(0xcfa318) }, uColB: { value: srgb(0x232425) } } },
     params: {}, env: 0.8, macro: [0.12, 0.2], navy: true,
   },
+  // ── stage 3d trunk / dock (§8.8, defs/trunk.ts). Baked at load from level 6 on.
+  ...TRUNK_SPECS,
 };
 
 export const EMISSIVE: Record<`emissive_${string}`, { color: number; intensity: number }> = {
