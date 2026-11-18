@@ -19,6 +19,18 @@
 // cannot stand into its ceiling). `use` entries may be `{ id, eye }` too. An interactable's `eyeGate` ({ axis, min,
 // max } — the level's R8 gate on the player's eye) is honoured for every use / leak / mustNotUse test.
 //
+// Stage 3d (W4b, §10.2, B1): (1) the simulation runs down to the level's LOWEST point — min(−5, every room's and water
+// volume's bottom − 0.5), never below the level's kill height + 0.3 — instead of a fixed y −5 (levels 1–5: unchanged);
+// (2) HAZARDS are tested on EVERY simulated step (walks, falls, jump arcs), not only on end nodes: the regions in
+// `check.hazards` / `level.reachHints.hazards` / region ids listed in `check.mustNotUse` (feet or feet + 0.9 inside a box),
+// and every `Level.water` volume deeper than its `stand` (feet below surface − stand inside it) — any sample fails the
+// phase; (3) the jump-arc probes start from EVERY standing node within a sprint-jump's reach of a hazard (R(h) + 1 m,
+// h = the node's height above the hazard's top, +0.6 m wreck stress where a wreck can lie), every direction that heads
+// toward it, sprint speed, crouch-in-air both ways — on top of the edge probes; (4) an interactable with `requireRegion`
+// is usable only from nodes whose feet are inside that region (`interactables.allowedAt`, S8g); (5) `check.walks:
+// [{ id, from, to, within?, tol? }]` — a separate flood from `from` (confined to the `within` regions when given) must
+// reach `to` (the trench's under-wall crossing). Ground / headroom probes use `physics.raycastSolid` (water is never a
+// floor); sight rays use `physics.raycast`.
 // Usage: node scripts/check-reach.mjs [--url http://127.0.0.1:5173] [--level 1|2|all] [--phase D2] [--no-stress]
 //        [--cell 0.4] [--jobs 4] [--verbose] [--greybox [deck2]]   (--phase takes a comma list;
 //        --greybox runs the two-deck test greybox of src/level/dev/ instead of the levels)
@@ -79,12 +91,14 @@ function runPhase(o) {
   const body = { position: new V(), velocity: new V(), radius: R, height: HS, onGround: false };
   const UP = new V(0, 1, 0), tmp = new V(), tmp2 = new V();
 
+  // stage 3d S5: ground / headroom probes against the MOVES set (water surfaces are ray-only, never a floor or a ceiling)
+  const solidRay = (org, d, max) => (phys.raycastSolid ? phys.raycastSolid(org, d, max) : phys.raycast(org, d, max));
   const canStand = (p) => {
     const r = R * 0.7;
     const offs = [0, 0, r, 0, -r, 0, 0, r, 0, -r];
     for (let i = 0; i < offs.length; i += 2) {
       tmp.set(p.x + offs[i], p.y + HC - 0.15, p.z + offs[i + 1]);
-      if (phys.raycast(tmp, UP, HS - HC + 0.2)) return false;
+      if (solidRay(tmp, UP, HS - HC + 0.2)) return false;
     }
     return true;
   };
@@ -92,12 +106,36 @@ function runPhase(o) {
   const wide = (p) => {
     for (const [ox, oz] of [[0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3]]) {
       tmp.set(p.x + ox, p.y + 0.2, p.z + oz);
-      const h = phys.raycast(tmp, DOWN, 0.35);
+      const h = solidRay(tmp, DOWN, 0.35);
       if (!h || h.normal.y < 0.9) return false;
     }
     return true;
   };
   const carryAt = (p) => { for (const c of carries) if (inBox(c.box, p.x, p.y, p.z)) return c.v; return null; };
+
+  // ── stage 3d (§10.2 (1)): the level's lowest point (levels 1–5: −5 as before) ──
+  const lowY = Math.max((level.killY ?? -30) + 0.3, Math.min(-5, ...level.rooms.map((r) => r.bounds.min.y - 0.5), ...(level.water ?? []).map((w) => w.box.min.y - 0.5)));
+  // ── stage 3d (§10.2 (2)): hazards, tested on every simulated step ──
+  const hazardIds = new Set([...(phase.check.hazards ?? []), ...(hints.hazards ?? []), ...(phase.check.mustNotUse ?? []).filter((e) => typeof e === 'string' && level.regions[e])]);
+  const hazards = [];
+  for (const id of hazardIds) for (const b of level.regions[id] ?? []) hazards.push({ id, b, top: b.max.y });
+  for (const w of level.water ?? []) if (w.surface - w.box.min.y > w.stand) {
+    const b = w.box.clone(); b.max.y = w.surface - w.stand; b.min.y -= 0.5;
+    hazards.push({ id: `${w.id} (deeper than ${w.stand} m)`, b, top: w.surface, water: true });
+  }
+  const hazardHits = new Map(); // id → { at, from (node index), via }
+  let simFrom = -1, simVia = '';
+  const hazardAt = (q) => {
+    for (const h of hazards) {
+      const b = h.b;
+      if (q.x < b.min.x || q.x > b.max.x || q.z < b.min.z || q.z > b.max.z) continue;
+      if (h.water ? q.y <= b.max.y && q.y >= b.min.y : (b.containsPoint(q) || (q.y + 0.9 >= b.min.y && q.y + 0.9 <= b.max.y))) return h;
+    }
+    return null;
+  };
+  /** Horizontal reach of a sprint-jump from h metres above a rim (§2.10: R(h) = 6.0 × (0.324 + √(2(h + 1.0)/19))). */
+  const reachR = (h) => SPRINT * (VJ / -G + Math.sqrt(Math.max(0, (2 * (h + 1.0)) / -G)));
+  const planDist = (p, b) => Math.hypot(Math.max(b.min.x - p.x, p.x - b.max.x, 0), Math.max(b.min.z - p.z, p.z - b.max.z, 0));
 
   /**
    * Simulate a move from p. kind: 'walk' | 'jump'. Returns the grounded end position (or null) and whether
@@ -131,7 +169,14 @@ function runPhase(o) {
       if (kind === 'jump') { if (t > 0.05 && body.onGround) break; }
       else if (t >= maxWalk && body.onGround) break;
       if (Math.abs(body.position.x - px) + Math.abs(body.position.z - pz) + Math.abs(body.position.y - py) < 1e-4) { if (++still > 3 && body.onGround) break; } else still = 0;
-      if (body.position.y < -5) return { end: null };
+      if (hazards.length) {
+        const hz = hazardAt(body.position);
+        if (hz) {
+          if (!hazardHits.has(hz.id)) hazardHits.set(hz.id, { at: [body.position.x, body.position.y, body.position.z].map((v) => +v.toFixed(2)), from: simFrom, via: simVia });
+          return { end: null };
+        }
+      }
+      if (body.position.y < lowY) return { end: null };
     }
     if (!body.onGround) return { end: null };
     const end = body.position.clone();
@@ -139,62 +184,99 @@ function runPhase(o) {
     return { end, crouched: crouchNow, blocked: moved < 0.3, dropped: end.y < p.y - 0.25 };
   };
 
-  // ── flood fill ──
+  // ── flood fill (stage 3d: a function — the phase's own flood, then each `check.walks` flood) ──
   const key = (p) => `${Math.round(p.x / o.cell)},${Math.round(p.z / o.cell)},${Math.round(p.y / 0.3)}`;
-  const nodes = []; // {p, parent, stand, via}
-  const seen = new Map();
-  const add = (p, parent, via) => {
-    const k = key(p);
-    if (seen.has(k)) return;
-    const n = { p, parent, stand: canStand(p), via };
-    seen.set(k, nodes.length);
-    nodes.push(n);
-  };
-  // settle the start on the ground
-  const s0 = new V(...phase.check.start);
-  const st = simulate(s0, 0, 0, 0, false, 'walk', false, 0);
-  add(st.end ?? s0, -1, 'start');
   const DIRS = [];
   for (let i = 0; i < 16; i++) DIRS.push([Math.sin((i * Math.PI) / 8), -Math.cos((i * Math.PI) / 8)]);
   const lifts = o.stress ? [0, 0.6] : [0];
-  const boxFloors = {}; // floor y → nodes a wreck box was tried from (stress pass)
-  let rides = 0;
-  const t0 = performance.now();
-  for (let qi = 0; qi < nodes.length && nodes.length < o.maxNodes; qi++) {
-    const n = nodes[qi];
-    const edgeDirs = new Set();
-    for (let di = 0; di < 16; di += 2) {
-      const [dx, dz] = DIRS[di];
-      const r = simulate(n.p, dx, dz, n.stand ? WALK : CROUCH, !n.stand, 'walk', false, 0);
-      if (r.end) add(r.end, qi, 'walk');
-      if (!r.end || r.blocked || r.dropped) { edgeDirs.add(di); edgeDirs.add((di + 15) % 16); edgeDirs.add((di + 1) % 16); }
-      if (n.stand && (!r.end || r.blocked)) {
-        // something low ahead: try crawling under it
-        const c = simulate(n.p, dx, dz, CROUCH, true, 'walk', false, 0);
-        if (c.end) add(c.end, qi, 'crawl');
+  const inRegions = (ids, p) => { tmp2.set(p.x, p.y + 0.5, p.z); return ids.some((id) => (level.regions[id] ?? []).some((b) => b.containsPoint(tmp2))); };
+  /** fo: { within?: region ids the flood may not leave, to?: [x, y, z] — stop at a node within `tol` (plan) of it, tol? } */
+  const flood = (start, fo = {}) => {
+    const nodes = []; // {p, parent, stand, via}
+    const seen = new Map();
+    const add = (p, parent, via) => {
+      const k = key(p);
+      if (seen.has(k)) return;
+      if (fo.within && parent >= 0 && !inRegions(fo.within, p)) return;
+      const n = { p, parent, stand: canStand(p), via };
+      seen.set(k, nodes.length);
+      nodes.push(n);
+    };
+    const goal = fo.to ? new V(...fo.to) : null, tol = fo.tol ?? 0.8;
+    const near = (n) => Math.hypot(n.p.x - goal.x, n.p.z - goal.z) < tol && Math.abs(n.p.y - goal.y) < 0.6;
+    // settle the start on the ground
+    const s0 = new V(...start);
+    simFrom = -1; simVia = 'start';
+    const st = simulate(s0, 0, 0, 0, false, 'walk', false, 0);
+    add(st.end ?? s0, -1, 'start');
+    const boxFloors = {}; // floor y → nodes a wreck box was tried from (stress pass)
+    let rides = 0, found = -1;
+    const t0 = performance.now();
+    for (let qi = 0; qi < nodes.length && nodes.length < o.maxNodes; qi++) {
+      const n = nodes[qi];
+      if (goal && near(n)) { found = qi; break; }
+      simFrom = qi;
+      const edgeDirs = new Set();
+      for (let di = 0; di < 16; di += 2) {
+        const [dx, dz] = DIRS[di];
+        simVia = 'walk';
+        const r = simulate(n.p, dx, dz, n.stand ? WALK : CROUCH, !n.stand, 'walk', false, 0);
+        if (r.end) add(r.end, qi, 'walk');
+        if (!r.end || r.blocked || r.dropped) { edgeDirs.add(di); edgeDirs.add((di + 15) % 16); edgeDirs.add((di + 1) % 16); }
+        if (n.stand && (!r.end || r.blocked)) {
+          // something low ahead: try crawling under it
+          simVia = 'crawl';
+          const c = simulate(n.p, dx, dz, CROUCH, true, 'walk', false, 0);
+          if (c.end) add(c.end, qi, 'crawl');
+        }
       }
-    }
-    // a wreck box (stress pass) can only lie where there is floor for it: a flat 0.6 m footprint under the node
-    // (wrecks lie where things die: on floors, the belt, the apron — not on top of cabinets); "floor" = the floor
-    // of the room the node is in (Deck 2 too), not y 0
-    let boxOk = false;
-    if (o.stress && n.stand) {
-      const f = floorUnder(n.p);
-      boxOk = n.p.y - f < 0.65 && wide(n.p);
-      if (boxOk) { const k = String(+f.toFixed(2)); boxFloors[k] = (boxFloors[k] ?? 0) + 1; }
-    }
-    if (n.stand) for (const di of edgeDirs) {
-      const [dx, dz] = DIRS[di];
-      for (const lift of boxOk ? lifts : [0]) for (const sp of [SPRINT, 2.0]) for (const ca of [false, true]) {
-        const r = simulate(n.p, dx, dz, sp, false, 'jump', ca, lift);
-        if (r.end) add(r.end, qi, lift ? 'jump+box' : ca ? 'crouch-jump' : 'jump');
+      // a wreck box (stress pass) can only lie where there is floor for it: a flat 0.6 m footprint under the node
+      // (wrecks lie where things die: on floors, the belt, the apron — not on top of cabinets); "floor" = the floor
+      // of the room the node is in (Deck 2 too), not y 0
+      let boxOk = false;
+      if (o.stress && n.stand) {
+        const f = floorUnder(n.p);
+        boxOk = n.p.y - f < 0.65 && wide(n.p);
+        if (boxOk) { const k = String(+f.toFixed(2)); boxFloors[k] = (boxFloors[k] ?? 0) + 1; }
       }
+      if (n.stand) for (const di of edgeDirs) {
+        const [dx, dz] = DIRS[di];
+        for (const lift of boxOk ? lifts : [0]) for (const sp of [SPRINT, 2.0]) for (const ca of [false, true]) {
+          simVia = lift ? 'jump+box' : ca ? 'crouch-jump' : 'jump';
+          const r = simulate(n.p, dx, dz, sp, false, 'jump', ca, lift);
+          if (r.end) add(r.end, qi, lift ? 'jump+box' : ca ? 'crouch-jump' : 'jump');
+        }
+      }
+      // stage 3d (§10.2 (3)): sprint-jump arcs from every standing node within reach of a hazard, every direction that
+      // heads toward it (the edge probes above start only where a walk is blocked or drops)
+      if (n.stand && hazards.length) {
+        for (const h of hazards) {
+          const lift = boxOk ? 0.6 : 0;
+          if (planDist(n.p, h.b) > reachR(Math.max(0, n.p.y + lift - h.top)) + 1.0) continue;
+          const cx = Math.min(Math.max(n.p.x, h.b.min.x), h.b.max.x) - n.p.x, cz = Math.min(Math.max(n.p.z, h.b.min.z), h.b.max.z) - n.p.z;
+          const cl = Math.hypot(cx, cz);
+          for (let di = 0; di < 16; di++) {
+            if (edgeDirs.has(di)) continue; // tried above
+            const [dx, dz] = DIRS[di];
+            if (cl > 0.5 && (dx * cx + dz * cz) / cl < 0.2) continue;
+            for (const lf of boxOk ? lifts : [0]) for (const ca of [false, true]) {
+              simVia = lf ? 'arc+box' : ca ? 'arc-crouch' : 'arc';
+              const r = simulate(n.p, dx, dz, SPRINT, false, 'jump', ca, lf);
+              if (r.end) add(r.end, qi, simVia);
+            }
+          }
+        }
+      }
+      // one-way edges (d2_exit): a body inside within 2 m is let out
+      for (const w of oneway) if (inBox(w.from, n.p.x, n.p.y, n.p.z)) { rides++; if (useOneway) add(new V(...w.to), qi, `oneway:${w.door}`); }
+      if (performance.now() - t0 > o.budgetMs) break;
     }
-    // one-way edges (d2_exit): a body inside within 2 m is let out
-    for (const w of oneway) if (inBox(w.from, n.p.x, n.p.y, n.p.z)) { rides++; if (useOneway) add(new V(...w.to), qi, `oneway:${w.door}`); }
-    if (performance.now() - t0 > o.budgetMs) break;
-  }
-  const ms = performance.now() - t0;
+    if (goal && found < 0) found = nodes.findIndex(near);
+    return { nodes, rides, boxFloors, ms: performance.now() - t0, found };
+  };
+  const main = flood(phase.check.start);
+  const { nodes, rides, boxFloors } = main;
+  const ms = main.ms;
 
   // ── regions ──
   const regions = level.regions;
@@ -215,10 +297,18 @@ function runPhase(o) {
   const goals = phase.check.goal.map((r) => ({ region: r, ok: r === 'ride' ? rides > 0 : reached.has(r) }));
 
   // ── interactables: goals usable; nothing inside a forbidden region usable / walk-over-able ──
+  // stage 3d S8g: an interactable with `requireRegion` is a candidate only with the feet inside that region
+  const allowed = (it, p) => {
+    if (!it.requireRegion) return true;
+    if (g.interactables.allowedAt) return g.interactables.allowedAt(it, p);
+    tmp2.set(p.x, p.y + 0.05, p.z);
+    return (level.regions[it.requireRegion] ?? []).some((b) => b.containsPoint(tmp2));
+  };
   const usable = (it, eyeRange = null) => {
     const r = it.radius ?? 2.2;
     const gate = it.eyeGate ?? null;
     for (const n of nodes) {
+      if (!allowed(it, n.p)) continue;
       for (const eh of n.stand ? [EYE, EYEC] : [EYEC]) {
         tmp.set(n.p.x, n.p.y + eh, n.p.z);
         if (gate) { const v = tmp[gate.axis]; if ((gate.min !== undefined && v < gate.min) || (gate.max !== undefined && v >= gate.max)) continue; }
@@ -268,7 +358,7 @@ function runPhase(o) {
     if (u) leaks.push({ id: it.id, kind: it.kind, region: rs[0], pos: [it.position.x, it.position.y, it.position.z].map((v) => +v.toFixed(2)), from: [u.node.p.x, u.node.p.y, u.node.p.z].map((v) => +v.toFixed(2)), how: u.eye });
   }
   // ── stage 3c: interactables that must not be usable (a disabled one passes: the player cannot focus it)
-  const mustNot = (phase.check.mustNotUse ?? []).map((e) => {
+  const mustNot = (phase.check.mustNotUse ?? []).filter((e) => !(typeof e === 'string' && hazardIds.has(e))).map((e) => {
     const { id, eye } = entry(e);
     const it = all.find((x) => x.id === id);
     if (!it) return { id, ok: false, why: 'no such interactable' };
@@ -290,7 +380,17 @@ function runPhase(o) {
   // ── triggers holding a reachable node (feet, inside the y range) ──
   const triggers = trig.filter((t) => nodes.some((n) => inTrig(t, n.p))).map((t) => t.id);
   const stressMissing = o.stress ? (phase.check.stressFloors ?? []).filter((f) => !boxFloors[String(+f.toFixed(2))]) : [];
+  // ── stage 3d (§10.2 (2)): hazards entered on any simulated step of the phase's flood ──
+  const hazardList = [...hazardHits.entries()].map(([id, h]) => ({ id, at: h.at, via: h.via, path: h.from >= 0 ? pathOf(h.from).slice(-12) : [] }));
+  // ── stage 3d (§10.2 (5)): walks — a flood from `from` (inside `within`) reaches `to` ──
+  const walks = (o.stress ? [] : phase.check.walks ?? []).map((w) => {
+    const f = flood(w.from, { within: w.within, to: w.to, tol: w.tol });
+    const end = f.found >= 0 ? f.nodes[f.found].p : null;
+    return { id: w.id, ok: f.found >= 0, nodes: f.nodes.length, at: end ? [end.x, end.y, end.z].map((v) => +v.toFixed(2)) : null };
+  });
+  for (const [id, h] of hazardHits) if (!hazardList.some((x) => x.id === id)) hazardList.push({ id, at: h.at, via: `${h.via} (walk flood)`, path: [] });
   return {
+    hazards: hazardList, hazardRegions: hazards.map((h) => h.id), walks, lowY,
     phase: phase.id, label: phase.label, stress: o.stress, nodes: nodes.length, sims, ms: Math.round(ms), truncated: nodes.length >= o.maxNodes || ms > o.budgetMs,
     reached: [...reached.keys()].sort(), forbidden, goals, use, mustNot, standIn, crouchNodes, leaks, rides, triggers, boxFloors, stressMissing, expect: phase.check.expect ?? null,
   };
@@ -319,7 +419,7 @@ const browser = await launch();
 let failures = 0;
 const jobsN = Number(args.jobs ?? 4);
 const print = (r) => {
-  let bad = r.forbidden.length || r.goals.some((x) => !x.ok) || r.use.some((x) => !x.ok) || r.mustNot.some((x) => !x.ok) || r.standIn.length || r.leaks.length || r.truncated || r.stressMissing.length;
+  let bad = r.hazards.length || r.walks.some((x) => !x.ok) || r.forbidden.length || r.goals.some((x) => !x.ok) || r.use.some((x) => !x.ok) || r.mustNot.some((x) => !x.ok) || r.standIn.length || r.leaks.length || r.truncated || r.stressMissing.length;
   let tag = bad ? 'FAIL' : ' ok ', note = '';
   if (r.expect === 'fail') {
     // the deliberate failing case: it must report its forbidden region, else the check cannot fail
@@ -330,6 +430,9 @@ const print = (r) => {
   if (bad) failures++;
   console.log(`${tag} ${r.stress ? '[stress +0.6]' : '[normal]     '} ${r.phase.padEnd(7)} ${r.label}  — ${r.nodes} nodes, ${(r.ms / 1000).toFixed(1)} s${r.truncated ? ' TRUNCATED' : ''}${note}`);
   for (const f of r.stressMissing) console.log(`       stress: no wreck box tried on floor y ${f}`);
+  for (const h of r.hazards) console.log(`       HAZARD "${h.id}" entered on a simulated step at (${h.at.join(', ')}) via ${h.via}${h.path.length ? `\n         from: ${h.path.map((q) => `(${q[0]},${q[1]},${q[2]})${q[3] !== 'walk' ? ':' + q[3] : ''}`).join(' → ')}` : ''}`);
+  for (const w of r.walks) console.log(`${w.ok ? '       walk ok' : '       WALK FAILED'} ${w.id}: ${w.ok ? `reached at (${w.at.join(', ')})` : 'target not reached'} (${w.nodes} nodes)`);
+  if (r.hazardRegions.length && !r.stress && args.verbose) console.log(`       hazards tested on every step: ${r.hazardRegions.join(', ')}; simulated down to y ${r.lowY.toFixed(1)}`);
   for (const f of r.forbidden) console.log(`       forbidden region "${f.region}" reached at (${f.at.slice(0, 3).join(', ')}) via ${f.at[3]}\n         path: ${f.path.map((q) => q.length < 3 ? '…' : `(${q[0]},${q[1]},${q[2]})${q[3] !== 'walk' ? ':' + q[3] : ''}`).join(' → ')}`);
   for (const x of r.goals.filter((x) => !x.ok)) console.log(`       goal region "${x.region}" NOT reached`);
   for (const x of r.use.filter((x) => !x.ok)) console.log(`       goal interactable "${x.id}" NOT usable${x.why ? ' (' + x.why + ')' : ''}`);

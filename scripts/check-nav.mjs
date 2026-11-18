@@ -24,7 +24,14 @@
 // `noNodes` boxes (the hatch pit, the magazine hatch: obstacles from load) hold none; `navStairs` = how many nav stairs
 // there are (the lower ship stairs carry none); `shipStairs`: the PLAYER capsule walks up each ship stair (lids
 // snapped open); `cover`: every cover point has a nav node within 1.5 m reachable from its set's soldier spawn.
-// Usage: node scripts/check-nav.mjs [--url http://127.0.0.1:5173] [--level 1|2|3|4|5|all|greybox] [--no-sim] [--verbose]
+// Level 6 (stage 3d §10.3, W4b): cases from `level.navCases` or `level.root.userData.navCases6` (l6/water.ts
+// NAV_CASES6): `reach` (rushed husks, 1.6 m/s soldiers; `maxWade` = the enemy never stands deeper), `avoid` (skitters
+// never into water > 0.1, husks never into the channel), `ramps` by `stairAt`, `noNodes` (the coaming + well, the shaft's
+// well guard, both hatch pits, the trench, the six slot boxes), no node with `wade` > 0.6, no dock-grid node over the wet
+// dock (`wetGrid`), `dockMove` (a container moved: slots still without nodes, its cover follows, a husk routes round),
+// every cover point reachable from its set's spawn (`coverSpawns`), `ignoreFloors`. A floor whose nodes all came out too
+// deep (nav.ts `deep`) is not "unlinked".
+// Usage: node scripts/check-nav.mjs [--url http://127.0.0.1:5173] [--level 1|2|3|4|5|6|all|greybox] [--no-sim] [--verbose]
 //        [--case id,id]   (only these reach cases of the level's navCases; no stand-off / sentry / ramp runs)
 // Exit code 1 on any failure.
 import { parseArgs, launch, bootLevel } from './lib/check-common.mjs';
@@ -32,7 +39,7 @@ import { parseArgs, launch, bootLevel } from './lib/check-common.mjs';
 const args = parseArgs();
 const base = args.url ?? 'http://127.0.0.1:5173';
 const which = args.level ?? 'all';
-const targets = which === 'all' ? ['greybox', 1, 2, 3, 4, 5] : which === 'greybox' ? ['greybox'] : [Number(which)];
+const targets = which === 'all' ? ['greybox', 1, 2, 3, 4, 5, 6] : which === 'greybox' ? ['greybox'] : [Number(which)];
 const sims = !args['no-sim'];
 /**
  * Levels 1–2 nav node sets as built before nav v2 (K4 baseline: ids, positions, rooms, links). Nav v2 must not change
@@ -71,6 +78,18 @@ function install() {
     for (const s of stairs) { const h = stairH(s, x, z, 0.1); if (h !== null) out.push(h); }
     return out;
   };
+  /** The level's nav cases (level 6: published by l6/water.ts when the level does not set `navCases`). */
+  const casesOf = () => level.navCases ?? level.root.userData.navCases6 ?? null;
+  /** Stage 3d: water depth at a body's feet (0 dry), from `Level.water`. */
+  const wadeOf = (p) => {
+    let d = 0;
+    for (const w of level.water ?? []) {
+      const b = w.box;
+      if (p.x < b.min.x || p.x > b.max.x || p.z < b.min.z || p.z > b.max.z || p.y >= w.surface || p.y < b.min.y - 0.5) continue;
+      d = Math.max(d, w.surface - p.y);
+    }
+    return d;
+  };
   const inAnyRoom = (x, z, grow = 0.45) => level.rooms.some((r) => x >= r.bounds.min.x - grow && x <= r.bounds.max.x + grow && z >= r.bounds.min.z - grow && z <= r.bounds.max.z + grow);
   const openAll = () => { for (const d of level.doors) { d.setStatus?.(null); d.unlock(); d.auto = true; d.open(); d.snap?.(); } };
   /** Links governed by a door, as enemies/nav.ts decides it (decks: average link y within 2 m of the door's floor). */
@@ -86,6 +105,7 @@ function install() {
     for (const d of level.doors) if (segXZ(d.position, a.position, b.position) < 0.9 && Math.abs(d.position.y - ly) < (decks ? 2 : 2.5)) return d;
     return null;
   };
+  const stairIndexAt = (p) => (p ? stairs.findIndex((s) => { const h = stairH(s, p[0], p[2]); return h !== null && Math.abs(h - p[1]) < 0.5; }) : -1);
   const nearestNode = (p) => {
     let best = -1, bd = Infinity;
     for (const n of nav) { const q = n.position, dy = q.y - p.y; const d = (q.x - p.x) ** 2 + (q.z - p.z) ** 2 + dy * dy * 4; if (d < bd) { bd = d; best = n.id; } }
@@ -151,12 +171,14 @@ function install() {
    */
   const follow = (e, within, o = {}) => {
     const t0 = g.time, p = e.position;
-    const r = { reached: false, t: 0, under: null, outside: null, stuck: null, offFloor: null, stair: false, drop: false, end: '' };
+    const r = { reached: false, t: 0, under: null, outside: null, stuck: null, offFloor: null, stair: false, drop: false, end: '', maxWade: 0, wadeAt: null };
     let mark = p.clone(), markT = g.time, outT = 0, lastAttack = (attacks.get(e.id) ?? []).length;
     const hist = [];
     while (g.time - t0 < within) {
       step(1);
       if (!e.alive) { r.end = 'died'; break; }
+      const wd = wadeOf(p);
+      if (wd > r.maxWade) { r.maxWade = wd; r.wadeAt = fmt(p); }
       if (e.state === 'idle' && ((g.time - t0) * 60 | 0) % 60 === 0) e.alert?.(); // (as the story's `rouse` does, every second)
       const fl = floorsAt(p.x, p.z);
       const at = () => `${fmt(p)} at ${(g.time - t0).toFixed(1)} s`;
@@ -326,10 +348,13 @@ function install() {
       kill(grp);
       return r;
     },
+    /** Stage 3d: index of the nav stair whose slope passes within 0.5 m of p (−1 = none). */
+    stairAt(p) { return stairIndexAt(p); },
     /** Ramp: idle drift of a husk / the player, then 5 walks up and down (player input; husk following the player). */
     ramp(c, opts = {}) {
       openAll();
-      const s = stairs[c.stair];
+      const s = stairs[c.stair ?? stairIndexAt(c.stairAt)];
+      if (!s) return { missing: `no nav stair at (${(c.stairAt ?? []).join(', ')})` };
       const out = {};
       const hold = phys._holdSlopes;
       if (opts.noHold) phys._holdSlopes = false;
@@ -416,6 +441,64 @@ function install() {
       });
       return { noNodes, offNav, stairs: stairs.length, wantStairs: cs.navStairs ?? stairs.length, cover };
     },
+    /** Stage 3d: an enemy chasing the player (in the wet dock) never stands in water deeper than `maxWade`. */
+    avoid(c) {
+      openAll();
+      const yaw = Math.atan2(-(c.spawn[0] - c.player[0]), -(c.spawn[2] - c.player[2]));
+      place(c.player, yaw);
+      const { e, grp } = spawn(c.type ?? 'husk', c.spawn, Math.atan2(-(c.player[0] - c.spawn[0]), -(c.player[2] - c.spawn[2])));
+      step(2); e.alert?.();
+      if (c.rush) g.enemies.rush?.(grp, c.within + 5);
+      const r = follow(e, c.within, { noStuck: true, until: () => false });
+      r.type = e.type;
+      kill(grp);
+      return r;
+    },
+    /** Stage 3d (level 6) statics: noNodes boxes, wade, the dock grid over the wet dock, nav:false floors, cover, slots. */
+    level6() {
+      const cs = casesOf();
+      if (!cs?.coverSpawns) return null;
+      openAll();
+      const inB = (q, b) => q.x > b[0] && q.x < b[3] && q.y > b[1] && q.y < b[4] && q.z > b[2] && q.z < b[5];
+      const noNodes = () => (cs.noNodes ?? []).map((x) => ({ id: x.id, n: nav.filter((n) => inB(n.position, x.box)).length }));
+      const deep = nav.filter((n) => (n.wade ?? 0) > 0.6).map((n) => `#${n.id} ${fmt(n.position)} wade ${n.wade}`);
+      const wet = nav.filter((n) => (n.wade ?? 0) > 0).length;
+      const wg = cs.wetGrid;
+      const wetGrid = wg ? nav.filter((n) => !n.stair && Math.abs(n.position.y - wg.y) < 0.15 && n.position.x > wg.box[0] && n.position.x < wg.box[2] && n.position.z > wg.box[1] && n.position.z < wg.box[3]).map((n) => `#${n.id} ${fmt(n.position)}`) : [];
+      const offNav = nav.filter((n) => { const f = level.floorAt(n.position); return f && !f.nav && Math.abs(f.y - n.position.y) < 0.3; }).length;
+      const cover = (level.cover ?? []).map((c) => {
+        const from = cs.coverSpawns[c.set];
+        if (!from) return { id: c.id, ok: false, why: `no spawn for set ${c.set}` };
+        const dist = dijkstra(nearestNode(new V(...from)));
+        const near = nav.filter((n) => Math.abs(n.position.y - c.position.y) < 0.4 && Math.hypot(n.position.x - c.position.x, n.position.z - c.position.z) <= 1.5);
+        if (!near.length) return { id: c.id, ok: false, why: 'no node within 1.5 m' };
+        const best = Math.min(...near.map((n) => dist[n.id]));
+        return { id: c.id, ok: best < Infinity, why: best < Infinity ? `${best.toFixed(0)} m` : `unreachable from ${c.set} spawn` };
+      });
+      const dock = level.dock;
+      const slots = dock ? dock.slots.map((s) => {
+        const b = s.box, c = [-58.4, -45.6, -182.4, -169.6];
+        const d = Math.hypot(Math.max(c[0] - b.max.x, b.min.x - c[1], 0), Math.max(c[2] - b.max.z, b.min.z - c[3], 0));
+        return { id: s.id, d: +d.toFixed(2), container: s.container };
+      }) : [];
+      return { noNodes: noNodes(), deep, wet, wetGrid, offNav, cover, slots, hasDock: !!dock };
+    },
+    /** Stage 3d S6a: move a container (lift + place), re-check the slots and the cover; `back` moves it back. */
+    dockMove(c, back = false) {
+      const dock = level.dock;
+      if (!dock) return { ok: false, why: 'no Level.dock' };
+      const [from, to] = back ? [c.to, c.from] : [c.from, c.to];
+      const h = dock.lift(from);
+      if (!h) return { ok: false, why: `nothing to lift in ${from}` };
+      dock.place(h, to);
+      const sf = dock.slots.find((s) => s.id === from), st = dock.slots.find((s) => s.id === to);
+      const en = (ids) => ids.map((id) => (level.cover ?? []).find((q) => q.id === id)).filter(Boolean).map((q) => q.enabled);
+      const cs = casesOf();
+      const inB = (q, b) => q.x > b[0] && q.x < b[3] && q.y > b[1] && q.y < b[4] && q.z > b[2] && q.z < b[5];
+      const slotNodes = (cs.noNodes ?? []).filter((x) => x.id.startsWith('slot ')).reduce((n, x) => n + nav.filter((q) => inB(q.position, x.box)).length, 0);
+      const box = h.box.box;
+      return { ok: true, container: h.id, fromSlot: sf.container, toSlot: st.container, coverFrom: en(sf.cover), coverTo: en(st.cover), slotNodes, walkable: !!h.box.walkable, box: [...box.min.toArray(), ...box.max.toArray()].map((v) => +v.toFixed(2)) };
+    },
     /** The player capsule walks a ship stair: from `from` to `via` (the foot), then up toward `to` (lids snapped open). */
     shipStair(c) {
       openAll();
@@ -478,9 +561,9 @@ for (const target of targets) {
   line(st.badLinks.length === 0, `every link (${st.linkN}${st.drops ? `, ${st.drops} drop` : ''}) is walked by a husk capsule`, st.badLinks.length ? ` — ${st.badLinks.length} not` : '');
   show(st.badLinks);
   if (st.floors) {
-    const cases = await page.evaluate(() => window.__game.level.navCases ?? null);
+    const cases = await page.evaluate(() => window.__game.level.navCases ?? window.__game.level.root.userData.navCases6 ?? null);
     const expected = new Set(cases?.unlinkedFloors ?? []), ignore = new Set(cases?.ignoreFloors ?? []);
-    const lost = Object.entries(st.floors).filter(([k, f]) => f.kept === 0 && f.nav !== false && !k.endsWith(':stair') && !ignore.has(k));
+    const lost = Object.entries(st.floors).filter(([k, f]) => f.kept === 0 && f.nav !== false && !k.endsWith(':stair') && !ignore.has(k) && !(f.deep && f.deep === f.made));
     const navOff = Object.entries(st.floors).filter(([, f]) => f.nav === false);
     if (navOff.length) line(navOff.every(([, f]) => f.made === 0), `nav: false floors hold no node (${navOff.map(([k]) => k).join(', ')})`, navOff.some(([, f]) => f.made) ? ` — ${navOff.filter(([, f]) => f.made).map(([k, f]) => `${k} ${f.made}`).join(', ')}` : '');
     const bad = lost.filter(([k]) => !expected.has(k));
@@ -496,6 +579,19 @@ for (const target of targets) {
     const badC = l5.cover.filter((c) => !c.ok);
     line(badC.length === 0, `every cover point (${l5.cover.length}) has a nav node ≤ 1.5 m reachable from its set's soldier spawn`, badC.length ? ` — ${badC.map((c) => `${c.id} (${c.why})`).join(', ')}` : '');
   }
+  const l6 = await page.evaluate(() => window.__nav.level6());
+  if (l6) {
+    line(l6.noNodes.every((x) => x.n === 0), `no nav node in ${l6.noNodes.map((x) => `${x.id} (${x.n})`).join(', ')}`);
+    line(l6.deep.length === 0, `no nav node in water deeper than 0.6 m (${l6.wet} nodes stand in water)`, l6.deep.length ? ` — ${l6.deep.length}` : '');
+    show(l6.deep);
+    line(l6.wetGrid.length === 0, `no dock-grid node over the wet dock (S1e band)`, l6.wetGrid.length ? ` — ${l6.wetGrid.length}` : '');
+    show(l6.wetGrid);
+    line(l6.offNav === 0, `no nav node stands on a nav: false floor (${l6.offNav})`);
+    const badC = l6.cover.filter((c) => !c.ok);
+    line(badC.length === 0, `every cover point (${l6.cover.length}) has a nav node ≤ 1.5 m reachable from its set's spawn`, badC.length ? ` — ${badC.map((c) => `${c.id} (${c.why})`).join(', ')}` : '');
+    if (l6.hasDock) line(l6.slots.every((x) => x.d >= 6.5), `every cargo slot ≥ 6.5 m from the coaming (${l6.slots.map((x) => `${x.id} ${x.d}`).join(', ')})`);
+    else line(false, 'Level.dock exists (l6/dock.ts)');
+  }
   const ph = await page.evaluate(() => window.__nav.phases());
   for (const p of ph) {
     const cut = p.goals.filter((x) => x.state === 'cut');
@@ -505,7 +601,7 @@ for (const target of targets) {
 
   if (sims) {
     // a level that declares its own cases (the greybox, level 3) runs those; levels 1–2 get seeded random ones
-    const own = await page.evaluate(() => window.__game.level.navCases ?? null);
+    const own = await page.evaluate(() => window.__game.level.navCases ?? window.__game.level.root.userData.navCases6 ?? null);
     let cases = own ?? { reach: await page.evaluate(() => window.__nav.autoCases(4)) };
     // `--case a,b`: only these reach cases (no stand-off / sentry / ramp / ship-stair runs) — a targeted re-run
     if (args.case) { const only = String(args.case).split(','); cases = { reach: cases.reach.filter((c) => only.includes(c.id)) }; }
@@ -513,14 +609,37 @@ for (const target of targets) {
       const r = await page.evaluate((c) => window.__nav.reach(c), c);
       const vias = (c.via ?? []).filter((v) => !r[v]);
       const strict = greybox || boot.decks;
-      const bad = !r.reached || r.under || r.outside || r.stuck || (strict && r.offFloor) || vias.length;
-      const why = [!r.reached && `did not attack within ${c.within} s (ended at ${r.at}${r.end ? ', ' + r.end : ''})`, r.under && `under the floor ${r.under}`, r.outside && `outside every room ${r.outside}`,
+      const wadeBad = c.maxWade !== undefined && r.maxWade > c.maxWade;
+      const bad = !r.reached || r.under || r.outside || r.stuck || (strict && r.offFloor) || vias.length || wadeBad;
+      const why = [!r.reached && `did not attack within ${c.within} s (ended at ${r.at}${r.end ? ', ' + r.end : ''})`, wadeBad && `stood in ${r.maxWade.toFixed(2)} m of water at ${r.wadeAt} (max ${c.maxWade})`, r.under && `under the floor ${r.under}`, r.outside && `outside every room ${r.outside}`,
         r.stuck && `stuck ${r.stuck}`, strict && r.offFloor && `standing off any floor ${r.offFloor}`, vias.length && `route did not use: ${vias.join(', ')}`].filter(Boolean);
       const text = `${c.id.padEnd(18)} ${c.label} — ${r.reached ? `attacked after ${r.t.toFixed(1)} s` : 'NOT reached'}${r.stair ? ', via stair' : ''}${r.drop ? ', via drop' : ''}`;
       if (c.expect === 'fail') expectFail(!!bad, `${text}${bad ? ` (${why[0]})` : ''}`);
       else { line(!bad, text); for (const w of why) console.log(`       ${w}`); }
       if (!greybox && r.offFloor && args.verbose) console.log(`       (note: stood off the room floor ${r.offFloor} — furniture)`);
       if (r.passage) console.log(`       (note: walked a passage that is not a room, ${r.passage})`);
+    }
+    for (const c of cases.avoid ?? []) {
+      const r = await page.evaluate((c) => window.__nav.avoid(c), c);
+      const bad = r.maxWade > c.maxWade || r.under || r.outside;
+      line(!bad, `${c.id.padEnd(18)} ${c.label} — deepest ${r.maxWade.toFixed(2)} m${r.wadeAt ? ` at ${r.wadeAt}` : ''} in ${c.within} s (${r.reached ? 'attacked' : 'did not attack'}, ended at ${r.at})`);
+      if (r.under) console.log(`       under the floor ${r.under}`);
+      if (r.outside) console.log(`       outside every room ${r.outside}`);
+    }
+    if (cases.dockMove) {
+      const c = cases.dockMove;
+      const m = await page.evaluate((c) => window.__nav.dockMove(c), c);
+      if (!m.ok) line(false, `dock: container move ${c.from} → ${c.to} (${m.why})`);
+      else {
+        line(m.toSlot === m.container && m.fromSlot === null && m.slotNodes === 0 && !m.walkable && m.coverFrom.every((v) => v === false) && m.coverTo.every((v) => v === true),
+          `dock: ${m.container} moved ${c.from} → ${c.to}: slots ${c.from} ${m.fromSlot ?? 'free'} / ${c.to} ${m.toSlot}, no node in any slot (${m.slotNodes}), cover ${c.from} [${m.coverFrom.join(' ')}] / ${c.to} [${m.coverTo.join(' ')}], box non-walkable at (${m.box.join(', ')})`);
+        if (c.reach) {
+          const r = await page.evaluate((c) => window.__nav.reach(c), c.reach);
+          line(r.reached && !r.under && !r.outside && !r.stuck, `${c.reach.id.padEnd(18)} ${c.reach.label} — ${r.reached ? `attacked after ${r.t.toFixed(1)} s` : `NOT reached (ended at ${r.at})`}`);
+        }
+        const b = await page.evaluate((c) => window.__nav.dockMove(c, true), c);
+        line(b.ok && b.toSlot === b.container, `dock: ${b.container ?? '?'} moved back ${c.to} → ${c.from}`);
+      }
     }
     if (cases.standOff) {
       const c = cases.standOff;
@@ -539,10 +658,12 @@ for (const target of targets) {
     for (const c0 of cases.ramps ?? (cases.ramp ? [cases.ramp] : [])) {
       const c = { ...c0, away: c0.away ?? [0, 0, -34] };
       const r = await page.evaluate((c) => window.__nav.ramp(c), c);
+      if (r.missing) { line(false, `ramp ${c.id ?? ''}: ${r.missing}`); continue; }
       line(r.huskDrift < 0.05, `ramp: a husk standing on it drifts ${(r.huskDrift * 100).toFixed(1)} cm in 10 s (< 5 cm; state ${r.huskState})`);
       line(r.playerDrift < 0.05, `ramp: the player standing on it drifts ${(r.playerDrift * 100).toFixed(1)} cm in 10 s (< 5 cm)`);
       line(r.playerLegs === c.trips * 2 && !r.playerFell && r.playerOn, `ramp: the player walks it up and down ${c.trips} times — ${r.playerLegs}/${c.trips * 2} legs${r.playerFell ? `, went over the side at ${r.playerFell}` : ''}`);
       line(r.huskLegs === c.trips * 2 && !r.huskFell && r.huskOn, `ramp: a husk follows the player up and down ${c.trips} times — ${r.huskLegs}/${c.trips * 2} legs${r.huskFell ? `, went over the side at ${r.huskFell}` : ''}`);
+      if (c.noHoldCase === false) continue; // (a shallow ramp a body does not slide down even without the hold)
       const nh = await page.evaluate((c) => window.__nav.ramp(c, { noHold: true }), c);
       expectFail(nh.huskDrift >= 0.05, `ramp without the physics slope hold: a standing husk drifts ${(nh.huskDrift * 100).toFixed(1)} cm in 10 s`);
     }

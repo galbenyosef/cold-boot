@@ -12,10 +12,34 @@
  * Stage 3c D20 / §8.4: a floor declared `nav: false` (the crawlway, the magazine) gets no grid node, does not carry a
  * link (`supported`), and is left out of the "floor with no reachable node" warning (`NavInfo.floors[k].nav` false —
  * scripts/check-nav.mjs skips it too). Its `exits` are data for the enemies (level.floorAt), not nav nodes.
+ *
+ * Stage 3d §8.4 / §10.3 (W4b): a level that registers water volumes (`setNavWater(L, water)`, level 6's l6/water.ts)
+ * gets `wade` on every node standing in water (the depth at the node's floor: surface − y; absent = dry) and NO node
+ * (grid, extra, stair chain, stair end) where `wade` > `NAV_WADE_MAX` (0.6). A floor whose nodes all came out too deep
+ * is flagged `deep` in `NavInfo.floors` (check-nav does not call it "unlinked"). Levels without water: unchanged.
  */
 import * as THREE from 'three';
-import type { NavNode, Room } from '../core/types';
+import type { NavNode, Room, WaterVolume } from '../core/types';
 import { roomFloor, type LevelBuild, type NavStair } from './context';
+
+/** Stage 3d D13: the deepest water a nav node may stand in (husks / soldiers never path deeper; skitters: 0.1, W3c). */
+export const NAV_WADE_MAX = 0.6;
+/** A nav node with its water depth (stage 3d §8.4: `wade`, absent = dry). Contract request: `NavNode.wade?: number`. */
+export type WadeNode = NavNode & { wade?: number };
+const navWater = new WeakMap<LevelBuild, readonly WaterVolume[]>();
+/** Stage 3d W4b: water volumes the nav builder reads (call before `assembleLevel`). */
+export function setNavWater(L: LevelBuild, water: readonly WaterVolume[]): void { navWater.set(L, water); }
+/** Water depth at a floor point (0 dry): the volume whose plan box holds (x, z) and whose surface is above y. */
+export function wadeAt(water: readonly WaterVolume[], x: number, y: number, z: number): number {
+  let d = 0;
+  for (const w of water) {
+    const b = w.box;
+    if (x < b.min.x || x > b.max.x || z < b.min.z || z > b.max.z) continue;
+    if (y >= w.surface || y < b.min.y - 0.3) continue;
+    d = Math.max(d, w.surface - y);
+  }
+  return d;
+}
 
 function segHitsBox(ax: number, az: number, bx: number, bz: number, b: THREE.Box3, r: number): boolean {
   const minx = b.min.x - r, maxx = b.max.x + r, minz = b.min.z - r, maxz = b.max.z + r;
@@ -46,7 +70,7 @@ export interface NavInfo {
   /** Multi-deck rules active (a room with extra floors / a floor off y 0 / a stair). */
   decks: boolean;
   /** Per room floor (`room:floor index` or `room:main`): nodes generated / kept after pruning; `nav: false` floors flagged. */
-  floors: Record<string, { y: number; made: number; kept: number; nav?: false }>;
+  floors: Record<string, { y: number; made: number; kept: number; nav?: false; deep?: number }>;
   stairs: { room: string; a: number[]; b: number[]; width: number; nodes: number }[];
   drops: { from: number[]; to: number[]; ok: boolean }[];
   /** Stair end nodes that came out blocked (a stair that cannot be entered). */
@@ -74,6 +98,9 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
   const decks = stairs.length > 0 || drops.length > 0 || rooms.some((r, i) => (r.floors?.length ?? 0) > 0 || Math.abs(floorY[i]) > 1e-6);
   const nodes: NavNode[] = [];
   const steps: number[] = [];
+  // stage 3d (W4b): water depth per node; too deep = dead (never linked, pruned as unreachable)
+  const water = navWater.get(L) ?? [];
+  const dead = new Set<number>();
 
   // ── obstacles per floor height: those overlapping floor + 0.2 … floor + 1.5 (floor 0 = the classic list) ──
   const bands = new Map<number, THREE.Box3[]>();
@@ -155,6 +182,11 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
   const add = (x: number, y: number, z: number, room: string, s: number, floor?: number) => {
     const n: NavNode = { id: nodes.length, position: new THREE.Vector3(x, y, z), links: [], room };
     if (floor !== undefined) n.floor = floor;
+    if (water.length) {
+      const w = wadeAt(water, x, y, z);
+      if (w > 0) (n as WadeNode).wade = +w.toFixed(3);
+      if (w > NAV_WADE_MAX) dead.add(n.id);
+    }
     nodes.push(n);
     steps.push(s);
     return n;
@@ -237,7 +269,10 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
     }
     add(p.x, py, p.z, room, 1.6, decks ? floorIndex(bi, p.x, py, p.z) : undefined);
   }
-  const link = (a: NavNode, b: NavNode) => { if (!a.links.includes(b.id)) { a.links.push(b.id); b.links.push(a.id); } };
+  const link = (a: NavNode, b: NavNode) => {
+    if (dead.size && (dead.has(a.id) || dead.has(b.id))) return;
+    if (!a.links.includes(b.id)) { a.links.push(b.id); b.links.push(a.id); }
+  };
   for (let i = 0; i < nodes.length; i++) {
     const a = nodes[i];
     if (a.stair) continue;
@@ -253,12 +288,13 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
     }
   }
   for (const c of chains) for (let k = 1; k < c.length; k++) link(c[k - 1], c[k]);
-  for (const [a, b] of dropPairs) (a.drops ??= []).push(b.id);
+  for (const [a, b] of dropPairs) if (!dead.has(a.id) && !dead.has(b.id)) (a.drops ??= []).push(b.id);
 
   // prune nodes not reachable from the first node (keeps ids dense); drops count one way
   const seen = new Uint8Array(nodes.length);
   let start = 0, sd = Infinity;
   for (const n of nodes) {
+    if (dead.has(n.id)) continue;
     const dy = startAt.y === undefined ? 0 : (n.position.y - startAt.y) * 2;
     const d = (n.position.x - startAt.x) * (n.position.x - startAt.x) + (n.position.z - startAt.z) * (n.position.z - startAt.z) + dy * dy;
     if (d < sd) { sd = d; start = n.id; }
@@ -275,6 +311,7 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
     const e = (info.floors[k] ??= { y: n.position.y, made: 0, kept: 0 });
     e.made++;
     if (seen[n.id]) e.kept++;
+    if (dead.has(n.id)) e.deep = (e.deep ?? 0) + 1;
   }
   for (const r of rooms) {
     // a declared floor that produced no node at all is reported too (made 0)
@@ -296,7 +333,7 @@ export function buildNav(L: LevelBuild, rooms: readonly Room[], portals: NavPort
   }
   if (out.length < nodes.length && L.ctx.debug.verbose) console.info(`[level] nav: pruned ${nodes.length - out.length} unreachable nodes`);
   if (decks) {
-    const lost = Object.entries(info.floors).filter(([, f]) => f.kept === 0 && f.nav !== false).map(([k]) => k);
+    const lost = Object.entries(info.floors).filter(([, f]) => f.kept === 0 && f.nav !== false && !(f.deep && f.deep === f.made)).map(([k]) => k);
     if (lost.length && L.ctx.debug.verbose) console.warn(`[level] nav: floors with no reachable node (no stair / door links them): ${lost.join(' ')}`);
     for (const e of info.blockedEnds) console.warn(`[level] nav: stair end blocked — ${e}`);
   }
