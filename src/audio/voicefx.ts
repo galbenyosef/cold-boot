@@ -34,12 +34,13 @@ import { hashStr, mulberry } from './synth/core';
 export const FX_SR = 24000;
 const OUT_RMS = 0.13;
 
-export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen' | 'radio' | 'throat';
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen' | 'radio' | 'throat' | 'phone';
 
 // `screen` (stage 3b D17): a monitor's speaker playing a recording = the `recorder` DSP chain (chainOf); only its
 // position profile differs (voice.ts POS.screen: ref 4 m, rolloff 0.7)
 // stage 3c §6.1: `radio` and `throat` are names of their own (no longer the alias radio → headset)
-export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door', 'screen', 'radio', 'throat'];
+// stage 3d §6.1: `phone` (the head-end's sound-powered handset) parses as its own name; it renders as `headset` (chainOf)
+export const FX_NAMES: readonly VoiceFxName[] = ['clean', 'choir', 'intercom', 'headset', 'unit', 'foreman', 'recorder', 'pa', 'room', 'door', 'screen', 'radio', 'throat', 'phone'];
 
 export function parseFx(fx: string | undefined | null): { name: VoiceFxName; arg: number | null } {
   const [raw, a] = String(fx ?? 'clean').toLowerCase().split(':');
@@ -248,7 +249,8 @@ function lightChoir(base: Float32Array): Float32Array {
 
 /** The DSP chain an fx name renders through: `screen` is an alias of `recorder` (stage 3b D17); the rest are their own. */
 export function chainOf(name: VoiceFxName): VoiceFxName {
-  return name === 'screen' ? 'recorder' : name;
+  // K placeholder (stage 3d, W2b): `phone` → its own chain (and POS profile in voice.ts)
+  return name === 'screen' ? 'recorder' : name === 'phone' ? 'headset' : name;
 }
 
 /** Seconds an fx chain puts before the voice by design (squelch, tape clunk, speaker click) — the sync point is there. */

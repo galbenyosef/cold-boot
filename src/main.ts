@@ -46,7 +46,8 @@ async function boot() {
     events,
     input: createInput(canvas),
     physics: createPhysics(),
-    interactables: createInteractables(events),
+    // stage 3d S8g: `Interactable.requireRegion` is looked up in the level's regions (read lazily)
+    interactables: createInteractables(events, () => ctx.level?.regions),
     debug,
     levelId,
     facts: startFacts(levelId, debug),
@@ -74,6 +75,7 @@ async function boot() {
   await status(levelOf(ctx).bootStatus);
   ctx.level = await createLevel(ctx);
   ctx.physics.build(ctx.level.colliders);
+  ctx.physics.setKillY(ctx.level.killY); // stage 3d B6: the level's kill height (levels 1–5: −30)
   await status('operator');
   ctx.player = await createPlayer(ctx);
   await status('machines');

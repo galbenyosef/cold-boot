@@ -122,7 +122,13 @@ export async function createEnemies(ctx: GameContext): Promise<EnemyManager> {
     const rig = createSoldierRig(ctx, getSoldier(), { arms, seed: ++soldierSeed * 7.13 + 0.37, managedLod: true });
     return new Soldier(world, group, position, yaw, { ...o, arms, rig });
   };
-  const manager = createManager(ctx, { husk, skitter, sentry, foreman, soldier }, extra);
+  // K placeholder (stage 3d D8, W3b): the loader is a sentry (with one warning) until W3b registers the real one
+  let loaderWarned = false;
+  const loader: EnemyFactory = (world, group, position, yaw, o) => {
+    if (!loaderWarned) { loaderWarned = true; console.warn('[enemies] loader not built yet (K placeholder): a sentry stands in'); }
+    return sentry(world, group, position, yaw, o);
+  };
+  const manager = createManager(ctx, { husk, skitter, sentry, foreman, soldier, loader }, extra);
   // §8.8: route ActorOpts.who to the human factory and expose Halvorsen's props on his handle (`prop?(name, value)`).
   {
     const baseActor = manager.actor.bind(manager);

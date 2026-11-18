@@ -48,6 +48,7 @@ const INTENSITY: Record<ScreenKind, number> = {
   containment: 2.6, video_log: 2.2, roster: 2.4, theatre_cam: 2.2,
   // stage 3c §8.9 (screens5.ts): navy panels are dark glass with bright type; the ON POST LEDs are the brightest
   keypad: 2.6, launch: 2.4, dock_status: 2.5, onpost: 3.0,
+  mimic: 2.6, manifest: 2.6, interlock: 2.6, dock_board: 2.6, gauge: 2.6, // K placeholder (stage 3d, W5)
 };
 const RATE: Record<ScreenKind, number> = {
   terminal_idle: 10, terminal_alert: 10, static: 15, choir: 15, camera_feed: 12, vitals: 12, door_locked: 5, door_open: 4, door_cycling: 8,
@@ -57,6 +58,7 @@ const RATE: Record<ScreenKind, number> = {
   containment: 8, video_log: 12, roster: 12, theatre_cam: 12,
   // stage 3c: the boards flip in over 0.45 s and the counter rolls over 0.4 s (12 Hz shows both); the keypad blinks
   keypad: 8, launch: 8, dock_status: 12, onpost: 12,
+  mimic: 10, manifest: 10, interlock: 10, dock_board: 10, gauge: 10, // K placeholder (stage 3d, W5)
 };
 /**
  * Canvas size of a kind on a quad of `aspect`. The option cards of the core are 12 m wide wall displays that must
@@ -337,6 +339,7 @@ export class ScreenManager {
       case 'launch': launch(this.s5(s)); break;
       case 'dock_status': dockStatus(this.s5(s)); break;
       case 'onpost': onpost(this.s5(s)); break;
+      case 'mimic': case 'manifest': case 'interlock': case 'dock_board': case 'gauge': this.terminal(s); break; // K placeholder (stage 3d, W5)
     }
     g.globalAlpha = 1;
     // (the wall-sized cards are seen from far and at a slant: a sub-pixel grid would only alias into moiré)

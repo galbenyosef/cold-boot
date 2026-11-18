@@ -604,7 +604,8 @@ export abstract class StageBase<Fl, Ph extends string, Cp extends string, F, P e
   /** Floor / deck height under a point (ray down from `from`). */
   protected groundY(x: number, z: number, from = 3.2): number {
     try {
-      const hit = this.ctx.physics.raycast(V(x, from, z), V(0, -1, 0), from + 0.5);
+      // stage 3d S5: the ground under water, never the water surface (moves set)
+      const hit = this.ctx.physics.raycastSolid(V(x, from, z), V(0, -1, 0), from + 0.5);
       if (hit) return hit.point.y;
     } catch { /* ignore */ }
     return 0;

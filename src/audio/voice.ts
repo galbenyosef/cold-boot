@@ -99,6 +99,8 @@ const POS: Record<string, { ref: number; rolloff: number; send: number; gain?: n
   // in-room gain of `clean` (the HRTF panner's loss against the in-ear reference, measured for `clean`) so that −1.7 dB
   // is what arrives (§8.13: ≥ −3 dB at 6.7 m). The occlusion probes (OCC_PROBES) clear his own capsule.
   throat: { ref: 5.5, rolloff: 1.0, send: 0.25, gain: 1.3 },
+  // K placeholder (stage 3d §6.1, W2b): the head-end handset — a copy of `headset` until measured (§8.14)
+  phone: { ref: 1.5, rolloff: 1.0, send: 0.3 },
 };
 /** fx whose rendering already IS the barrier (a voice through a sealed door): no run-time occlusion on top of it. */
 const NO_OCCLUDE = new Set(['door']);

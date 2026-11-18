@@ -1,10 +1,10 @@
 // The level chain + save/carry schema v2 (docs/plans/stage-3a.md §8.1, §7; stage 3b docs/plans/stage-3b.md §8.1;
-// stage 3c docs/plans/stage-3c.md §8.1).
-//   node scripts/check-chain.mjs [--url http://127.0.0.1:5173] [--only grep|boot|chain|menu|storage]
+// stage 3c docs/plans/stage-3c.md §8.1; stage 3d docs/plans/stage-3d.md §8.1).
+//   node scripts/check-chain.mjs [--url http://127.0.0.1:5173] [--only grep|boot|chain|chain5|menu|storage]
 // On a static build (vite build + vite preview), like the playthroughs. Exit 1 on any failure.
 //   grep    — no binary level branch in src (allow-list: scripts/levelgrep-allow.txt)
-//   boot    — every built level (1–5) boots directly; ?level=6/9 clamp to 5; bad ?level= → stored level;
-//             ?level=3, ?level=4 and ?level=5 direct-start loadout + facts (+ armour 0 / 50, carbine on 5), ?choice= /
+//   boot    — every built level (1–6) boots directly; ?level=7/9 clamp to 6; bad ?level= → stored level; a stored 6
+//             boots 6; ?level=3 … ?level=6 direct-start loadout + facts (+ armour 0 / 50, carbine on 5 and 6), ?choice= /
 //             ?units=; level 5's HUD shows the carbine, the armour bar and the flashlight cell meter
 //   chain   — L1 → L2 carry; L2 → L3 for both choices (carry + facts written, L2 save gone, no TO BE CONTINUED);
 //             L2 → L3 real hand-over (reload, one click); L3 end WITHOUT `?next=` (LEVELS[3].next = 4): the live
@@ -12,18 +12,24 @@
 //             carry); L3 → L4 through the test override `?next=3:4&handoff=1` for
 //             both choices (card without TBC, stored 4, L3/L4 saves gone, level 4 arrives with weapons, health,
 //             flashlight, facts, testHour, armour); carried armour 37 → 37, 900 → 100, NaN → 0;
-//             L3 → L4 real hand-over (reload keeps `next`); L4 end WITHOUT `?next=` (LEVELS[4].next = null on main:
-//             carry incl. carbine + armour, stored level stays 4, card with TO BE CONTINUED); L4 → L5 through the test
-//             override `?next=4:5&handoff=1` for both choices (card without TBC, stored 5, L4/L5 saves gone, level 5
-//             arrives with weapons incl. the carbine, health (floor 50), armour, flashlight, facts, testHour; the cell
-//             is NOT carried — level 5 starts full); carried armour 37 → 37, 900 → 100, NaN → 0 (4 → 5); L4 → L5 real
-//             hand-over (reload keeps `next`); L5 end (carry from 5 incl. kills5 + testHour, stored level stays 5, card
-//             POST 4 / TO BE CONTINUED)
-//   menu    — stored level 3 / 4 / 5: CONTINUE with and without a checkpoint, the chapter line; BEGIN → level 1, all cleared
+//             L3 → L4 real hand-over (reload keeps `next`)
+//   chain5  — (stage 3c A1, 3d K) L4 → L5 LIVE (`LEVELS[4].next = 5`, no `?next=`) for both choices (card without TBC,
+//             stored 5, L4/L5 saves gone, level 5 arrives with weapons incl. the carbine, health (floor 50), armour,
+//             flashlight, facts, testHour; the cell is NOT carried — level 5 starts full); carried armour 37 → 37,
+//             900 → 100, NaN → 0 (4 → 5); L4 → L5 real hand-over (store + reload, one click); L5 end WITHOUT `?next=`
+//             (LEVELS[5].next = null on main: carry from 5 incl. kills5 + testHour + radio, stored level stays 5, card
+//             POST 4 / TO BE CONTINUED); L5 → L6 through the test override `?next=5:6&handoff=1` for both choices (the
+//             card POST 4 alone, stored 6, L5/L6 saves gone, level 6 arrives with weapons, health, armour, the lamp,
+//             facts incl. radio + testHour; a full cell); carried armour 37 / 900 / NaN (5 → 6); L5 → L6 real hand-over
+//             (reload keeps `next`); L6 end (carry from 6 incl. kills6 + testHour, stored level 6, THE TRUNK / TO BE
+//             CONTINUED then END OF CHAPTER 3); the stub's end button
+//   menu    — stored level 3 / 4 / 5 / 6: CONTINUE with and without a checkpoint, the chapter line; BEGIN → level 1,
+//             all cleared
 //   storage — v1 save + carry discarded once; corrupt / wrong-chain carry ignored; a carry without `carbine` loads
 //             it unowned; level-3 checkpoint round trip; a level-3 checkpoint written before stage 3b (no carbine,
 //             no armour) restores; a level-4 checkpoint written before stage 3c K restores (and one with a corrupt
-//             story record is discarded); a level-5 checkpoint round trip
+//             story record is discarded); a level-5 checkpoint round trip; a level-5 checkpoint written before 3d's K
+//             restores; a level-6 checkpoint round trip (and one with a corrupt boss record is discarded)
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { launch, parseArgs } from './lib/check-common.mjs';
@@ -114,14 +120,14 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 if (want('boot')) {
   console.log('══════════ direct boots ══════════');
   await wipe();
-  for (const n of [1, 2, 3, 4, 5]) {
+  for (const n of [1, 2, 3, 4, 5, 6]) {
     const before = pageErrors.length;
     await open(`?level=${n}&autostart=1&god=1`); await wait(1500);
     const g = await game();
     check(g.level === n && g.state === 'playing' && pageErrors.length === before, `?level=${n} boots level ${n} and plays (${g.state}, ${pageErrors.length - before} page errors)`);
     await wipe();
   }
-  for (const [q, n] of [['?level=9', 5], ['?level=6', 5]]) {
+  for (const [q, n] of [['?level=9', 6], ['?level=7', 6]]) {
     await open(`${q}&autostart=1&god=1`); await wait(800);
     const g = await game();
     check(g.level === n, `${q} clamps to level ${n} (got ${g.level})`);
@@ -136,7 +142,10 @@ if (want('boot')) {
   check((await game()).level === 1, 'a garbage stored level boots level 1');
   await ev((K) => localStorage.setItem(K.level, '6'), SKEYS);
   await open('?autostart=1&god=1'); await wait(800);
-  check((await game()).level === 5, 'a stored unbuilt level (6) clamps to level 5');
+  check((await game()).level === 6, 'a stored level 6 boots level 6');
+  await ev((K) => localStorage.setItem(K.level, '8'), SKEYS);
+  await open('?autostart=1&god=1'); await wait(800);
+  check((await game()).level === 6, 'a stored level above 6 (8) clamps to level 6');
   await ev((K) => localStorage.setItem(K.level, '5'), SKEYS);
   await open('?autostart=1&god=1'); await wait(800);
   check((await game()).level === 5, 'a stored level 5 boots level 5');
@@ -195,6 +204,22 @@ if (want('boot')) {
   await open('?level=5&autostart=1&god=1&choice=command&units=9'); await wait(1000);
   g = await game();
   check(eq(g.facts, { choice: 'command', unitsLeft: 9, badge: true, halvorsenAlive: true, testHour: 62.5 }), `?level=5&choice=command&units=9 → ${JSON.stringify(g.facts)}`);
+  await wipe();
+
+  console.log('══════════ ?level=6 direct start ══════════');
+  const F6 = { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true, radio: true, kessler: true, l5_door: true, l5_boat: false, kills5: 0, testHour: 62.75 };
+  await open('?level=6&autostart=1&god=1'); await wait(1200);
+  g = await game();
+  check(eq(g.facts, F6), `default facts ${JSON.stringify(g.facts)}`);
+  // §7.2: pistol 12 + 24, shotgun 6 + 6, carbine 30 + 90 → 12 / 36, 6 / 12, 30 / 120 through the pickup path
+  const w6 = g.weapons;
+  check(g.loadout === 'direct' && w6.pistol.clip === 12 && w6.pistol.reserve === 36 && w6.shotgun.clip === 6 && w6.shotgun.reserve === 12 && w6.carbine.clip === 30 && w6.carbine.reserve === 120
+    && g.health === 100 && g.flashlight && g.armor === 50,
+    `direct loadout = 12 / 36, 6 / 12, 30 / 120, health 100, flashlight on, armour 50: ${JSON.stringify({ w: w6, health: g.health, flashlight: g.flashlight, armor: g.armor, loadout: g.loadout })}`);
+  check(g.arrival?.from === null && g.arrival?.armor === 50, `the story's arrival record: ${JSON.stringify(g.arrival)}`);
+  await open('?level=6&autostart=1&god=1&choice=command&units=9'); await wait(1000);
+  g = await game();
+  check(eq(g.facts, { ...F6, choice: 'command', unitsLeft: 9 }), `?level=6&choice=command&units=9 → ${JSON.stringify(g.facts)}`);
   await wipe();
 }
 
@@ -348,36 +373,30 @@ if (want('chain')) {
       `after the card the page reloads into level 4 without ?level= (${g.url}, level ${g.level}, ${g.loadout})`);
   }
 
-  console.log('══════════ L4 end ══════════');
-  await wipe();
-  await open('?level=4&autostart=1&god=1&handoff=1&choice=command&units=11'); await wait(800);
-  await ev(() => window.__game.story.checkpoint('cp4_start'));
-  check((await store()).saves.includes(4), 'a level-4 checkpoint is written');
-  await ev(() => { void window.__game.story.end(); });
-  await until(() => /BIOLOGICAL SYSTEMS/i.test(document.querySelector('.cb')?.innerText ?? ''), 15000);
-  await wait(2500);
-  s = await store();
-  const t4 = await cardText();
-  check(s.carry?.from === 4 && s.carry.facts?.choice === 'command' && s.carry.facts?.unitsLeft === 11 && typeof s.carry.facts?.kills4 === 'number' && typeof s.carry.facts?.testHour === 'number',
-    `level 4's end writes the carry: ${JSON.stringify(s.carry?.facts)}`);
-  check(s.carry && 'carbine' in s.carry.weapons && typeof s.carry.armor === 'number', `the carry holds the carbine record and armour: ${JSON.stringify({ carbine: s.carry?.weapons?.carbine, armor: s.carry?.armor })}`);
-  check(s.level === '4' && !s.saves.includes(4), 'stored level stays 4 (next = null), its checkpoint cleared');
-  check(/BIOLOGICAL SYSTEMS/.test(t4) && /TO BE CONTINUED/.test(t4), `end card "${t4.slice(0, 60)}"`);
-  check((await game()).state === 'ended', 'state ended');
-  check((await ev(() => typeof window.__game.story.next === 'function' ? window.__game.story.next() : 'missing')) === null, 'level 4: next() is null on main (LEVELS[4].next = null)');
   // the greybox's placeholder end button is gone (the real end is the gate lock)
   await wipe();
   await open('?level=4&autostart=1&god=1'); await wait(800);
   check(!(await ev(() => !!window.__game.interactables.get('l4_stub_end'))), 'no placeholder end button l4_stub_end in level 4');
 }
 
-// ───────────────────────────────────────────────────────────── chain 4 → 5 (stage 3c §8.1, D2)
-if (want('chain')) {
+// ───────────────────────────────────────────────────────────── chain 4 → 5 → 6 (stage 3c A1 / D2; stage 3d §8.1, D2, D3)
+/** Skip the end card (Space) and wait for the reload into the next level; returns whether the page navigated. */
+async function skipAndReload() {
+  const nav = page.waitForNavigation({ timeout: 20000 }).then(() => true, () => false);
+  await page.keyboard.press('Space');
+  const navigated = await nav;
+  await page.waitForFunction(() => window.__game?.ready, null, { timeout: 120000 }).catch(() => {});
+  await wait(1500);
+  return navigated;
+}
+const cardIs = (re, ms = 15000) => until((src) => new RegExp(src, 'i').test(document.querySelector('.cb')?.innerText ?? ''), ms, re.source);
+if (want('chain5')) {
   let s, g;
+  // ── 4 → 5 is LIVE on main (LEVELS[4].next = 5): no `?next=` anywhere in this part
   for (const [choice, units] of [['stop', 26], ['command', 14]]) {
-    console.log(`══════════ L4 (${choice}) → L5 through ?next=4:5 ══════════`);
+    console.log(`══════════ L4 (${choice}) → L5 (live, no ?next=) ══════════`);
     await wipe();
-    await open(`?level=4&autostart=1&god=1&handoff=1&next=4:5&choice=${choice}&units=${units}`); await wait(800);
+    await open(`?level=4&autostart=1&god=1&handoff=1&choice=${choice}&units=${units}`); await wait(800);
     await ev(() => {
       const p = window.__game.player;
       p.give('carbine', 30); p.give('ammo_pistol', 3); p.health = 40; p.addArmor(37);
@@ -386,18 +405,18 @@ if (want('chain')) {
     await ev(() => window.__game.story.checkpoint('cp4_start'));
     await ev(([k]) => localStorage.setItem(k, '{"v":2,"level":5,"placeholder":true}'), [KEYS.save(5)]);
     const before = await game();
+    check((await ev(() => window.__game.story.next?.() ?? null)) === 5, 'level 4: next() = 5 on main (live)');
     await ev(() => { void window.__game.story.end(); });
-    await until(() => /BIOLOGICAL SYSTEMS/i.test(document.querySelector('.cb')?.innerText ?? ''), 15000);
+    await cardIs(/BIOLOGICAL SYSTEMS/);
     await wait(2500);
     s = await store();
     const tc = await cardText();
     check(/BIOLOGICAL SYSTEMS/.test(tc) && !/TO BE CONTINUED/i.test(tc), `the 3b card without TO BE CONTINUED: "${tc.slice(0, 60)}"`);
-    check((await ev(() => window.__game.story.next?.() ?? null)) === 5, 'level 4: next() = 5 with ?next=4:5');
     check(s.level === '5' && !s.saves.includes(4) && !s.saves.includes(5), `stored level 5, the level-4 and the old level-5 checkpoints cleared: ${JSON.stringify({ level: s.level, saves: s.saves })}`);
     check(s.carry?.from === 4 && s.carry.facts?.choice === choice && s.carry.facts?.unitsLeft === units && typeof s.carry.facts?.testHour === 'number' && typeof s.carry.facts?.kills4 === 'number' && s.carry.armor === before.armor && s.carry.weapons?.carbine?.owned,
       `carry from 4: ${JSON.stringify({ facts: s.carry?.facts, armor: s.carry?.armor, before: before.armor, carbine: s.carry?.weapons?.carbine })}`);
     check(s.carry && !('torch' in s.carry), 'the carry holds no flashlight cell (a new level starts full)');
-    await open('?autostart=1&god=1&next=4:5'); await wait(1200);
+    await open('?autostart=1&god=1'); await wait(1200);
     g = await game();
     check(g.level === 5 && g.loadout === 'carry' && g.arrival?.from === 4, `level 5 boots from the stored level with 4's carry (${JSON.stringify({ level: g.level, loadout: g.loadout, arrival: g.arrival })})`);
     check(eq(g.weapons, before.weapons) && g.flashlight === before.flashlight,
@@ -411,60 +430,149 @@ if (want('chain')) {
   }
 
   console.log('══════════ carried armour (4 → 5) ══════════');
-  for (const [raw, want] of [[37, 37], [900, 100], ['NaN', 0]]) {
+  for (const [raw, wantA] of [[37, 37], [900, 100], ['NaN', 0]]) {
     await wipe();
     await ev(([K, a]) => {
       localStorage.setItem(K.level, '5');
       localStorage.setItem(K.carry, JSON.stringify({ v: 2, from: 4, health: 90, armor: a === 'NaN' ? NaN : a, flashlight: true, current: 'carbine', weapons: { pistol: { owned: true, clip: 5, reserve: 10 }, carbine: { owned: true, clip: 12, reserve: 40 } }, facts: { choice: 'stop', unitsLeft: 20, testHour: 62.4 } }));
     }, [SKEYS, raw]);
-    await open('?autostart=1&god=1&next=4:5'); await wait(1000);
+    await open('?autostart=1&god=1'); await wait(1000);
     g = await game();
-    check(g.level === 5 && g.loadout === 'carry' && g.armor === want && g.weapons.carbine.owned && g.weapons.carbine.clip === 12, `armour ${raw} → ${want} (player ${g.armor}, carbine ${JSON.stringify(g.weapons.carbine)})`);
+    check(g.level === 5 && g.loadout === 'carry' && g.armor === wantA && g.weapons.carbine.owned && g.weapons.carbine.clip === 12, `armour ${raw} → ${wantA} (player ${g.armor}, carbine ${JSON.stringify(g.weapons.carbine)})`);
   }
 
-  console.log('══════════ L4 → L5 real hand-over (reload keeps ?next=) ══════════');
+  console.log('══════════ L4 → L5 real hand-over (store + reload, live) ══════════');
   await wipe();
-  await open('?level=4&autostart=1&god=1&next=4:5'); await wait(800);
+  await open('?level=4&autostart=1&god=1'); await wait(800);
   await ev(() => { window.__game.debug.autostart = false; });          // as a real run: store + reload
   await ev(() => { void window.__game.story.end(); });
-  await until(() => /BIOLOGICAL SYSTEMS/i.test(document.querySelector('.cb')?.innerText ?? ''), 15000);
+  await cardIs(/BIOLOGICAL SYSTEMS/);
   s = await store();
   check(s.level === '5' && s.carry?.from === 4, 'stored before the card');
   await wait(2500);
   {
-    const nav = page.waitForNavigation({ timeout: 20000 }).then(() => true, () => false);
-    await page.keyboard.press('Space');                                  // skip the card
-    const navigated = await nav;
-    await page.waitForFunction(() => window.__game?.ready, null, { timeout: 120000 }).catch(() => {});
-    await wait(1500);
+    const navigated = await skipAndReload();
     g = await game();
-    check(navigated && g.level === 5 && !/level=/.test(g.url) && /next=4(:|%3A)5/i.test(g.url) && g.loadout === 'carry',
-      `after the card the page reloads into level 5 without ?level= (${g.url}, level ${g.level}, ${g.loadout})`);
+    check(navigated && g.level === 5 && !/level=/.test(g.url) && !/next=/.test(g.url) && g.loadout === 'carry' && g.arrival?.from === 4,
+      `after the card the page reloads into level 5 without ?level= / ?next= (${g.url}, level ${g.level}, ${g.loadout})`);
   }
 
-  console.log('══════════ L5 end ══════════');
+  console.log('══════════ L5 end (no ?next=: LEVELS[5].next = null on main) ══════════');
   await wipe();
   await open('?level=5&autostart=1&god=1&handoff=1&choice=command&units=11'); await wait(800);
   await ev(() => window.__game.story.checkpoint('cp5_start'));
   check((await store()).saves.includes(5), 'a level-5 checkpoint is written');
+  check((await ev(() => typeof window.__game.story.next === 'function' ? window.__game.story.next() : 'missing')) === null, 'level 5: next() is null on main');
   await ev(() => { void window.__game.story.end(); });
-  await until(() => /POST 4/i.test(document.querySelector('.cb')?.innerText ?? ''), 15000);
+  await cardIs(/POST 4/);
   await wait(2500);
   s = await store();
   const t5 = await cardText();
   check(s.carry?.from === 5 && s.carry.facts?.choice === 'command' && s.carry.facts?.unitsLeft === 11 && typeof s.carry.facts?.kills5 === 'number' && typeof s.carry.facts?.testHour === 'number' && s.carry.facts.testHour >= 62.5,
     `level 5's end writes the carry: ${JSON.stringify(s.carry?.facts)}`);
+  check(s.carry && ['radio', 'kessler', 'l5_door', 'l5_boat'].every((k) => typeof s.carry.facts?.[k] === 'boolean'), `the carry holds radio / kessler / l5_door / l5_boat: ${JSON.stringify(s.carry?.facts)}`);
   check(s.carry && s.carry.weapons?.carbine?.owned && s.carry.armor === 50, `the carry holds the carbine and armour: ${JSON.stringify({ carbine: s.carry?.weapons?.carbine, armor: s.carry?.armor })}`);
   check(s.level === '5' && !s.saves.includes(5), 'stored level stays 5 (next = null), its checkpoint cleared');
   check(/POST 4/.test(t5) && /TO BE CONTINUED/.test(t5), `end card "${t5.slice(0, 60)}"`);
   check((await game()).state === 'ended', 'state ended');
-  check((await ev(() => typeof window.__game.story.next === 'function' ? window.__game.story.next() : 'missing')) === null, 'level 5: next() is null');
-  // K's stub ends by its button too (a player's way through the placeholder build); skipped once W4/ST replace it
+
+  const F5 = ['radio', 'kessler', 'l5_door', 'l5_boat'];
+  for (const [choice, units] of [['stop', 26], ['command', 14]]) {
+    console.log(`══════════ L5 (${choice}) → L6 through ?next=5:6 ══════════`);
+    await wipe();
+    await open(`?level=5&autostart=1&god=1&handoff=1&next=5:6&choice=${choice}&units=${units}`); await wait(800);
+    await ev(() => {
+      const p = window.__game.player;
+      p.give('ammo_pistol', 3); p.health = 40;
+      p.debug?.setArmor?.(37);
+      p.debug?.torch?.(0.2);                                              // a low cell: it must NOT arrive in level 6
+    });
+    await ev(() => window.__game.story.checkpoint('cp5_start'));
+    await ev(([k]) => localStorage.setItem(k, '{"v":2,"level":6,"placeholder":true}'), [KEYS.save(6)]);
+    const before = await game();
+    check((await ev(() => window.__game.story.next?.() ?? null)) === 6, 'level 5: next() = 6 with ?next=5:6');
+    await ev(() => { void window.__game.story.end(); });
+    await cardIs(/POST 4/);
+    await wait(2500);
+    s = await store();
+    const tc = await cardText();
+    check(/POST 4/.test(tc) && !/TO BE CONTINUED/i.test(tc), `the 3c card POST 4 alone: "${tc.slice(0, 60)}"`);
+    check(s.level === '6' && !s.saves.includes(5) && !s.saves.includes(6), `stored level 6, the level-5 and the old level-6 checkpoints cleared: ${JSON.stringify({ level: s.level, saves: s.saves })}`);
+    check(s.carry?.from === 5 && s.carry.facts?.choice === choice && s.carry.facts?.unitsLeft === units && typeof s.carry.facts?.kills5 === 'number' && s.carry.facts.testHour >= 62.5 && F5.every((k) => typeof s.carry.facts[k] === 'boolean') && s.carry.armor === before.armor,
+      `carry from 5: ${JSON.stringify({ facts: s.carry?.facts, armor: s.carry?.armor, before: before.armor })}`);
+    check(s.carry && !('torch' in s.carry), 'the carry holds no flashlight cell');
+    await open('?autostart=1&god=1&next=5:6'); await wait(1200);
+    g = await game();
+    check(g.level === 6 && g.loadout === 'carry' && g.arrival?.from === 5, `level 6 boots from the stored level with 5's carry (${JSON.stringify({ level: g.level, loadout: g.loadout, arrival: g.arrival })})`);
+    check(eq(g.weapons, before.weapons) && g.flashlight === before.flashlight,
+      `weapons + the lamp carried: ${JSON.stringify({ w: g.weapons, before: before.weapons, flashlight: g.flashlight })}`);
+    check(g.health === Math.max(50, before.health), `health carried (floor 50): ${before.health} → ${g.health}`);
+    check(before.armor === 37 && g.armor === 37 && g.arrival?.armor === 37, `armour carried: ${before.armor} → ${g.armor} (arrival record ${g.arrival?.armor})`);
+    check(g.facts.choice === choice && g.facts.unitsLeft === units && typeof g.facts.kills5 === 'number' && g.facts.testHour === s.carry.facts.testHour && F5.every((k) => g.facts[k] === s.carry.facts[k]),
+      `facts carried (incl. radio, testHour): ${JSON.stringify(g.facts)}`);
+    const cell = await ev(() => window.__game.player.flashlightCharge ?? null);
+    check(typeof cell === 'number' && cell > 0.6, `level 6 starts with a full cell, not 5's 0.2 (now ${cell})`);
+  }
+
+  console.log('══════════ carried armour (5 → 6) ══════════');
+  for (const [raw, wantA] of [[37, 37], [900, 100], ['NaN', 0]]) {
+    await wipe();
+    await ev(([K, a]) => {
+      localStorage.setItem(K.level, '6');
+      localStorage.setItem(K.carry, JSON.stringify({ v: 2, from: 5, health: 90, armor: a === 'NaN' ? NaN : a, flashlight: true, current: 'carbine', weapons: { pistol: { owned: true, clip: 5, reserve: 10 }, carbine: { owned: true, clip: 12, reserve: 40 } }, facts: { choice: 'stop', unitsLeft: 20, radio: true, testHour: 62.6 } }));
+    }, [SKEYS, raw]);
+    await open('?autostart=1&god=1&next=5:6'); await wait(1000);
+    g = await game();
+    check(g.level === 6 && g.loadout === 'carry' && g.armor === wantA && g.weapons.carbine.clip === 12 && g.facts.radio === true && g.facts.testHour === 62.6, `armour ${raw} → ${wantA} (player ${g.armor}, carbine ${JSON.stringify(g.weapons.carbine)})`);
+  }
+  // without the override a carry from 5 does not lead into level 6 (LEVELS[5].next = null): the direct start
+  await open('?autostart=1&god=1'); await wait(1000);
+  g = await game();
+  check(g.level === 6 && g.loadout === 'direct', `without ?next=5:6 a carry from 5 is not level 6's (${g.loadout})`);
+
+  console.log('══════════ L5 → L6 real hand-over (reload keeps ?next=) ══════════');
   await wipe();
-  await open('?level=5&autostart=1&god=1'); await wait(800);
-  const btn = await ev(() => { const i = window.__game.interactables.get('l5_stub_end'); if (!i) return false; window.__game.interactables.use(i); return true; });
-  const ended5 = btn && await until(() => window.__game.state === 'ended', 10000);
-  check(!btn || ended5, btn ? `the stub's end button ends level 5 (${ended5})` : 'no stub end button (the stub is replaced) — skipped');
+  await open('?level=5&autostart=1&god=1&next=5:6'); await wait(800);
+  await ev(() => { window.__game.debug.autostart = false; });          // as a real run: store + reload
+  await ev(() => { void window.__game.story.end(); });
+  await cardIs(/POST 4/);
+  s = await store();
+  check(s.level === '6' && s.carry?.from === 5, 'stored before the card');
+  await wait(2500);
+  {
+    const navigated = await skipAndReload();
+    g = await game();
+    check(navigated && g.level === 6 && !/level=/.test(g.url) && /next=5(:|%3A)6/i.test(g.url) && g.loadout === 'carry',
+      `after the card the page reloads into level 6 without ?level= (${g.url}, level ${g.level}, ${g.loadout})`);
+  }
+
+  console.log('══════════ L6 end (the chapter end) ══════════');
+  await wipe();
+  await open('?level=6&autostart=1&god=1&handoff=1&choice=command&units=11'); await wait(800);
+  await ev(() => window.__game.story.checkpoint('cp6_start'));
+  check((await store()).saves.includes(6), 'a level-6 checkpoint is written');
+  check((await ev(() => typeof window.__game.story.next === 'function' ? window.__game.story.next() : 'missing')) === null, 'level 6: next() is null (D3)');
+  await ev(() => { void window.__game.story.end(); });
+  await cardIs(/THE TRUNK/);
+  await wait(2000);
+  s = await store();
+  const t6 = await cardText();
+  check(s.carry?.from === 6 && s.carry.facts?.choice === 'command' && s.carry.facts?.unitsLeft === 11 && typeof s.carry.facts?.kills6 === 'number' && s.carry.facts?.testHour >= 62.75
+    && ['manifest', 'aas', 'trunkCut', 'loaderDead'].every((k) => typeof s.carry.facts[k] === 'boolean') && typeof s.carry.facts.launchHour === 'number',
+    `level 6's end writes the carry: ${JSON.stringify(s.carry?.facts)}`);
+  check(s.carry && s.carry.weapons?.carbine?.owned && s.carry.armor === 50, `the carry holds weapons and armour: ${JSON.stringify({ carbine: s.carry?.weapons?.carbine, armor: s.carry?.armor })}`);
+  check(s.level === '6' && !s.saves.includes(6), 'stored level 6, its checkpoint cleared');
+  check(/THE TRUNK/.test(t6) && /TO BE CONTINUED/.test(t6), `end card "${t6.slice(0, 60)}"`);
+  await page.keyboard.press('Space');                                    // skip it: END OF CHAPTER 3 follows
+  const chapter = await cardIs(/END OF CHAPTER 3/, 8000);
+  check(chapter, `then the END OF CHAPTER 3 card ("${(await cardText()).slice(0, 40)}")`);
+  check((await game()).state === 'ended', 'state ended');
+  // K's stub ends by its button too; skipped once W4a / ST replace it
+  await wipe();
+  await open('?level=6&autostart=1&god=1'); await wait(800);
+  const btn = await ev(() => { const i = window.__game.interactables.get('l6_stub_end'); if (!i) return false; window.__game.interactables.use(i); return true; });
+  const ended6 = btn && await until(() => window.__game.state === 'ended', 10000);
+  check(!btn || ended6, btn ? `the stub's end button ends level 6 (${ended6})` : 'no stub end button (the stub is replaced) — skipped');
   await wipe();
 }
 
@@ -591,6 +699,41 @@ if (want('menu')) {
     const s5 = await store();
     check(nv && (await game()).level === 1 && s5.level === '1' && s5.saves.length === 0 && !s5.carry, `BEGIN on a stored level 5 reloads into level 1, all cleared: ${JSON.stringify(s5)}`);
   }
+
+  console.log('══════════ menu: stored level 6 ══════════');
+  await wipe();
+  await open('?level=6&autostart=1&god=1&handoff=1'); await wait(800);
+  await ev(() => { const g = window.__game, V = g.player.position.constructor; g.player.teleport(new V(1.5, 0, 2.0), 0.5); });
+  await wait(300);
+  await ev(() => window.__game.story.checkpoint('cp6_start'));
+  await ev((K) => localStorage.setItem(K.level, '6'), SKEYS);
+  await open('?god=1'); await menuOpen();
+  m = await menuInfo();
+  const place6 = await ev((k) => JSON.parse(localStorage.getItem(k) ?? 'null')?.place ?? '', KEYS.save(6));
+  check((await game()).level === 6 && m.cont && !!place6 && m.where.includes(place6) && /Chapter 3\s+—\s+The Trunk/i.test(m.line ?? ''), `menu offers CONTINUE on level 6 (place "${place6}"): ${JSON.stringify(m)}`);
+  check(await click('Continue'), 'CONTINUE clicked');
+  await until(() => window.__game?.state === 'playing', 20000); await wait(800);
+  g = await game();
+  const pos6 = await ev(() => { const p = window.__game.player.position; return [p.x, p.y, p.z]; });
+  check(g.level === 6 && g.restoredFrom === 'cp6_start' && Math.abs(pos6[0] - 1.5) < 0.2 && Math.abs(pos6[2] - 2.0) < 0.2, `CONTINUE resumes the level-6 checkpoint (${g.restoredFrom} at ${pos6.map((v) => v.toFixed(2))})`);
+  await ev((k) => localStorage.removeItem(k), KEYS.save(6));
+  await open('?god=1'); await menuOpen();
+  m = await menuInfo();
+  check(m.cont && m.where === '' && /The Trunk/i.test(m.line ?? ''), `no checkpoint: CONTINUE still offered on level 6, no place: ${JSON.stringify(m)}`);
+  await click('Continue');
+  await until(() => window.__game?.state === 'playing', 30000); await wait(500);
+  g = await game();
+  check(g.level === 6 && g.restoredFrom === null && g.loadout === 'direct' && g.weapons.carbine.owned && g.armor === 50, `CONTINUE without a checkpoint begins level 6 with its direct loadout (${JSON.stringify({ level: g.level, from: g.restoredFrom, loadout: g.loadout, armor: g.armor })})`);
+  await open('?god=1'); await menuOpen();
+  {
+    const nav6 = page.waitForNavigation({ timeout: 20000 }).then(() => true, () => false);
+    await click('Begin');
+    const nv = await nav6;
+    await page.waitForFunction(() => window.__game?.ready, null, { timeout: 120000 }).catch(() => {});
+    await wait(800);
+    const s6 = await store();
+    check(nv && (await game()).level === 1 && s6.level === '1' && s6.saves.length === 0 && !s6.carry, `BEGIN on a stored level 6 reloads into level 1, all cleared: ${JSON.stringify(s6)}`);
+  }
 }
 
 // ───────────────────────────────────────────────────────────── storage
@@ -668,6 +811,29 @@ if (want('storage')) {
   await open('?level=5&autostart=1&god=1&continue=1'); await wait(1000);
   g = await game();
   check(g.restoredFrom === 'cp5_radio' && g.weapons.carbine.owned && g.armor === 50, `&continue=1 loads the level-5 checkpoint (${g.restoredFrom}, armour ${g.armor})`);
+  // a level-5 checkpoint written before 3d's K (3c's record: no level-6 fields; nothing level 5 reads changed) restores
+  await ev((k) => { const s = JSON.parse(localStorage.getItem(k)); for (const f of ['boss', 'waves', 'launchAt', 'lockers']) delete s.story[f]; localStorage.setItem(k, JSON.stringify(s)); }, KEYS.save(5));
+  await open('?level=5&autostart=1&god=1&continue=1'); await wait(1000);
+  g = await game();
+  check(g.restoredFrom === 'cp5_radio', `a pre-3d level-5 checkpoint restores (${g.restoredFrom})`);
+  await wipe();
+
+  // level-6 checkpoint round trip (K's stub record: ProgressL6 with boss / waves / launchAt / lockers)
+  await open('?level=6&autostart=1&god=1'); await wait(800);
+  await ev(() => window.__game.story.checkpoint('cp6_m2'));
+  const rec6 = await ev((k) => JSON.parse(localStorage.getItem(k) ?? 'null'), KEYS.save(6));
+  check(rec6 && rec6.level === 6 && rec6.id === 'cp6_m2' && 'boss' in rec6.story && rec6.story.waves && rec6.story.lockers && 'launchAt' in rec6.story, `the level-6 record holds the 3d fields: ${JSON.stringify(rec6?.story ?? null).slice(0, 160)}`);
+  await open('?level=6&autostart=1&god=1&continue=1'); await wait(1000);
+  g = await game();
+  check(g.restoredFrom === 'cp6_m2' && g.weapons.carbine.owned && g.armor === 50, `&continue=1 loads the level-6 checkpoint (${g.restoredFrom}, armour ${g.armor})`);
+  await ev(([k, v]) => localStorage.setItem(k, JSON.stringify({ ...v, story: { ...v.story, boss: 'garbage' } })), [KEYS.save(6), rec6]);
+  await open('?level=6&autostart=1&god=1&continue=1'); await wait(1000);
+  g = await game(); s = await store();
+  check(!g.restoredFrom && !s.saves.includes(6), 'a level-6 checkpoint with a corrupt boss record is discarded');
+  await ev(([k, v]) => localStorage.setItem(k, JSON.stringify({ ...v, id: 'cp6_nonsense' })), [KEYS.save(6), rec6]);
+  await open('?level=6&autostart=1&god=1&continue=1'); await wait(1000);
+  g = await game(); s = await store();
+  check(!g.restoredFrom && !s.saves.includes(6), 'a level-6 checkpoint with an unknown id is discarded');
   await wipe();
 }
 

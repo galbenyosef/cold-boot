@@ -3,7 +3,7 @@
  * Tile sizes are in metres (geometry UVs are metres), see TILE in the final report / README of the module.
  */
 import * as THREE from 'three';
-import type { MaterialName } from '../../core/types';
+import type { MaterialName, TrunkMaterialName } from '../../core/types';
 import type { TexDef } from '../baker';
 import { WALL_PANEL, WALL_DARK, WALL_MEDICAL, CEILING } from './walls';
 import { FLOOR_PLATE, FLOOR_GRATE, FLOOR_RUBBER, FLOOR_CONCRETE } from './floors';
@@ -108,7 +108,7 @@ const U_WOOD_ = (o: { a: number; b: number; leaf: number; ring: number; warp: nu
 });
 const col = (c: number) => ({ uCol: { value: srgb(c) } });
 
-export const SPECS: Record<Exclude<MaterialName, `emissive_${string}`> | NavyExtraName, MatSpec> = {
+export const SPECS: Record<Exclude<MaterialName, `emissive_${string}` | TrunkMaterialName> | NavyExtraName, MatSpec> = { // K placeholder (stage 3d): W5 removes `| TrunkMaterialName`
   wall_panel: {
     tex: { size: HERO, tile: 2, depth: 0.02, glsl: G_WALL, uniforms: wall(0x4f5b55, 0.9), aoRadius: 0.03, seed: 1 },
     params: {}, env: 1, macro: [0.25, 0.25],

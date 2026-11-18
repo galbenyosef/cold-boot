@@ -221,7 +221,8 @@ export interface Updatable {
 
 // ───────────────────────────────────────────────────────────── events
 
-export type Surface = 'metal' | 'concrete' | 'glass' | 'rubber' | 'robot' | 'flesh';
+/** Stage 3d §8.1: `water` — a water surface (`rayOnly` quads): splash, wade footsteps, no decal (physics SURFACES). */
+export type Surface = 'metal' | 'concrete' | 'glass' | 'rubber' | 'robot' | 'flesh' | 'water';
 /** Stage 3b §8.3: `carbine` = slot 3 (`Digit3`); wheel pistol → shotgun → carbine (owned only). */
 export type WeaponId = 'pistol' | 'shotgun' | 'carbine';
 /** §8.1: every WeaponId, in slot order. snapshot / restore / carry iterate this list (never hard-coded ids). */
@@ -229,8 +230,11 @@ export const WEAPON_IDS: readonly WeaponId[] = ['pistol', 'shotgun', 'carbine'];
 /**
  * Stage 3c D5: `soldier` = a taken navy sailor (src/enemies/soldier, W3a body / W3b AI): human rig, ranged, uses
  * `Level.cover`. Until W3b registers it the manager builds a husk in its place (K placeholder, warns once).
+ * Stage 3d D8 / §5.6: `loader` = the dock's autonomous gantry loader (the boss, src/enemies/loader: W3a body, W3b
+ * behaviour; `EnemyManager.boss(group)`). Rail-bound, no nav. Until W3b registers it the manager builds a SENTRY in its
+ * place (K placeholder, warns once).
  */
-export type EnemyType = 'skitter' | 'husk' | 'sentry' | 'foreman' | 'soldier';
+export type EnemyType = 'skitter' | 'husk' | 'sentry' | 'foreman' | 'soldier' | 'loader';
 /** Scripted puppets (enemies.actor) may also be a human (REVISION 4: Tomas). */
 export type ActorType = EnemyType | 'human';
 /**
@@ -274,6 +278,11 @@ export interface GameEvents {
    * the lamp stays off: a dead click), 'story' = a story / save / debug set. Absent = 'toggle' (older emitters).
    */
   'player:flashlight': { on: boolean; cause?: 'toggle' | 'empty' | 'refused' | 'story' };
+  /**
+   * Stage 3d D12 / §8.3: the deep-water fail-safe placed the player back on dry deck (never a death): `from` = where he
+   * was held, `to` = the exit he was put at. W1 emits it (with a `console.error` for the test logs).
+   */
+  'player:rescued': { from: THREE.Vector3; to: THREE.Vector3 };
 
   'weapon:fired': { weapon: WeaponId; origin: THREE.Vector3; direction: THREE.Vector3 };
   'weapon:empty': { weapon: WeaponId };
@@ -307,6 +316,8 @@ export interface GameEvents {
   'enemy:step': { id: number; type: EnemyType; position: THREE.Vector3 };
   /** Every enemy of a spawn group is dead. */
   'enemy:group-cleared': { group: string };
+  /** Stage 3d D10 / §5.6.5: a boss (the loader) entered a stage (1 … 3) — music / UI. W3b emits it. */
+  'boss:stage': { group: string; stage: number };
 
   /** Story → UI. */
   'story:objective': { text: string };
@@ -423,6 +434,21 @@ export interface Physics {
   /** REVISION 5.2: registered movers (see addMover). */
   readonly movers?: readonly THREE.Object3D[];
   readonly gravity: number;
+  /**
+   * Stage 3d §8.1 / S5 (D14): physics keeps TWO collider sets — `rays` = solid ∪ `mesh.userData.rayOnly` (water
+   * surfaces: they stop rounds and sight; `raycast`, `lineOfSight`) and `moves` = solid ∪ `mesh.userData.moveOnly`
+   * (rails, bar / mesh guards, a tarp: they stop bodies, rounds and sight pass; `moveBody`, `resolveSphere`). This is the
+   * moves set + enabled dynamic boxes: every GROUND / HEADROOM query uses it, so water is never a floor. Levels without
+   * either flag: identical to `raycast`.
+   */
+  raycastSolid(origin: THREE.Vector3, direction: THREE.Vector3, maxDistance?: number): RayHit | null;
+  /**
+   * Stage 3d §8.1 / B6: the kill height — a body whose feet fall below it is put back at y 2 (the old hard-coded −30).
+   * main.ts sets it from `Level.killY` after `build`. Non-finite → −30.
+   */
+  setKillY(y: number): void;
+  /** The current kill height (−30 unless the level set its own). */
+  readonly killY: number;
 }
 
 // ───────────────────────────────────────────────────────────── interactables (core)
@@ -439,14 +465,30 @@ export interface Interactable {
   enabled: boolean;
   /** Called when the player uses it. An 'interact' event is also emitted automatically by `use()`. */
   onUse?: () => void;
+  /**
+   * Stage 3d §8.5 / S8g (data, like `radius`): usable only with the player's FEET inside this `Level.regions` id (e.g.
+   * `'t6_cage'`: the frame's controls behind a bar guard that passes rays, so R8 alone would allow use from outside).
+   * Absent = anywhere. The registry's `pick` and `allowedAt` honour it (the player's focus test calls `allowedAt`);
+   * `check:reach` honours it. An unknown region id = never usable (and warns once).
+   */
+  requireRegion?: string;
 }
 
 export interface InteractableRegistry {
   add(i: Interactable): Interactable;
   remove(id: string): void;
   get(id: string): Interactable | undefined;
-  /** Best enabled interactable the given eye ray is looking at (within its radius, within ~25° cone), or null. */
-  pick(eye: THREE.Vector3, forward: THREE.Vector3): Interactable | null;
+  /**
+   * Best enabled interactable the given eye ray is looking at (within its radius, within ~25° cone), or null.
+   * Stage 3d: `feet` = the player's feet — an interactable with `requireRegion` is a candidate only when `feet` is given
+   * and inside that region (`allowedAt`).
+   */
+  pick(eye: THREE.Vector3, forward: THREE.Vector3, feet?: THREE.Vector3): Interactable | null;
+  /**
+   * Stage 3d §8.5 (S8g): may `i` be used with the feet at `feet`? true without `requireRegion`; else true only when
+   * `feet` (+ 0.05 m up) lies inside one box of `level.regions[i.requireRegion]`.
+   */
+  allowedAt(i: Interactable, feet: THREE.Vector3): boolean;
   /** Fire onUse + emit 'interact'. */
   use(i: Interactable): void;
   readonly all: readonly Interactable[];
@@ -648,7 +690,8 @@ export type MaterialName =
   | 'emissive_green'
   | HabitatMaterialName
   | ClinicalMaterialName
-  | NavyDockMaterialName;
+  | NavyDockMaterialName
+  | TrunkMaterialName;
 
 /**
  * Stage 3a habitat materials (docs/plans/stage-3a.md §8.6), implemented by task P1. Until then `get` warns and falls
@@ -703,6 +746,21 @@ export type NavyDockMaterialName =
   | 'webbing'             // vest, pouches
   | 'rubber_mat';         // ready-room floor mat
 
+/**
+ * Stage 3d trunk / dock materials (docs/plans/stage-3d.md §8.8), implemented by task W5. Until then `get` warns and falls
+ * back (`painted_dark`), and materials/defs keeps them out of its exhaustive SPECS record (K placeholder; W5 removes that
+ * exclusion).
+ */
+export type TrunkMaterialName =
+  | 'tunnel_shotcrete'    // sprayed concrete tunnel lining, rebound texture, wet streaks
+  | 'cable_armour'        // the trunk cable's galvanised wire armour (helical lay)
+  | 'dock_steel'          // heavy painted dock plate, worn to bare steel on the walk lines
+  | 'crane_yellow'        // the loader's chipped crane yellow
+  | 'rope_wire'           // six-strand wire rope, greased
+  | 'container_navy'      // corrugated container, navy
+  | 'container_orange'    // corrugated container, orange
+  | 'coverall_orange';    // contractor coveralls (the bodies)
+
 export type DecalName =
   | 'blood_splat' | 'blood_smear' | 'blood_pool' | 'oil_stain' | 'oil_drip' | 'scorch'
   | 'bullet_metal' | 'bullet_concrete' | 'scratches' | 'grime' | 'handprint' | 'water_stain';
@@ -736,7 +794,13 @@ export type ScreenKind =
   | 'keypad'           // keypad panel: `NO AUTHORITY` → `ENTER CODE` → `* * * _` → `CODE REJECTED` → `ACCEPTED` → `OPEN`
   | 'launch'           // SDV launch console (pre-launch check, launch authority, `AWAITING PALM`)
   | 'dock_status'      // duty board / boat board: status lines (`\n`-separated)
-  | 'onpost';          // `ON POST` + a big number (`text` = the number, e.g. "26")
+  | 'onpost'           // `ON POST` + a big number (`text` = the number, e.g. "26")
+  // stage 3d (§8.8, §6.4): drawn by materials once W5 lands; until then drawn as `terminal_idle` (K placeholder)
+  | 'mimic'            // the head-end's single-line mimic (feeds, the changeover switch AUTO / MANUAL)
+  | 'manifest'         // the outbound queue / Clasp manifest (`text` = `\n`-separated lines)
+  | 'interlock'        // trapped-key interlock plate state (KEY A / KEY B: IN, RELEASED, TRAPPED)
+  | 'dock_board'       // the moon-pool dock board (slots, B-14 `IN WELL — AWAITING LOCK CYCLE`)
+  | 'gauge';           // the shear's hydraulic pressure gauge (`text` = 0 … 1)
 
 /**
  * `wayfinding` (stage 3a §8.6): habitat signage; until materials implement it, drawn like `stencil`.
@@ -799,8 +863,10 @@ export interface FxSystem extends Updatable {
  * `throat` (CHOIR speaking through a soldier: a positioned, close, calm voice; POS ref 5.5). Until W2b `radio` renders
  * as `headset` and `throat` as `choir` (K placeholders in audio/voicefx.ts / voice.ts POS). `radio` is no longer an
  * alias of `headset` in `parseFx`.
+ * Stage 3d §6.1: `phone` (the head-end's sound-powered handset — Aas; held = 2-D, otherwise positional). Until W2b it
+ * renders as `headset` (K placeholder in audio/voicefx.ts).
  */
-export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen' | 'radio' | 'throat';
+export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen' | 'radio' | 'throat' | 'phone';
 
 /**
  * Stage 3c §10.0 H14 / §8.11: one entry of `audio.debug.log` (a module extra, W2b — a ring of the last 512 `play` /
@@ -913,6 +979,10 @@ export interface EnemySpawn {
    * Stage 3c §8.2.4 (soldiers, `mode: 'spawn'`): 'hold' = he arrives HOLDING — `state 'idle'`, awake, not hunting (not in
    * `activeCount`), never fires, head tracks by sight; he leaves hold on `EnemyManager.release(group)` or by himself
    * (shot at, a bullet within 1.5 m, sees the player within 6 m — then `enemy:alerted`). Other poses: normal AI.
+   * Stage 3d D26 / §8.4 (husks, `mode: 'spawn'`): 'climb' = he appears under water at `position` and climbs the nearest
+   * level ladder (`level.object('ladder6_w' | 'ladder6_e').userData`), kinematic from spawn to its exit, then awake (W3c).
+   * Stage 3d §5.6 (the loader, `mode: 'spawn'`): 'working' = the machine at work (holding B-14 over the well) until
+   * `BossControl.wake()`.
    */
   pose?: string;
   /**
@@ -956,6 +1026,55 @@ export interface CoverPoint {
   room: string;
   /** Cover set id (EnemySpawn.cover), e.g. 'ready', 'spine', 'bay'. */
   set: string;
+  /**
+   * Stage 3d §8.1 (mutable): false = the covering object is gone (a container lifted off its slot, `DockArena.lift`);
+   * a soldier never chooses a disabled point and leaves one within 0.5 s (W3c). Level data starts true (levels 1–5).
+   */
+  enabled: boolean;
+}
+
+/**
+ * Stage 3d D12 / §2.9: one water volume (`Level.water`, W4b). The water's top is `surface` (world y); `box` is the
+ * volume (its max.y = `surface`). Depth at a point = `surface − floor under it`. `stand` = the deepest a body may stand
+ * in (deeper: the player is held and rescued, enemies never path there).
+ */
+export interface WaterVolume { id: string; room: string; box: THREE.Box3; surface: number; stand: number }
+
+/** Stage 3d §5.6.7: one cargo slot on the dock (`DockArena.slots`): its footprint, deck height, container and cover. */
+export interface CargoSlot {
+  /** `sl6_…` */
+  id: string;
+  box: THREE.Box3;
+  floorY: number;
+  /** The container standing in it (its handle id), or null (empty). */
+  container: string | null;
+  /** Cover point ids (`cv6_…`) the container provides (disabled while it is lifted). */
+  cover: string[];
+}
+
+/** Stage 3d §5.6.7 / B2: a container the loader can lift. `box` is a NON-walkable dynamic box (never a lift). */
+export interface CargoHandle { readonly id: string; readonly object: THREE.Object3D; readonly box: DynamicBox }
+
+/** Stage 3d §8.1 / §5.6.7: the moon pool's dock as the loader reads it (`Level.dock`, W4b). */
+export interface DockArena {
+  readonly slots: readonly CargoSlot[];
+  /** Detach a container from its slot (its cover points disabled); null when the slot is empty. */
+  lift(slot: string): CargoHandle | null;
+  /** Set a carried container down into a slot (cover enabled; slot occupied). */
+  place(h: CargoHandle, slot: string): void;
+  /** Free-fall a container into a slot from a height (world y). */
+  drop(h: CargoHandle, slot: string, from: number): void;
+  /**
+   * A legal slam / set-down / swing target: deck kind, depth ≤ 0.7, not under the mid deck / cage / a gallery, not a
+   * stair ± 1.5 m, outside the no-slam margin, the grab box at its lowest (or the swing arc) clear of every collider but
+   * the deck (S6b). `lane` given = a SWING lane from p to lane.
+   */
+  target(p: THREE.Vector3, lane?: THREE.Vector3): boolean;
+  /** D9: the tether frame's no-slam zone. */
+  readonly noSlam: THREE.Box3;
+  /** Where the loader parks to GUARD: (−52, −8, −186). */
+  readonly park: THREE.Vector3;
+  readonly rails: { xMin: number; xMax: number; zMin: number; zMax: number; railY: number };
 }
 
 /** Stage 3b §8.4: enemy skins (see EnemySpawn.skin). */
@@ -1083,6 +1202,15 @@ export interface Level extends Updatable {
    * level/assemble.ts.
    */
   floorAt(p: THREE.Vector3): FloorInfo | null;
+  /** Stage 3d D12 / §2.9 (required): water volumes. Levels 1–5 (and K's level-6 stub): `[]`. */
+  readonly water: readonly WaterVolume[];
+  /** Stage 3d §5.6.7 (required): the loader's dock arena. Levels 1–5 (and K's level-6 stub): null. */
+  readonly dock: DockArena | null;
+  /**
+   * Stage 3d B6 (required): the kill height for this level (main.ts → `physics.setKillY` after `build`). Levels 1–5:
+   * −30 (`assembleLevel`'s default); level 6: −36 (W4a).
+   */
+  readonly killY: number;
 }
 
 // ───────────────────────────────────────────────────────────── player (src/player)
@@ -1189,6 +1317,22 @@ export interface Player extends Updatable {
    * it. K stub: returns 0.
    */
   addArmor(points: number): number;
+  /**
+   * Stage 3d D7 / §8.3 (required): hold-to-work on a handle (crank, pull, pump, lever, pin) on the palm machinery. Starts
+   * only alive, in control, 'playing', within `maxDist` (default 1.3 m, horizontal) on the front side of `normal`
+   * (otherwise `done` resolves 'cancelled' at once). `hold: true` = progress advances only while E is held (E is
+   * consumed — it never re-triggers `interact`); `hold: false` = runs once started. A hit pauses 0.3 s, never cancels;
+   * dying, a pause, a note, cinematic, a teleport or `cancel()` → 'cancelled'; walking beyond `maxDist` pauses (hold) /
+   * cancels (press). One grip at a time (a new one cancels the old). Not persisted. HUD: `gripProgress`.
+   * K stub: resolves 'done' after `seconds × (1 − start)` of game time, no hands, no input.
+   */
+  grip(o: GripOpts): GripHandle;
+  /** Stage 3d: progress 0 … 1 of the running grip; −1 when none (the HUD meter). K stub: the stub's clock. */
+  readonly gripProgress: number;
+  /** Stage 3d D5 / §7.1: remove a key (a trapped interlock key). No-op when not held. */
+  removeKey(key: string): void;
+  /** Stage 3d D13: water depth at the feet (m; 0 dry), from `level.water`. K stub: 0. */
+  readonly wading: number;
   /** Checkpoints: plain-JSON snapshot of everything the player module owns (incl. collected pickups). */
   snapshot(): PlayerSave;
   /** Restore a snapshot: teleport, health, weapons/ammo, keys, flashlight; remove already-collected pickups. Emits no pickup events. */
@@ -1205,6 +1349,35 @@ export interface PalmPlate {
   up: THREE.Vector3;
 }
 export type PalmResult = 'done' | 'cancelled' | 'refused';
+
+/** Stage 3d D7 / §8.3: a grip (`Player.grip`). Vectors in world space. */
+export interface GripOpts {
+  /** The interactable / objective id it serves (logs, debug). */
+  id: string;
+  /** Where both hands go (the handle). */
+  point: THREE.Vector3;
+  /** Outward unit normal of the face the player works from (front-side test). */
+  normal: THREE.Vector3;
+  /** Seconds of work from 0 to 1. */
+  seconds: number;
+  /** Progress to start from, 0 … 1 (cumulative work: the pump). Default 0. */
+  start?: number;
+  /** true = advances only while E is held; false = runs once started (a press). */
+  hold: boolean;
+  /** Horizontal distance from `point` beyond which the grip pauses (hold) / cancels (press). Default 1.3. */
+  maxDist?: number;
+  /** The hands' motion clip. */
+  motion: 'crank' | 'pull' | 'pump' | 'lever' | 'pin';
+}
+export interface GripHandle {
+  /** 0 … 1. */
+  readonly progress: number;
+  /** E is held and progress is advancing (false while paused / flinching). */
+  readonly holding: boolean;
+  /** 'done' at progress 1; 'cancelled' otherwise (refused at start, death, pause, cinematic, teleport, `cancel()`). */
+  readonly done: Promise<'done' | 'cancelled'>;
+  cancel(): void;
+}
 
 /** JSON-serialisable player state for checkpoints. */
 export interface PlayerSave {
@@ -1300,6 +1473,52 @@ export interface EnemyManager extends Updatable {
    * unknown id, alive, or removed. K stub: null.
    */
   corpsePoint(id: number, part: 'chest'): THREE.Vector3 | null;
+  /**
+   * Stage 3d §5.6 / §8.2 (required): the boss of `group` (the loader, W3b), or null (no such group spawned / not a boss).
+   * K stub: null.
+   */
+  boss(group: string): BossControl | null;
+  /**
+   * Stage 3d S8a (required): every living soldier of `group` walks `points` in order (weapon light per `o.light`, the
+   * walk pose at `o.speed`, default 1.4 m/s) and ends in `hold` at the last point (state 'idle', counted by `holding()`).
+   * A real enemy the whole way (R2); released by `release(group)` or by himself as any holding soldier (shot at, a near
+   * miss, sight within 6 m). Non-soldiers: ignored. W3b the manager line, W3c the walk.
+   * K stub: teleports each member to the last point and holds there (no walk).
+   */
+  patrol(group: string, points: THREE.Vector3[], o: { speed?: number; light?: boolean; end: 'hold' }): void;
+}
+
+/** Stage 3d §5.6.9: a plain-JSON boss record (checkpoints): stage, part hp, the slot layout, the carried load, dead. */
+export interface BossState {
+  stage: 0 | 1 | 2 | 3;
+  /** Part id → hp: `flood_1` … `flood_4`, `ram_e`, `ram_w`, `pod`. */
+  parts: Record<string, number>;
+  /** Container id per `DockArena.slots` index (null = empty). */
+  slots: (string | null)[];
+  /** The container in the grab, or null. */
+  carried: string | null;
+  dead: boolean;
+}
+
+/** Stage 3d §5.6 / §8.1: the story's handle on the loader (`EnemyManager.boss(group)`, W3b). */
+export interface BossControl {
+  readonly id: number;
+  readonly stage: number;
+  readonly dead: boolean;
+  /** Working-state cue: lower the held cargo (B-14) into the well. No-op once awake. */
+  cue(name: 'lower'): void;
+  /** Working → stage 1 (hostile). Idempotent. */
+  wake(): void;
+  /** The objective stage (the loader uses max(objective, damage stage)). */
+  setStage(s: 1 | 2 | 3): void;
+  /** Hp of a part (`flood_1..4`, `ram_e`, `ram_w`, `pod`); 0 = destroyed. */
+  partHp(part: string): number;
+  /** D20 / S13: `p` is inside a live flood's cone AND that flood's light is in the pool this frame. */
+  floodLit(p: THREE.Vector3): boolean;
+  snapshot(): BossState;
+  restore(s: BossState): void;
+  /** Remove the loader with no events, fx or sound (a restore after `loaderDead`). */
+  removeSilently(): void;
 }
 
 /**

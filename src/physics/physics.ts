@@ -2,13 +2,28 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import type { CapsuleBody, DynamicBox, HitOwner, Physics, RayHit, Surface } from '../core/types';
 
-const SURFACES: Surface[] = ['metal', 'concrete', 'glass', 'rubber', 'robot', 'flesh'];
+const SURFACES: Surface[] = ['metal', 'concrete', 'glass', 'rubber', 'robot', 'flesh', 'water'];
 const GRAVITY = -19;
+/** Stage 3d §8.1 / B6: the default kill height (levels 1–5); a level sets its own through `Level.killY` (main.ts). */
+export const KILL_Y_DEFAULT = -30;
+
+/** One baked collider set: BVH + per-vertex surface ids + the coplanar seams of its walkable slopes. */
+interface Baked { bvh: MeshBVH | null; surf: Uint8Array | null; geo: THREE.BufferGeometry | null; seams: Set<string> }
+const EMPTY: Baked = { bvh: null, surf: null, geo: null, seams: new Set() };
+/** Quantised (1 mm) vertex key, and an undirected edge key from two of them. */
+const vkey = (v: THREE.Vector3) => `${Math.round(v.x * 1000)},${Math.round(v.y * 1000)},${Math.round(v.z * 1000)}`;
+const ekey = (a: THREE.Vector3, b: THREE.Vector3) => { const ka = vkey(a), kb = vkey(b); return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`; };
 
 export function createPhysics(): Physics {
-  let bvh: MeshBVH | null = null;
-  let surfAttr: Uint8Array | null = null;
-  let posAttr: THREE.BufferAttribute | null = null;
+  /**
+   * Stage 3d §8.1 / S5 (D14): TWO collider sets. `rays` = solid ∪ `userData.rayOnly` (water surfaces: they stop rounds
+   * and sight) → raycast, lineOfSight. `moves` = solid ∪ `userData.moveOnly` (rails, bar / mesh guards, a tarp: they
+   * stop bodies, rounds and sight pass) → moveBody, resolveSphere, raycastSolid. A level with neither flag bakes ONE
+   * set used for both (levels 1–5: unchanged).
+   */
+  let rays: Baked = EMPTY;
+  let moves: Baked = EMPTY;
+  let killY = KILL_Y_DEFAULT;
   const boxes: DynamicBox[] = [];
   const movers: THREE.Object3D[] = [];
   /** REVISION 5.2: a dynamic box stands for something that moves or goes away: 'transient' unless it says otherwise. */
@@ -32,9 +47,10 @@ export function createPhysics(): Physics {
    * meshes carry `userData.holdSlopes`, see LevelBuild.colliderMeshes); levels 1–2 do not, so they are unchanged.
    */
   let holdSlopes = false;
+  /** Stage 3d K: the seam rule (`slopeSeams`); a test hook turns it off to prove its case fails without it. */
+  let seamFix = true;
 
-  function build(colliders: THREE.Mesh[]) {
-    holdSlopes = colliders.some((m) => m.userData.holdSlopes === true);
+  function bake(colliders: THREE.Mesh[], withSeams: boolean): Baked {
     // Merge every collider into one non-indexed, world-space position buffer + per-vertex surface id.
     let total = 0;
     const parts: { pos: Float32Array; surf: number }[] = [];
@@ -63,27 +79,73 @@ export function createPhysics(): Physics {
       surf.fill(p.surf, o, o + p.pos.length / 3);
       o += p.pos.length / 3;
     }
+    const seams = withSeams ? slopeSeams(positions) : new Set<string>();
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    bvh = total > 0 ? new MeshBVH(geo) : null;
     // MeshBVH adds an index (reordered); vertex data stays put, so per-vertex surface ids remain valid.
-    surfAttr = surf;
-    posAttr = geo.getAttribute('position') as THREE.BufferAttribute;
-    (physics as any)._geometry = geo;
+    return { bvh: total > 0 ? new MeshBVH(geo) : null, surf, geo, seams };
   }
 
-  function raycast(origin: THREE.Vector3, direction: THREE.Vector3, maxDistance = 1000): RayHit | null {
-    let best: RayHit | null = null;
-    if (bvh) {
-      ray.origin.copy(origin); ray.direction.copy(direction);
-      const hit = bvh.raycastFirst(ray, THREE.DoubleSide, 0, maxDistance);
-      if (hit && hit.distance <= maxDistance) {
-        const normal = hit.face ? hit.face.normal.clone() : direction.clone().negate();
-        if (normal.dot(direction) > 0) normal.negate();
-        const a = hit.face ? hit.face.a : 0;
-        best = { point: hit.point.clone(), normal, distance: hit.distance, surface: SURFACES[surfAttr ? surfAttr[a] : 0] };
+  /**
+   * Stage 3d K (the STAIR5_W drift): edges shared by two COPLANAR walkable-slope triangles — a slope slab's top face is
+   * two triangles split along its diagonal. A capsule that has crossed that diagonal still touches the far triangle AT
+   * the diagonal; that contact was resolved along the edge→capsule direction, which has a sideways component, every
+   * sub-step while walking uphill (the capsule sinks into a rising slope): ≈ 0.6–1.1 m west over STAIR5_W. `resolveSegment`
+   * now resolves a contact on such a seam against the plane, vertically, like the face contact it stands for.
+   */
+  function slopeSeams(pos: Float32Array): Set<string> {
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), e = new THREE.Vector3();
+    const byEdge = new Map<string, THREE.Vector3[]>();
+    for (let t = 0; t + 8 < pos.length; t += 9) {
+      a.fromArray(pos, t); b.fromArray(pos, t + 3); c.fromArray(pos, t + 6);
+      n.subVectors(c, b).cross(e.subVectors(a, b));
+      const len = n.length();
+      if (len < 1e-9) continue;
+      n.multiplyScalar(1 / len);
+      const ny = Math.abs(n.y);
+      if (ny < 0.5 || ny >= 0.97) continue;
+      for (const [p, q] of [[a, b], [b, c], [c, a]] as const) {
+        const k = ekey(p, q);
+        const l = byEdge.get(k);
+        if (l) l.push(n.clone()); else byEdge.set(k, [n.clone()]);
       }
     }
+    const out = new Set<string>();
+    for (const [k, ns] of byEdge) {
+      if (ns.length < 2) continue;
+      let coplanar = false;
+      for (let i = 0; i < ns.length && !coplanar; i++) for (let j = i + 1; j < ns.length; j++) if (Math.abs(ns[i].dot(ns[j])) > 0.9995) { coplanar = true; break; }
+      if (coplanar) out.add(k);
+    }
+    return out;
+  }
+
+  function build(colliders: THREE.Mesh[]) {
+    holdSlopes = colliders.some((m) => m.userData.holdSlopes === true);
+    const split = colliders.some((m) => m.userData.rayOnly === true || m.userData.moveOnly === true);
+    if (!split) {
+      rays = moves = bake(colliders, holdSlopes);
+    } else {
+      rays = bake(colliders.filter((m) => m.userData.moveOnly !== true), false);
+      moves = bake(colliders.filter((m) => m.userData.rayOnly !== true), holdSlopes);
+    }
+    (physics as any)._geometry = rays.geo;
+  }
+
+  function hitStatic(set: Baked, origin: THREE.Vector3, direction: THREE.Vector3, maxDistance: number): RayHit | null {
+    if (!set.bvh) return null;
+    ray.origin.copy(origin); ray.direction.copy(direction);
+    const hit = set.bvh.raycastFirst(ray, THREE.DoubleSide, 0, maxDistance);
+    if (!hit || hit.distance > maxDistance) return null;
+    const normal = hit.face ? hit.face.normal.clone() : direction.clone().negate();
+    if (normal.dot(direction) > 0) normal.negate();
+    const a = hit.face ? hit.face.a : 0;
+    return { point: hit.point.clone(), normal, distance: hit.distance, surface: SURFACES[set.surf ? set.surf[a] : 0] };
+  }
+
+  /** Closest hit against one static set + the enabled dynamic boxes. */
+  function castIn(set: Baked, origin: THREE.Vector3, direction: THREE.Vector3, maxDistance: number): RayHit | null {
+    let best: RayHit | null = hitStatic(set, origin, direction, maxDistance);
     ray.origin.copy(origin); ray.direction.copy(direction);
     for (const b of boxes) {
       if (!b.enabled) continue;
@@ -103,6 +165,19 @@ export function createPhysics(): Physics {
     return best;
   }
 
+  function raycast(origin: THREE.Vector3, direction: THREE.Vector3, maxDistance = 1000): RayHit | null {
+    return castIn(rays, origin, direction, maxDistance);
+  }
+
+  /** Stage 3d S5: the MOVES set (solid ∪ moveOnly — never a water surface) + enabled dynamic boxes. */
+  function raycastSolid(origin: THREE.Vector3, direction: THREE.Vector3, maxDistance = 1000): RayHit | null {
+    return castIn(moves, origin, direction, maxDistance);
+  }
+
+  function setKillY(y: number): void {
+    killY = Number.isFinite(y) ? y : KILL_Y_DEFAULT;
+  }
+
   function lineOfSight(a: THREE.Vector3, b: THREE.Vector3): boolean {
     const dir = tmp.copy(b).sub(a);
     const len = dir.length();
@@ -112,11 +187,27 @@ export function createPhysics(): Physics {
     return raycast(a, d, len - 0.05) === null;
   }
 
+  const edgeL = new THREE.Line3();
+  const onP = new THREE.Vector3();
+  /** `p` lies on an edge (or a vertex) of `tri`, and every edge it lies on is a coplanar slope seam. */
+  function onSeam(tri: { a: THREE.Vector3; b: THREE.Vector3; c: THREE.Vector3 }, p: THREE.Vector3, seams: Set<string>): boolean {
+    let on = 0;
+    for (const [u, w] of [[tri.a, tri.b], [tri.b, tri.c], [tri.c, tri.a]] as const) {
+      edgeL.set(u, w).closestPointToPoint(p, true, onP);
+      if (onP.distanceToSquared(p) > 1e-8) continue;
+      if (!seams.has(ekey(u, w))) return false;
+      on++;
+    }
+    return on > 0;
+  }
+
   /** Highest low obstacle (`DynamicBox.walkable`) a body steps onto. */
   const STEP_OVER = 0.55;
   function resolveSegment(radius: number): void {
-    // Push `seg` (capsule axis) out of static triangles.
+    // Push `seg` (capsule axis) out of static triangles (the moves set).
+    const bvh = moves.bvh;
     if (bvh) {
+      const seams = holdSlopes && seamFix && moves.seams.size ? moves.seams : null;
       aabb.makeEmpty();
       aabb.expandByPoint(seg.start); aabb.expandByPoint(seg.end);
       aabb.min.addScalar(-radius); aabb.max.addScalar(radius);
@@ -128,13 +219,20 @@ export function createPhysics(): Physics {
             const depth = radius - dist;
             const dir = capPoint.sub(triPoint);
             if (dir.lengthSq() < 1e-12) tri.getNormal(dir); else dir.normalize();
-            if (holdSlopes && dir.y >= 0.5 && dir.y < 0.97) {
-              // face contact on a walkable slope (not an edge): resolve vertically, no downhill creep
+            if (holdSlopes) {
               tri.getNormal(triN);
               if (triN.dot(dir) < 0) triN.negate();
-              if (triN.dot(dir) > 0.995) {
+              if (dir.y >= 0.5 && dir.y < 0.97 && triN.dot(dir) > 0.995) {
+                // face contact on a walkable slope (not an edge): resolve vertically, no downhill creep
                 const up = depth / dir.y;
                 seg.start.y += up; seg.end.y += up;
+                return false;
+              }
+              if (seams && triN.y >= 0.5 && triN.y < 0.97 && onSeam(tri, triPoint, seams)) {
+                // stage 3d K: on a coplanar seam of a slope (the slab's diagonal): against the plane, vertically
+                const above = dist * triN.dot(dir);
+                const dep = radius - above;
+                if (dep > 0) { const up = dep / triN.y; seg.start.y += up; seg.end.y += up; }
                 return false;
               }
             }
@@ -213,11 +311,12 @@ export function createPhysics(): Physics {
       }
     }
     body.onGround = grounded;
-    // Safety net: never fall out of the world.
-    if (body.position.y < -30) { body.position.y = 2; body.velocity.set(0, 0, 0); }
+    // Safety net: never fall out of the world (stage 3d B6: the height is the level's, `setKillY`; levels 1–5: −30).
+    if (body.position.y < killY) { body.position.y = 2; body.velocity.set(0, 0, 0); }
   }
 
   function resolveSphere(center: THREE.Vector3, radius: number): boolean {
+    const bvh = moves.bvh;
     if (!bvh) return false;
     let touched = false;
     sphere.center.copy(center); sphere.radius = radius;
@@ -264,8 +363,17 @@ export function createPhysics(): Physics {
     return () => { const i = movers.indexOf(obj); if (i >= 0) movers.splice(i, 1); };
   }
 
-  const physics: Physics = { build, raycast, lineOfSight, moveBody, resolveSphere, addBox, ownerAt, addMover, movers, gravity: GRAVITY };
-  // test hook (scripts/check-nav.mjs: the drift case is run once with the hold off and must fail)
+  const physics: Physics = {
+    build, raycast, raycastSolid, lineOfSight, moveBody, resolveSphere, addBox, ownerAt, addMover, movers, setKillY,
+    get killY() { return killY; },
+    gravity: GRAVITY,
+  };
+  // test hooks (scripts/check-nav.mjs: the drift case is run once with the hold off and must fail; check-physics: the
+  // seam count and the split)
   Object.defineProperty(physics, '_holdSlopes', { get: () => holdSlopes, set: (v: boolean) => { holdSlopes = !!v; }, enumerable: false });
+  Object.defineProperty(physics, '_seamFix', { get: () => seamFix, set: (v: boolean) => { seamFix = !!v; }, enumerable: false });
+  Object.defineProperty(physics, '_sets', { get: () => ({ split: rays !== moves, seams: moves.seams.size }), enumerable: false });
+  // scripts/check-physics.mjs: a fresh, empty physics (and the three module) to build test scenes in the page
+  Object.defineProperty(physics, '_fresh', { value: () => ({ physics: createPhysics(), THREE }), enumerable: false });
   return physics;
 }

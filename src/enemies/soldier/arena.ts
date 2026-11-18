@@ -98,7 +98,7 @@ export function buildSoldierArena(ctx: GameContext): SoldierArena {
   crateBody12.enabled = false;
   // cover points in the contract's format: 0.55 m from the face along −n (n points at the threat side, +z here)
   const cv = (id: string, x: number, z: number, nx: number, nz: number, h: 'low' | 'high'): CoverPoint =>
-    ({ id, position: new THREE.Vector3(x, 0, z), normal: new THREE.Vector3(nx, 0, nz), height: h, room: 'arena', set: 'yard' });
+    ({ id, position: new THREE.Vector3(x, 0, z), normal: new THREE.Vector3(nx, 0, nz), height: h, room: 'arena', set: 'yard', enabled: true });
   const cover: CoverPoint[] = [
     cv('cva_1', 219, -9.15, 0, 1, 'low'), cv('cva_2', 227, -13.15, 0, 1, 'low'), cv('cva_3', 235, -9.15, 0, 1, 'low'),
     cv('cva_4', 221.9, -17.55, 0, 1, 'high'), cv('cva_5', 232.1, -17.55, 0, 1, 'high'), cv('cva_6', 239, -16.15, 0, 1, 'low'),

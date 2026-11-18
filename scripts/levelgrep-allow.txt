@@ -62,3 +62,10 @@ src/audio/voice.ts :: P.gain !== 1
 # ── stage 3b: material sets by level threshold; a loop index in a screen drawing
 src/materials/index.ts :: >= CLINICAL_FROM
 src/materials/screens4.ts :: k === 2
+
+# ── stage 3c (found by 3d K): loop / kind indices, not levels
+src/audio/sounds/rev10.ts :: if (kind === 2)
+src/enemies/soldier/soldier.ts :: k === 2
+# ── stage 3c (found by 3d K): a REAL binary level branch in the enemy nav (the level-5 walkway fallback). Allowed
+#    only until it is folded into level data (e.g. a `LevelEx` nav fallback point) by its owner (IA5 now, W3c in 3d).
+src/enemies/nav.ts :: this.ctx.levelId === 5

@@ -28,11 +28,14 @@ export interface AudioDebug {
 
 const STEP_ID: Record<Surface, string> = {
   metal: 'step_metal', concrete: 'step_concrete', rubber: 'step_rubber', glass: 'step_glass', robot: 'step_metal', flesh: 'step_rubber',
+  water: 'step_concrete', // K placeholder (stage 3d): W2b — `wade_shallow` / `wade` by depth (§8.12)
 };
 const IMPACT_ID: Record<Surface, string> = {
   metal: 'impact_metal', concrete: 'impact_concrete', rubber: 'impact_rubber', glass: 'impact_glass', robot: 'impact_robot', flesh: 'impact_flesh',
+  water: 'impact_concrete', // K placeholder (stage 3d): W2b — `impact_water` (§8.12)
 };
-const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9, soldier: 1.55 };
+// K placeholder (stage 3d): `loader: 6` (the trolley's height over the dock is the enemy's; W2b / W3b set the real value)
+const ENEMY_Y: Record<EnemyType, number> = { skitter: 0.35, husk: 1.4, sentry: 0, foreman: 1.9, soldier: 1.55, loader: 6 };
 const GRATE_ROOMS = new Set(['corr_a', 'elevator']);
 /** Level 3 (habitat): the floor under the player's feet by room id — the contract's `Surface` has no carpet/tile, so
  *  footsteps there are chosen by room (any surface but glass / flesh / robot). `step_wood` is available for story use. */

@@ -48,8 +48,16 @@ const SHOTS_L5: Shot[] = [
   { from: v(0, 1.7, -2), to: v(0.3, 1.7, -2.4), lookFrom: v(0, 1.5, -10), lookTo: v(0.2, 1.5, -10.2), dur: 14, fov: 60 },
 ];
 
+/**
+ * Level 6 (stage 3d §8.1): eye (0, 1.7, −2) → look (0, 1.5, −10), down the trunk tunnel from the head-end tube. Set for
+ * the built level (W4a's greybox: tun6_a); on K's stub room it frames the stub's north wall.
+ */
+const SHOTS_L6: Shot[] = [
+  { from: v(0, 1.7, -2), to: v(0.3, 1.7, -2.4), lookFrom: v(0, 1.5, -10), lookTo: v(0.2, 1.5, -10.2), dur: 14, fov: 60 },
+];
+
 /** Menu shots per level (§8.1: a lookup, one entry per built level). */
-const SHOTS: Partial<Record<LevelId, Shot[]>> = { 1: SHOTS_L1, 2: SHOTS_L2, 3: SHOTS_L3, 4: SHOTS_L4, 5: SHOTS_L5 };
+const SHOTS: Partial<Record<LevelId, Shot[]>> = { 1: SHOTS_L1, 2: SHOTS_L2, 3: SHOTS_L3, 4: SHOTS_L4, 5: SHOTS_L5, 6: SHOTS_L6 };
 
 const BASE_FADE = 0.12;
 

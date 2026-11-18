@@ -9,7 +9,7 @@
  * Every access is wrapped in try/catch (private mode, disabled storage, quota); a blob that does not parse, has
  * another version / level / story revision or the wrong shape is discarded. Nothing here touches the game world.
  */
-import type { CarryV2, DebugFlags, Facts, LevelId, PlayerSave, SaveV2, WeaponId } from '../core/types';
+import type { BossState, CarryV2, DebugFlags, Facts, LevelId, PlayerSave, SaveV2, WeaponId } from '../core/types';
 import { WEAPON_IDS } from '../core/types';
 import { FIRST_LEVEL, LEVEL_IDS, levelInfo, nextOf, setStoredLevel, storedLevel } from '../core/progress';
 
@@ -66,6 +66,11 @@ function validSave(s: any, spec: SaveSpec): boolean {
   // stage 3c §7 (level 5): optional extra arrays / counters of a progress record
   if (st.scares !== undefined && !strings(st.scares)) return false;
   if (st.codeWrong !== undefined && !num(st.codeWrong)) return false;
+  // stage 3d §7 (level 6): the boss record, waves, launch clock and lockers (each optional; shape-checked when present)
+  if (st.boss !== undefined && st.boss !== null && (typeof st.boss !== 'object' || !num(st.boss.stage) || !st.boss.parts || typeof st.boss.parts !== 'object' || !Array.isArray(st.boss.slots))) return false;
+  if (st.waves !== undefined && (!st.waves || typeof st.waves !== 'object')) return false;
+  if (st.launchAt !== undefined && st.launchAt !== null && !num(st.launchAt)) return false;
+  if (st.lockers !== undefined && (!st.lockers || typeof st.lockers !== 'object')) return false;
   if (!strings(s.logs) || !strings(s.cleared) || !s.stats || !num(s.stats.time) || !num(s.stats.kills)) return false;
   return true;
 }
@@ -237,8 +242,39 @@ export interface ProgressL5 extends ProgressL3 {
 export type SaveDataL5 = SaveV2<ProgressL5, CheckpointIdL5>;
 export function emptyProgressL5(): ProgressL5 { return { ...emptyProgressL3(), scares: [], codeWrong: 0 }; }
 
+// ───────────────────────────────────────────────────────────── level 6 (stage 3d §7, §8.1)
+
+export const CHECKPOINT_IDS_L6 = ['cp6_start', 'cp6_tunnel', 'cp6_rep', 'cp6_he', 'cp6_manual', 'cp6_pulled', 'cp6_shaft',
+  'cp6_m1', 'cp6_m2', 'cp6_m3', 'cp6_m4', 'cp6_m5', 'cp6_quiet'] as const;
+export type CheckpointIdL6 = typeof CHECKPOINT_IDS_L6[number];
+export const STORY_REV_L6 = 1;
+export const SPEC_L6: SaveSpec = { level: 6, rev: STORY_REV_L6, ids: CHECKPOINT_IDS_L6 };
+/** §7: the state of one boss wave (W1 … W3). */
+export type WaveStateL6 = 'pending' | 'alive' | 'dead' | null;
+/**
+ * §7 `ProgressL6` = `ProgressL5` plus the boss record (`BossState`, null before the loader is hostile), the boss waves
+ * (`latest` = the wave a boss restore handles, §7.1 / S2a), `launchAt` (the game-clock second of the SDV launch, D16;
+ * null = not yet) and `lockers` (the three dock ammo lockers taken since the last milestone, B5). `flags` (free-form,
+ * owned by `src/story/l6`): tubeOpen, tubeLatched, crossing, f1Free, f1Cancelled, bayLive, f3Free, manual, queue, handset,
+ * aas, bjOpen, pulled, thud, shaftOpen, lights6, reveal, hostile, lights_out6, pin, pressure, trunkCut, ramE, ramW,
+ * loaderDead, quiet, ending. A save without the new fields loads with `emptyProgressL6()`'s (`{ ...empty, ...saved }`).
+ */
+export interface ProgressL6 extends ProgressL5 {
+  boss: BossState | null;
+  waves: { w1: WaveStateL6; w2: WaveStateL6; w3: WaveStateL6; latest: 'w1' | 'w2' | 'w3' | null };
+  launchAt: number | null;
+  lockers: Record<'e' | 'w' | 'n', boolean>;
+}
+export type SaveDataL6 = SaveV2<ProgressL6, CheckpointIdL6>;
+export function emptyProgressL6(): ProgressL6 {
+  return {
+    ...emptyProgressL5(), boss: null, waves: { w1: null, w2: null, w3: null, latest: null }, launchAt: null,
+    lockers: { e: false, w: false, n: false },
+  };
+}
+
 /** Every level's checkpoint spec (menu CONTINUE validates through these). */
-const SPECS: Partial<Record<LevelId, SaveSpec>> = { 1: SPEC_L1, 2: SPEC_L2, 3: SPEC_L3, 4: SPEC_L4, 5: SPEC_L5 };
+const SPECS: Partial<Record<LevelId, SaveSpec>> = { 1: SPEC_L1, 2: SPEC_L2, 3: SPEC_L3, 4: SPEC_L4, 5: SPEC_L5, 6: SPEC_L6 };
 
 /** The room name of a level's valid checkpoint (menu); null = no checkpoint (an invalid one is deleted). */
 function checkpointPlace(level: LevelId): string | null {

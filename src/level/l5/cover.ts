@@ -84,7 +84,7 @@ const DIRS: Record<Dir, [number, number]> = { '+x': [1, 0], '-x': [-1, 0], '+z':
 
 export const COVER5: readonly CoverPoint[] = COVER_ROWS5.map((r) => {
   const [nx, nz] = DIRS[r.n];
-  return { id: r.id, position: new THREE.Vector3(...r.p), normal: new THREE.Vector3(nx, 0, nz), height: r.h, room: r.room, set: r.set };
+  return { id: r.id, position: new THREE.Vector3(...r.p), normal: new THREE.Vector3(nx, 0, nz), height: r.h, room: r.room, set: r.set, enabled: true };
 });
 
 /** Soldier spawn (feet) of each cover set — check-nav proves every point reachable from it (§8.3). */

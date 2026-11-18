@@ -15,22 +15,23 @@ boss = the dock's autonomous loader; taken soldiers are plain enemies that canno
 **3c dependency.** 3d is built only after 3c is merged. Each interface 3d uses from 3c is either **merged (fact)** —
 in `src/core/types.ts` or a merged task's notes — or **assumed** (still being built), cited with its 3c plan section.
 **K's first job (§11 rule 7) is to verify every "assumed" row against merged code before wave 1** and edit this table
-and every citation if 3c built it differently:
+and every citation if 3c built it differently. **Done by 3d's K (6) against main at 2f98f84** — every row below now
+says what is built and where; the details are in `docs/plans/stage-3d-k-notes.md` → "3c verification":
 
 | from 3c | status | interface 3d uses | 3d uses it for |
 |---|---|---|---|
 | soldier contract (3c §8.1, K) | **merged** (`types.ts`) | `EnemyType 'soldier'`, `EnemySpawn.pose 'hold'` / `.arms` (absent = carbine) / `.cover`, `EnemyManager.release(group)` (emits `enemy:alerted`), **`holding(group)`**, `corpsePoint(id, 'chest')`, `GameEvents['enemy:fired']`, `LevelInfo.cast.soldier` (required), `SoldierDebug` row type | every gunfight; the level-6 `calm()` |
-| soldier body + AI (3c §8.2, W3a/W3b) | assumed | `SOLDIER_TUNING` (one table), the `lit` flag (3c D18), tokens, damage cap, bark gate, `enemies.debug.soldiers()`, cover choice reading `Level.cover` | gunfights; the flood-lit rule (D20) |
-| cover points (3c §5.4, §8.3) | **merged** type + `Level.cover` (via `assembleLevel`'s `cover` option); 3c W4's `selfTest` assumed | `CoverPoint { id, position, normal, height, room, set }` | all cover; 3d adds `enabled` (§8.1) |
-| floors below the main floor (3c §8.4) | **merged**: `RoomFloor.nav?`, `RoomFloor.exits?`, required `Level.floorAt(p)` (default `floorOf`); assumed: `LevelBuild.room(…, { floors })` copying `nav` / `exits`, room bounds from the lowest floor, `StairDef.y0` / `nav` (level-internal, `l3/grey.ts`), nav obstacles, opening a wall below floor level (the crawl under `d5_arm`) | the vault's cable trench (§2.6.7) |
-| hatches (3c §8.4, W7) | assumed | lid as a registered mover, `open(k)`, underside-only interact with the eye rule | trench hatches |
-| radio + Q (3c §8.6) | **merged**: `ui.radio(o \| null)` (strip `rstrip`), subtitle class `radio` for `KESSLER` / `RADIO`, voice fx `radio`, `radio:1`, `throat` in `FX_NAMES`; assumed: Q handling in the story, POS `radio` / `throat` (W2b) | Kessler and CHOIR all stage |
-| scare kit (3c §5.5, §8.7) | `Level.vignette('<id>:snap')` convention **merged** (documented, 3c W4 builds it); assumed: `scareOk(id)`, `scares` in progress (`ProgressL5` merged with `scares`), `audio.debug.log` (`AudioLogEntry` type merged) | §5.7 |
-| stage base additions (3c §4.7, B1) | assumed (ST 3c) | the level `calm()` override pattern ignoring holding groups, door-calm, **stray rule** (unseen ≥ 30 s and ≥ 25 m during a calm wait → removed), `afterReplay` re-spawn | checkpoints, boss restore |
-| `mustNotUse` in `check-reach` (3c §3) | assumed (3c W4) | R8 with line of sight | §3 |
+| soldier body + AI (3c §8.2, W3a/W3b) | **merged** (verified) — one difference | `SOLDIER_TUNING` (`enemies/soldier/fire.ts:12`; `lit: 1.5`, `sight.range 30`, `tokens 2`, `cap 18`), tokens (`fire.ts:166`, `206-213`), damage cap `allowHit` (`fire.ts:215-224`), `enemies.debug.soldiers()` (`manager.ts:489`), cover choice `chooseCover` reading `level.cover` (`soldier/cover.ts:68-70`). **Differs:** `lit` is ONLY "the player fired within 1.5 s" (`SoldierDirector.litUntil`, `fire.ts:169`, `251`; read at `soldier.ts:307`, `338`) — there is no hook for an outside light: **W3c adds the D20 input** (`boss.floodLit(player)` ORed into the soldier's lit test). The **bark gate is the story's**, not the enemy's (`story/l5/dialogue.ts:111` `barkOk`, 20 s spacing `story/l5/script.ts:1325`) — ST-a copies it for level 6. `chooseCover` reads no `enabled` (W3c adds it) | gunfights; the flood-lit rule (D20) |
+| cover points (3c §5.4, §8.3) | **merged** type + `Level.cover`; self-test **merged** as `selfTestCover(ctx, level)` (`level/l5/cover.ts:101`, called from level 5's `selfTest`; checks at `cover.ts:9-13`) — W4a copies it for level 6 | `CoverPoint { id, position, normal, height, room, set, enabled }` (`enabled` added by 3d's K) | all cover |
+| floors below the main floor (3c §8.4) | **merged** (verified): `RoomFloor.nav?` / `exits?`, `Level.floorAt(p)`; `LevelBuild.room(…, { floors: { y, box, nav?, exits? } })` copies `nav: false` / `exits` (`level/context.ts:70`, `266-272`); room bounds from the lowest floor − 0.5 (`context.ts:262-265`); `StairDef.y0?` / `nav?: false` (`l3/grey.ts:88-90`). **Differs:** there is no nav-obstacle API — "no nodes" is a **check field** (`navCases.noNodes: [{ id, box }]`, `level/l5/index.ts:264`, enforced by `check-nav.mjs`); the crawl under `d5_arm` is a GreyGrid air box spanning two rooms (`airIn(G, 'crawlturn5', box, ['spine5','arm5'], 'spine5')`, `level/l5/grey.ts:508`; `airIn` at `grey.ts:404`) — level-internal, W4a copies the pattern | the vault's cable trench (§2.6.7) |
+| hatches (3c §8.4, W7) | **merged** (verified) | `hatchLid(L, b, spec)` (`level/l5/setpieces.ts:1555`; a registered mover via `movingGroup` → `addMover`, a dynamic box; `userData.open(k)`, `dogs(k)`, `lamp(s)`, `underside`, `setpieces.ts:1631-1635`), greybox fallback `level/l5/grey.ts:336`; the eye rule `eyeGate(ctx, it, { axis, min?, max? })` (`grey.ts:381`, also published for check-reach); the story re-checks the eye (`story/l5/script.ts:1365-1378`). All level-5-internal: W4a / W7 copy, not import | trench hatches |
+| radio + Q (3c §8.6) | **merged** (verified) | `ui.radio(o \| null)`, subtitle class `radio`, fx `radio` / `radio:1` / `throat` built (`audio/voicefx.ts:339`, `365`; `fxLead('radio') = 0.04`, `voicefx.ts:226`), POS `radio` / `throat` built (`audio/voice.ts:97`, `101`); Q is the level-5 story's (`ScriptL5.onFrame` → `radioAsk()`, `story/l5/script.ts:236`, `770`; 5 s cooldown) — ST-a writes level 6's own | Kessler and CHOIR all stage |
+| scare kit (3c §5.5, §8.7) | **merged** (verified), level-5-internal | `vignette('<id>:snap')`; `scareOk(id, allowKessler)` is a private method of `ScriptL5` (`story/l5/script.ts:1235`; once, calm `scareCalm` :1224, 45 s / 90 s loud spacing, never in a doorway), `fireScare` (:1244) — **not in the stage base**: ST-a copies it into `story/l6`; `ProgressL5.scares` (`story/save.ts`); `audio.debug.log` built (`audio/engine.ts:95`, exposed `audio/index.ts:280`) | §5.7 |
+| stage base additions (3c §4.7, B1) | **merged**, but in the **level-5 base**, not the shared stage base | `calm()` override ignoring holding groups (`story/l5/base.ts:413`, via `awakeHostiles` :326 / `isHolding` :319 → `enemies.holding`), `doorCalm()` (`l5/base.ts:395`), the **stray rule** `strayRule(step)` (`l5/base.ts:371-392`: only while `calmWaiting`; removes whole GROUPS silently, logged in `strays`); `afterReplay()` IS the shared stage base's (`story/stage/base.ts:222`, called at :800). ST-a copies (or lifts into a shared file it owns) the level-5 pieces | checkpoints, boss restore |
+| `mustNotUse` in `check-reach` (3c §3) | **merged** (verified) | a phase row's `check.mustNotUse?: (string \| { id; eye?: [min, max] })[]` (`level/l5/phases.ts:99`), read at `scripts/check-reach.mjs:271` | §3 |
 | voices (3c W9) | **merged**: 72 lines, `kessler` provisional pick, `soldier` alias, **`cut` in FILE time** (incl. `lead`), the `l4_sunde_8` lead re-set after any `npm run voice` | lines (§6) |
-| first-person cutscene (3a `rig.cutscene`, 3c §4.2) | built (3a) | `linesReady(ids, s)`, shot table, skip only once seen, `check:cutscene` | the ending (§4.9) |
-| level 5 end (3c §7, K) | **merged** (K stub) / ST assumed | carry `from: 5` with `kills5`, `testHour` (≥ 62.5); facts `radio`, `kessler`, `l5_door`, `l5_boat` (ST 3c); `nextOf(5)` | the hand-over (D2) |
+| first-person cutscene (3a `rig.cutscene`, 3c §4.2) | built (3a) | shot table, skip only once seen, `check:cutscene`; `linesReady(ids, timeout)` is a **story-base method of level 5** (`story/l5/base.ts:501`; level 3 has its own, `story/l3/scenes.ts:197`), not of the cutscene module — ST-b copies it | the ending (§4.9) |
+| level 5 end (3c §7) | **merged** (3c ST, verified; the story is on main "unfinished, untested" and IA5 is finishing it) | `story/l5/index.ts:41-70`: carry `from: 5` with `kills5`, `testHour` (default 62.5), `radio`, `kessler` (both = `F.radio`), `l5_door`, `l5_boat`; card `POST 4` / `` / `TO BE CONTINUED` 12 s when `nextOf(5)` is null, `POST 4` alone 6 s otherwise (`story/l5/text.ts:10,12`), `goToLevel()` only in reload mode with a next (:69); hooks `end`, `checkpoint`, `next`, `debugState.{loadout, arrival, restoredFrom}`. The K stub's `l5_stub_end` is gone | the hand-over (D2; `check:chain` tests it with `?next=5:6`) |
 | soldier patrol path | **does not exist** (S8a) | 3d's K adds `EnemyManager.patrol(…)` (§8.1), W3b / W3c implement | `v6_crossing`, F3's walk-out |
 
 Conventions exactly as 3c: metres, y up, −Z forward, yaw 0 looks down −z (`?spawn` yaw in degrees, +90 = −x). Room boxes
@@ -1611,8 +1612,8 @@ the cutscene. `ProgressL6` = 3c's `ProgressL5` shape (`ProgressL3` + `scares: st
 
 ### 7.1 Boss restore mechanics (the 3c B1 class, designed out)
 
-The stage base removes every group in `prog.triggered ∪ prog.cleared` on a load (`base.ts:777-799`; a load is a fresh page,
-`page.ts:112-128`; `spawnGroup` takes a pending spawn once per page, `manager.ts:288-300`). Therefore:
+The stage base removes every group in `prog.triggered ∪ prog.cleared` on a load (`story/stage/base.ts:770-799`, `fastForward`; a load is a fresh page,
+`stage/page.ts:111-129`; `spawnGroup` takes a pending spawn once per page, `enemies/manager.ts:306-317`). Therefore:
 - `g6_loader` is spawned with `spawnGroup` when Key B turns (D31), woken only through `enemies.boss('g6_loader').wake()`
   (never `engage`) and **never enters `triggered`**; the level-6 `calm()` override counts the loader explicitly (alive and
   past `working` = not calm) and ignores holding soldiers via `EnemyManager.holding(group)` (merged 3c K — S2f).
@@ -1721,7 +1722,7 @@ export type TrunkMaterialName = 'tunnel_shotcrete' | 'cable_armour' | 'dock_stee
 mesh.userData.rayOnly = true;    // water surfaces
 mesh.userData.moveOnly = true;   // rails, bar and mesh guards, the tent's tarp
 Physics.raycastSolid(origin, dir, max?): RayHit | null;       // moves set + enabled dynamic boxes: every GROUND / HEADROOM query
-Physics.setKillY(y: number): void;                            // the kill-plane (today hard-coded −30, physics.ts:217); level 6: −36 (B6)
+Physics.setKillY(y: number): void;                            // the kill-plane (was hard-coded −30 in `moveBody`; K: `KILL_Y_DEFAULT`); level 6: −36 (B6)
 // story/save.ts
 export const CHECKPOINT_IDS_L6 = ['cp6_start', 'cp6_tunnel', 'cp6_rep', 'cp6_he', 'cp6_manual', 'cp6_pulled', 'cp6_shaft',
   'cp6_m1', 'cp6_m2', 'cp6_m3', 'cp6_m4', 'cp6_m5', 'cp6_quiet'] as const;
@@ -1731,7 +1732,7 @@ export type ProgressL6 = ProgressL5 & { boss; waves; launchAt; lockers };   // �
 
 **Who switches which ground / headroom query to `raycastSolid`** (S5; each in its owner's file): `enemies/nav.ts`
 `walkable(…, ground)` shortcut test and `enemies/ai.ts` `groundAt` — W3c; `story/stage/base.ts` `groundY` (`base.ts:605`)
-— **K** (one call, stage base); `fx/index.ts` floor planes (`:157`) — W6; player footsteps (`player/index.ts:177`) and
+— **K** (one call, stage base); `fx/index.ts` floor planes (`floorPlane()`, `:197-201`) — W6; player footsteps (`player/index.ts:177`) and
 `Controller.canStand`'s up-ray — W1. The level's own builders and checks — W4a / W4b. The kill height is set by the
 level at build (`level.killY`, read by main.ts → `physics.setKillY`; levels 1–5 keep −30).
 
@@ -1804,7 +1805,7 @@ hostile start. `cue` is part of `BossControl` (`cue(name: 'lower'): void`, no-op
   W2a).
 - Debug for T (§10.0 H18): `player.debug.hitRate(k)` — forces the fraction k of the player's shots to hit what the aim
   lock points at (the rest miss by 0.5 m), for `--dry`'s accounting (S8d); `player.debug.aimLock(x, y, z)` exists
-  (`player/index.ts:740`).
+  (`player/index.ts:773` after 3d's K).
 - Tests: `scripts/check-water.mjs` (W1): speeds per depth band (± 3 %), no sprint ≥ 0.35, no jump ≥ 0.7, crouch refused
   ≥ 0.7, footsteps surface `water`; **from every water cell (a 0.5 m grid over `wat6_wet`, incl. the channel's bottom and
   its ends), a bot under the wading caps walks out to dry floor in ≤ 10 s** (B3); a carbine burst into the wet dock
@@ -1827,7 +1828,7 @@ hostile start. `cue` is part of `BossControl` (`cue(name: 'lower'): void`, no-op
   shootable from the moment its head clears the water (R2). If it dies on the ladder it falls back into the well.
 - **Bodies in deep water** (B6): an enemy that dies or is spawned (not climbing) in water deeper than 0.6 m sinks at
   0.6 m/s with no `moveBody` and is removed at y −26; no drop. The **manager** (W3b) makes **no wreck box** for a body in
-  water deeper than 0.6 m (the doorway-exclusion mechanism of `manager.ts:250-256`).
+  water deeper than 0.6 m (the doorway-exclusion mechanism of `wrecks()`, `enemies/manager.ts:268-273`).
 - **Patrol** (S8a): `EnemyManager.patrol(group, points, o)` — the manager member is W3b's (one line delegating to the
   soldier); the walk itself is W3c's in `soldier.ts`: weapon light per `o.light`, `walk` pose at `o.speed` (default 1.4),
   `hold` at the last point (counted by `holding()`), released by `release(group)` or by itself as any holding soldier
@@ -2379,6 +2380,7 @@ applied as the reviewer proposed unless the row says otherwise.
 | note: the loader-in-motion gate | Now needs W1 + W3a + W3b + **W3c** + W4a + W4b (it reviews the W2 climb and enemies in water). §11. |
 | note: `hold6` latch | A `B_hold` row in `check:reach` with hold6 neither forbidden nor goal. §3, §10.2. |
 | **3c alignment** (merged since the draft) | The header table now marks each 3c interface **merged** (K contract: `soldier`, `release`, `holding`, `corpsePoint`, `cast.soldier`, `floorAt`, `RoomFloor.nav` / `exits`, `keypadInput`, `ProgressL5`; W2a UI: radio strip, keypad; W9 voices: 72 lines, Kessler provisional pick, `cut` in file time with `lead`, the `l4_sunde_8` lead caveat) or **assumed** (soldier body / AI, greybox floors below the main floor, hatches, fx tracers, props, the story's scare kit and radio / Q handling), and K verifies every assumed one before wave 1 (§11 rule 7). The direct start is written in `DirectLoadout` terms (12 + 24, 6 + 6, 30 + 90 → lands 12 / 36, 6 / 12, 30 / 120); the flashlight cell is not carried (it starts full); `ProgressL6` extends `ProgressL5`; §11 rules copied from `stage-3c-agent-rules.md` plus rule 10 (the `l4_sunde_8` lead). |
+| **K verification** (3d K, against 2f98f84) | Every "assumed" row of the header table checked against merged 3c code and rewritten with file:line. Differences that change 3d work: the soldier's `lit` has no outside input (W3c adds the D20 flood hook); the bark gate, `scareOk`, the stray rule, the level `calm()` / door-calm and `linesReady` live in **level 5's** story files (`story/l5/{base,script,dialogue}.ts`), not the shared stage base — ST-a / ST-b copy them into `story/l6` (or lift them into a shared file they own); nav "no nodes" is a check field, not a level API; the crawl-under-a-wall and hatch lids are level-5-internal helpers W4a / W7 copy. Interfaces K added: `Interactable.requireRegion` + `InteractableRegistry.allowedAt(i, feet)` and `pick(eye, fwd, feet?)`; `Physics.raycastSolid`, `setKillY`, `killY`; `Level.water` / `dock` / `killY`; the rest as §8.1. Citations fixed: `base.ts:770-799`, `page.ts:111-129`, `manager.ts:306-317`, `manager.ts:268-273`, `fx/index.ts:197-201`, `player/index.ts:773`. |
 
 Classes the 3b and 3c reviews attacked, handled up front in the draft (kept):
 

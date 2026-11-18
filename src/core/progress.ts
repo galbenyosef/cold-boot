@@ -18,7 +18,8 @@ export const LEVEL_IDS: readonly LevelId[] = [1, 2, 3, 4, 5, 6];
 const DIRECT: DirectLoadout = { weapons: { pistol: { clip: 12, reserve: 24 }, shotgun: { clip: 6, reserve: 8 } }, health: 100, flashlight: false };
 const NO_CAST = { foreman: false, human: false, tomasHead: false, soldier: false };
 
-const unbuilt = (id: LevelId): LevelInfo => ({
+/** The entry of a level id that has no implementation yet (none since stage 3d's K: 1 … 6 are all built). */
+export const unbuilt = (id: LevelId): LevelInfo => ({
   id, tag: `l${id}`, built: false, title: `LEVEL ${id}`, place: `Level ${id}`, bootStatus: `level ${id}`,
   screenHeader: 'HALCYON DYNAMICS // ERIDU DEEP', camLabel: `L${id}`, idleText: true, powerOnAtLoad: true,
   keycardName: null, endEyebrow: null, menuLine: null, subtitles: 'stacked', cast: NO_CAST,
@@ -67,10 +68,23 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
       facts: { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true, testHour: 62.5 },
       loadout: { weapons: { pistol: { clip: 12, reserve: 24 }, shotgun: { clip: 6, reserve: 6 }, carbine: { clip: 30, reserve: 90 } }, health: 100, flashlight: true, armor: 50 },
     },
-    // stage 3c D3: the end card + menu (3d is not planned)
+    // stage 3d D2: stays null on main until 3d's IA sets 6 (5 → 6 only through the test override `?next=5:6`)
     healthFloor: 50, next: null,
   },
-  6: unbuilt(6),
+  6: {
+    id: 6, tag: 'l6', built: true, title: 'THE TRUNK', place: 'The Trunk', bootStatus: 'the trunk',
+    screenHeader: 'NAVAL DETACHMENT // ERIDU DEEP — TRUNK HEAD-END', camLabel: 'DOCK', idleText: true, powerOnAtLoad: true,
+    keycardName: 'INTERLOCK KEY', endEyebrow: 'End of Chapter 3', menuLine: 'Chapter 3  —  The Trunk', subtitles: 'stacked',
+    // S8b: no soldier actor (the taken soldiers are spawns; the template is pre-warmed from `enemySpawns`)
+    cast: NO_CAST,
+    direct: {
+      facts: { choice: 'stop', unitsLeft: 28, badge: true, halvorsenAlive: true, radio: true, kessler: true, l5_door: true, l5_boat: false, kills5: 0, testHour: 62.75 },
+      // lands as 12 / 36, 6 / 12, 30 / 120 through the pickup path (3c K note)
+      loadout: { weapons: { pistol: { clip: 12, reserve: 24 }, shotgun: { clip: 6, reserve: 6 }, carbine: { clip: 30, reserve: 90 } }, health: 100, flashlight: true, armor: 50 },
+    },
+    // stage 3d D3: the chapter ends here (end card, END OF CHAPTER 3, menu)
+    healthFloor: 50, next: null,
+  },
 };
 
 export function isLevelId(n: unknown): n is LevelId {
@@ -101,7 +115,7 @@ export function nextOf(id: LevelId, debug?: Pick<DebugFlags, 'next'> | null): Le
   return o !== undefined && isLevelId(o) ? o : LEVELS[id].next;
 }
 
-/** The highest built level ≤ `id` (`?level=6` boots level 5 while 3d is unbuilt, stage 3c §7). */
+/** The highest built level ≤ `id` (every id 1 … 6 is built since stage 3d's K; `?level=7`+ is capped to 6 by `parseLevel`). */
 export function clampBuilt(id: number): LevelId {
   let best: LevelId = FIRST_LEVEL;
   for (const l of LEVEL_IDS) if (LEVELS[l].built && l <= id) best = l;

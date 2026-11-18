@@ -3,7 +3,7 @@
  * Public surface = `Player` from core/types plus a few extras (`revive`, `debug`, `viewmodel`).
  */
 import * as THREE from 'three';
-import type { GameContext, Interactable, PalmPlate, PalmResult, PickupKind, Player, PlayerSave, Surface, WeaponId, WeaponState } from '../core/types';
+import type { GameContext, GripHandle, GripOpts, Interactable, PalmPlate, PalmResult, PickupKind, Player, PlayerSave, Surface, WeaponId, WeaponState } from '../core/types';
 import { WEAPON_IDS } from '../core/types';
 import { Controller, MOVE, type MoveInput } from './controller';
 import { CameraRig } from './camera';
@@ -207,6 +207,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     let bestScore = -Infinity;
     for (const i of ctx.interactables.all) {
       if (!i.enabled) continue;
+      // stage 3d S8g: `requireRegion` — usable only with the feet inside that region (registry rule)
+      if (i.requireRegion && !ctx.interactables.allowedAt(i, ctrl.body.position)) continue;
       _to.copy(i.position).sub(eye);
       const d = _to.length();
       const r = i.radius ?? 2.2;
@@ -279,6 +281,30 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     else if (on) flash.setCharge(1);
     if (on && flash.charge < 0.5) flash.setCharge(0.5);
     if (on !== undefined) flash.set(on);
+  }
+
+  // ── K placeholder (stage 3d §8.3, W1 replaces this block): the grip stub
+  type StubGrip = { o: GripOpts; progress: number; resolve: (r: 'done' | 'cancelled') => void; handle: GripHandle };
+  let stubGrip: StubGrip | null = null;
+  function stubGripEnd(r: 'done' | 'cancelled') { const g = stubGrip; stubGrip = null; g?.resolve(r); }
+  function stubGripStart(o: GripOpts): GripHandle {
+    if (stubGrip) stubGripEnd('cancelled');
+    let resolve!: (r: 'done' | 'cancelled') => void;
+    const done = new Promise<'done' | 'cancelled'>((r) => { resolve = r; });
+    const g: StubGrip = {
+      o, progress: clamp(o.start ?? 0, 0, 1), resolve,
+      handle: { get progress() { return g.progress; }, get holding() { return stubGrip === g; }, done, cancel: () => { if (stubGrip === g) stubGripEnd('cancelled'); } },
+    };
+    if (!alive) { resolve('cancelled'); return g.handle; }
+    stubGrip = g;
+    return g.handle;
+  }
+  function stubGripTick(dt: number) {
+    if (!stubGrip) return;
+    if (!alive) { stubGripEnd('cancelled'); return; }
+    if (ctx.state !== 'playing') return;
+    stubGrip.progress = Math.min(1, stubGrip.progress + dt / Math.max(0.01, stubGrip.o.seconds));
+    if (stubGrip.progress >= 1) stubGripEnd('done');
   }
 
   const player: Player & PlayerExtras = {
@@ -377,6 +403,12 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     },
     hasKey: (k: string) => keys.has(k),
     addKey: (k: string) => { keys.add(k); },
+    // stage 3d §8.3 / §7.1: a trapped interlock key leaves the key strip (real, not a placeholder)
+    removeKey: (k: string) => { keys.delete(k); },
+    // K placeholder (stage 3d, W1): the grip stub — no hands, no input, 'done' after seconds × (1 − start) of game time
+    grip: (o: GripOpts) => stubGripStart(o),
+    get gripProgress() { return stubGrip ? stubGrip.progress : -1; }, // K placeholder (W1)
+    get wading() { return 0; }, // K placeholder (stage 3d, W1): the depth at the feet from level.water
     teleport(p: THREE.Vector3, y?: number, pi?: number) {
       ctrl.teleport(p);
       if (y !== undefined) yaw = y;
@@ -540,6 +572,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     update(dt: number) {
       lastMainUpdate = performance.now();
       time += dt;
+      stubGripTick(dt); // K placeholder (stage 3d): W1's grip replaces the stub clock
       const inp = ctx.input;
       const active = controlsEnabled && alive && ctx.state === 'playing' && !cine;
       if (consumed.size) releaseConsumed();

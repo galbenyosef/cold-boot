@@ -356,6 +356,14 @@ export function createManager(ctx: GameContext, factories: Record<EnemyType, Ene
       if (e.wreckBox) out.y = Math.max(out.y, e.wreckBox.max.y + 0.08);
       return out;
     },
+    // K placeholder (stage 3d §8.1, W3b): no boss exists until the loader is registered
+    boss(_group) { return null; },
+    // K placeholder (stage 3d S8a, W3b manager line + W3c walk): every living soldier of `group` is put at the last point (no walk)
+    patrol(group, points, _o) {
+      const last = points[points.length - 1];
+      if (!last) return;
+      for (let i = 0; i < all.length; i++) { const e = all[i]; if (e.group === group && e.alive && e.type === 'soldier') { e.body.position.copy(last); e.body.velocity.set(0, 0, 0); } }
+    },
     hitscan(origin, direction, maxDistance) {
       best.t = maxDistance; best.volume = null;
       let hitEnemy: EnemyBase | null = null;
