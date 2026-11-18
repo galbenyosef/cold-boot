@@ -70,3 +70,14 @@ Collected from agents' reports and coordinator notes. At the end: run every item
 - Coordinator: physics slope hold widened to n.y < 0.995 (≈ 5.7°+) for the 12.5° wet ramps — re-run `check:nav` ramp /
   stair cases L3–5 and `check:physics`; `check-physics` "level 6 stub" case is stale (expects no water/dock) → rewrite
   for the real level 6.
+- 3d W3a: `check:loader` 1–15 (with W3b); loader-in-motion review on the greybox chamber; perf view (9) LOW/MEDIUM/HIGH
+  incl. FL1/FL2 shadows; `check:fxleak` floods. Weak: jaws read as petals, not a spreader; ropes through the pod on
+  big swings; pod sensor cluster odd up close; floods without shafts weak at 30 m (render: per-light volumetric scale).
+  Optional contract: `LightHandle.inPool` instead of reading `Handle.slot`.
+- Coordinator: `look.mistFollow` (render/post.ts) — level 6 sets `render.settings.mistFollow = true`; look at the mist
+  in the shaft/chamber and the level-5 magazine/crawl (still fixed base there: check they are not over-misted).
+- 3d W3c: `check:soldier` full; `check:nav all` + L1–5 nav hashes (walkable/groundAt on raycastSolid); `check:wreck`;
+  `check:chain` levelgrep; `check-soldier --real` L5; `check:nav` L6 cases; `check-soldier --only level6` on real
+  water/ladders/gates; W2 climb frames. Open: enemy rounds into water skip `bullet:impact` → no impact sound (decide:
+  audio plays from the splash); no body-splash sound id; enemies no splash footsteps (W2b did `wade_enemy` by depth —
+  verify). Weak: climb pose two keys, no IK.
