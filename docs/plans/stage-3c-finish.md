@@ -39,3 +39,11 @@ Still running / unmerged at the stop: **W4a** (greybox, worktree agent-ab148b3f0
 worktree agent-ad05c77a7c4e86e06) — merge their patches restricted to their rows when they report.
 Next: resolve the below-y-0 lighting question (deferred list, W6), then wave 2 (D1, D2, D3a, D3b, ST-a, T → ST-b), then
 IA/IB of 3d, then the whole deferred list.
+
+## Final phase (stage 3d built: 4048d8a) — IA split for the deferred list
+| id | scope | fixes in | port |
+|---|---|---|---|
+| **IA-g** | global + levels 1–4: `docs/CHECKLIST.md` items for L1–4, `check:chain` (with 5 → 6 live), `check:physics` (rewrite the stale L6-stub case), `check:nav all`, `check:reach all`, `check:doors`, `check:zfight`, `check:weapons`, `check:wreck`, `check:decals`, `check:cards`, `check:cutscene` (L1–4 cases), `play:l1`…`play:l4`, fxleak/dark L3–4, voice-level L1–4; `LEVELS[5].next = 6` | `src/core/**`, `src/physics/**`, `src/render/**`, `src/player/**`, `src/ui/**`, `src/audio/**`, `src/enemies/{manager,index,nav,ai}.ts`, `src/fx/**`, `src/materials/**`, `src/level/{l1..l4,context,assemble,nav}*`, `src/story/{l1..l4,stage,index,save,chain,camera}*`, `scripts/**` except the L5/L6-only scripts | 4351 |
+| **IA-5** | level 5: every `play:l5` mode, `check-soldier` full + `--real`, `check:nav/reach/dark/fxleak/zfight --level 5`, WRITE + run `check-voice-level --level 5`, the 4 → 5 hand-over, the L5 deferred items | `src/story/l5/**`, `src/level/l5/**`, `src/enemies/soldier/**`, `scripts/playthrough-l5.mjs`, voice-level L5 mode | 4352 |
+| **IA-6** | level 6: every `play:l6` mode, `check:loader` (100 trials), `check:water`, nav/reach/dark/fxleak/zfight/cutscene L6, `check-voice-level --level 6` (ST-a + ST-b diffs), the loader-in-motion review, perf views, the L6 deferred items and FIX items | `src/story/l6/**`, `src/level/l6/**`, `src/enemies/loader/**`, `scripts/playthrough-l6.mjs`, `scripts/check-loader.mjs`, `scripts/check-water.mjs`, voice-level L6 mode | 4353 |
+Browser runs: three agents run in parallel on one machine — a timing-sensitive failure (arrival times, cue sync, perf) is re-run ALONE before it is "fixed". Changes needed in another IA's files: message via the report.
