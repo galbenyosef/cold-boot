@@ -33,3 +33,9 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   (IBL feedback change + fxLight hemisphere-0 fix make fx darker where spuriously lit); re-shoot L3 kitchen + ring_e glows
   after takeover; perf §10.6 LOW/MEDIUM/HIGH. Still weak: ADS receiver still dark; bay beacons bright on end walls; dive
   locker mostly red.
+- 3c IA5: every `play:l5` mode (default, `--checkpoints`, `--softlock` esp. the new guards, `--scares`, `--impatient`,
+  `--order`, `--ads`); `check:nav --level 5` full, `check:reach --level 5`, `check-soldier --real`, `check:dark --level 5`;
+  WRITE `check-voice-level --level 5` (never written: listeners soldier 6.7 m in the cutscene, body squawk 2/6/12 m,
+  barks 5/15 m, bunk radio 3 m); look: Clasp at 20–30 m in the dark bay, vent grille drop in motion, gate_log screen in
+  its bezel; soldier-in-motion review of `SOLDIER_TUNING.search.fresh`. Open decisions: the `gallery_e` soldier in wave A
+  never climbs to the gallery (left as is); level-5 end-card cap measured from CHOIR's last line, not 8 s after phase X.
