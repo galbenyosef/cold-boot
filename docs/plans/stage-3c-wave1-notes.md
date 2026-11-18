@@ -63,3 +63,16 @@
 - Sign style `navy` exists (white stencil on a dark backing; a line like `2-34-0-L` is drawn as a boxed hull number).
   Level-5 door lintels should use it (W4/IB: `level/doors.ts` draws lintels with `stencil` today).
 - On level 5 `terminal_idle` uses a navy log (no stock CHOIR lines).
+
+## Tests (T) — the hook contract is the comment block at the top of `scripts/playthrough-l5.mjs`
+- **ST implements exactly that list** (H1–H14 on `window.__game.story`), incl. the readings the test assumes: `t` holds the
+  first script time of every beat, `phase:<id>` (A B B2 C D0 D K S S_dive V V_lock W W_lock X) and `vignette:<id>`;
+  `scene.times` maps each cue (S1, S2, T1…T10, H) to seconds since the camera was taken, `scene.h = times.H`, `scene.result`
+  is `null | 'played' | 'skipped'`; `door.facing`: `away` = within ±50° of −x, `door` = within ±90° of +x, else `side`;
+  `keypad.wrong` is a number; `fire(unknown)` returns null; the story reads the player's yaw for the neck check.
+- **NEW for the level (W4 / D1):** `level.object('mk5_glass').userData.panes = { id, p: [x, y, z] }[]` with ids `booth`,
+  `port`, `lock_port`.
+- Run `node scripts/playthrough-l5.mjs <url> --contract` first (lists everything missing, grouped by owner), then the default
+  mode. `node scripts/check-dark.mjs --url <url> --level 5` judges lamp-on, lamp-off (frame ≥ 0.025, edge strips ≥ 3 %,
+  doors / stair nosings / gallery edges / required interactables at p95 ≥ 0.10), enemy glow at 10/20/30 m (the soldier's
+  mark red, never cyan) and a dark run of the route sampled every 2 m.
