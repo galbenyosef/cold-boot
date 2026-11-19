@@ -150,7 +150,6 @@ const TAPE = { w: 0.13, h: 0.032, y0: 1.354, z: 0.166 };
 // ───────────────────────────────────────────────────────────── authoring
 
 const MARK_RED = tintOf(0xff1a08, 3.6);
-const MARK_HALO = tintOf(0xff2410, 1.15);
 const MARK_GREEN = tintOf(0x30ff60, 2.2);
 const MARK_LENS = tintOf(0xfff2dc, 4.5);
 
@@ -385,13 +384,11 @@ function authorSoldier(b: RigBuilder): void {
     b.mat('boot');
     const m = new THREE.Matrix4().compose(S.clasp, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0)), new THREE.Vector3(1, 1, 1));
     for (const g of claspGeos()) b.addSkinned(g, rigid('neck'), m);
-    // LED + halo marks: face his back, read within ±60° of behind (faceMin 0.05 → full from 60°)
+    // LED mark (the shared mark shader draws its glow): face his back, read within ±60° of behind (faceMin 0.05 → full from 60°)
     const led = new THREE.Vector3(0, 0.021, 0.0175 + 0.0015).applyMatrix4(m);
     const n = new THREE.Vector3(0, 0.15, -1);
     b.mark('mk_clasp', led, n, 0.0028, MARK_RED, 0.05, { blink: { hz: 1, on: 0.12 } });
-    b.mark('mk_clasp', led, n, 0.02, MARK_HALO, 0.05, { blink: { hz: 1, on: 0.12 } });
     b.mark('mk_clasp_f', led, n, 0.0028, MARK_RED, 0.05);
-    b.mark('mk_clasp_f', led, n, 0.02, MARK_HALO, 0.05);
   }
 
   // ── plate carrier ─────────────────────────────────────────────────────────────────────────────────────
