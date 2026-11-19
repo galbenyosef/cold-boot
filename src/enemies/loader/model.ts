@@ -24,6 +24,8 @@ import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate }
 import { DETAIL, bcyl, bolt, box, cyl, hlathe, patch, plate, rod, sphere, torus, wedge, xf } from '../shared/prims';
 import { libOr } from '../human/model';
 import { MARK_CYAN, MARK_RED } from '../husk/model';
+/** The opened core's halo (amber; the shared mark shader caps the core channel so it stays saturated). */
+const CORE_GLOW = tintOf(0xffa020, 2.2);
 
 const D = Math.PI / 180;
 
@@ -97,7 +99,7 @@ export interface LoaderTemplate {
 const TINT = {
   lens: tintOf(0xf4f2ea, 9.0),
   amber: tintOf(0xff8a10, 3.4),
-  core: tintOf(0xff2410, 4.0),
+  core: tintOf(0xff9a18, 5.0),   // (user fix 2026-11-19) amber, not red: the opened core reads as THE target
   ringw: tintOf(0xe6eeff, 3.2),
   ringr: tintOf(0xff1a08, 4.2),
   pa: tintOf(0x40ff70, 1.4),
@@ -378,11 +380,16 @@ function authorPod(b: RigBuilder, G: LoaderGeom, L: LFn): void {
   L(box(2 * hx + 0.02, 0.1, 2 * hz + 0.02), 0, hy - 0.05, 0);
   b.mat('dark');
   for (const s of [-1, 1]) L(box(0.08, 2 * hy - 0.2, 0.08), s * (hx - 0.08), 0.02, -hz - 0.01);
-  // inside behind the louvres: the red core (scaled in with the cowl)
+  // inside behind the louvres: the amber core (scaled in with the cowl) — the full louvre opening, thin bars over it
   b.use('pod_core').mat('core');
-  L(box(1.2, 0.6, 0.02), 0, 0.06, 0);
+  L(box(1.34, 0.82, 0.02), 0, 0.04, 0);
   b.mat('dark');
-  for (let k = 0; k < 5; k++) L(box(0.03, 0.62, 0.06), -0.5 + k * 0.25, 0.06, -0.03);
+  for (let k = 0; k < 5; k++) L(box(0.02, 0.84, 0.05), -0.5 + k * 0.25, 0.04, -0.03);
+  // its glow: soft additive marks bound to pod_core (so they grow / fade with the cowl, gone when shut or blown)
+  const cw = (x: number, y: number) => new THREE.Vector3(G.bindX + x, K.podY + y, G.bindZ - K.podHalf[2] + 0.12 - 0.06);
+  const south = new THREE.Vector3(0, -0.35, -1);
+  b.mark('pod_core', cw(0, 0.04), south, 0.28, CORE_GLOW, -0.6);
+  for (const x of [-0.42, 0.42]) b.mark('pod_core', cw(x, 0.04), south, 0.18, CORE_GLOW, -0.6);
   // the sensor cluster on the south-bottom chamfer: a dark dome and the marks (cyan + red sets, scaled by the runtime)
   b.use('pod').mat('glass');
   const sp = new THREE.Vector3(K.sensor[0], K.sensor[1], K.sensor[2]);

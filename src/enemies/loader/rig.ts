@@ -91,7 +91,7 @@ export interface LoaderRig {
   /** The ram bursts: its glass goes dark, its two jaws hang open on their pins (ignore setJaws from now on). */
   breakRam(side: RamSide): void;
   readonly ramBroken: Readonly<Record<RamSide, boolean>>;
-  /** Cowl louvres 0 (shut) … 1 (open); eased 0.4 s; the red core shows with them. */
+  /** Cowl louvres 0 (shut) … 1 (open); eased 0.4 s; the amber core and its glow show with them. */
   setCowl(open: number): void;
   readonly cowl: number;
 

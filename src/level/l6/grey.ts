@@ -33,7 +33,7 @@ import type { Builder, Mat } from '../builder';
 import type { LevelBuild } from '../context';
 import { sealedDoor } from '../kit';
 import { GreyGrid, HW, block, buildStair, roomLabel, stairLine, type Box6, type RoomId3, type StairDef } from '../l3/grey';
-import { beachJoint6, console6, feed6, frame6, phone6, shaftLock6, switch6, well6 } from './setpieces6';
+import { CONSOLE6, beachJoint6, console6, feed6, frame6, phone6, shaftLock6, switch6, well6 } from './setpieces6';
 
 const PI = Math.PI;
 export { HW, stairLine };
@@ -869,7 +869,10 @@ export const SHELLS6: Record<RoomId6, Shell> = {
     stand(fr, standin, -66.0, MID, -160.0, -64.8, MID + 1.2, -158.8);
     stand(fr, standin, -40.0, MID, -160.0, -38.8, MID + 1.2, -158.8);
     console6(L, b);   // W7's set piece: desk (+ collider), the screen stand, the `console6` screen (bullet-resistant glass)
-    L.interact('console6', 'terminal', 'Use console', -44.0, -15.0, -159.1, false, 1.3, { requireRegion: 't6_console' });
+    // user fix 2026-11-19: radius 3.4 (the whole region sees the screen) and a use point that follows the gaze over the desk front / top and the screen
+    // face (`consoleAim6`), so looking at any part of the set piece from anywhere in `t6_console` shows the prompt
+    const con6 = L.interact('console6', 'terminal', 'Use console', -44.0, -15.0, -159.1, false, 3.4, { requireRegion: 't6_console' });
+    consoleAim6(L, con6);
     L.marker('mk6_console', -44.0, -15.0, -158.2, PI);
     L.marker('mk6_end_stand', -44.0, MID, -159.6, PI);
     L.marker('mk6_end_cam0', -44.0, -14.35, -159.4, PI);
@@ -1084,4 +1087,37 @@ export function placeholders6(L: LevelBuild, m: { standin: Mat; dark: Mat }): vo
   if (!L.machines.has('trench6')) L.machines.set('trench6', () => { /* no world change */ });
   // the feed set's board (W7 places the set; the screen exists for the story / tests)
   if (!L.screens.has('feed6_board')) L.screen('feed6_board', 'dock_status', 2.4, 0.8, 112.0, 6.0, 0.22, '+z', { text: 'TERN — CRADLE — EMPTY\nLAUNCH LOCK — FLOODED' }).userData.rooms = ['feed6'];
+}
+
+/**
+ * `console6`'s use point follows the player's view ray: the nearest hit on the desk front, the desk top or the screen
+ * face (5 cm back toward the eye, so the R8 sight test ends in air), else its rest point in front of the desk. The
+ * registry's pick is a single point in a 25° cone; a 4 m desk and a 3.2 m screen need the point under the gaze.
+ */
+function consoleAim6(L: LevelBuild, it: Interactable): void {
+  const C = CONSOLE6, [scx, scy, scz] = C.screen;
+  const rest = it.position.clone();
+  // [axis, plane value, u-axis range, v-axis range] — axis 0 = x, 1 = y, 2 = z
+  const faces: [number, number, number, number, number, number, number, number][] = [
+    [2, C.z0 - 0.03, 0, C.x0, C.x1, 1, C.y, C.y + C.h],                                                    // desk front
+    [1, C.y + C.h, 0, C.x0, C.x1, 2, C.z0 - 0.03, C.z1 + 0.02],                                            // desk top
+    [2, scz - 0.016, 0, scx - C.w / 2 - 0.12, scx + C.w / 2 + 0.12, 1, scy - C.sh / 2 - 0.08, scy + C.sh / 2 + 0.12], // screen
+  ];
+  const o = [0, 0, 0], d = [0, 0, 0];
+  L.updaters.push(() => {
+    const p = (L.ctx as Partial<GameContext>).player;
+    if (!it.enabled || !p) return;
+    o[0] = p.eye.x; o[1] = p.eye.y; o[2] = p.eye.z; d[0] = p.forward.x; d[1] = p.forward.y; d[2] = p.forward.z;
+    let best = Infinity;
+    for (const [a, v, ua, u0, u1, va, v0, v1] of faces) {
+      if (Math.abs(d[a]) < 1e-4) continue;
+      const t = (v - o[a]) / d[a];
+      if (t <= 0 || t >= best || t > 4) continue;
+      const u = o[ua] + d[ua] * t, w = o[va] + d[va] * t;
+      if (u < u0 || u > u1 || w < v0 || w > v1) continue;
+      best = t;
+    }
+    if (best === Infinity) it.position.copy(rest);
+    else it.position.copy(p.eye).addScaledVector(p.forward, best - 0.05);
+  });
 }

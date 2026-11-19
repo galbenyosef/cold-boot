@@ -986,9 +986,12 @@ export abstract class Boss6 extends Base6 {
   protected bossObjective(): string | null {
     const f = this.f;
     if (f.quiet) return f.ending ? OBJ6.none : OBJ6.console;
+    // (user fix 2026-11-19) while the loader lives and is hostile its objective says how: the rams, then the core
+    const step = f.hostile && !f.loaderDead ? (f.ramE && f.ramW ? OBJ6.core : OBJ6.rams) : null;
+    if (f.trunkCut && step) return step;
     if (f.trunkCut && !f.loaderDead) return OBJ6.loader;
     if (f.trunkCut) return OBJ6.clear;   // cut + loader dead, before the quiet (the fight-out)
-    if (f.hostile) return OBJ6.tether;
+    if (f.hostile) return step ? `${OBJ6.tether} · ${step}` : OBJ6.tether;
     return null;
   }
   /** H7 `boss`, `frame`, `ending` (scenes.ts adds the ending's times / result). */

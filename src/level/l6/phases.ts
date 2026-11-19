@@ -35,7 +35,8 @@ export type PhaseId6 = 'A' | 'T' | 'U' | 'B' | 'B_hold' | 'U_man' | 'U_pull' | '
 
 /** §2.3 trigger boxes that are also regions (`requireRegion` reads `level.regions`). */
 export const T6_CAGE: [number, number, number, number, number, number] = [-55.0, -16.5, -172.0, -49.0, -13.0, -166.0];
-export const T6_CONSOLE: [number, number, number, number, number, number] = [-46.0, -16.5, -160.4, -42.0, -13.5, -158.6];
+/** In front of and beside the console desk (x −46 … −42, z −158.6 … −157.8), mid deck only (dock −20 / galleries −12 out). */
+export const T6_CONSOLE: [number, number, number, number, number, number] = [-47.4, -16.5, -161.2, -40.6, -13.5, -157.8];
 
 /** §2.1 / §3 named regions (each room id is a region too, added by assembleLevel). */
 export function REGIONS6(): Record<string, THREE.Box3[]> {
