@@ -209,3 +209,15 @@ after IA-6's trench fix (IA-g saw `hatch6_he` / `p6_trench_ammo_1` failing befor
 the closed `d5_gate` leaf (`lock5_d1`/`gate5_d1` navy_grey y 3.33–3.6), stale "next is null" comments in
 `src/story/l5/{index,text}.ts`; coordinator: CHECKLIST's check:chain / play:l5 lines (5 → 6 is live). User: listen to
 the level-2 `servo` (intake_shoe), look at the level-3 atrium sea window snow near the pane edges.
+
+## After IA-5 (1da0dd4) — level 5
+Green: play:l5 default (both), --contract, --impatient, --checkpoints, --softlock (13), --order a/d/e/f; check-soldier full
++ --real; nav/reach/fxleak/zfight L5; check-voice-level --level 5 (new); 4 → 5 hand-over + L5 end.
+Open: `check:dark --level 5` (lamp-off metric borderline on stair E, bay_n, crawl_w MEDIUM — more emergency fill);
+ENEMY MARKS too small for check:dark's glow test at every distance (2.2 px disc, only the centre ≥ 0.5 luma; pure red low
+luma; Clasp invisible from the front) — decide: bigger/hotter marks or recalibrate; `v5_body` scare fires 1 in 4 (needs a
+spine member unseen 15 s AND no hostile within 30 m — the spared soldier hunts) — design decision; `--order` b/c test-side;
+`--ads` aimed hit rate 3–4 % vs a live soldier (suspect the test); PERF view (3) spine with 2 husks + soldier 285 LOW /
+339 MEDIUM calls vs 220 budget; berths/galley MEDIUM/HIGH, berths5 LOW light count, 3 soldiers LOD0 perf, soldier-in-motion
+review of `search.fresh`. User: tray bodies dark vs rims, galley east wall bare, moved body a dark lump under red light;
+listen to the cutscene's first CHOIR line (lead 0.38; click?), choir_key over _brekke, body squawk 6/12 m.
