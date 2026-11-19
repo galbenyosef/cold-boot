@@ -39,8 +39,8 @@ export const OBJ6 = {
   tether: 'Cut the tether — the frame over the well',
   loader: 'Destroy the loader',
   /** (user fix 2026-11-19) the loader's two steps while it lives and is hostile: both rams, then the core (cowl open). */
-  rams: 'Destroy the rams — they extend when the jaws open',
-  core: 'Destroy the core under the ceiling',
+  rams: 'Shoot the rams when they glow amber — they extend as the jaws open',
+  core: 'Shoot the amber core under the ceiling',
   /** (IA-6) the wait for the quiet: tether cut + loader dead, hostiles still awake (§4.8 fight-out) — was empty. */
   clear: 'Clear the dock',
   console: 'The dock console — mid deck',
