@@ -799,7 +799,8 @@ const beatWait = (id, gs, why = '') => untilG(`(d.beats ?? []).includes(${JSON.s
 const phaseWait = (p, gs, why = '') => untilG(`d.phaseApplied === ${JSON.stringify(p)} || d.phase === ${JSON.stringify(p)}`, gs, `phase ${p}${why ? ' (' + why + ')' : ''}`);
 const flagWait = (f, gs, why = '') => untilG(`!!d.flags?.[${JSON.stringify(f)}]`, gs, `flag ${f}${why ? ' (' + why + ')' : ''}`);
 const cpWait = (cp, gs, why = '') => untilG(`(d.checkpoints ?? []).includes(${JSON.stringify(cp)})`, gs, `${cp} written${why ? ' (' + why + ')' : ''}`);
-const objectiveSeen = (text, gs = 4) => untilG(`L.objectives.some((x) => x.text === ${JSON.stringify(text)})`, gs, `objective "${text}"`, 'story');
+// (prefix match: while the loader lives, the cut / loader objectives carry its step after ' · ' or are replaced by it)
+const objectiveSeen = (text, gs = 4) => untilG(`L.objectives.some((x) => x.text === ${JSON.stringify(text)} || x.text.startsWith(${JSON.stringify(text + ' · ')}) || (${JSON.stringify(text)} === 'Destroy the loader' && /^Destroy the (rams|core)/.test(x.text)))`, gs, `objective "${text}"`, 'story');
 const toastSeen = (re, gs = 4) => untilG(`L.toasts.some((x) => new RegExp(${JSON.stringify(re)}, 'i').test(x.text))`, gs, `toast /${re}/`, 'story');
 const kill = (groups) => S6('kill', groups ?? null);
 const killUntil = (cond, gs, what, groups = null) => untilG(`(S.kill(${JSON.stringify(groups)}), ${cond})`, gs, what, 'enemies');
