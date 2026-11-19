@@ -71,9 +71,7 @@ const STRIP_DRIVEN = new WeakSet<LevelBuild>();
  * kit change lands — then the recolour is a no-op.)
  */
 export function emergStrips5(L: LevelBuild) {
-  const m = stripMat5(L, 'emerg');
-  m.color.setHex(0x8a3a32);
-  m.emissive.setHex(0xff2a14);
+  // (IA-5: the no-op recolour to kit5's own `STRIPS.emerg` lens / colour removed — one strip colour, B2)
   if (STRIP_DRIVEN.has(L)) return;
   STRIP_DRIVEN.add(L);
   const lm = L.ctx.render.lights;
@@ -189,7 +187,10 @@ function buildSub(L: LevelBuild) {
   const redT = L.point('sub5_emerg', 23.0, 4.1, -52.8, RED, 14, 14, { enabled: false, bounds: SUB_B });
   const redW = L.point('sub5_emerg', 26.4, 2.6, -46.4, RED, 14, 14, { enabled: false, bounds: SUB_B });
   const redE = L.point('sub5_emerg', 41.6, 2.6, -23.6, RED, 14, 14, { enabled: false, bounds: SUB_B });
-  void redW; void redE;
+  // (IA-5: check:dark --level 5 — the walk-in from d5_bay and the north end read black with the lamp off between the
+  // beacon's flashes: a red pool over the north walkway, by the bay door)
+  const redN = L.point('sub5_emerg', 31.0, 3.0, -21.2, RED, 10, 12, { enabled: false, bounds: SUB_B });
+  void redW; void redE; void redN;
 
   // fixtures: high-bay housings (lens bound to the spot), pendants (bound to their points)
   for (const [h, z] of [[hb1, -25.5], [hb2, -49.5]] as const) {

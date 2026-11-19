@@ -528,7 +528,9 @@ export const SHELLS5: Record<RoomId5, Shell> = {
     rail(b, dark, 38.6, -17.6, 38.65, -15.4, 0, 1.0);
     rail(b, dark, 36.2, -15.4, 37.4, -15.35, 0, 1.0);
     b.sign('BILGE ACCESS — CRAWLWAY TO MAGAZINE — CROUCH', 'stencil', 36.8, 0.72, -15.345, 1.1, 0.16, '+z');
-    L.interact('hatch5_spine', 'hatch', 'Open hatch', 37.0, 0.3, -14.9, true, 1.4);
+    // (IA-5: radius 1.4 → 1.8 — the use point lies 0.3 m up by the walkway, so at 1.4 a standing eye (1.35 m above it)
+    // had to be within ≈ 0.3 m of it horizontally: from the walkway or the lid's edge the hatch could not be opened)
+    L.interact('hatch5_spine', 'hatch', 'Open hatch', 37.0, 0.3, -14.9, true, 1.8);
     // (nav: the 4 m spine samples rows at z −16.5 / −15.5 only; hand nodes down the 1.2 m walkway beside the pit)
     for (const x of [35.9, 36.8, 37.7, 38.6, 39.4]) L.navNode(x, -14.8, 'spine5', 0);
     // ── pipe risers (0.6 × 0.5, full height: the spine's high cover), clear of every door pocket ──

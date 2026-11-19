@@ -166,7 +166,7 @@ pair(RULES5, 'l5_sol_felt', (F) => barkOk(F) && !!F.bark?.felt, 'another soldier
 pair(RULES5, 'l5_sol_rounds', (F) => barkOk(F) && F.wastingRounds, 'player fired ≥ 15 rounds in 8 s with no hit, sight ≤ 15 m', { max: 2 });
 pair(RULES5, 'l5_sol_light', (F) => barkOk(F, 25) && F.darkWithLight, 'player in regions.dark with the flashlight on, sight ≤ 25 m', { max: 2 });
 pair(RULES5, 'l5_choir_door', (F) => F.heard('l5_kes_door_7'), 'after l5_kes_door_7');
-pair(RULES5, 'l5_choir_sub', (F) => F.kesQuietFor >= 4 && (F.subCheckDone || (F.atLeast('V') && F.boardSeenFor >= 2)), 'no Kessler for 4 s; after v5_sub_check (or the board in view 2 s in V)');
+pair(RULES5, 'l5_choir_sub', (F) => F.kesQuietFor >= 4 && F.room === 'sub5' && F.phase !== 'X' && (F.subCheckDone || (F.atLeast('V') && F.boardSeenFor >= 2)), 'no Kessler for 4 s; in sub5 before X; after v5_sub_check (or the board in view 2 s in V)');
 pair(RULES5, 'l5_choir_end', (F) => F.phase === 'X' && F.heard('l5_kes_end'), 'phase X, after l5_kes_end');
 
 export const L5_DIALOGUE: DialogueConfig<Facts5> = {

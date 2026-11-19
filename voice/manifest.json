@@ -6298,7 +6298,7 @@
       "tries": 1,
       "seed": 657592624,
       "info": "match=1.00 miss=0 extra=0 stall=0 audio=2.66s",
-      "lead": 0.0
+      "lead": 0.38
     },
     "l5_sol_c1_2": {
       "speaker": "choir",

@@ -25,6 +25,12 @@
 //        from2  — the chain: level 2 ends (store + reload, no ?level=), level 3 starts from the carry; C1 + C2 sync.
 //        level4 — level 4 (stage 3b §8.12): Sunde's video log from the PI desk (2 m) and the office door (6 m), a unit
 //                 panel line from 3 m, the gallery announcer from both ends of the gallery. Level + sync.
+//        level5 — level 5 (stage 3c §8.13; `--level 5`): the real cutscene (the soldier at ≈ 6.7 m, throat ≥ −3 dB,
+//                 never occluded by his own capsule; Reyes 2-D; every scene line's speech onset ≤ 0.12 s from its cue),
+//                 the body squawk on the first soldier's corpse from 2, 6 and 12 m (radio POS ref 5: ≥ −3 dB to 5 m,
+//                 then the distance law − 1 dB), Kessler's radio 2-D after the take (conversation level), CHOIR on the
+//                 bunk radio (`v5_bunk_radio`) from 3 m (≥ −6 dB), and a soldier bark (throat) from 5 and 15 m down the
+//                 spine (≥ −3 / ≥ −10 dB).
 //        level2 — level 2's lines through the same audio path (its gestures run in the dialogue's onStart, on the
 //                 frame the line starts): the takes with a lead-in and a few without, said after the level's
 //                 preload; speech onset − say ≤ 0.12 s.
@@ -42,7 +48,7 @@ if (String(args.level ?? '') === '6') {
   process.exit(r.status ?? 1);
 }
 const base = (args.url ?? process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'http://127.0.0.1:5173').replace(/\/$/, '');
-const MODE = args.mode ?? (String(args.level ?? '') === '4' ? 'level4' : 'cold');
+const MODE = args.mode ?? ({ 4: 'level4', 5: 'level5' }[String(args.level ?? '')] ?? 'cold');
 const CHOICE = args.choice ?? 'stop';
 const NOFAIL = !!args['no-fail'];
 const problems = [];
@@ -257,6 +263,120 @@ if (MODE === 'level4') {
   note = 'level 4';
 }
 
+if (MODE === 'level5') {
+  console.log(`══════════ level 5 (choice ${CHOICE}) ══════════`);
+  const q = `?level=5&autostart=1&god=1&torch=inf&handoff=1&choice=${CHOICE}`;
+  await boot(q); await clearAll(); await boot(q);
+  await ev(() => window.__game.audio.preloadVoice(['l5_', 'l3_choir_pa_residents']));
+  await wait(800);
+  await ev(async (id) => { const h = window.__game.audio.say(id); await h.done; }, REF_ID);
+  await wait(400);
+  // in-page helpers: a marker / a trigger box / a stand point at `dist` from a target, inside `room`, in sight of it
+  await ev(() => {
+    const g = window.__game, V = g.player.position.constructor;
+    window.__v5 = {
+      mk: (n) => { const o = g.level.object(n); return o ? o.getWorldPosition(new V()).toArray() : null; },
+      trig: (id) => (g.__triggers ?? []).find((t) => t.id === id) ?? null,
+      ds: () => g.story.debugState,
+      /** Stand `dist` m (horizontal) from `t` inside `room` with the eye in sight of `t`; the achieved distance. */
+      standAt: (t, dist, room) => {
+        const T = new V(t[0], t[1], t[2]);
+        let best = null;
+        for (let k = 0; k < 72; k++) {
+          const a = k * Math.PI / 36, x = t[0] + Math.sin(a) * dist, z = t[2] + Math.cos(a) * dist;
+          const r = g.level.roomAt(new V(x, t[1], z));
+          if (!r || (room && r.id !== room)) continue;
+          const b = r.bounds;
+          if (x < b.min.x + 0.5 || x > b.max.x - 0.5 || z < b.min.z + 0.5 || z > b.max.z - 0.5) continue;
+          const y = r.floorY ?? b.min.y ?? 0;
+          const eye = new V(x, (Number.isFinite(y) ? y : 0) + 1.6, z);
+          if (!g.physics.lineOfSight(eye, T)) continue;
+          best = { x, y: Number.isFinite(y) ? y : 0, z };
+          break;
+        }
+        if (!best) return null;
+        const yaw = Math.atan2(-(t[0] - best.x), -(t[2] - best.z));
+        g.player.teleport(new V(best.x, best.y, best.z), yaw, 0);
+        return best;
+      },
+      dist: (t) => { const e = window.__game.player.position; return Math.hypot(e.x - t[0], e.z - t[2]); },
+      kill: (groups) => {
+        for (const e of [...g.enemies.all]) {
+          if (!e.alive || e.state === 'dormant' || (groups && !groups.includes(e.group))) continue;
+          for (let k = 0; k < 10 && e.alive; k++) g.enemies.damage({ enemy: e, point: e.position.clone().setY(e.position.y + 1.2), normal: new V(0, 0, 1), distance: 1, part: 'torso' }, 500, new V(0, 0, -1));
+        }
+      },
+    };
+  });
+  const phase = () => ev(() => window.__v5.ds().phaseApplied);
+  const tpTrig = (id, fx = 0.5, fz = 0.5) => ev(([id, fx, fz]) => {
+    const g = window.__game, t = window.__v5.trig(id); if (!t) return false;
+    g.player.teleport(new (g.player.position.constructor)(t.x0 + (t.x1 - t.x0) * fx, 0, t.z0 + (t.z1 - t.z0) * fz), 0, 0); return true;
+  }, [id, fx, fz]);
+  // the arrival: the gate opens (B), the latch behind the player (B2), the duty door (C = the scene)
+  check(await beat('l5_start', 30000), 'l5_start');
+  check(await until(() => window.__game.story.debugState.phaseApplied === 'B', null, 15000), 'phase B (the gate open)');
+  await tpTrig('t5_gate', 0.5, 0.25);   // (z −7.7: past the gate's keep-side, clear of the turnstile and the duty door)
+  check(await until(() => window.__game.story.debugState.phaseApplied === 'B2', null, 15000), `phase B2 (the latch; ${await phase()})`);
+  await wait(2500);
+  // the scene: the camera is taken on the polled t5_dutydoor; its lines are measured where the player stands (≈ 6.7 m)
+  await tpTrig('t5_dutydoor', 0.5, 0.5);
+  check(await until(() => window.__game.state === 'cutscene', null, 8000), 'the cutscene starts on t5_dutydoor');
+  check(await until(() => window.__game.state === 'playing' && window.__game.story.debugState.phaseApplied === 'D0', null, 40000), 'hand-back (D0)');
+  // the units, then the first soldier released and killed: the body radio squawks at death + 30 s, then every 25 s
+  await until(() => window.__game.enemies.all.some((e) => e.alive && e.group === 'g5_duty'), null, 6000);
+  check(await until(() => { window.__v5.kill(['g5_duty']); return !window.__game.enemies.all.some((e) => e.alive && e.group === 'g5_duty') && window.__game.story.debugState.phaseApplied !== 'D0'; }, null, 30000), 'g5_duty dead');
+  await wait(2500);
+  await ev(() => window.__game.story.fire('release_s1'));
+  check(await until(() => { window.__v5.kill(['g5_s1']); return !window.__game.enemies.all.some((e) => e.alive && e.group === 'g5_s1'); }, null, 20000), 'g5_s1 dead');
+  check(await until(() => Array.isArray(window.__v5.ds().radio?.pos), null, 6000), 'the radio point on his body');
+  const rp = await ev(() => window.__v5.ds().radio.pos);
+  const sq = [];
+  for (const d of [2, 6, 12]) {
+    const at = await ev(([rp, d]) => window.__v5.standAt(rp, d, window.__game.level.roomAt(new (window.__game.player.position.constructor)(rp[0], rp[1], rp[2]))?.id), [rp, d]);
+    if (!at) { bad(`no stand point ${d} m from the body radio in its room`); continue; }
+    const n0 = await ev(() => window.__game.story.lineLog.filter((l) => /^l5_kes_squawk_/.test(l.said ?? '')).length);
+    const got = await until((n0) => window.__game.story.lineLog.filter((l) => /^l5_kes_squawk_/.test(l.said ?? '')).length > n0, n0, 45000);
+    const dd = await ev((rp) => window.__v5.dist(rp), rp);
+    check(got, `a body squawk heard from ${dd.toFixed(1)} m`);
+    if (got) sq.push(d);
+    await wait(5500);   // (to the line's end, standing still)
+  }
+  // the take: Kessler 2-D (the pickup sequence) — then CHOIR on the bunk radio from 3 m
+  await ev((rp) => { const g = window.__game, V = g.player.position.constructor; window.__v5.standAt(rp, 1.2, null); void V; }, rp);
+  await wait(300);
+  check((await use('radio5')) === 'ok', 'radio5 taken');
+  check(await said('l5_kes_4', 60000), 'the pickup sequence (l5_kes_1 … _4)');
+  await until(() => window.__game.story.lineLog.some((l) => /^l5_kes_9/.test(l.said ?? '') && typeof l.end === 'number'), null, 90000);
+  await wait(1500);
+  const br = await ev(() => window.__v5.mk('mk5_bunk_radio'));
+  if (!br) bad('mk5_bunk_radio missing');
+  else {
+    const at = await ev((br) => window.__v5.standAt(br, 3, 'berths5'), br);
+    if (!at) bad('no stand point 3 m from the bunk radio inside berths5');
+    check(await said('l5_choir_names', 70000), `v5_bunk_radio: l5_choir_names (from ${at ? (await ev((br) => window.__v5.dist(br), br)).toFixed(1) : '?'} m)`);
+    await until(() => window.__game.story.lineLog.some((l) => l.said === 'l5_choir_names' && typeof l.end === 'number'), null, 20000);
+    await wait(1000);
+  }
+  // a soldier bark down the spine (the line through the throat chain at a head 5 m and 15 m away; nothing between)
+  await ev(() => { window.__game.story.hurry?.(true); });
+  for (const d of [5, 15]) {
+    const r = await ev((d) => {
+      const g = window.__game, V = g.player.position.constructor;
+      g.player.teleport(new V(12, 0, -16), -Math.PI / 2, 0);
+      const src = new V(12 + d, 1.55, -16);
+      const clear = g.physics.lineOfSight(g.player.eye, src);
+      return { clear, room: g.level.roomAt(src)?.id ?? null };
+    }, d);
+    // (the spine's riser ribs may cross the eye line: the measure that counts is the trace's occlusion flag below)
+    check(r.room === 'spine5', `bark source ${d} m down the spine in spine5 (${r.room}; eye ray ${r.clear ? 'clear' : 'grazes a riser'})`);
+    await wait(400);
+    await ev(async (d) => { const g = window.__game, V = g.player.position.constructor; const h = g.audio.say('l5_sol_down_stop', { position: new V(12 + d, 1.55, -16) }); await h.done; }, d);
+    await wait(600);
+  }
+  note = `level 5 (squawks at ${sq.join(' / ')} m)`;
+}
+
 const data = await ev(() => ({
   frames: window.__vtap.frames, offset: window.__vtap.offset, offsets: window.__vtap.offsets ?? [], installed: window.__vtap.installed, err: window.__vtap.err,
   trace: window.__game.audio.debug.voice.trace, log: window.__game.story.lineLog,
@@ -309,7 +429,7 @@ function speakerOf(id) { const m = /^l\d_([a-z]+)_/.exec(id); return m ? m[1] : 
 
 const ref = rows.find((r) => r.id === REF_ID && r.rms !== undefined);
 const refDb = ref?.rms ?? null;
-if (MODE === 'cold' || MODE === 'level4') check(refDb !== null, `reference ${REF_ID} measured (${refDb?.toFixed(1)} dB)`);
+if (MODE === 'cold' || MODE === 'level4' || MODE === 'level5') check(refDb !== null, `reference ${REF_ID} measured (${refDb?.toFixed(1)} dB)`);
 const sceneOf = (r) => {
   if (!data.times || r.q === undefined) return null;
   const c = data.log; void c;
@@ -317,7 +437,15 @@ const sceneOf = (r) => {
 };
 void sceneOf;
 // which lines were said inside a scene: C1/C2 by their queue time against the scene log
-const inScene = (r) => /^l3_(halv_c[12]_|reyes_(phone|come)|choir_(told|quiet))/.test(r.id) || /^l4_(sunde_|unit_theatre_|unit_decon|unit_cold_ack|unit_gate$)/.test(r.id);
+const inScene = (r) => /^l3_(halv_c[12]_|reyes_(phone|come)|choir_(told|quiet))/.test(r.id) || /^l4_(sunde_|unit_theatre_|unit_decon|unit_cold_ack|unit_gate$)/.test(r.id) || /^l5_(reyes_c1_|sol_c1_)/.test(r.id);
+// level 5 (§8.13): its own listener rules — null = the generic person rule below; undefined = not judged
+function limit5(r) {
+  if (/^l5_kes_squawk_/.test(r.id)) return r.dist <= 5 ? -3 : -3 + 20 * Math.log10(5 / r.dist) - 1;   // the body radio (POS radio, ref 5): it must guide to the corpse
+  if (r.id === 'l5_choir_names') return r.dist <= 4 ? -6 : undefined;                                     // CHOIR on the bunk radio from 3 m
+  if (/^l5_sol_c1_/.test(r.id)) return -3;                                                                  // the soldier in the scene at ≈ 6.7 m
+  if (/^l5_sol_/.test(r.id)) return r.dist <= 6 ? -3 : r.dist <= 16 ? -10 : undefined;                     // a bark at 5 / 15 m
+  return null;
+}
 
 {
   const o = data.offsets.map((x) => x[1]);
@@ -331,7 +459,9 @@ for (const r of rows) {
   // (a line said quieter on purpose — volume < 0.9, e.g. the murmur through the wall — is reported, not judged)
   const person = !DEVICE_SPEAKERS.has(r.speaker) && (r.vol ?? 1) >= 0.9;
   let limit = null;
-  if (person && refDb !== null) {
+  const l5 = MODE === 'level5' && refDb !== null ? limit5(r) : null;
+  if (l5 !== null) limit = l5 ?? null;
+  else if (person && refDb !== null) {
     if (/^door/.test(r.fx)) limit = DOOR_DB;
     else if (!r.positional || r.dist <= NEAR) limit = -NEAR_TOL;
     else if (r.dist <= 13) limit = r.dist >= FAR ? FAR_DB : -NEAR_TOL + (FAR_DB + NEAR_TOL) * (r.dist - NEAR) / (FAR - NEAR);
@@ -340,8 +470,8 @@ for (const r of rows) {
   const pass = limit === null || d >= limit;
   r.delta = d; r.limit = limit;
   console.log(`  ${r.id.padEnd(26)} ${String(r.fx).padEnd(7)} ${r.positional ? 'y' : '-'}  ${r.dist !== undefined ? r.dist.toFixed(1).padStart(5) : '    -'}  ${r.occluded ? 'OCC ' : '    '} ${r.distGain !== undefined ? r.distGain.toFixed(2) : '   -'}  ${r.rms.toFixed(1).padStart(6)}  ${d !== null ? (d >= 0 ? '+' : '') + d.toFixed(1) : '  -'}  ${limit !== null ? limit.toFixed(1).padStart(5) : '    -'}  ${r.master.toFixed(1)}${pass ? '' : '   << FAIL'}`);
-  if ((MODE === 'cold' || MODE === 'level4') && limit !== null && !pass) bad(`${r.id}: ${d.toFixed(1)} dB vs the reference (limit ${limit.toFixed(1)}; dist ${r.dist?.toFixed(1) ?? 'in the ear'}${r.occluded ? ', occluded' : ''})`);
-  if ((MODE === 'cold' || MODE === 'level4') && person && r.positional && r.occluded && (inScene(r) || (/^clean/.test(r.fx) && r.dist <= 6))) bad(`${r.id}: occluded (dist ${r.dist.toFixed(1)}) — a person in the same room / in a scene`);
+  if ((MODE === 'cold' || MODE === 'level4' || MODE === 'level5') && limit !== null && !pass) bad(`${r.id}: ${d.toFixed(1)} dB vs the reference (limit ${limit.toFixed(1)}; dist ${r.dist?.toFixed(1) ?? 'in the ear'}${r.occluded ? ', occluded' : ''})`);
+  if ((MODE === 'cold' || MODE === 'level4' || MODE === 'level5') && person && r.positional && r.occluded && (inScene(r) || (/^clean/.test(r.fx) && r.dist <= 6))) bad(`${r.id}: occluded (dist ${r.dist.toFixed(1)}) — a person in the same room / in a scene`);
 }
 
 console.log('\n  SYNC (s): cue → dialogue start, say → buffer start, cue → speech onset (rendered; heard = + the device latency)');
@@ -354,7 +484,10 @@ for (const r of rows) {
   // output latency is the machine's, not the game's — a headset on Bluetooth adds 150+ ms to everything alike),
   // less the fx chain's designed lead (a radio squelch / a tape clunk IS where the line starts)
   const has = r.onsetT !== null && r.onsetT !== undefined;
-  const on = has ? a + (r.onsetT - r.askT) - (r.fxLead ?? 0) : null;
+  let on = has ? a + (r.onsetT - r.askT) - (r.fxLead ?? 0) : null;
+  // level 5: the story queues a timed line ahead of its cue and logs both on the script clock (lineLog t, cue) — the
+  // offset is t − cue (game clock) + the say → speech onset (context clock), less the fx chain's lead
+  if (MODE === 'level5' && has) { const lg = data.log.filter((l) => l.said === r.id && typeof l.cue === 'number' && l.sp !== undefined && Math.abs(l.sp - r.askP) < 250).slice(-1)[0]; if (lg) on = (lg.t - lg.cue) + (r.onsetT - r.askT) - (r.fxLead ?? 0); }
   const heard = has && data.offset !== null ? (r.onsetT * 1000 + data.offset - r.qp) / 1000 - (r.fxLead ?? 0) : null;
   r.sync = on; r.heard = heard;
   const scene = MODE === 'level2' ? true : inScene(r);
@@ -363,7 +496,13 @@ for (const r of rows) {
   if (scene && !pass) bad(`${r.id}: speech heard ${on === null ? '?' : on.toFixed(3)} s after its cue (limit ${SYNC_MAX})`);
 }
 for (const r of rows) if (r.skip && r.skip !== 'silent' && (inScene(r) || MODE === 'level2')) bad(`${r.id}: not played (${r.skip})`);
-if (MODE !== 'level2' && MODE !== 'level4') {
+if (MODE === 'level5') {
+  for (const id of ['l5_sol_c1_2', 'l5_reyes_c1_1', `l5_sol_c1_1_${CHOICE}`, 'l5_kes_1', 'l5_choir_names', 'l5_sol_down_stop']) check(rows.some((r) => r.id === id && r.rms !== undefined), `${id} played and measured`);
+  for (const d of [2, 6, 12]) check(rows.some((r) => /^l5_kes_squawk_/.test(r.id) && r.rms !== undefined && Math.abs(r.dist - d) < 1.2), `a body squawk measured at ≈ ${d} m`);
+  for (const d of [5, 15]) check(rows.some((r) => r.id === 'l5_sol_down_stop' && r.rms !== undefined && Math.abs(r.dist - d) < 1.0 && !r.occluded), `a bark measured at ≈ ${d} m, not occluded down the open spine`);
+  const sol = rows.filter((r) => /^l5_sol_c1_/.test(r.id) && r.dist !== undefined);
+  check(sol.length && sol.every((r) => r.dist >= 5.5 && r.dist <= 8), `the scene soldier at ≈ 6.7 m (${sol.map((r) => r.dist.toFixed(1)).join(', ')})`);
+} else if (MODE !== 'level2' && MODE !== 'level4') {
   const want = ['l3_halv_c1_1', 'l3_halv_c1_3', 'l3_halv_c2_9'];
   for (const id of want) check(rows.some((r) => r.id.startsWith(id.replace(/_1$/, '_1')) && r.startT !== undefined) || rows.some((r) => r.id === id + '_shots'), `${id} played`);
 }

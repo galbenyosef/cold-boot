@@ -232,7 +232,7 @@ function buildLock(L: LevelBuild) {
   });
 
   // stencils, the hold-back line, the lintel label of the sealed tube door (label: false drops the shell's signs)
-  navySign(b, 'POST 4 — PRESSURE GATE — NAVAL ACCESS ONLY', 0, 3.4, 0.205, 2.6, 0.12, '+z');
+  navySign(b, 'POST 4 — PRESSURE GATE — NAVAL ACCESS ONLY', 0, 3.27, 0.205, 2.6, 0.12, '+z');   // (IA-5: 3.4 → 3.27 — at 3.4 the HUD's location caption "POST 4 — GATE LOCK" lay over it in the start view)
   navySign(b, 'POST 4 — GATE LOCK', 2.795, 2.35, 3.0, 0.95, 0.1, '-x');
   navySign(b, 'FR 4-001', -2.795, 2.35, 3.0, 0.5, 0.1, '+x');
   b.detail(() => b.sign('TRANSFER TUBE', 'label', 0, 2.555, 5.68, 1.4, 0.13, '-z'));

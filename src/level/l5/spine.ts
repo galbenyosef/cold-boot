@@ -171,7 +171,8 @@ const spine: RoomDress = {
     const sp = [13, 25, 37].map((x) => lightRow(L, { group: 'spine5', type: 'point', p: [x, 2.68, -16], color: WARM, i: 9.5, d: 12, bounds: SPINE_B }));
     const gspot = lightRow(L, { group: 'spine5', type: 'spot', p: [28, 3.02, -16], t: [28, -1.4, -16], color: WARM, i: 9, d: 6.5, angle: 0.75, cast: true, prio: 0.6, min: 'medium', bounds: GRATE_SPOT_B });
     // (IB5b B6: + a third over the stand line — Kessler's door read black after lights-out, the nearest pool 10 m away)
-    const EM: [number, number][] = [[16, -16.9], [34, -15.1], [42.0, -17.3]];
+    // (IA-5: + a fourth at x 25 — check:dark's lamp-off walk failed 14–16 m running between the pools at 16 and 34)
+    const EM: [number, number][] = [[16, -16.9], [34, -15.1], [42.0, -17.3], [25, -16.9]];
     const em = EM.map(([x, z], i) => lightRow(L, { group: 'spine5_emerg', type: 'point', p: [x, 2.85, z], color: RED, i: i === 2 ? 2.4 : 3.2, d: i === 2 ? 7 : 11, off: true, bounds: SPINE_B }));
     const cr = [22, 32].map((x) => lightRow(L, { group: 'crawl5', type: 'point', p: [x, -0.42, -15.7], color: RED, i: 2.6, d: 7.5, prio: 1.3, bounds: CRAWL_B }));
 

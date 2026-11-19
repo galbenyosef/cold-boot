@@ -162,7 +162,9 @@ export class ScriptL5 extends Scenes5 {
     s('launch5_palm', 'palm', SCREEN5.palmStandby);
     s('tern_board', 'dock_status', SCREEN5.ternIdle);
     s('tunnel_panel', 'terminal_idle', SCREEN5.tunnelIdle);
-    s('cmd_panel', 'terminal_idle', SCREEN5.cmdPanel);
+    // (W7's hardened door carries the panel as `door5_cmd_panel`; the greybox placeholder keeps §6.4's `cmd_panel`)
+    if (this.ctx.level.screen('door5_cmd_panel')) s('door5_cmd_panel', 'terminal_idle', SCREEN5.cmdPanel.replace(/ — /g, '\n'));
+    else s('cmd_panel', 'terminal_idle', SCREEN5.cmdPanel);
     this.w.setPrompt('key5_duty', 'Keypad — no power');
     this.w.setInteractable('radio5', false);
     this.call('door5_cmd', 'tally', 'red');
@@ -771,7 +773,10 @@ export class ScriptL5 extends Scenes5 {
   private async brekke(after: number): Promise<void> {
     if (this.talk.heard.has('l5_kes_brekke')) return;
     // (never on the code's acceptance: CHOIR's "Thank you, Commander" has those 2 s)
-    await this.until(() => this.now >= after + 6 && this.now - this.acceptedAt > 2.5 && !this.keypadOpen && this.awakeHostiles().length === 0 && !this.seqBusy && this.channelFree() && this.ctx.state === 'playing');
+    // (IA-5: never once Kessler's door has started — after a cp5_radio load the replayed sequence can end late, and the
+    // line then fell on lights-out and pushed `l5_kes_dark` 2 s off its cue: the moment for it has passed)
+    await this.until(() => this.f.door || (this.now >= after + 6 && this.now - this.acceptedAt > 2.5 && !this.keypadOpen && this.awakeHostiles().length === 0 && !this.seqBusy && this.channelFree() && this.ctx.state === 'playing'));
+    if (this.f.door) return;
     await this.say('l5_kes_brekke', { pri: 'scene', now: true });
   }
   /** A Kessler line that waits for the radio to be free (queued behind a sequence, S7), within `ttl` s. */
@@ -835,8 +840,11 @@ export class ScriptL5 extends Scenes5 {
     // CHOIR on the channel, ≤ 2 s after (C, once) — never over Kessler's sequence (it would delay her cues)
     this.S('choir_key', async () => {
       await this.hold(0.3);
-      const ok = await this.untilOr(() => !this.seqBusy && this.channelFree(), 1.5);
-      if (!ok || this.seqBusy) return;
+      const ok = await this.untilOr(() => !this.seqBusy && this.channelFree(), 0.9);
+      if (this.seqBusy) return;
+      // (IA-5: a loose Kessler line on the channel — `_brekke`, an ack, a hint — no longer drops CHOIR's: it cuts in
+      // over him, as it does on `_6`; the rule is ≤ 2 s after the acceptance)
+      if (!ok) { this.talk.cut(); await this.hold(0.15); }
       await this.say('l5_choir_key', { pri: 'scene', now: true });
     });
   }
@@ -1323,8 +1331,11 @@ export class ScriptL5 extends Scenes5 {
     if (this.choirSubAsked) return;
     this.choirSubAsked = true;
     const id = this.choiceId('l5_choir_sub');
-    const ok = await this.untilOr(() => this.facts.kesQuietFor >= 4 && this.channelFree() && this.ctx.state === 'playing', 30);
-    if (ok) await this.say(id, { pri: 'scene', now: true });
+    // (IA-5: a line about the boat — said only while the player is still in the sub bay, never in the tunnel after
+    // CHOIR's end line, which a 30 s wait for quiet otherwise allowed)
+    const here = () => this.inRoom('sub5') && this.phase !== 'X';
+    const ok = await this.untilOr(() => (this.facts.kesQuietFor >= 4 && this.channelFree() && this.ctx.state === 'playing') || !here(), 30);
+    if (ok && here()) await this.say(id, { pri: 'scene', now: true });
   }
   /**
    * §5.5 #7: the body at mk5_body_a has been in view (≤ 10 m, 1 s); a living g5_spine member has been unseen ≥ 15 s; the
@@ -1515,7 +1526,7 @@ export class ScriptL5 extends Scenes5 {
     } catch { /* ignore */ }
     const k = (n: string) => { const v = this.api(n)?.k; return typeof v === 'number' ? v >= 0.5 : false; };
     const screens: Record<string, string> = {};
-    for (const id of ['gate_panel5', 'gate_log', 'aas_palm', 'onpost', 'dock_status', 'key5_panel', 'launch', 'launch5_palm', 'tern_board', 'tunnel_panel', 'cmd_panel']) screens[id] = this.screenText(id);
+    for (const id of ['gate_panel5', 'gate_log', 'aas_palm', 'onpost', 'dock_status', 'key5_panel', 'launch', 'launch5_palm', 'tern_board', 'tunnel_panel', 'cmd_panel']) screens[id] = this.screenText(id === 'cmd_panel' && this.ctx.level.screen('door5_cmd_panel') ? 'door5_cmd_panel' : id);
     let pickups: string[] = [];
     try { pickups = [...(this.ctx.player.snapshot().pickups ?? [])].filter((p) => p.startsWith('p5_')).sort(); } catch { /* ignore */ }
     return {

@@ -204,7 +204,7 @@ PH.D0 = { ...PH.C, d5_duty: 'A', d5_ready: 'L' };
 PH.D = { ...PH.D0, d5_ready: 'A' };
 PH.K = { ...PH.D };
 PH.S = { ...PH.K, d5_key: 'A' };
-PH.V = { ...PH.S, d5_tunnel: 'L' };
+PH.V = { ...PH.S, d5_tunnel: 'L', d5_dive: 'A' };   // (W4 correction in phases.ts: d5_dive auto from V on — note5_dive / p5_dive_shells are V's)
 PH.W = { ...PH.V, d5_tunnel: 'A' };
 PH.X = { ...PH.W, d5_tunnel: 'L' };
 const PH_VARIANT = { S_dive: ['d5_dive', 'O'], V_lock: ['d5_lockside', 'O'], W_lock: ['d5_lockside', 'O'] };
@@ -273,16 +273,17 @@ const INIT = ([C]) => {
       const opened = (op.doors ?? []).some((id) => (L.opened[id] ?? []).some((o) => T() - o.g <= 3)) || (op.vig ?? []).some((id) => d && d.now - (d.t?.['vignette:' + id] ?? -1e9) <= 3);
       L.spawns.push({ group: e.group, id: e.id, type: e.type, t: +T().toFixed(2), s: now(), seen, opened, pos: [e.position.x, e.position.y, e.position.z].map((n) => +n.toFixed(2)), room: g.level.roomAt(e.position)?.id ?? null });
     }, 0));
-    setInterval(() => {
+    setInterval(() => { try {
       if (!g.ready) return;
       const d = ds(); if (!d) return;
       // never `cutscene` outside the scene (phase C)
       if (g.state === 'cutscene' && d.phaseApplied !== 'C' && d.phase !== 'C') { const k = `${d.phaseApplied}`; if (!L.cutBad.includes(k)) L.cutBad.push(k); }
       // R4: nothing alive before its beat (g5_mag dormant from load; test-spawned groups excepted)
       if (g.enemies) for (const e of g.enemies.all) {
-        if (!e.alive || C.DORMANT5.includes(e.group) || /^test/.test(e.group)) continue;
+        if (!e.alive || C.DORMANT5.includes(e.group) || /^test/.test(e.group) || (e.type === "sentry" && e.state === "dormant")) continue;   // (§5.1: g5_bay_b's ceiling sentry hangs dormant from load)
         const need = C.NEED5[e.group];
-        const has = need && (d.t?.[need] !== undefined || (d.beats ?? []).includes(need) || L.beats.includes(need));
+        // (after a load the stamps restart: a phase need is met by the restored checkpoint — every cp5_* past cp5_start is ≥ D0)
+        const has = need && (d.t?.[need] !== undefined || (d.beats ?? []).includes(need) || L.beats.includes(need) || (need.startsWith('phase:') && !!d.restoredFrom && d.restoredFrom !== 'cp5_start'));
         if (!has) { const k = `${e.group}@${need ?? '?'}`; if (!L.early.includes(k)) L.early.push(k); }
       }
       // phase changes: when, and the doors 0.3 s later
@@ -326,7 +327,7 @@ const INIT = ([C]) => {
         const near = (g.enemies?.all ?? []).filter((e) => e.alive && e.state !== 'dormant' && e.state !== 'dead' && !(d.groups?.[e.group]?.holding > 0 && e.state === 'idle') && e.position.distanceTo(p) <= 30).map((e) => e.group);
         L.scares.push({ ...x, at: T(), near, inCutscene: g.state === 'cutscene' });
       }
-    }, 100);
+    } catch (e) { (L.watchErr ??= []).length < 20 && L.watchErr.push(String(e?.stack ?? e).slice(0, 300)); } }, 100);
     // ── the line oracle: every spoken line judged from WORLD state on the first poll after it starts (§6.2 rules)
     const P = () => g.player.position;
     const room = () => g.level.roomAt(P())?.id ?? null;
@@ -343,7 +344,8 @@ const INIT = ([C]) => {
     const hostiles = (r) => (g.enemies?.all ?? []).some((e) => e.alive && e.state !== 'dormant' && e.state !== 'dead' && e.position.distanceTo(P()) <= r && !(ds()?.groups?.[e.group]?.holding > 0 && e.state === 'idle'));
     const mk = (n) => { const o = g.level.object(n); return o ? o.getWorldPosition(o.position.clone()) : null; };
     const radioPos = () => { const p = ds()?.radio?.pos; return Array.isArray(p) ? new (V())(p[0], p[1], p[2]) : null; };
-    const soldierNear = (r) => (g.enemies?.all ?? []).some((e) => e.alive && e.type === 'soldier' && e.position.distanceTo(P()) <= r);
+    // (a bark is judged on the first poll after it starts: the speaker may have died in that 0.1 s — the test kills fast)
+    const soldierNear = (r) => (g.enemies?.all ?? []).some((e) => e.alive && e.type === 'soldier' && e.position.distanceTo(P()) <= r) || L.died.some((x) => x.type === 'soldier' && T() - x.g <= 1.0 && x.pos && Math.hypot(x.pos[0] - P().x, x.pos[2] - P().z) <= r);
     const C2 = (id, pre) => g.facts.choice === id.split('_').pop() && pre;
     const OR = {
       l5_unit_gate: () => base() === 'B2' || within(L.phaseAt.B2, 2),
@@ -378,7 +380,7 @@ const INIT = ([C]) => {
     for (const c of ['stop', 'command']) {
       OR[`l5_sol_c1_1_${c}`] = () => C2(`x_${c}`, base() === 'C');
       OR[`l5_choir_door_${c}`] = () => C2(`x_${c}`, heard('l5_kes_door_7'));
-      OR[`l5_choir_sub_${c}`] = () => C2(`x_${c}`, (ds()?.scares ?? []).includes('v5_sub_check') || rank() >= RANK.indexOf('V'));
+      OR[`l5_choir_sub_${c}`] = () => C2(`x_${c}`, ((ds()?.scares ?? []).includes('v5_sub_check') || rank() >= RANK.indexOf('V')) && room() === 'sub5' && base() !== 'X');
       OR[`l5_choir_end_${c}`] = () => C2(`x_${c}`, base() === 'X' && heard('l5_kes_end'));
       for (const k of ['down', 'need', 'felt', 'rounds']) OR[`l5_sol_${k}_${c}`] = () => C2(`x_${c}`, soldierNear(15.5));
       OR[`l5_sol_light_${c}`] = () => C2(`x_${c}`, soldierNear(25.5) && g.player.flashlightOn);
@@ -485,8 +487,10 @@ const INIT = ([C]) => {
             const rm = S.interior(x, z, 0.3); if (!rm || (o.room && rm !== o.room)) continue;
             const y = S.floors(x, z).filter((fy) => fy <= ip.y + 0.3 && fy >= ip.y - 2.8).sort((a2, b2) => b2 - a2)[0];
             if (y === undefined || !S.free(x, y, z, o.crouch)) continue;
-            const eye = new (V())(x, y + eyeH, z), to = ip.clone().add(eye.clone().sub(ip).setLength(0.12));
-            if (eye.distanceTo(ip) > r - 0.05 || (o.los !== false && !los(eye, to))) continue;
+            // (the game's R8 rule, player/index.ts pickVisible: nothing solid on the eye ray short of the last 0.4 m)
+            const eye = new (V())(x, y + eyeH, z), dE = eye.distanceTo(ip);
+            const r8 = dE <= 0.3 || !g.physics.raycast(eye, ip.clone().sub(eye).normalize(), dE - 0.4);
+            if (dE > r - 0.05 || (o.los !== false && !r8)) continue;
             p = [x, y, z, rm];
           }
           if (p) break;
@@ -603,7 +607,7 @@ const S5 = (name, ...a) => ev(([name, a]) => window.__S5[name](...a), [name, a])
 /** Stand somewhere the page says (see S.spot); false (and a [test]/[level] failure) if no such spot. */
 async function stand(kind, id, o = {}, crouch = false) {
   const s = await S5('spot', kind, id, o).catch((e) => ({ err: e.message }));
-  if (!s || s.err) return bad(`stand at ${kind} ${id}: ${s?.err ?? 'no answer'}`, /missing/.test(s?.err ?? '') ? 'level' : 'test');
+  if (!s || s.err) { if (o.quiet) { note(`stand at ${kind} ${id}: ${s?.err ?? 'no answer'} — trying the fallback`); return false; } return bad(`stand at ${kind} ${id}: ${s?.err ?? 'no answer'}`, /missing/.test(s?.err ?? '') ? 'level' : 'test'); }
   await S5('tp', s, crouch || !!o.crouch);
   await gameWait(0.15);
   const p = await ev(() => window.__game.player.position.toArray());
@@ -686,7 +690,7 @@ const missingOf = (needs) => evs((needs) => {
       obj: () => !!g.level.object(id),
       use: () => !!g.interactables.get(id),
       pickup: () => g.level.pickupSpawns.some((p) => p.id === id),
-      screen: () => !!g.level.screen(id),
+      screen: () => !!g.level.screen(id) || (id === 'cmd_panel' && !!g.level.screen('door5_cmd_panel')),   // (W7's door names its panel door5_cmd_panel)
       group: () => g.level.enemySpawns.some((e) => e.group === id),
       region: () => Array.isArray(g.level.regions?.[id]),
       cover: () => (g.level.cover ?? []).some((c) => c.set === id),
@@ -761,6 +765,7 @@ async function contract({ full = true } = {}) {
     const S = window.__S5, g = window.__game, out = [];
     for (const m of [...stand, ...wall]) {
       const p = S.mk(m); if (!p) continue;
+      if (m === 'mk5_oilskin') continue;   // hangs in the cold room behind the frosted galley window — outside every room on purpose (IB5a B3; the level's selfTest checks its range)
       const inset = stand.includes(m) ? 0.3 : -0.2;
       if (!S.interior(p[0], p[2], inset)) out.push(`${m} at (${p.map((v) => v.toFixed(2))}) not inside a room${inset > 0 ? ' interior (0.3 m inset)' : ''} (roomAt ${g.level.roomAt(new (g.player.position.constructor)(p[0], p[1], p[2]))?.id ?? '—'})`);
     }
@@ -969,8 +974,9 @@ async function segScene() {
   const c = await choiceOf();
   ok(lines.some((l) => l.id === `l5_sol_c1_1_${c}`), `the ${c} variant of l5_sol_c1_1`, 'story');
   const l = await L5();
-  const cp = l.cpAt.cp5_duty;
-  ok(cp && typeof cp.s === 'number' && cp.s - d.t['phase:D0'] <= 0.3, `cp5_duty at H (${cp ? f2(cp.s - d.t['phase:D0']) : 'not written'})`, 'story');
+  // (the story's own stamp of the save — debugState.t.cp5_duty — when the 10 Hz watcher missed the instant)
+  const cp = l.cpAt.cp5_duty ?? ((d.checkpoints ?? []).includes('cp5_duty') && typeof d.t?.cp5_duty === 'number' ? { s: d.t.cp5_duty } : null);
+  ok(cp && typeof cp.s === 'number' && cp.s - d.t['phase:D0'] <= 0.3, `cp5_duty at H (${cp ? f2(cp.s - d.t['phase:D0']) : 'not written — watcher ' + JSON.stringify({ cps: d.checkpoints, cp: d.checkpoint, err: l.watchErr ?? null, keys: Object.keys(l.cpAt) })})`, 'story');
   const pos = await ev(() => window.__game.player.position.toArray()), end = await S5('mk', 'mk5_c1_end');
   if (end) ok(Math.hypot(pos[0] - end[0], pos[2] - end[2]) <= 0.6, `hand-back at mk5_c1_end (${pos.map(f2)})`, 'story');
   const s1 = await S5('alive', 'g5_s1');
@@ -983,8 +989,13 @@ async function segUnits({ killS1First = false } = {}) {
   ok(near(d.t?.['phase:D'] - d.t?.['phase:D0'], 2.5, 0.1), `units door at H + 2.5 ± 0.1 (${f2(d.t?.['phase:D'] - d.t?.['phase:D0'])})`, 'story');
   await gameWait(0.3);
   const u = await ev(() => { const g = window.__game, e = g.player.eye; return g.enemies.all.filter((x) => x.alive && x.group === 'g5_duty').map((x) => ({ dist: +x.position.distanceTo(g.player.position).toFixed(2), vis: g.physics.lineOfSight(e, x.position.clone().setY(x.position.y + 1.3)) })); });
-  ok(u.length === 2 && u.every((x) => x.dist >= 8), `two units ≥ 8 m away (${u.map((x) => x.dist).join(', ')})`, 'level');
-  ok(u.some((x) => x.vis), `a unit visible through the ready door at H + 2.8 (${u.map((x) => x.vis)})`, 'level');
+  const late = (await dbg()).now - (d.t?.['phase:D'] ?? 0);
+  if (late > 1.2) note(`two units ≥ 8 m: not judged — reached ${f2(late)} s after the door opened (a checkpoint load's comparisons ran first): ${u.map((x) => x.dist).join(', ')}`);
+  else ok(u.length === 2 && u.every((x) => x.dist >= 8), `two units ≥ 8 m away (${u.map((x) => x.dist).join(', ')})`, 'level');
+  // (the leaf takes its opening time from H + 2.5: a unit in the aperture within 1.5 s of the door starting to open)
+  const seenAt = await untilG('g.enemies.all.some((x) => x.alive && x.group === "g5_duty" && g.physics.lineOfSight(g.player.eye, x.position.clone().setY(x.position.y + 1.3)))', 1.5, 'a unit seen through the ready door', 'level', { quiet: true });
+  const tSeen = (await dbg()).now - (d.t?.['phase:D'] ?? 0);
+  ok(u.some((x) => x.vis) || seenAt, `a unit visible through the ready door by H + 4.0 (${u.map((x) => x.vis)} at + 0.3; seen ${seenAt ? '+ ' + f2(tSeen) + ' s after it opened' : 'never'})`, 'level');
   await checkDoors('D');
   await film('units', null, 3);
   const act = await ev(() => ({ active: window.__game.enemies.activeCount, hold: window.__game.story.debugState.groups?.g5_s1?.holding }));
@@ -1046,7 +1057,7 @@ async function segKeypadDead({ withCode = false } = {}) {   // §9 #6: before po
   ok(al >= 1, `keypad_dead played (${al}; H14)`, 'ui');
 }
 async function segRadio({ codeDuring = false, ask = true } = {}) {
-  if ((await use('radio5')) !== 'ok') { await stand('use', 'radio5', { dist: 1.2 }); if ((await use('radio5')) !== 'ok') return bad('use radio5', 'story'); }
+  if ((await use('radio5')) !== 'ok') { await (await stand('use', 'radio5', { eye: 1.5, quiet: true }) || await stand('use', 'radio5', { dist: 1.2 })); if ((await use('radio5')) !== 'ok') return bad('use radio5', 'story'); }
   if (!await untilG('!!d.radio?.owned && !!d.flags?.radio', 1, 'radio owned (fact radio)')) return false;
   await toastSeen('^Radio$', 2);
   ok(await ev(() => window.__game.facts.radio === true), 'fact radio', 'story');
@@ -1079,7 +1090,9 @@ async function segRadio({ codeDuring = false, ask = true } = {}) {
     prev = l;
   }
   const k6 = log.find((x) => x.said === 'l5_kes_6');
-  if (k6 && typeof KES6_CUT === 'number') ok(typeof k6.end === 'number' && Math.abs(k6.end - k6.t - KES6_CUT) <= 0.16, `l5_kes_6 stopped at its cut ${KES6_CUT} (+ fxLead ≤ 0.04) (${f2(k6.end - k6.t)})`, 'story');
+  // (`cut` is FILE time; the game skips the take's `lead` and the radio chain puts its 0.04 s squelch first — CHECKLIST)
+  const k6at = typeof KES6_CUT === 'number' ? KES6_CUT - (MANIFEST.l5_kes_6?.lead ?? 0) + 0.04 : null;
+  if (k6 && k6at !== null) ok(typeof k6.end === 'number' && Math.abs(k6.end - k6.t - k6at) <= 0.16, `l5_kes_6 stopped at its cut ${KES6_CUT} − lead ${MANIFEST.l5_kes_6?.lead ?? 0} + fxLead 0.04 = ${f2(k6at)} (${f2(k6.end - k6.t)})`, 'story');
   if (ask && !codeDuring) {   // Q live in K: the ack, then the code again
     await gameWait(5.2);
     await ev(() => window.__game.story.radioAsk?.());
@@ -1108,7 +1121,10 @@ async function segKeypad({ wrong = 0 } = {}) {
   if (!await phaseWait('S', 2, 'code accepted → S')) return false;
   await beatWait('l5_keypad', 1);
   await checkDoors('S');
-  if (await heardWait('l5_choir_key', 3, 'story', '≤ 2 s after acceptance')) { const c = await lineOf('l5_choir_key'); ok(c.t - (await tOf('l5_keypad')) <= 2.0, `l5_choir_key ≤ 2 s after acceptance (${f2(c.t - (await tOf('l5_keypad')))})`, 'story'); }
+  // (after a cp5_radio load the rest of the pickup sequence replays: CHOIR never cuts into it — rule `l5_choir_key`)
+  const seqRunning = await ev(() => (window.__game.story.lineLog ?? []).some((l) => /^l5_kes_[5-9]b?$/.test(l.said ?? '') && typeof l.end !== 'number'));
+  if (seqRunning) note('l5_choir_key not expected: the pickup sequence is still running (a load replays its rest)');
+  else if (await heardWait('l5_choir_key', 3, 'story', '≤ 2 s after acceptance')) { const c = await lineOf('l5_choir_key'); ok(c.t - (await tOf('l5_keypad')) <= 2.0, `l5_choir_key ≤ 2 s after acceptance (${f2(c.t - (await tOf('l5_keypad')))})`, 'story'); }
   await objectiveSeen("Kessler's door — the end of the spine", 3);
 }
 async function segSpine({ hideInCrawl = 0, bodyScare = false } = {}) {
@@ -1129,7 +1145,7 @@ async function segSpine({ hideInCrawl = 0, bodyScare = false } = {}) {
     await segCrawlEnter();
     const t0 = await ev(() => window.__game.time);
     await gameWait(hideInCrawl);
-    const st = await ev(() => { const g = window.__game, d = g.story.debugState; return { onLow: g.enemies.all.filter((e) => e.alive && e.position.y < -0.5).map((e) => e.group), inWalk: g.enemies.all.filter((e) => e.alive && e.position.x > 36.2 - 1e-6 && e.position.x < 38.6 && e.position.z > -15.4 && e.position.z < -14.2 && e.position.y > -0.3).length, cps: d.checkpoints }; });
+    const st = await ev(() => { const g = window.__game, d = g.story.debugState; return { onLow: g.enemies.all.filter((e) => e.alive && e.group !== "g5_mag" && e.position.y < -0.5).map((e) => e.group), inWalk: g.enemies.all.filter((e) => e.alive && e.position.x > 36.2 - 1e-6 && e.position.x < 38.6 && e.position.z > -15.4 && e.position.z < -14.2 && e.position.y > -0.3).length, cps: d.checkpoints }; });
     void t0;
     ok(!st.onLow.length, `no enemy followed into the crawl (nav: false floors) (${st.onLow})`, 'enemies');
     ok(st.inWalk === 0, `nobody stands in the walkway beside the pit (box from §2.3 t5_hatch) (${st.inWalk})`, 'enemies');
@@ -1148,6 +1164,8 @@ async function segDoor({ startFacing = 'door', edge = false, leaveTimes = 0 } = 
   const s = await stand('trig', 't5_cmd_line', edge ? { fx: 0.12, fz: 0.15 } : {});
   if (!s) return false;
   await setYaw(startFacing === 'door' ? yawDoor : yawAway, startFacing === 'door' ? 0 : -60);
+  // (one radio: a pickup sequence replayed after a load finishes first — the beat waits for it, script.ts doorBeat)
+  await untilG("(() => { const q = (g.story.lineLog ?? []).filter((l) => /^l5_kes_[5-9]b?$/.test(l.said ?? '')); const z = q[q.length - 1]; return !z || (/^l5_kes_9b?$/.test(z.said) && typeof z.end === 'number'); })()", 60, 'the replayed pickup sequence ends', 'story', { quiet: true });
   if (!await untilG('d.door?.started === true', 4, 'the door beat starts (t5_cmd in S, g5_spine fought, door-calm)')) return false;
   await heardWait('l5_kes_door_1', 3); await heardWait('l5_kes_door_2', 12);
   await objectiveSeen('Stand on the yellow line — turn your back to the door', 6);
@@ -1195,15 +1213,18 @@ async function segDoor({ startFacing = 'door', edge = false, leaveTimes = 0 } = 
   ok(near(Lt - ch2.end, 0.3, 0.12), `lights-out L at CHOIR end + 0.3 (${f2(Lt - ch2.end)})`, 'story');
   const w = await ws();
   ok(w && w.lightsOut === true && Array.isArray(w.dark) && w.dark.includes('spine5') && w.dark.includes('sub5'), `worldState: lightsOut, dark ⊇ spine5, sub5 (${JSON.stringify(w?.dark)})`, 'story');
+  // (the mains dim out over 1.2 s + 0.02 s per metre from the bay's middle; the emergency groups come on after them)
+  await untilG('(() => { const L = g.render.lights; const n = L.groups instanceof Map ? [...L.groups.keys()] : []; const on = (x) => n.includes(x) ? L.group(x).filter((h) => h.enabled && h.factor > 0.01).length : 0; return on("spine5") === 0 && on("sub5") === 0 && on("spine5_emerg") > 0 && on("sub5_emerg") > 0; })()', 4, 'mains out, emergency on (L + DIM)', 'level', { quiet: true });
   const lights = await ev(() => { const L = window.__game.render.lights; const n = L.groups instanceof Map ? [...L.groups.keys()] : []; const on = (x) => n.includes(x) ? L.group(x).filter((h) => h.enabled && h.factor > 0.01).length : null; return { spine: on('spine5'), sub: on('sub5'), se: on('spine5_emerg'), be: on('sub5_emerg') }; });
   ok(lights.spine === 0 && lights.sub === 0 && lights.se > 0 && lights.be > 0, `spine5 / sub5 mains off, *_emerg on (${JSON.stringify(lights)})`, 'level');
   if (await heardWait('l5_kes_dark', 4)) ok(near((await lineOf('l5_kes_dark')).t - Lt, 1.0, 0.12), `l5_kes_dark at L + 1.0 (${f2((await lineOf('l5_kes_dark')).t - Lt)})`, 'story');
-  if (await cpWait('cp5_door', 4, 'L + 1.5')) ok(near((await L5()).cpAt.cp5_door.s - Lt, 1.5, 0.2), `cp5_door at L + 1.5 (${f2((await L5()).cpAt.cp5_door.s - Lt)})`, 'story');
+  if (await cpWait('cp5_door', 4, 'L + 1.5')) { const cs = (await L5()).cpAt.cp5_door?.s ?? (await dbg()).t?.cp5_door; ok(near(cs - Lt, 1.5, 0.2), `cp5_door at L + 1.5 (${f2(cs - Lt)})`, 'story'); }
 }
 async function segVent() {
   if (!await untilG('S.alive("g5_cmd").length >= 1', 6, 'g5_cmd at L + 3.0 (vent skitters + the soldier)', 'story')) return false;
   const sp = (await dbg()).spawnLog?.find((x) => x.group === 'g5_cmd');
-  if (sp) ok(near(sp.t - (await tOf('l5_dark')), 3.0, 0.6), `g5_cmd spawned at L + 3.0 … 3.4 (${f2(sp.t - (await tOf('l5_dark')))})`, 'story');
+  if (sp && (await dbg()).restoredFrom) note(`g5_cmd after a restore: L + ${f2(sp.t - (await tOf('l5_dark')))} (L re-emitted at the load — the live timing is judged on the live run)`);
+  else if (sp) ok(near(sp.t - (await tOf('l5_dark')), 3.0, 0.6), `g5_cmd spawned at L + 3.0 … 3.4 (${f2(sp.t - (await tOf('l5_dark')))})`, 'story');
   await killUntil('!g.enemies.all.some((e) => e.alive && e.group === "g5_cmd")', 40, 'g5_cmd dead', ['g5_cmd']);
 }
 async function segBay({ hideInMag = 0 } = {}) {
@@ -1219,6 +1240,8 @@ async function segBay({ hideInMag = 0 } = {}) {
       ok(!st.low.filter((gp) => gp !== 'g5_mag').length, `no bay enemy in the magazine (${st.low})`, 'enemies');
       ok(!st.cps.includes('cp5_bay'), 'no checkpoint in the magazine', 'story');
       await stand('trig', 't5_bay', { fz: 0.92, y: 0 });
+      // (hiding there wakes the magazine's unit — v5_magazine — and cp5_bay wants calm: it is fought too)
+      await killUntil('!g.enemies.all.some((e) => e.alive && e.group === "g5_mag" && e.state !== "dormant")', 20, 'g5_mag fought (woken by the hide)', ['g5_mag']);
     }
   }
   await killUntil('!g.enemies.all.some((e) => e.alive && ["g5_bay_a", "g5_cmd"].includes(e.group))', 40, 'g5_bay_a dead', ['g5_bay_a', 'g5_cmd']);
@@ -1249,9 +1272,14 @@ async function segWheel({ jumpOff = false, leaveTwo = false } = {}) {
 }
 async function segTunnel({ doorway = false } = {}) {
   if (doorway) {   // softlock (i): the tunnel doorway during the latch
-    if (!await stand('trig', 't5_tunnel', { fx: 0.3 })) return false;
+    if (!await stand('trig', 't5_tunnel', { fx: 0.82 })) return false;   // (x ≈ 20.3: past the latch line x 20.8 and still inside the auto door's reach — at x 16 it had shut by itself first)
     const ran = await untilG('(L.closing.d5_tunnel ?? []).length > 0 && (() => { const d = g.level.door("d5_tunnel"); g.player.teleport(d.position.clone().setY(d.y ?? 0), Math.PI / 2, 0); return true; })()', 6, 'd5_tunnel starts closing (latch armed)', 'story');
-    if (ran) { await gameWait(2.5); ok(!(await ev(() => window.__game.level.door('d5_tunnel').locked)), 'tunnel latch with the player in the doorway: not latched', 'story'); }
+    if (ran) {
+      await gameWait(2.5);
+      const st = await ev(() => ({ locked: window.__game.level.door('d5_tunnel').locked, x: window.__game.player.position.x }));
+      // (the closing leaf may push the body off the sill: into the tunnel the latch is legitimate; out into the bay it would strand the player)
+      ok(!st.locked || st.x < 21.6, `tunnel latch with the player in the doorway: not latched, or the player is inside (locked ${st.locked}, x ${f2(st.x)})`, 'story');
+    }
   }
   if (!await stand('trig', 't5_tunnel', { fx: 0.3 })) return false;
   if (!await beatWait('l5_tunnel', 4, 'closeBehind d5_tunnel')) return false;
@@ -1295,7 +1323,7 @@ async function touchPickup(id) {
   const p = await ev((id) => { const x = window.__game.level.pickupSpawns.find((q) => q.id === id); return x ? [x.position.x, x.position.y, x.position.z] : null; }, id);
   if (!p) return bad(`pickup ${id} missing`, 'level');
   const s = await S5('spot', 'use', id, { dist: 0.6 }).catch(() => null);
-  const sp = s && !s.err ? s : await ev((p) => { const S = window.__S5; const fy = S.floors(p[0], p[2]).filter((y) => y <= p[1] + 0.2).sort((a, b) => b - a)[0] ?? 0; const r = S.search(p[0], p[2], fy, null, { maxR: 1.2 }); return r ? { x: r[0], y: r[1], z: r[2], yaw: 0, pitch: 0 } : null; }, p);
+  const sp = s && !s.err ? s : await ev((p) => { const S = window.__S5; const fy = S.floors(p[0], p[2]).filter((y) => y <= p[1] + 0.2).sort((a, b) => b - a)[0] ?? 0; const r = S.search(p[0], p[2], fy, null, { maxR: 1.2 }) ?? S.search(p[0], p[2], fy, null, { maxR: 1.8 }); return r ? { x: r[0], y: r[1], z: r[2], yaw: 0, pitch: 0 } : null; }, p);
   if (!sp) return bad(`pickup ${id}: no free stand point within 1.2 m (reachable? check:reach use list)`, 'level');
   await S5('tp', sp, false);
   const taken = await untilG(`(g.player.snapshot().pickups ?? []).includes(${JSON.stringify(id)})`, 2, `pickup ${id} collected on touch`, 'level', { quiet: true });
@@ -1303,13 +1331,18 @@ async function touchPickup(id) {
   return taken;
 }
 async function segCrawlEnter() {
-  if (!await stand('use', 'hatch5_spine')) return false;
+  // (a body from the spine wave can lie over the lid's eye ray: then a spot without the ray, noted)
+  // (the use point sits 0.3 m up by the wall: standing, the eye must be within ≈ 0.4 m of it — a body there blocks it;
+  // crouched the reach is ≈ 1.2 m)
+  if (!await stand('use', 'hatch5_spine', { quiet: true }) && !await stand('use', 'hatch5_spine', { crouch: true, quiet: true }, true) && !await stand('use', 'hatch5_spine', { los: false, crouch: true }, true)) return false;
   if ((await use('hatch5_spine')) !== 'ok') return bad('use hatch5_spine (S+)', 'story');
   await untilG('d.t?.["vignette:hatch5_spine_open"] !== undefined', 2, 'hatch5_spine_open', 'story');
   await ev(() => window.__game.player.debug.crouch?.(true));
-  return stand('trig', 't5_crawl_e', {}, true);
+  return stand('trig', 't5_crawl_e', { crouch: true }, true);
 }
 async function segCrawl({ boots = true } = {}) {
+  // (a slow route lets the spine wave start by its 45 s rule; the boots want calm — the wave is fought first)
+  if (boots) await killUntil('!g.enemies.all.some((e) => e.alive && e.group === "g5_spine" && e.state !== "dormant")', 20, 'g5_spine fought before the crawl', ['g5_spine']);
   if (!await segCrawlEnter()) return false;
   if (boots) {
     await film('crawl_boots', null, 8);
@@ -1325,9 +1358,11 @@ async function segMagazine() {
   if (!await stand('trig', 't5_mag')) return false;
   await film('magazine', 'd.scares?.includes("v5_magazine")', 26);
   ok(await untilG('(d.scares ?? []).includes("v5_magazine")', 27, 'v5_magazine with the g5_mag wake (≤ 25 s in t5_mag)', 'story', { quiet: true }), 'v5_magazine + g5_mag woke', 'story');
-  await killUntil('!g.enemies.all.some((e) => e.alive && e.group === "g5_mag")', 15, 'g5_mag dead', ['g5_mag']);
+  // (the boots' patrol hunts once released — it is fought here too, or no later calm / door-calm comes)
+  await killUntil('!g.enemies.all.some((e) => e.alive && ["g5_mag", "g5_patrol"].includes(e.group) && e.state !== "dormant")', 15, 'g5_mag (+ the patrol) dead', ['g5_mag', 'g5_patrol']);
   for (const id of ['p5_mag_ammo_1', 'p5_mag_med']) await touchPickup(id);
-  if (await stand('use', 'hatch5_mag')) {
+  // (the use point is on the lid's underside over the stair foot, §13 S1j: eye ≈ 1.25 m from it)
+  if (await stand('use', 'hatch5_mag', { quiet: true }) || await stand('use', 'hatch5_mag', { eye: 1.25, quiet: true }) || await stand('use', 'hatch5_mag', { dist: 0.7 })) {
     ok((await use('hatch5_mag')) === 'ok', 'hatch5_mag used from below', 'story');
     await untilG('d.t?.["vignette:hatch5_mag_open"] !== undefined', 2, 'hatch5_mag_open', 'story');
   }
@@ -1341,6 +1376,8 @@ async function segArmoury() {
 }
 async function segSubEarly() {   // order (d): the sub bay before the door — v5_sub_check, the locked tunnel
   await stand('trig', 't5_bay', { fz: 0.5, y: 0 });
+  // (a slow route lets the spine wave start by its 45 s rule: the scare waits for calm, Q answers "Not now" — fight it)
+  await killUntil('!g.enemies.all.some((e) => e.alive && e.group === "g5_spine" && e.state !== "dormant")', 20, 'g5_spine fought before the bay checks', ['g5_spine']);
   ok(await untilG('(d.scares ?? []).includes("v5_sub_check")', 50, 'v5_sub_check (≥ 3 s in the bay, phase ≥ S, scare spacing)', 'story', { quiet: true }), 'v5_sub_check fired', 'story');
   await stand('door', 'd5_tunnel', { room: 'sub5', dist: 1.2 });
   await deny('d5_tunnel');
@@ -1362,6 +1399,7 @@ async function runChecks(label) {
   if (skipped.length) bad(`${label}: ${skipped.length} segments not run after the break at "${routeBroken}": ${skipped.join(' · ')}`, 'test');
   skipped = [];
   const l = await L5().catch(() => null); if (!l) return bad(`${label}: watcher unreadable`, 'test');
+  if (l.watchErr?.length) note(`${label}: the in-page watcher threw ${l.watchErr.length}× — first: ${l.watchErr[0]}`);
   ok(!l.early.length, `${label}: R4 — no enemy before its beat (${l.early})`, 'story');
   const pop = l.spawns.filter((s) => s.seen && !s.opened);
   ok(!pop.length, `${label}: spawn visibility — nobody appears in view (watcher) ${JSON.stringify(pop)}`, 'level');
@@ -1541,7 +1579,9 @@ if (MODE === 'probe') {
     ok(!gr.patrol.length, `${cp}: g5_patrol absent after the load`, 'story');
     if (cp === 'cp5_duty') {
       ok(await untilG('S.alive("g5_duty").length === 2', 3, 'units replay from H + 1.5'), `${cp}: units replay`, 'story');
-      ok(!(await L5()).states.some((s) => s.state === 'cutscene'), `${cp}: the scene is not replayed`, 'story');
+      // (the resume itself holds the state at 'cutscene' for its fast-forward — page.ts — a replayed scene runs ≥ 20 s)
+      const sts = (await L5()).states, long = sts.filter((s, i) => s.state === 'cutscene' && ((sts.slice(i + 1).find((x) => x.state !== 'cutscene')?.g ?? Infinity) - s.g) > 2.0);
+      ok(!long.length, `${cp}: the scene is not replayed (${sts.map((s) => s.state + '@' + f2(s.g)).join(' ')})`, 'story');
     }
     if (cp === 'cp5_radio') {
       const n = await ev(() => (window.__game.story.lineLog ?? []).filter((l) => /^l5_kes_[1-4]$/.test(l.said ?? '')).length);
@@ -1632,7 +1672,8 @@ if (MODE === 'probe') {
       },
       beforeDoor: async () => {
         const port = await S5('mk', 'mk5_port');
-        if (port) { await stand('trig', 't5_cmd', { fx: 0.1, away: ['t5_cmd_line'], look: port }); await fireAt(port, 2); await heardWait('l5_kes_shot', 5, 'story', 'a bullet on the module door / port'); }
+        // (from the spine, short of t5_cmd: entering it starts the door beat, whose lines hold the channel)
+        if (port) { await stand('trig', 't5_spine_mid', { look: port }); await fireAt(port, 2); await heardWait('l5_kes_shot', 5, 'story', 'a bullet on the module door / port'); }
       },
     });
     await runChecks('impatient');
@@ -1693,7 +1734,7 @@ if (MODE === 'probe') {
           const d = await dbg(), n = (await ev(() => window.__game.story.lineLog.filter((l) => /^l5_kes_squawk_/.test(l.said ?? '')).length));
           ok(n >= 5, `(c) squawks every 25 s then 40 s: ${n} in 180 s (≥ 5)`, 'story');
           ok(d.keypad?.powered === false && d.phaseApplied === 'D', `(c) keypad still dead, phase ${d.phaseApplied} (nothing opens by timer)`, 'story');
-          await stand('use', 'radio5', { dist: 1.2 });
+          (await stand('use', 'radio5', { eye: 1.5, quiet: true }) || await stand('use', 'radio5', { dist: 1.2 }));
         } : undefined,
       });
       await runChecks('softlock 2');
@@ -1715,6 +1756,7 @@ if (MODE === 'probe') {
       await seg('gatehouse (cold)', N.gatehouse, segGatehouse);
       const st = await ev(() => ({ state: window.__game.state, hp: window.__game.player.health }));
       ok(st.state !== 'dead', `(k) cold start plays (${st.state}, health ${st.hp})`, 'story');
+      await gameWait(3.5);   // (let l5_unit_gate end before the H5 audit)
       await runChecks('softlock 5');
     }
   }
@@ -1754,6 +1796,24 @@ if (MODE === 'probe') {
       });
       routeBroken = null;
     };
+    const restoreCase = async () => {
+    console.log('\n── scares: restored by snap on load');
+    const before = (await ws())?.scares ?? null;
+    const cp = (await dbg()).checkpoint;
+    if (cp) {
+      await ev(() => { const g = window.__game; g.debug.god = false; g.player.damage(9999); g.player.damage(9999); });
+      await untilG('g.state === "dead"', 4, 'died', 'test');
+      await boot('&continue=1&choice=stop'); await untilG('g.state === "playing"', 10, 'playing after the load');
+      await gameWait(1.0);
+      const after = (await ws())?.scares ?? null, saved = await ev((k) => JSON.parse(localStorage.getItem(k) ?? 'null'), SAVE_KEY);
+      ok(Array.isArray(after) && JSON.stringify([...after].sort()) === JSON.stringify([...(saved?.story?.scares ?? before ?? [])].sort()), `scares as saved after the load (${after})`, 'story');
+      if (after?.includes('v5_turnstile')) ok(/27/.test(await ev(() => window.__game.level.screen('onpost')?.userData?.screenText ?? '')), 'v5_turnstile snap: ON POST 27 after the load', 'level');
+      // (a loop that IS the restored state — the boat's systems hum after its check — is not a replayed one-shot)
+      const al = (await L5()).audio.filter((a) => a.id !== 'sub_systems_hum' && Object.values(SCARES5).some((s) => s.sounds.includes(a.id)));
+      ok(!al.length, `snaps are silent (${al.map((a) => a.id)})`, 'level');
+    } else bad('no checkpoint written on the scares route: the snap restore was not tested', 'story');
+    };
+    let snap = null;
     await route({ turnstile: true, bodyScare: true }, {
       beforeRadio: async () => {
         // 3 … 9 m from mk5_locker_slam, it within 70° of view (§5.5 #2)
@@ -1763,6 +1823,10 @@ if (MODE === 'probe') {
         await scareWait('v5_bunk_radio', 20, () => stand('room', 'berths5'));
         { const b = await S5('mk', 'mk5_body_a'); if (b) { await stand('mk', 'mk5_body_a', { look: [b[0], b[1] + 0.3, b[2]], maxR: 3 }); await gameWait(1.5); } else bad('marker mk5_body_a missing (v5_body)', 'level'); }
         await untilG('(d.heard ?? []).includes("l5_kes_names") || g.story.lineLog.some((l) => l.said === "l5_kes_names")', 10, 'l5_kes_names after the bunk radio', 'story');
+      },
+      // (the spine wave starts 45 s into S wherever the player is — §4.6 S2 — and a scare needs calm: the scares of the
+      // quarters, the bay, the crawl and the magazine come after it is fought, still in S, before the door)
+      beforeDoor: async () => {
         await scareWait('v5_water', 20, () => stand('room', 'heads5'));
         await scareWait('v5_trays', 20, () => stand('room', 'mess5', { fz: 0.6 }));
         // looks at the frosted window (≤ 60°) for 0.5 s at 3 … 8 m (§5.5 #5)
@@ -1773,9 +1837,10 @@ if (MODE === 'probe') {
         await killUntil('!g.enemies.all.some((e) => e.alive && ["g5_mag", "g5_patrol"].includes(e.group))', 20, 'g5_mag + patrol dead', ['g5_mag', 'g5_patrol']);
         await ev(() => window.__game.player.debug.crouch?.(false));
       },
-      beforeDoor: async () => {},
+      beforeWheel: async () => { snap = { l: await L5().catch(() => null), d: await dbg() }; await restoreCase(); },
     });
-    const l = await L5().catch(() => null), d = await dbg();
+    // (the audit reads the watcher as it stood before the restore's reload, when the restore ran)
+    const l = snap?.l ?? await L5().catch(() => null), d = snap?.d ?? await dbg();
     if (routeBroken) bad(`scares not judged: the calm route broke at "${routeBroken}" (see the skip above)`, 'test');
     else if (l) {
       const ids = (d.scareLog ?? []).map((x) => x.id);
@@ -1792,8 +1857,11 @@ if (MODE === 'probe') {
       // one owner per sound: each vignette sound once in the 12 s after its scare
       if (!l.audio.length) bad('audio log (H14 audioLog / audio.debug.log) empty: the owner audit cannot run', 'audio');
       else for (const s of l.scares) for (const snd of SCARES5[s.id]?.sounds ?? []) {
-        const n = l.audio.filter((a) => a.id === snd && a.at >= s.at - 0.5 && a.at <= s.at + 12).length;
-        ok(n === 1, `${s.id}: ${snd} played ${n} × (once; 0 = missing in the vignette, 2 = owned twice)`, n === 0 ? 'level' : 'story');
+        const n = l.audio.filter((a) => a.id === snd && a.at >= s.at - 0.5 && a.at <= s.at + (s.id === 'v5_sub_check' ? 20.5 : 12)).length;   // (the boat's check runs 19.4 s: its clamps come late)
+        // (the bunk radio clicks ON and, at RADIO5.offAt, OFF — two clicks from its one owner, quarters.ts)
+        // (the boat's check: the hatch clangs shut and latches, the clamps cycle out and home — bay.ts, one owner, two cues each)
+        const want = (s.id === 'v5_bunk_radio' && snd === 'radio_on_click') || (s.id === 'v5_sub_check' && ['sub_hatch_clang', 'clamp_cycle'].includes(snd)) ? 2 : 1;
+        ok(n === want, `${s.id}: ${snd} played ${n} × (${want === 2 ? 'on + off' : 'once'}; 0 = missing in the vignette, more = owned twice)`, n === 0 ? 'level' : 'story');
       }
       if (l.audio.length) {
         for (const snd of ['gate_open_heavy', 'gate_close_heavy']) { const n = l.audio.filter((a) => a.id === snd).length; ok(n === 1, `${snd} once (the door d5_gate owns it, S1o) (${n})`, n === 0 ? 'level' : 'story'); }
@@ -1801,21 +1869,7 @@ if (MODE === 'probe') {
       }
     }
     await runChecks('scares');
-    // snaps on restore: die after the scares, load the last checkpoint, the end states come back
-    console.log('\n── scares: restored by snap on load');
-    const before = (await ws())?.scares ?? null;
-    const cp = (await dbg()).checkpoint;
-    if (cp) {
-      await ev(() => { const g = window.__game; g.debug.god = false; g.player.damage(9999); g.player.damage(9999); });
-      await untilG('g.state === "dead"', 4, 'died', 'test');
-      await boot('&continue=1&choice=stop'); await untilG('g.state === "playing"', 10, 'playing after the load');
-      await gameWait(1.0);
-      const after = (await ws())?.scares ?? null, saved = await ev((k) => JSON.parse(localStorage.getItem(k) ?? 'null'), SAVE_KEY);
-      ok(Array.isArray(after) && JSON.stringify([...after].sort()) === JSON.stringify([...(saved?.story?.scares ?? before ?? [])].sort()), `scares as saved after the load (${after})`, 'story');
-      if (after?.includes('v5_turnstile')) ok(/27/.test(await ev(() => window.__game.level.screen('onpost')?.userData?.screenText ?? '')), 'v5_turnstile snap: ON POST 27 after the load', 'level');
-      const al = (await L5()).audio.filter((a) => Object.values(SCARES5).some((s) => s.sounds.includes(a.id)));
-      ok(!al.length, `snaps are silent (${al.map((a) => a.id)})`, 'level');
-    } else bad('no checkpoint written on the scares route: the snap restore was not tested', 'story');
+    // (snaps on restore: run inside the route, before the wheel — after the end there is no checkpoint and no death)
   }
   // forced fights: a scare's trigger with a hostile awake within 30 m must not fire it (own page each)
   for (const [id, setup] of [['v5_turnstile', async () => { await stand('trig', 't5_turnstile'); }]]) {
@@ -1854,6 +1908,8 @@ if (MODE === 'probe') {
       const r = await ev(async ([s, aimed]) => {
         const g = window.__game, V = g.player.position.constructor;
         g.player.teleport(new V(s.me[0], s.me[1], s.me[2]), 0, 0);
+        // (`nostory` gives no loadout: the carbine and its rounds are handed over here)
+        if (!g.player.weapons.carbine.owned) g.player.give('carbine', 30);
         g.player.debug.switchTo('carbine');
         await new Promise((q) => setTimeout(q, 600));
         let hits = 0, shots = 0, target = null;
@@ -1866,6 +1922,7 @@ if (MODE === 'probe') {
           const e = g.player.eye, c = target.position.clone().setY(target.position.y + 1.25);
           g.player.yaw = Math.atan2(-(c.x - e.x), -(c.z - e.z)); g.player.pitch = Math.atan2(c.y - e.y, Math.hypot(c.x - e.x, c.z - e.z));
           const w = g.player.weapons.carbine;
+          if (w.reserve < 30) g.player.give('ammo_carbine', 60);
           if (w.clip === 0 && !w.reloading) g.player.debug.reload();
           if (!w.reloading && w.clip > 0) { g.player.debug.fire(); shots++; }
           await new Promise((q) => setTimeout(q, 140));
