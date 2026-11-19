@@ -67,3 +67,8 @@ export function standNow(c: Controller): void {
   c.eyeHeight = MOVE.eyeStand;
   c.crouchBlend = 0;
 }
+
+/** User fix 7: let go of a crouch toggle (a hand action's stand pose is standing); the controller stands up smoothly. */
+export function uncrouch(c: Controller): void {
+  priv(c).crouchToggled = false;
+}

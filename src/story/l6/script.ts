@@ -882,11 +882,13 @@ export class ScriptL6 extends Scenes6 {
   protected override queueClosed(): boolean { return this.prog.read.includes('note6_queue') && this.noteId !== 'note6_queue'; }
 
   /** Start a grip (§8.3) — a held handset drops first (S11d); returns the run or null (refused at once). */
-  private startGrip(id: string, point: THREE.Vector3, normal: THREE.Vector3, seconds: number, hold: boolean, motion: 'crank' | 'pull' | 'pump' | 'lever' | 'pin', start = 0, maxDist = 1.8): Grip | null {
+  private startGrip(id: string, point: THREE.Vector3, normal: THREE.Vector3, seconds: number, hold: boolean, motion: 'crank' | 'pull' | 'pump' | 'lever' | 'pin', start = 0, maxDist = 1.8, piece?: string): Grip | null {
     if (this.grip) return null;
     if (this.held) this.dropHandset(true);
+    // user fix 7: the control's stand pose and live handle from its set piece
+    const spot = piece ? this.gripSpot(piece, id) : { opts: {}, normal: null };
     let h: GripHandle;
-    try { h = this.ctx.player.grip({ id, point, normal, seconds, hold, motion, start, maxDist }); } catch (e) { console.warn('[story] grip failed', e); return null; }
+    try { h = this.ctx.player.grip({ ...spot.opts, id, point, normal: spot.normal ?? normal, seconds, hold, motion, start, maxDist }); } catch (e) { console.warn('[story] grip failed', e); return null; }
     const g: Grip = { id, h, result: null };
     this.grip = g;
     void h.done.then((r) => { g.result = r; if (this.grip === g) this.grip = null; });
@@ -896,7 +898,7 @@ export class ScriptL6 extends Scenes6 {
     if (this.f.manual || this.grip) return;
     const hub = this.api('switch6')?.hub;
     const point = hub instanceof THREE.Vector3 ? hub.clone() : this.mk('mk6_switch');
-    const g = this.startGrip('he6_switch', point, X_NEG, 3.0, true, 'crank', this.crankK);
+    const g = this.startGrip('he6_switch', point, X_NEG, 3.0, true, 'crank', this.crankK, 1.8, 'switch6');
     if (!g) return;
     this.S('crank', async () => {
       let turn = Math.floor(this.crankK * 5);
@@ -995,7 +997,7 @@ export class ScriptL6 extends Scenes6 {
     if (!this.ctx.player.hasKey('key6_a')) { this.deny('l6_unit_deny_a', at); return; }
     const lp = this.api('bj6')?.lockPoint;
     const point = lp instanceof THREE.Vector3 ? lp.clone() : at;
-    const g = this.startGrip('vault6_lock', point, Z_POS, 0.6, false, 'pin');
+    const g = this.startGrip('vault6_lock', point, Z_POS, 0.6, false, 'pin', 0, 1.8, 'bj6');
     if (!g) return;
     this.sfx('castell_turn', point, 0.8);
     this.S('key_a', async () => {
@@ -1021,7 +1023,7 @@ export class ScriptL6 extends Scenes6 {
     if (!this.f.bjOpen || this.f.pulled || this.grip) return;
     const lp = this.api('bj6')?.loomPoint;
     const point = lp instanceof THREE.Vector3 ? lp.clone() : this.mk('mk6_loom');
-    const g = this.startGrip('vault6_loom', point, Z_POS, 3.0, true, 'pull', this.pullK);
+    const g = this.startGrip('vault6_loom', point, Z_POS, 3.0, true, 'pull', this.pullK, 1.8, 'bj6');
     if (!g) return;
     this.S('pull', async () => {
       await this.until(() => {
@@ -1107,7 +1109,7 @@ export class ScriptL6 extends Scenes6 {
     if (!this.ctx.player.hasKey('key6_b')) { this.deny('l6_unit_deny_b', at); return; }
     const kp = this.api('shaft6')?.keyPoint;
     const point = kp instanceof THREE.Vector3 ? kp.clone() : at;
-    const g = this.startGrip('shaft6_lock', point, X_POS, 0.6, false, 'pin');
+    const g = this.startGrip('shaft6_lock', point, X_POS, 0.6, false, 'pin', 0, 1.8, 'shaft6');
     if (!g) return;
     this.sfx('castell_turn', point, 0.8);
     this.S('key_b', async () => {

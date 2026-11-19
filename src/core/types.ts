@@ -1356,6 +1356,11 @@ export interface PalmPlate {
   normal: THREE.Vector3;
   /** The direction along the surface the fingers point: away from the user standing in front of it. */
   up: THREE.Vector3;
+  /**
+   * User fix 7 (optional): where the body is brought (~0.3 s, eased, through the physics) and held while the hand is on
+   * the plate (feet; y ignored). Absent: the player module picks a free spot in front of the plate itself.
+   */
+  stand?: { pos: THREE.Vector3; yaw: number; pitch: number };
 }
 export type PalmResult = 'done' | 'cancelled' | 'refused';
 
@@ -1375,8 +1380,26 @@ export interface GripOpts {
   hold: boolean;
   /** Horizontal distance from `point` beyond which the grip pauses (hold) / cancels (press). Default 1.3. */
   maxDist?: number;
-  /** The hands' motion clip. */
+  /** The hands' motion clip (played only when there is no `track`). */
   motion: 'crank' | 'pull' | 'pump' | 'lever' | 'pin';
+  /**
+   * User fix 7 (optional): the control's fixed stand pose (its set piece defines it). While the hands work (E held for a
+   * hold grip; the whole run of a press) the body is brought there — ~0.3 s, eased, moved through the physics (never into
+   * a collider) — and held; the view eases to `yaw` / `pitch` (look input damped as ever). E released / the end gives
+   * control back at once. `pos` = the feet; its y is ignored (the floor holds him). A pose whose capsule is not free is
+   * ignored (no snap).
+   */
+  stand?: { pos: THREE.Vector3; yaw: number; pitch: number };
+  /** User fix 7 (optional): the handle's live grasp centre (world), read every frame — the hands follow the moving part. */
+  track?: () => THREE.Vector3;
+  /** With `track`: the handle's live axis (world; the hands spread along it, the fingers close round it). Default: the face's right. */
+  trackAxis?: () => THREE.Vector3;
+  /** With `track`: the part's live twist about `normal` (rad, + = counter-clockwise as the player sees it: a key's turn). Default 0. */
+  trackRoll?: () => number;
+  /** With `track`: half the spacing of the two hands along the axis (m). Default 0.12. */
+  spread?: number;
+  /** With `track`: 1 = the right hand only (a key, a pin's ring); default 2. */
+  hands?: 1 | 2;
 }
 export interface GripHandle {
   /** 0 … 1. */

@@ -441,11 +441,13 @@ export abstract class Boss6 extends Base6 {
   private frameApi(fn: string, ...a: unknown[]): boolean { return this.call('frame6', fn, ...a); }
   private startBossGrip(id: string, point: THREE.Vector3, seconds: number, hold: boolean, motion: 'pump' | 'lever' | 'pin', start = 0): BossGrip | null {
     if (this.bossGrip) return null;
-    const n = this.pos.clone().sub(point).setY(0);
+    // user fix 7: the frame's fixed stand pose, face normal and live handle for this control (fallback: from where he is)
+    const spot = this.gripSpot('frame6', id);
+    const n = spot.normal ?? this.pos.clone().sub(point).setY(0);
     if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
     n.normalize();
     let h: GripHandle;
-    try { h = this.ctx.player.grip({ id, point, normal: n, seconds, hold, motion, start, maxDist: 1.8 }); } catch (e) { console.warn('[story] grip failed', e); return null; }
+    try { h = this.ctx.player.grip({ ...spot.opts, id, point, normal: n, seconds, hold, motion, start, maxDist: 1.8 }); } catch (e) { console.warn('[story] grip failed', e); return null; }
     const g: BossGrip = { id, h, result: null };
     this.bossGrip = g;
     void h.done.then((r) => { g.result = r; if (this.bossGrip === g) this.bossGrip = null; });

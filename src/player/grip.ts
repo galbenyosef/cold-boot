@@ -12,6 +12,10 @@
  *   lever  — one heavy pull: down 0.32 m and 0.08 m toward him with the progress
  *   pin    — twist-and-draw: a quarter turn about N over the first half, then drawn 0.16 m out along N
  * `begin` brings the hands up from below the view onto the handle (0.3 s); `release` takes them back out (0.28 s).
+ *
+ * User fix 7: with a TRACK (`GripOpts.track`) no clip plays — the grasp centre is the set piece's live handle every
+ * frame, the hands spread along its live axis (`trackAxis`, default T) and turn with its twist (`trackRoll`, about N),
+ * so both hands (or the right one alone: a key, a ring) stay on the part as it moves.
  */
 import * as THREE from 'three';
 import type { VmMats } from './viewmodels/mats';
@@ -19,6 +23,14 @@ import { Forearm, Hand, POSES, POSE_LEN, type HandPose } from './viewmodels/hand
 import { clamp, smooth01 } from './math';
 
 export type GripMotion = 'crank' | 'pull' | 'pump' | 'lever' | 'pin';
+/** User fix 7: the live handle the hands follow (see GripOpts.track / trackAxis / trackRoll / spread / hands). */
+export interface GripTrack {
+  at: () => THREE.Vector3;
+  axis?: () => THREE.Vector3;
+  roll?: () => number;
+  spread: number;
+  hands: 1 | 2;
+}
 
 const DEG = Math.PI / 180;
 const REACH_S = 0.3, LEAVE_S = 0.28;
@@ -80,6 +92,9 @@ export class GripHands {
   private readonly N = new THREE.Vector3();
   private readonly T = new THREE.Vector3();
   private readonly U = new THREE.Vector3();
+  private track: GripTrack | null = null;
+  private readonly A = new THREE.Vector3();
+  private readonly rq = new THREE.Quaternion();
   /** The current grasp point (world) of each hand, for tests. */
   readonly grasp = [new THREE.Vector3(), new THREE.Vector3()];
   private readonly cam = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
@@ -96,8 +111,12 @@ export class GripHands {
   get on(): boolean { return this.mode === 'hold'; }
 
   /** Set the handle frame and bring the hands onto it. `yaw`: the player's facing (for a vertical normal). */
-  begin(point: THREE.Vector3, normal: THREE.Vector3, motion: GripMotion, yaw: number): void {
+  begin(point: THREE.Vector3, normal: THREE.Vector3, motion: GripMotion, yaw: number, track: GripTrack | null = null): void {
     this.P.copy(point);
+    this.track = track;
+    const one = !!track && track.hands === 1;
+    const l = this.arms[1];
+    for (const o of [l.hand.root, l.fore.root, l.upper, l.elbow]) o.visible = !one;
     const N = this.N.copy(normal);
     if (N.lengthSq() < 1e-8) N.set(Math.sin(yaw), 0, Math.cos(yaw));
     N.normalize();
@@ -122,8 +141,41 @@ export class GripHands {
 
   hide(): void { this.mode = 'idle'; this.s = 0; this.root.visible = false; }
 
+  /** User fix 7: the tracked handle → seat of each hand (world). */
+  private trackSeats(tr: GripTrack): void {
+    const { N, T, U, A } = this;
+    const [c, D, F, Dp] = this.tmp;
+    const p = tr.at();
+    c.copy(p && Number.isFinite(p.x + p.y + p.z) ? p : this.P);
+    const ax = tr.axis?.();
+    A.copy(ax && ax.lengthSq() > 1e-8 ? ax : T).normalize();
+    // +A runs to the player's right (a bar), up (a lever) or toward him (a rod pointing at him)
+    if (A.dot(T) < -0.02 || (Math.abs(A.dot(T)) <= 0.02 && A.dot(U) + A.dot(N) < 0)) A.negate();
+    // back of the hand: up and toward him (palm down, fingers into the face), square to the handle
+    const th = 30 * DEG;
+    Dp.copy(U).multiplyScalar(Math.cos(th)).addScaledVector(N, Math.sin(th));
+    D.copy(Dp).addScaledVector(A, -Dp.dot(A));
+    if (D.lengthSq() < 1e-4) D.copy(N).addScaledVector(A, -N.dot(A));
+    D.normalize();
+    const roll = tr.roll?.() ?? 0;
+    this.rq.setFromAxisAngle(N, Number.isFinite(roll) ? roll : 0);
+    for (let i = 0; i < 2; i++) {
+      const a = this.arms[i];
+      const side = a.left ? -1 : 1;
+      // closed fingers round the handle: F = D × A, wrapping toward the middle (a rod along N / U is held from its side)
+      F.crossVectors(D, A);
+      if (F.dot(T) * side > 0.05) F.negate();
+      const g = this.grasp[i].copy(c);
+      if (tr.hands === 2) g.addScaledVector(_a.copy(A).applyQuaternion(this.rq), side * tr.spread);
+      orientFD(a.seatQ, _b.copy(F).applyQuaternion(this.rq), _c.copy(D).applyQuaternion(this.rq));
+      a.seatP.copy(GRASP).applyQuaternion(a.seatQ);
+      a.seatP.subVectors(g, a.seatP);
+    }
+  }
+
   /** The clip's grasp offsets → seat of each hand (world). */
   private seats(): void {
+    if (this.track) { this.trackSeats(this.track); return; }
     const { P, N, T, U } = this;
     const k = this.progress, t = this.phase;
     // the face's grasp frame for a palm-down overhand grip: fingers into the face and a little up, back of the hand up
@@ -185,6 +237,7 @@ export class GripHands {
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
     for (const a of this.arms) {
       const side = a.left ? -1 : 1;
+      if (!a.hand.root.visible) continue;
       // waiting out of view: below the lower corner of the frame on its side, fingers forward
       a.restP.copy(cp).addScaledVector(cr, side * 0.22).addScaledVector(cu, -0.42).addScaledVector(cf, 0.3);
       orientFD(a.restQ, _a.copy(cf).multiplyScalar(0.8).addScaledVector(cu, 0.25), _b.copy(cu).multiplyScalar(0.8).addScaledVector(cr, side * 0.4));

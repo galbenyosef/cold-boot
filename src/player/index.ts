@@ -15,8 +15,8 @@ import { resolveMats } from './viewmodels/mats';
 import { setVmLight, setVmNear } from './viewmodels/vmlight';
 import { clamp, damp, smooth01, wrapAngle } from './math';
 import { PalmHand } from './palm';
-import { LOWER_CINEMATIC, LOWER_SAFE, clearJump, settle, standNow } from './cinematic';
-import { GripHands } from './grip';
+import { LOWER_CINEMATIC, LOWER_SAFE, clearJump, settle, standNow, uncrouch } from './cinematic';
+import { GripHands, type GripTrack } from './grip';
 import { WADE, depthAt, wadeCaps, type DepthInfo } from './water';
 import { KEY_NAMES, keyName } from './keys';
 
@@ -126,16 +126,110 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     }
   }
 
+  // ── user fix 7: the stand snap — for a hand action the body is brought to the control's fixed stand pose (eased, moved
+  //    through the physics: never into a collider) and held there while the hands work; then control returns at once ──
+  type Stand = { pos: THREE.Vector3; yaw: number; pitch: number };
+  const SNAP_S = 0.3, SNAP_LOOK_S = 0.45, SNAP_PULL = 14;
+  let snap: { from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; yaw: number; pitch: number } | null = null;
+  const _sp = new THREE.Vector3(), _sq = new THREE.Vector3();
+  /** The standing capsule at feet `p` touches nothing solid (static world: walls, colliders, move-only boxes). */
+  function capsuleFree(p: THREE.Vector3, r = MOVE.radius - 0.02): boolean {
+    for (let y = r + 0.04; y <= MOVE.height - r + 1e-3; y += 0.25) {
+      _sq.set(p.x, p.y + y, p.z);
+      try { if (ctx.physics.resolveSphere(_sq, r)) return false; } catch { return true; }
+    }
+    return true;
+  }
+  /** A stand the body can be brought to from here: free, no wall between (feet height of the body). */
+  function standOk(st: Stand | undefined | null): Stand | null {
+    if (!st || !Number.isFinite(st.pos.x + st.pos.z + st.yaw + st.pitch)) return null;
+    const b = ctrl.body.position;
+    _sp.set(st.pos.x, b.y, st.pos.z);
+    if (!capsuleFree(_sp)) return null;
+    try { if (!ctx.physics.lineOfSight(_sq.set(b.x, b.y + 0.9, b.z), _sp.clone().setY(b.y + 0.9))) return null; } catch { /* ignore */ }
+    return { pos: _sp.clone(), yaw: st.yaw, pitch: clamp(st.pitch, -PITCH_LIMIT, PITCH_LIMIT) };
+  }
+  /** The stand wanted this frame (null: free movement). */
+  function standWanted(active: boolean): Stand | null {
+    if (!active) return null;
+    if (palm) return palm.stand;
+    if (grip && grip.stand && grip.engaged && (grip.o.hold ? gripKey() : true)) return grip.stand;
+    return null;
+  }
+  function snapTick(dt: number, active: boolean) {
+    const st = standWanted(active);
+    if (!st) { snap = null; return; }
+    if (!snap || !snap.to.equals(st.pos)) {
+      const b = ctrl.body.position;
+      const d = Math.hypot(st.pos.x - b.x, st.pos.z - b.z);
+      snap = { from: b.clone(), to: st.pos.clone(), t: 0, dur: SNAP_S + clamp((d - 0.6) * 0.12, 0, 0.15), yaw: st.yaw, pitch: st.pitch };
+      look.active = false; headUp = null;
+      uncrouch(ctrl);
+    }
+  }
+  /** After the controller's move: the body put on the eased path to the stand (through moveBody: it slides, never enters). */
+  function snapMove(dt: number) {
+    if (!snap || dt <= 0) return;
+    snap.t += dt;
+    const e = smooth01(Math.min(1, snap.t / snap.dur));
+    const b = ctrl.body, v = b.velocity;
+    const tx = snap.from.x + (snap.to.x - snap.from.x) * e, tz = snap.from.z + (snap.to.z - snap.from.z) * e;
+    const dx = tx - b.position.x, dz = tz - b.position.z;
+    if (dx * dx + dz * dz > 1e-8) {
+      const vy = v.y;
+      v.set(dx / dt, b.onGround ? 0 : vy, dz / dt);
+      ctx.physics.moveBody(b, dt);
+      v.set(0, vy, 0);
+    } else { v.x = 0; v.z = 0; }
+  }
+  /** View eased to the stand's facing over the snap (mouse damped as for the work; it takes over after). */
+  function snapLook(dt: number) {
+    if (!snap || snap.t > SNAP_LOOK_S || dt <= 0) return;
+    const k = 1 - Math.exp(-SNAP_PULL * dt);
+    const ny = yaw + wrapAngle(snap.yaw - yaw) * k, np = pitch + (snap.pitch - pitch) * k;
+    lastLookX += ny - yaw; lastLookY += np - pitch;
+    yaw = ny; pitch = np;
+  }
+
   // ── palm scan (REVISION 6.1): the free left hand flat on a plate for a moment; see Player.palm ──
   const PALM_START = 1.0, PALM_CANCEL = 1.3;
   /** How much of the mouse still reaches the view while the hand is on the plate, and how hard the view is drawn to it. */
   const PALM_LOOK = 0.15, PALM_PULL = 7;
-  let palm: { plate: PalmPlate; dur: number; t: number; pitch0: number; resolve: (r: PalmResult) => void } | null = null;
+  let palm: { plate: PalmPlate; dur: number; t: number; pitch0: number; resolve: (r: PalmResult) => void; stand: Stand | null } | null = null;
+  /** User fix 7: where the body stands for a palm scan — the left hand in front of the left shoulder (m from the plate, m to his right). */
+  const PALM_STAND_D = [0.5, 0.58, 0.66, 0.44], PALM_STAND_R = [0.1, 0.18, 0.02];
   let unstowIn = -1;
   let headUp: { by: number; t: number; k: number } | null = null;
   const palmHand = new PalmHand(worldMats);
   ctx.scene.add(palmHand.root);
   const palmDist = (plate: PalmPlate) => { const p = ctrl.body.position; return Math.hypot(p.x - plate.position.x, p.z - plate.position.z); };
+  /**
+   * User fix 7: a free stand in front of a plate — on its horizontal normal, a little to the right of it so the left hand
+   * comes in from the left shoulder; facing it, the view on the plate. Null when no candidate is free (no snap).
+   */
+  function palmStand(pl: PalmPlate): Stand | null {
+    let nx = pl.normal.x, nz = pl.normal.z;
+    const nl = Math.hypot(nx, nz);
+    if (nl < 0.3) {
+      // a plate that faces up: from where he stands
+      const b = ctrl.body.position;
+      nx = b.x - pl.position.x; nz = b.z - pl.position.z;
+      const l = Math.hypot(nx, nz);
+      if (l < 1e-3) return null;
+      nx /= l; nz /= l;
+    } else { nx /= nl; nz /= nl; }
+    // facing −n: his right is (nz, −nx)
+    const rx = nz, rz = -nx;
+    const y = ctrl.body.position.y;
+    for (const d of PALM_STAND_D) for (const r of PALM_STAND_R) {
+      const px = pl.position.x + nx * d + rx * r, pz = pl.position.z + nz * d + rz * r;
+      const ex = pl.position.x - px, ez = pl.position.z - pz;
+      const eyeY = y + MOVE.eyeStand;
+      const st = standOk({ pos: new THREE.Vector3(px, y, pz), yaw: Math.atan2(-ex, -ez), pitch: Math.atan2(pl.position.y + pl.up.y * 0.07 - eyeY, Math.hypot(ex, ez)) });
+      if (st) return st;
+    }
+    return null;
+  }
   function endPalm(result: PalmResult) {
     const p = palm;
     if (!p) return;
@@ -312,6 +406,9 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     /** Within maxDist this frame. */
     near: boolean;
     flinch: number; idle: number; easeT: number;
+    /** User fix 7: the validated stand pose (null: none / not free). */
+    stand: Stand | null;
+    track: GripTrack | null;
   };
   let grip: GripRun | null = null;
   let gripStow = false;
@@ -325,7 +422,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     if (g.engaged === on) return;
     g.engaged = on;
     if (on) {
-      gripHands.begin(g.point, g.normal, g.o.motion, yaw);
+      gripHands.begin(g.point, g.normal, g.o.motion, yaw, g.track);
       g.easeT = 0;
       look.active = false; headUp = null;
       weapons.cancelReload();
@@ -354,6 +451,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     const g: GripRun = {
       o, point: o.point.clone(), normal: o.normal.clone(), seconds: Math.max(0.05, o.seconds), maxDist: o.maxDist ?? GRIP_DIST,
       progress: clamp(o.start ?? 0, 0, 1), resolve, advancing: false, engaged: false, near: true, flinch: 0, idle: 0, easeT: 0,
+      stand: null,
+      track: o.track ? { at: o.track, axis: o.trackAxis, roll: o.trackRoll, spread: Math.max(0, o.spread ?? 0.12), hands: o.hands === 1 ? 1 : 2 } : null,
       handle: {
         get progress() { return g.progress; },
         get holding() { return grip === g && g.advancing; },
@@ -365,7 +464,9 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     // starts only alive, in control, playing, near and on the front side of the face
     const p = ctrl.body.position;
     const nh = Math.hypot(g.normal.x, g.normal.z);
-    const front = nh < 0.3 ? 1 : (p.x - g.point.x) * g.normal.x + (p.z - g.point.z) * g.normal.z;
+    g.stand = standOk(o.stand);
+    // (a control with a stand pose brings him round to its front itself)
+    const front = nh < 0.3 || g.stand ? 1 : (p.x - g.point.x) * g.normal.x + (p.z - g.point.z) * g.normal.z;
     if (!alive || cine || !controlsEnabled || ctx.state !== 'playing' || gripDist(g) > g.maxDist || front <= 0) {
       resolve('cancelled');
       return g.handle;
@@ -386,7 +487,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
     if (!g.o.hold && !g.near) { endGrip('cancelled'); return; }
     const want = active && g.near && (g.o.hold ? gripKey() : true);
     g.flinch = Math.max(0, g.flinch - dt);
-    g.advancing = want && g.flinch <= 0;
+    // user fix 7: a tracked handle moves only once the hands have closed on it (not while they are still on the way)
+    g.advancing = want && g.flinch <= 0 && (!g.track || gripHands.s >= 0.7);
     if (want) { g.idle = 0; gripEngage(g, true); }
     else { g.idle += dt; if (g.idle >= GRIP_LETGO || !g.near) gripEngage(g, false); }
     if (g.advancing) {
@@ -579,7 +681,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         const p = ctrl.body.position;
         const front = (p.x - plate.position.x) * plate.normal.x + (p.z - plate.position.z) * plate.normal.z;
         if (palmDist(plate) > PALM_START || front <= 0) { resolve('refused'); return; }
-        palm = { plate: { position: plate.position.clone(), normal: plate.normal.clone().normalize(), up: plate.up.clone().normalize() }, dur: Math.max(0.05, seconds), t: 0, pitch0: Math.min(pitch, 0.1), resolve };
+        palm = { plate: { position: plate.position.clone(), normal: plate.normal.clone().normalize(), up: plate.up.clone().normalize() }, dur: Math.max(0.05, seconds), t: 0, pitch0: Math.min(pitch, 0.1), resolve, stand: null };
+        palm.stand = plate.stand ? standOk(plate.stand) : palmStand(palm.plate);
         palmStow = true;
         syncStow();
         unstowIn = -1;
@@ -733,6 +836,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       const active = controlsEnabled && alive && ctx.state === 'playing' && !cine && rescue.black < 0;
       if (consumed.size) releaseConsumed();
       gripTick(dt, active);
+      snapTick(dt, active);
       /** The hands are on a handle: look damped, feet planted while E is held, no interact. */
       const gripOn = !!grip && grip.engaged;
 
@@ -784,7 +888,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         lastLookX += ny - yaw; lastLookY += np - pitch;
         yaw = ny; pitch = np;
       }
-      if (grip && gripOn && grip.easeT < GRIP_EASE && dt > 0) {
+      snapLook(dt);
+      if (grip && gripOn && !grip.stand && grip.easeT < GRIP_EASE && dt > 0) {
         // §8.3: the view eased toward the handle over the first 0.4 s of each hold
         grip.easeT += dt;
         const tx = grip.point.x - eye.x, ty = grip.point.y - eye.y, tz = grip.point.z - eye.z;
@@ -837,6 +942,8 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         moveIn.wade = wadeCaps(wet.d);
         // §8.3: the feet are planted while E works a hold grip
         if (grip && grip.o.hold && grip.advancing) { moveIn.fwd = 0; moveIn.strafe = 0; moveIn.jump = false; moveIn.sprint = false; }
+        // user fix 7: held at the stand pose while the hands work
+        if (snap) { moveIn.fwd = 0; moveIn.strafe = 0; moveIn.jump = false; moveIn.sprint = false; moveIn.crouchToggle = false; }
         dbgMove.jump = false;
       }
       // D12: deep water holds him — no gravity, the sink held to 0.5 m/s (the rescue follows)
@@ -846,6 +953,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
         if (v.y < -WADE.sink || !ctrl.grounded) v.y = Math.max(-WADE.sink, Math.min(v.y, 0));
       } else if (ctrl.body.gravityScale === 0) ctrl.body.gravityScale = undefined;
       ctrl.update(dt, active ? moveIn : null, yaw, ev);
+      snapMove(dt);
       const feet = ctrl.body.position;
       depthAt(ctx.level.water, feet, wet);
       waterTick(dt);
@@ -1027,10 +1135,13 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       const g = grip;
       return g ? {
         id: g.o.id, motion: g.o.motion, hold: g.o.hold, progress: +g.progress.toFixed(4), advancing: g.advancing, engaged: g.engaged,
-        near: g.near, dist: +gripDist(g).toFixed(3), flinch: +g.flinch.toFixed(3), hands: gripHands.mode, handsS: +gripHands.s.toFixed(3),
+        near: g.near, dist: +gripDist(g).toFixed(3), stand: g.stand ? g.stand.pos.toArray().map((x) => +x.toFixed(3)) : null, tracked: !!g.track, flinch: +g.flinch.toFixed(3), hands: gripHands.mode, handsS: +gripHands.s.toFixed(3),
         grasp: gripHands.grasp.map((v) => v.toArray().map((x) => +x.toFixed(3))), lower: +weapons.lower.toFixed(2), stowed: weapons.isStowed,
       } : null;
     },
+    /** User fix 7: the stand snap now (null: free), and whether a standing capsule at feet (x, y, z) is free of the world. */
+    snap: () => snap ? { to: snap.to.toArray().map((x) => +x.toFixed(3)), t: +snap.t.toFixed(3), dur: snap.dur, yaw: +snap.yaw.toFixed(3), pitch: +snap.pitch.toFixed(3) } : null,
+    capsuleFree: (x: number, y: number, z: number, r?: number) => capsuleFree(new THREE.Vector3(x, y, z), r),
     /** Stage 3d §8.3: hold / release E for the grip (as the key). */
     gripHold: (on = true) => { dbgGripHold = on; return on; },
     /** Stage 3d H18: the fraction k of aim-locked shots that hit the locked point (the rest miss it by 0.5 m); null = off. */

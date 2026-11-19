@@ -16,7 +16,8 @@
  * (`ctx.__triggers`), rooms / regions by name. A missing marker is an error (`debugState.missingMarkers`).
  */
 import * as THREE from 'three';
-import type { Enemy, GameContext } from '../../core/types';
+import type { Enemy, GameContext, GripOpts } from '../../core/types';
+import type { GripSpot6 } from '../../level/l6/setpieces6';
 import type { Sequencer } from '../sequencer';
 import type { MusicDirector } from '../director';
 import type { World } from '../world';
@@ -561,6 +562,18 @@ export abstract class Base6 extends StageBase<Flags6, PhaseId6, CheckpointIdL6, 
   protected api(name: string): Record<string, unknown> | null {
     const o = this.obj(name);
     return o ? (o.userData as Record<string, unknown>) : null;
+  }
+  /**
+   * User fix 7: the hand control `id` of set piece `name` (`userData.gripSpots[id]`: stand pose + live handle) as the
+   * grip's optional members, and its face normal — {} / null when the piece has none (the plain grip then).
+   */
+  protected gripSpot(name: string, id: string): { opts: Partial<GripOpts>; normal: THREE.Vector3 | null } {
+    const s = (this.api(name)?.gripSpots as Record<string, GripSpot6> | undefined)?.[id];
+    if (!s || typeof s.handle !== 'function') return { opts: {}, normal: null };
+    return {
+      normal: s.normal.clone(),
+      opts: { stand: { pos: s.stand.clone(), yaw: s.yaw, pitch: s.pitch }, track: s.handle, trackAxis: s.axis, trackRoll: s.roll, spread: s.spread, hands: s.hands },
+    };
   }
   protected call(name: string, fn: string, ...a: unknown[]): boolean {
     const f = this.api(name)?.[fn];

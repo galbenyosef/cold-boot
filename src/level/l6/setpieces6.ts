@@ -45,6 +45,24 @@ const smooth = (t: number) => { const k = clamp01(t); return k * k * (3 - 2 * k)
 /** Min-jerk ease (zero velocity and acceleration at both ends). */
 const minJerk = (t: number) => { const k = clamp01(t); return k * k * k * (10 + k * (-15 + 6 * k)); };
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+
+/**
+ * User fix 7: one hand control of a set piece — `userData.gripSpots[<interactable id>]`. `stand` (feet) + `yaw` / `pitch`
+ * = the fixed stand pose the player is brought to while he works it (a free spot: scripts check the capsule there);
+ * `handle()` = the live world grasp centre of the moving part, `axis()` its live axis, `roll()` its live twist about
+ * `normal` (the face he works from); `spread` = half the hands' spacing along the axis, `hands` 1 = the right alone.
+ * The story hands them to `Player.grip` (GripOpts.stand / track / trackAxis / trackRoll / spread / hands).
+ */
+export interface GripSpot6 {
+  stand: THREE.Vector3; yaw: number; pitch: number; normal: THREE.Vector3;
+  handle: () => THREE.Vector3; axis?: () => THREE.Vector3; roll?: () => number; spread?: number; hands?: 1 | 2;
+}
+const EYE6 = 1.65;
+/** A stand at feet (x, y, z) looking at `look`. */
+function spot6(x: number, y: number, z: number, look: THREE.Vector3, rest: Omit<GripSpot6, 'stand' | 'yaw' | 'pitch'>): GripSpot6 {
+  const dx = look.x - x, dz = look.z - z, dy = look.y - (y + EYE6);
+  return { stand: new THREE.Vector3(x, y, z), yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)), ...rest };
+}
 function trs(x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1): THREE.Matrix4 {
   return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ')), new THREE.Vector3(sx, sy, sz));
 }
@@ -539,10 +557,11 @@ export function switch6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.Obj
   R.box(PAL.red, 3, F - 0.135, KY - 0.075, KZ, 0.004, 0.05, 0.035);
   R.build(rooms, 0.6);
 
-  let k = 0, kk = 0;
+  let k = 0, kk = 0, crankA = 0;
   const setProgress = (v: number) => {
     k = clamp01(v);
     const a = k * SWITCH6.turns * TAU + 0.05 * Math.sin(k * SWITCH6.turns * TAU * 2) * Math.sin(k * PI);
+    crankA = a;
     R.pivot(1, HX, HY, HZ, a, 0, 0);
     const u = smooth(ramp(k, 0.1, 0.92)), over = 0.06 * Math.sin(PI * ramp(k, 0.92, 1.0));
     R.pivot(2, F - 0.016, 1.9, -171.0, lerp(0.6, -0.6, u) - over, 0, 0);
@@ -565,6 +584,14 @@ export function switch6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.Obj
   };
   ud.hub = V(HX, HY, HZ);
   ud.keyPoint = V(F - 0.06, KY, KZ);
+  // user fix 7: both hands on the first grip (a 0.22 m rod pointing at him), going round with the crank
+  ud.gripSpots = {
+    he6_switch: spot6(HX - 0.86, 0, HZ, V(HX - 0.2, HY, HZ), {
+      normal: V(-1, 0, 0), spread: 0.05,
+      handle: () => V(HX - 0.26, HY + SWITCH6.gripR * Math.cos(crankA), HZ + SWITCH6.gripR * Math.sin(crankA)),
+      axis: () => V(-1, 0, 0),
+    }),
+  } satisfies Record<string, GripSpot6>;
   L.root.add(root); L.objects.set('switch6', root);
   return root;
 }
@@ -791,6 +818,18 @@ export function beachJoint6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE
   ud.lockPoint = V(...BJ6.barrel);
   ud.loomPoint = V(CX, CY, CZ + 0.18);
   ud.keyBPoint = V(KBX, KBY, KBZ + 0.06);
+  // user fix 7: the right hand on Key A's bow (it rides the east leaf and turns 90° about +z); both on the T-handle
+  const keyA = () => { const p = V(-0.53, 1.2, T + 0.13); if (ku > 0) p.applyMatrix4(R.bones[1]); return E.mount.localToWorld(p); };
+  const tee = () => V(CX, CY, CZ + 0.18).applyMatrix4(R.bones[3]);
+  const k0 = keyA();
+  ud.gripSpots = {
+    vault6_lock: spot6(k0.x - 0.1, 0, k0.z + 0.62, k0, {
+      normal: V(0, 0, 1), hands: 1, handle: keyA, roll: () => (PI / 2) * smooth(ramp(ku, 0.05, 0.6)),
+    }),
+    vault6_loom: spot6(CX, 0, CZ + 0.8, V(CX, CY, CZ + 0.18), {
+      normal: V(0, 0, 1), spread: 0.065, handle: tee, axis: () => V(1, 0, 0).transformDirection(R.bones[3]),
+    }),
+  } satisfies Record<string, GripSpot6>;
   L.root.add(root); L.objects.set('bj6', root);
   return root;
 }
@@ -839,6 +878,13 @@ export function shaftLock6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.
   root.userData.unlock = unlock;
   Object.defineProperty(root.userData, 'k', { get: () => k, enumerable: true });
   root.userData.keyPoint = V(F + 0.06, Y, Z);
+  // user fix 7: the right hand on Key B's bow (it turns 90° about +x)
+  const keyB = () => { const p = V(F + 0.11, Y, Z); if (k > 0) p.applyMatrix4(R.bones[1]); return p; };
+  root.userData.gripSpots = {
+    shaft6_lock: spot6(F + 0.11 + 0.62, 0, Z + 0.1, V(F + 0.11, Y, Z), {
+      normal: V(1, 0, 0), hands: 1, handle: keyB, roll: () => (PI / 2) * smooth(ramp(k, 0.05, 0.6)),
+    }),
+  } satisfies Record<string, GripSpot6>;
   L.root.add(root); L.objects.set('shaft6', root);
   return root;
 }
@@ -1181,6 +1227,26 @@ export function frame6(L: LevelBuild, b: Builder, o: PieceOpts = {}): THREE.Obje
     pinPoint: V(pnx + 0.065, pny, pnz), shearPoint: V(sxm, -15.6, szm), sheavePoint: V(shx, shy, shz), wellPoint: V(F.tx, F.water, F.hangZ),
     winchPoint: V(dx, dy, dz), lampPoint: V(lpx, lpy - 0.05, lpz), lampTarget: V(sxm, -15.3, szm),
   });
+  // user fix 7: the pin's ring (right hand, drawn toward him along +x), the pump's rubber grip (both hands, along the
+  // handle), the lever's arm under the knob (both hands, along the arm) — each from a free spot inside the cage
+  const pinOut = () => 0.33 * smooth(ramp(kPin, 0, 0.85));
+  const pumpDir = () => {
+    const s = kPump * F.strokes, ph = s - Math.floor(s);
+    const a = kPump >= 1 ? -0.45 : lerp(-0.45, 0.1, ph < 0.55 ? smooth(ph / 0.55) : 1 - smooth((ph - 0.55) / 0.45));
+    return V(0, -Math.sin(a), Math.cos(a));
+  };
+  const leverDir = () => { const a = minJerk(kLever); return V(0, Math.cos(a), Math.sin(a)); };
+  ud.gripSpots = {
+    frame6_pin: spot6(-50.75, Y, -167.95, V(pnx + 0.065 + 0.17, pny, pnz), {
+      normal: V(1, 0, 0), hands: 1, handle: () => V(pnx + 0.065 + pinOut(), pny + 0.03, pnz),
+    }),
+    frame6_pump: spot6(PV.x + 0.1, Y, -167.1, V(PV.x, -14.95, -167.75), {
+      normal: V(0, 0, 1), spread: 0.05, handle: () => pumpDir().multiplyScalar(0.71).add(PV), axis: pumpDir,
+    }),
+    frame6_lever: spot6(LV.x, Y, -167.75, V(LV.x, -14.62, -168.3), {
+      normal: V(0, 0, 1), spread: 0.05, handle: () => leverDir().multiplyScalar(0.22).add(LV).add(V(0, 0, 0.01)), axis: leverDir,
+    }),
+  } satisfies Record<string, GripSpot6>;
   Object.defineProperty(ud, 'screenAuto', { get: () => st.screenAuto, set: (v: boolean) => { st.screenAuto = v; }, enumerable: true });
   L.root.add(root); L.objects.set('frame6', root);
   return root;
