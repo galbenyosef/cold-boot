@@ -202,3 +202,10 @@ Collected from agents' reports and coordinator notes. At the end: run every item
   `check-voice-level --level 6`; check `_command` variant; `choir_manual_stop` once 0.143 s late.
 - Decisions recorded for the user: ending framing (ST-b), OSD clock on its own line, splash_big at water contact (~1.07 s),
   trough 14 cm, objective "Clear the dock", galleryRun parapet keeps its 9 cm static cap.
+
+## After IA-g (89b5c2b) — levels 1–4 + global: all green
+Left: perf views LOW/MEDIUM/HIGH per level (not run); pickups' 50 m cutoff in motion; `check:reach --level 6` re-run
+after IA-6's trench fix (IA-g saw `hatch6_he` / `p6_trench_ammo_1` failing before it); IA-5: `check:doors` geometry near
+the closed `d5_gate` leaf (`lock5_d1`/`gate5_d1` navy_grey y 3.33–3.6), stale "next is null" comments in
+`src/story/l5/{index,text}.ts`; coordinator: CHECKLIST's check:chain / play:l5 lines (5 → 6 is live). User: listen to
+the level-2 `servo` (intake_shoe), look at the level-3 atrium sea window snow near the pane edges.
