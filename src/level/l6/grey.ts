@@ -615,6 +615,9 @@ export const SHELLS6: Record<RoomId6, Shell> = {
   bay6: ({ L, G, b, standin }) => {
     air(G, 'bay6');
     stand(b, standin, 16.0, 0, -103.0, 18.0, 1.2, -101.0);  // the joint box on trestles
+    // (the joint box stands 1.5 m inside `d6_bay`: the grid's first column falls in the jamb's margin, so no grid node
+    //  links the door to the bay — a column of nodes in the gap between the door and the box)
+    for (const z of [-103.5, -102.0, -100.5]) L.navNode(15.15, z, 'bay6', 0);
     shelf(b, standin, 20.1, 1.0, -104.0, 0.4, 2.0);
     L.marker('mk6_bay_u1', 16.0, 0, -99.6, PI / 2);
     L.marker('mk6_bay_u2', 18.6, 0, -99.6, PI / 2);
@@ -800,8 +803,9 @@ export const SHELLS6: Record<RoomId6, Shell> = {
     slope(wd, standin, 'x', -41.6, WET, -38.0, DOCK, -194.0, -182.4);
     slope(wd, standin, 'z', -185.5, WET, -184.0, CHANNEL, -62.4, -41.6);
     // enemies walk the ramps (nav links the wet floor to the dock through them; the channel's slope is not nav: > 0.6 m)
-    L.navStair('pool6', [-62.4, WET, -188.0], [-66.0, DOCK, -188.0], 2.6);
-    L.navStair('pool6', [-41.6, WET, -188.0], [-38.0, DOCK, -188.0], 2.6);
+    // (the nav stairs are as wide as the slabs, z −194 … −182.4: a body anywhere on a ramp stands on a declared floor)
+    L.navStair('pool6', [-62.4, WET, -188.2], [-66.0, DOCK, -188.2], 11.6);
+    L.navStair('pool6', [-41.6, WET, -188.2], [-38.0, DOCK, -188.2], 11.6);
     // ── the well: 12 × 12 m opening down to the cargo lock's inner door (y −34) ──
     airIn(G, 'pool6', [-58, -34, -182, -46, DOCK, -170], ['pool6'], 'pool6');
     // the coaming (0.4 m, top −19.2, solid: stops rounds) and the 1.6 m vertical-bar guard flush with its outer face

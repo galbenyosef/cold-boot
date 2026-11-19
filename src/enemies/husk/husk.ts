@@ -1551,7 +1551,10 @@ export class Husk extends EnemyBase {
     if (!w.playerAlive) { this.lookW = damp(this.lookW, 0.3, 2, dt); this.moveGround(dt, 0, 0, 0, 6); this.locomote(dt); return; }
     this.lookW = 1;
     this.navigate(dt);
-    const hd = Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z);
+    // (`hd` = how close the player is for stopping / the watchdog: a player on a floor ≥ 1.4 m above or below — the
+    //  same deck test as the attack — is never "here", so a husk crossing the landing under the player keeps walking
+    //  its path; on one floor (levels 1–2 always) it is the plain horizontal distance)
+    const hd = Math.abs(w.playerPos.y - p.y) < 1.4 ? Math.hypot(w.playerPos.x - p.x, w.playerPos.z - p.z) : Infinity;
     // walk → lurching run
     const wantRun = !this.gentle && (this.rage > 0 || this.rushT > 0 || this.health < HP * 0.6 || (this.dist < 7.5 && this.seesPlayer));
     if (wantRun && !this.running) { this.running = true; this.lurch = 0.24; this.headYaw.v += 14 * (w.rand() - 0.5); this.headRoll.v += 8; }

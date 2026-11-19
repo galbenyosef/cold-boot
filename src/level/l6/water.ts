@@ -66,15 +66,15 @@ const AWAY6 = [0, 0, 3] as const;
 export const NAV_CASES6 = {
   reach: [
     { id: 'tun_u_cross', label: 'g6_tun_u husk (rushed) from rep6 → player at the crossing in tunnel A', type: 'husk', rush: true, spawn: [-4, 0, -90], player: [0, 0, -30], within: 17 },
-    { id: 'bay_rep', label: 'g6_rep_u husk (rushed) from bay6 → player in rep6', type: 'husk', rush: true, spawn: [17, 0, -100], player: [4, 0, -86], within: 6 },
+    { id: 'bay_rep', label: 'g6_rep_u husk (rushed) from bay6 → player in rep6 (plan 6 s; ≈ 24 m round the joint box and through d6_bay: 8 s)', type: 'husk', rush: true, spawn: [17, 0, -100], player: [4, 0, -86], within: 8 },
     { id: 'hold_he_husk', label: 'g6_he husk (rushed) from hold6 → player at the head-end (plan 9 s; ≈ 41 m: 12 s)', type: 'husk', rush: true, spawn: [-16, 0, -143], player: [12, 0, -170], within: 12 },
-    { id: 'hold_he_soldier', label: 'g6_he soldier (1.6 m/s) from hold6 → the head-end', type: 'soldier', spawn: [-16, 0, -143], player: [12, 0, -170], within: 25, arrive: 8 },
+    { id: 'hold_he_soldier', label: 'g6_he soldier (1.6 m/s) from hold6 → the head-end (25 s + 2 s for his rise and first shot)', type: 'soldier', spawn: [-16, 0, -143], player: [12, 0, -170], within: 27, arrive: 8 },
     { id: 'hold_bj', label: 'g6_vault husk (rushed) from hold6 → the enclosure (plan 8 s; ≈ 35 m: 10 s)', type: 'husk', rush: true, spawn: [-16, 0, -143], player: [-12, 0, -177.6], within: 10 },
     { id: 'shaft_l1', label: 'husk (rushed) from the shaft bottom → L1 (three flights)', type: 'husk', rush: true, spawn: [-25.0, -12, -170.6], player: [-25.0, -3, -163.3], within: 10, via: ['stair'] },
     { id: 'w2_west_cage', label: 'W2 husk (rushed) from the west ladder exit → the cage via ST6_M', type: 'husk', rush: true, spawn: [-59.3, -20, -176.0], player: [-52, -16, -167], within: 14, via: ['stair'] },
     { id: 'w2_east_cage', label: 'W2 husk (rushed) from the east ladder exit → the cage via ST6_M2', type: 'husk', rush: true, spawn: [-44.7, -20, -176.0], player: [-52, -16, -167], within: 14, via: ['stair'] },
     { id: 'w3_ge2', label: 'W3 soldier from the shaft bottom → cv6_ge2 on the east gallery', type: 'soldier', spawn: [-24.0, -12, -163.4], player: [-30.65, -12, -186.0], within: 15, arrive: 6 },
-    { id: 'w1_gn1', label: 'W1 soldier from stores6 → cv6_gn1 on the north gallery', type: 'soldier', spawn: [-72.0, -12, -144.0], player: [-62.0, -12, -150.65], within: 8, arrive: 6 },
+    { id: 'w1_gn1', label: 'W1 soldier from stores6 → cv6_gn1 on the north gallery (its cover set gal_n, as l6/index.ts spawns it; the player in the cage)', type: 'soldier', spawn: [-72.0, -12, -144.0], player: [-52.0, -16, -167.0], within: 8, arrive: 2.5, arriveAt: [-62.0, -12, -150.65], cover: 'gal_n' },
     { id: 'wet_ramp_husk', label: 'husk (rushed) from the dry dock → player on the wet dock floor (ramps, not the channel)', type: 'husk', rush: true, spawn: [-64.0, -20, -178.0], player: [-52.0, -20.8, -188.0], within: 12, maxWade: 0.6 },
   ],
   avoid: [

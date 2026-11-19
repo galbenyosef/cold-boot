@@ -122,6 +122,11 @@ async function level6() {
         const kind = depth >= 0.35 && depth <= 0.65 ? 'wet' : depth >= 0.8 && depth <= 1.25 ? 'channel' : depth > 3 ? 'well' : null;
         if (!kind || out[kind]) continue;
         if (kind === 'wet' && !(laneW(x, fy, z, [1, 0]) && laneW(x, fy, z, [0, 1]))) continue;
+        // (the wet lanes run on the open flat wet floor: chest-height rays pass over the dock's 0.8 m edge and the ramps,
+        //  and from inside a container every ray passes — so the point and every lane end must meet that same floor first
+        //  from 3 m over the surface, and the diagonals too (the body falls up to a metre off the spot) — else a walk
+        //  "across" runs into the edge's wall or a container)
+        if (kind === 'wet' && [[0, 0], [2.2, 0], [-2.2, 0], [0, 2.2], [0, -2.2], [1.6, 1.6], [1.6, -1.6], [-1.6, 1.6], [-1.6, -1.6]].some(([ox, oz]) => { const f = floorAt(x + ox, w.surface + 3, z + oz); return f === null || Math.abs(f - fy) > 0.05; })) continue;
         out[kind] = { p: [x, kind === 'well' ? w.surface - 0.4 : fy, z], depth, surface: w.surface, id: w.id, dirs: [[1, 0], [-1, 0], [0, 1], [0, -1]] };
       }
     }

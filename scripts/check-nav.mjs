@@ -20,7 +20,8 @@
 // Level 4 (stage 3b §10.3) declares its own cases like level 3, with `sentries` (a list) besides `sentry`.
 // Level 5 (stage 3c §10.3, W4): reach cases carry `type` (husk | skitter | soldier), `rush` (the story's
 // `enemies.rush`: husks at 4.0 m/s) and `arrive` (success within that many metres of the player — a soldier stops at
-// range); `ramps` (a list); `nav: false` floors (crawl, magazine) are left out of the floor test and must hold NO node;
+// range; `arriveAt`: within `arrive` m of that point instead — a soldier's cover point); `ramps` (a list); `nav: false`
+// floors (crawl, magazine) are left out of the floor test and must hold NO node;
 // `noNodes` boxes (the hatch pit, the magazine hatch: obstacles from load) hold none; `navStairs` = how many nav stairs
 // there are (the lower ship stairs carry none); `shipStairs`: the PLAYER capsule walks up each ship stair (lids
 // snapped open); `cover`: every cover point has a nav node within 1.5 m reachable from its set's soldier spawn.
@@ -222,7 +223,9 @@ function install() {
       for (const n of nav) {
         const q = n.position;
         o3.set(q.x, q.y + 0.5, q.z);
-        const h = phys.raycast(o3, DOWN, 1.0);
+        let h = phys.raycast(o3, DOWN, 1.0);
+        // (level 6: a node wading under a water surface — the rayOnly quad is not its floor)
+        if (h && h.surface === 'water' && phys.raycastSolid) h = phys.raycastSolid(o3, DOWN, 1.0);
         // nav v2 levels: the node is ON its floor (0 … 0.3 m above it); levels 1–2 (every node at y 0) also accept a
         // floor up to 0.3 m above the node (raised plates, the line's apron: a husk steps onto them)
         // (deck levels: up to 0.2 m above, a 0.15 m walkable body box lying on the node — units step over it)
@@ -314,7 +317,9 @@ function install() {
       step(2); e.alert?.();
       if (c.rush) g.enemies.rush?.(grp, c.within + 5);
       const pp = g.player.position;
-      const r = follow(e, c.within, c.arrive ? { until: () => Math.hypot(e.position.x - pp.x, e.position.z - pp.z) < c.arrive && Math.abs(e.position.y - pp.y) < 1.0 } : {});
+      // (`arriveAt`: success within `arrive` m of that point — a soldier's cover point — instead of the player)
+      const at = c.arriveAt ? new V(c.arriveAt[0], c.arriveAt[1], c.arriveAt[2]) : pp;
+      const r = follow(e, c.within, c.arrive ? { until: () => Math.hypot(e.position.x - at.x, e.position.z - at.z) < c.arrive && Math.abs(e.position.y - at.y) < 1.0 } : {});
       r.type = e.type;
       kill(grp);
       return r;
