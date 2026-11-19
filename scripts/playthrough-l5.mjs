@@ -1068,7 +1068,7 @@ async function segRadio({ codeDuring = false, ask = true } = {}) {
   ok(near(d.t['phase:K'] - k4.end, 0, 0.12), `power cue (phase K) at l5_kes_4's end (${f2(d.t['phase:K'] - k4.end)})`, 'story');
   ok(d.keypad?.powered === true, 'keypad powered', 'story');
   await toastSeen('Q — radio Kessler', 3);
-  await objectiveSeen('Open the spine door — keypad', 3);
+  await objectiveSeen('Open the spine door — door code: 4 7 1 9', 3);
   if (codeDuring) {   // the code typed during the sequence → `_9b`
     await stand('use', 'key5_duty', { room: 'duty5' });
     await ev(() => window.__game.story.keypad('4719'));
@@ -1112,7 +1112,7 @@ async function segKeypad({ wrong = 0 } = {}) {
     await ev(() => window.__game.story.keypad('0000'));
     ok(await untilG(`d.keypad?.wrong >= ${i}`, 2, `wrong code ${i} counted`), `wrong code ${i}: CODE REJECTED (keypad.wrong ${i})`, 'story');
     if (i === 1) await toastSeen('Q — ask Kessler for the code', 3);
-    if (i === 3) await objectiveSeen('Open the spine door — 4719', 3);
+    if (i === 3) await objectiveSeen('Open the spine door — door code: 4 7 1 9', 3);
     await gameWait(1.4);
   }
   await film('keypad', null, 2);
