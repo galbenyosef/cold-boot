@@ -52,7 +52,7 @@ const SEQ_A: [string, number][] = [['l5_kes_1', 0], ['l5_reyes_r1', 0.5], ['l5_k
 const DOOR_AFTER: [string, number][] = [['l5_kes_door_5', 0.7], ['l5_kes_door_6', 0.5], ['l5_kes_door_sunde', 0.8], ['l5_kes_door_7', 0.6]];
 /** §5.5: which scares are loud, which are exempt from spacing. */
 const LOUD5 = new Set(['v5_hull_groan', 'v5_trays', 'v5_boots', 'v5_magazine', 'v5_sub_check']);
-const EXEMPT5 = new Set(['v5_magazine']);
+const EXEMPT5 = new Set(['v5_magazine', 'v5_body']);
 const SCARES5 = ['v5_turnstile', 'v5_hull_groan', 'v5_bunk_radio', 'v5_trays', 'v5_galley_shape', 'v5_water', 'v5_body', 'v5_boots', 'v5_magazine', 'v5_sub_check'];
 const CHECK_S = 1.2;
 
@@ -1348,7 +1348,11 @@ export class ScriptL5 extends Scenes5 {
     this.bodyUnseen = sight ? 0 : this.bodyUnseen + step;
     for (const e of this.members('g5_spine')) this.spineUnseen.set(e.id, this.inView(e, 60) ? 0 : (this.spineUnseen.get(e.id) ?? 0) + step);
     const carrier = this.members('g5_spine').some((e) => (this.spineUnseen.get(e.id) ?? 0) >= 15);
-    if (this.bodyASeen >= 1 && carrier && this.bodyUnseen >= 15 && this.distTo(A) >= 12 && this.distTo(B) >= 12 && this.scareOk('v5_body')) this.fireScare('v5_body');
+    // (user decision 2026-11-19: exempt from the calm rule — no hostile within 30 m, no recent shots — and from scare
+    // spacing: nothing is seen or heard when it happens, and the living g5_spine member it needs usually hunts the player,
+    // so under the common rule it fired in 1 run of 4; it still needs the playing state and no open note / keypad)
+    const free = !this.prog.scares.includes('v5_body') && this.ctx.state === 'playing' && !this.noteOpen && !this.keypadOpen;
+    if (this.bodyASeen >= 1 && carrier && this.bodyUnseen >= 15 && this.distTo(A) >= 12 && this.distTo(B) >= 12 && free) this.fireScare('v5_body');
   }
 
   // ───────────────────────────────────────────────────────────── barks (§6.2 soldier lines)
