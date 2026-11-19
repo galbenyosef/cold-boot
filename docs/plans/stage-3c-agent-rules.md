@@ -68,8 +68,7 @@ From the user's play of stages 3a and 3b and from the 3b integration (`docs/plan
   state, pause, death; saved in checkpoints (`PlayerSave.torch`, restored ≥ 50 % if it was saved on); **not carried**
   between levels — a new level starts with a full cell. `player:flashlight` `cause: 'toggle' | 'empty' | 'refused' |
   'story'`. Tests: `?torch=inf` (no drain) and `player.debug.torch(v)` (set the cell). Design every dark space to be
-  followable with the lamp OFF (strips, lit panels, emergency pools; D16: no dark stretch on the main route > 8 m) and
-  readable with it on; `check:dark` judges both.
+  readable with the lamp ON (the lamp-off rule and `check:dark` were dropped by the user on 2026-11-19).
 - **Carbine aim down the sights** (`WEAPON_STATS.carbine.ads`, `AIM_BINDINGS`): **right mouse button, hold** — raise
   0.20 s / drop 0.15 s, FOV 72° → 50°, aimed spread at 20 m 0.8 cm (hip 4.3 cm), climb × 0.6, walk × 0.55, no sprint;
   reload and switch drop the aim; `Player.aiming` 0 … 1, `player.debug.ads()`. Encounters are tuned for aimed fire at

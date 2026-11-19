@@ -59,11 +59,10 @@ Run everything here and fix what it finds. When the user finds a new class of de
     cinematic, levels 1–3 unaffected; `--only torch` flashlight battery: drain 10 s, recharge 4 s, warning sag, death
     flicker + `cause: 'empty'`, refused below 15 %, HUD cell meter, no drain in a scene / safe state / pause, checkpoint
     save + restore, `?torch=inf`), `npm run check:fxleak -- --url <url> --level 3|4` (fx
-    volumes drawn only with their rooms), `npm run check:dark -- --url <url>` (level 4 lights-out readable by flashlight
-    at FULL charge on LOW / MEDIUM, and NO LAMP: the same views followable by the emergency lighting alone — the lamp is
-    off ≈ 30 % of the time; `--measure a.png` prints the metric of a frame).
-  - Flashlight battery (player/flashlight.ts `TORCH`): any new dark section must stay followable with the lamp off
-    (strips / lit panels / emergency pools) and readable with it on. `?torch=inf` (no drain) is for tests that are not
+    volumes drawn only with their rooms). (`check:dark` is NOT part of the checklist — the user's decision 2026-11-19:
+    dark stretches are fine, the player switches the lamp on.)
+  - Flashlight battery (player/flashlight.ts `TORCH`): dark sections are allowed — the player switches the lamp on
+    and off (user, 2026-11-19); they must be readable with the lamp on. `?torch=inf` (no drain) is for tests that are not
     about the lamp; `player.debug.torch(v)` sets the cell.
   - `npm run check:voice -- --url <url> --level 4 [--choice command]` — Sunde's log from the PI desk and the office door,
     a unit panel line, the gallery announcer at both ends: level + sync as level 3's scenes.
@@ -77,8 +76,7 @@ Run everything here and fix what it finds. When the user finds a new class of de
   - `npm run check:soldier -- --url <url>` (the taken soldier on its dev page: TTK, first-burst miss, hit fractions,
     telegraph, cover, suppression, misses near the player, damage cap, tokens, death + radio point, perception in the
     dark, hold / release, grating, exits stand-off, actor, cost).
-  - `npm run check:dark -- --url <url> --level 5` (no-light with `player.debug.torch(0)`, light at full charge, the
-    enemies' dark-room marks at 10 / 20 / 30 m — the soldier's red, never cyan; the dark-run walk), `check:fxleak --level
+  - `check:fxleak --level
     5`, `check:reach --level 5` (phases A … X, `mustNotUse`), `check:nav` (level-5 cases at real speeds), `check:doors`,
     `check:decals`, `check:wreck`, `check:zfight`, `check:cutscene` (the level-5 scene), `check:voice --level 5`,
     `check:cards` (the `POST 4` card), `check:weapons` unchanged.
@@ -91,7 +89,7 @@ Run everything here and fix what it finds. When the user finds a new class of de
   - `npm run play:l6 -- <url>` (`--contract` first, default, `--checkpoints` incl. the B4 / B5 cases, `--boss`, `--dry`,
     `--scares`, `--order`, `--frames`), `check:loader` (1–15), `check:water`, `check:physics`, `check:soldier` (level-6
     cases), `check:reach --level 6` (the hazard rule on every simulated step, jump arcs, `requireRegion`, the trench row,
-    `B_hold`), `check:nav --level 6`, `check:doors --level 6`, `check:fxleak --level 6`, `check:dark --level 6`,
+    `B_hold`), `check:nav --level 6`, `check:doors --level 6`, `check:fxleak --level 6`,
     `check:cutscene` (the ending), `check:wreck` (no wreck box in deep water), `check:voice --level 6` (incl. Aas's ASR
     pass), `check:cards` (`THE TRUNK`, `END OF CHAPTER 3`), the perf views of §10.6 on LOW / MEDIUM / HIGH.
   - Levels 1–5 unchanged: their playthrough defaults (the kill height stays −30 there; the physics' slope-seam rule

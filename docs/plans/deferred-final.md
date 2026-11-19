@@ -222,3 +222,8 @@ spine member unseen 15 s AND no hostile within 30 m — the spared soldier hunts
 review of `search.fresh`. User: tray bodies dark vs rims, galley east wall bare, moved body a dark lump under red light;
 listen to the cutscene's first CHOIR line (lead 0.38; click?), choir_key over _brekke, body squawk 6/12 m.
 - v5_body exempt from calm/spacing (user decision A, 1719c94): playthrough-l5 --scares spacing oracle may need v5_body added to its exempt set.
+
+## User decision 2026-11-19: no darkness test
+`check:dark` and the lamp-off readability rule (no dark stretch > 8 m) are dropped — dark places are fine, the player
+switches the lamp on. Every `check:dark` / lamp-off item above is CLOSED (not to be fixed). The script stays in `scripts/`
+but is not part of the checklist.

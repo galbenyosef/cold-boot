@@ -92,7 +92,7 @@ From the user's play of stages 3a–3c and from the 3b / 3c integrations:
 - **Containment** (conventions of stage-3d.md): a barrier is ≥ 2.35 m above any floor where a body can lie; `check:reach`
   tests the hazard on every simulated step down to the level's lowest point (−36).
 - In-person speech is audible at distance and never occluded by the speaker's own body; dark spaces stay readable on
-  LOW and MEDIUM with the lamp off (strips, pools) and on.
+  LOW and MEDIUM with the lamp on (no lamp-off rule — user, 2026-11-19).
 
 ## Systems in the game (merged on main — facts, not to be rebuilt)
 

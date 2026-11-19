@@ -1348,9 +1348,9 @@ plans stay the record.
   settle), cannot be switched on below 15 %, the last 2 s sag and stutter, 0.5 s death flicker. No drain in cutscenes,
   the safe state, pause or death. Saved in checkpoints (restored ≥ 50 % if it was saved on); never carried between
   levels (a new level starts full). `player:flashlight` `cause: 'toggle' | 'empty' | 'refused' | 'story'`; sounds
-  `flashlight_die` / `flashlight_dead`. Tests: `?torch=inf`, `player.debug.torch(v)`. **Design rule:** every dark space
-  on a main route is followable with the lamp OFF (strips, lit panels, emergency pools; no dark stretch > 8 m) and
-  readable with it on — the lamp is for detail and faces.
+  `flashlight_die` / `flashlight_dead`. Tests: `?torch=inf`, `player.debug.torch(v)`. **Design rule (revised by the user,
+  2026-11-19):** dark spaces and dark stretches are allowed — at worst the player keeps switching the lamp on, which
+  suits the mood; they must be readable with the lamp on. No lamp-off readability rule, no `check:dark` gate.
 - **Carbine** (slot 3) and **aim down the sights**: right mouse button, hold only. Raise 0.20 s / drop 0.15 s,
   FOV 72° → 50°, aimed spread at 20 m 0.8 cm (hip 4.3 cm), climb × 0.6, walk × 0.55, no sprint; reload and switch drop
   the aim. Level-5 encounters are tuned for aimed fire at 15–30 m.

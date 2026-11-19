@@ -15,5 +15,5 @@
 7. **Level 6 hand actions** (grip: crank, lever, pin, pump, pull, key turns): the hands do not line up with the moved
    object — they are somewhere else than the lever etc. Rework hand IK targets to the set pieces' real handle points and
    keep them attached while the part moves.
-- Also still parked by the user: darkness (lamp-off readability, L5/L6), performance (L5 spine view (3)).
+- Darkness: dropped by the user (no test, no rule). Still parked: performance (L5 spine view (3)).
 - Skitter red at close range comes mostly from its own point light (skitter.ts:224, 0.6) and red emissive parts, not the marks — tone down if spiders still read too red.
