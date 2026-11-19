@@ -221,3 +221,4 @@ spine member unseen 15 s AND no hostile within 30 m — the spared soldier hunts
 339 MEDIUM calls vs 220 budget; berths/galley MEDIUM/HIGH, berths5 LOW light count, 3 soldiers LOD0 perf, soldier-in-motion
 review of `search.fresh`. User: tray bodies dark vs rims, galley east wall bare, moved body a dark lump under red light;
 listen to the cutscene's first CHOIR line (lead 0.38; click?), choir_key over _brekke, body squawk 6/12 m.
+- v5_body exempt from calm/spacing (user decision A, 1719c94): playthrough-l5 --scares spacing oracle may need v5_body added to its exempt set.
