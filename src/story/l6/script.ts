@@ -1091,10 +1091,13 @@ export class ScriptL6 extends Scenes6 {
       this.vig('vent6_vault');
       this.S('f5_k', async () => { await this.hold(0.4); this.spawn(sk, true); this.rouse(sk); await this.fightOut(sk, 60); });
     } else {
-      this.spawn(sk, true);
+      // (user fix 2026-11-19) the trench skitters could not get out through the grilles and hopped about under the floor
+      // as live enemies (music, glitching): they now appear and wake only when the player goes down into the trench;
+      // if he never does, they never exist (an optional fight — nothing gates on them: `fought` passes unspawned groups)
       this.S('f5_k', async () => {
-        await this.hold(0.4);
-        for (const n of [1, 2, 3]) this.vig(`grille6_${n}`);
+        await this.until(() => this.inTrench() && this.ctx.state === 'playing');
+        this.spawn(sk, true);
+        await this.hold(0.6);
         this.rouse(sk);
         await this.fightOut(sk, 60);
       });

@@ -706,7 +706,7 @@ export const SHELLS6: Record<RoomId6, Shell> = {
     railZ(L, b, dark, -160.4, -158.0, -11.8, 0, 1.0);
     railX(L, b, dark, -13.05, -11.75, -160.45, 0, 1.0);
     b.sign('CABLE TRENCH — TO HEAD-END — CROUCH', 'stencil', -12.4, 0.72, -160.39, 1.1, 0.16, '+z');
-    L.interact('hatch6_vault', 'hatch', 'Open hatch', -12.4, 0.3, -157.5, true, 1.4);
+    L.interact('hatch6_vault', 'hatch', 'Open hatch', -12.4, 0.55, -157.5, true, 2.0);   // (user fix: usable standing — was y 0.3, r 1.4)
     L.marker('mk6_exit_vault', ...EXIT_VAULT, 0);
     // ── cable drums CD1 … CD3 (Ø 4.0 on stands, h 4.4) ──
     const cv = sub(L, 'vault6_cover', ['vault6']);
