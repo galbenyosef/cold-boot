@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { EnemySkin, GameContext } from '../../core/types';
-import { MARK_CYAN, MARK_RED, skinPaint, tintedSign } from '../husk/model';
+import { MARK_CYAN_S as MARK_CYAN, MARK_RED_S as MARK_RED, skinPaint, tintedSign } from '../husk/model';
 import { buildRigLods, glowMaterial, tintOf, type RigBuilder, type RigTemplate } from '../shared/rig';
 import { bcyl, bolt, box, cyl, hlathe, patch, rod, sphere, torus, tube, wedge, xf } from '../shared/prims';
 
@@ -98,7 +98,7 @@ function authorSentry(b: RigBuilder): void {
   b.bind('led').mat('red');
   for (const x of [-0.045, -0.03, 0.03, 0.045]) L(box(0.008, 0.008, 0.004), x, 0.013, 0.2475, -14 * D);
   L(box(0.03, 0.006, 0.004), 0, 0.013, 0.2475, -14 * D);
-  for (const x of [-0.04, 0.04]) b.mark('mk_nose', new THREE.Vector3(x, 0.0135, 0.2535), new THREE.Vector3(0, 0.24, 0.97), 0.005, MARK_RED, -0.15);
+  for (const x of [-0.04, 0.04]) b.mark('mk_nose', new THREE.Vector3(x, 0.0135, 0.2535), new THREE.Vector3(0, 0.24, 0.97), 0.0035, MARK_RED, -0.15);
   b.bind('body').mat('accent');
   for (const s of [-1, 1]) L(box(0.006, 0.05, 0.14, 0.002), 0.103 * s, -0.01, -0.09);                    // hazard side panels
   b.mat('sign');
@@ -147,8 +147,8 @@ function authorSentry(b: RigBuilder): void {
   L(box(0.16, 0.008, 0.07, 0.003), 0, 0.0, -0.03);
   L(box(0.008, 0.09, 0.07, 0.003), 0.08, 0.02, -0.03); L(box(0.008, 0.09, 0.07, 0.003), -0.08, 0.02, -0.03);
   b.mat('red'); b.bind('led'); L(box(0.012, 0.006, 0.004), 0, 0.0, -0.067);
-  b.mark('mk_tail', new THREE.Vector3(0, 0.03, -0.342), new THREE.Vector3(0, 0, -1), 0.005, MARK_RED, -0.35);
-  b.mark('mk_stby', new THREE.Vector3(0, 0.03, -0.342), new THREE.Vector3(0, 0, -1), 0.005, MARK_CYAN, -2);
+  b.mark('mk_tail', new THREE.Vector3(0, 0.03, -0.342), new THREE.Vector3(0, 0, -1), 0.0038, MARK_RED, -0.35);
+  b.mark('mk_stby', new THREE.Vector3(0, 0.03, -0.342), new THREE.Vector3(0, 0, -1), 0.0038, MARK_CYAN, -2);
 
   // ── CHIN GIMBAL: yaw ring → turret (pitch) with searchlight + laser ────
   b.use('gimbal').mat('joint');

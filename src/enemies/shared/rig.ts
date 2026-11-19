@@ -371,8 +371,11 @@ export function markTime(): number { return uMarkTime.value; }
 
 /**
  * Dark-room marks (RigBuilder.mark): each mark is drawn as a small saturated CORE (at least MARK_CORE_PX across, a
- * fraction of the viewport height, ≥ 1.25 px) inside a soft additive HALO (at least MARK_HALO_PX across, or 2.4 × the
- * core) whose radial falloff reads like an LED bleeding into the dark — not a pasted dot. The core's brightest channel
+ * fraction of the viewport height, ≥ 1.25 px) inside a soft additive HALO (at least MARK_HALO_PX across — ~6 px at
+ * 720p, ~8 px at 1080p — or 2 × the core) whose radial falloff reads like an LED bleeding into the dark — not a pasted
+ * dot. User fix 2026-11-19 (too strong / too big at distance): the halo is small and faint, and brightness and halo
+ * size fade with view distance (MARK_FADE_NEAR → MARK_FADE_FAR: × MARK_FADE_DIM brightness, × 0.7 halo), so a far
+ * mark is a dim speck and a near one a small LED with a little glow (the soldier's blinking Clasp fades less). The core's brightest channel
  * is capped so it stays saturated (ACES / bloom wash an over-bright red to white). The min sizes survive distance,
  * sub-pixel geometry and the LOD; a mark seen from behind its `faceMin` cone shrinks back to its real size (no glow on
  * a lit shell). Marks write alpha 0 through premultiplied blending (One, OneMinusSrcAlpha) — additive — while ordinary
@@ -381,7 +384,8 @@ export function markTime(): number { return uMarkTime.value; }
  * so its own housing does not clip it.
  */
 const MARK_CORE_FRAC = 0.0017, MARK_CORE_MIN_PX = 1.25;
-const MARK_HALO_FRAC = 0.018, MARK_HALO_MIN_PX = 12;
+const MARK_HALO_FRAC = 0.0075, MARK_HALO_MIN_PX = 6;
+const MARK_FADE_NEAR = 5.0, MARK_FADE_FAR = 30.0, MARK_FADE_DIM = 0.5;
 function markShader(m: THREE.MeshBasicMaterial, uPhase: { value: number }): void {
   const uH = { value: 720 }, uCore = { value: MARK_CORE_MIN_PX }, uHalo = { value: MARK_HALO_MIN_PX };
   const vp = new THREE.Vector4();
@@ -397,7 +401,7 @@ function markShader(m: THREE.MeshBasicMaterial, uPhase: { value: number }): void
     uHalo.value = Math.max(MARK_HALO_MIN_PX, h * MARK_HALO_FRAC);
     if (!markClockSet) uMarkTime.value = performance.now() / 1000;
   };
-  m.customProgramCacheKey = () => 'enemy_glow_marks_4';
+  m.customProgramCacheKey = () => 'enemy_glow_marks_5';
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uMarkH = uH; sh.uniforms.uMarkCore = uCore; sh.uniforms.uMarkHalo = uHalo;
     sh.uniforms.uMarkTime = uMarkTime; sh.uniforms.uMarkPhase = uPhase;
@@ -427,13 +431,15 @@ if (mark.z > 0.0) {
   // brighter — it must be picked out at 20–30 m in the dark bay (IA5 / B7)
   float grow = markBlink.x > 0.0 ? 1.5 : 1.0;
   float g = step(0.05, s) * face * bl;
+  // distance fade (view depth): far marks dimmer, with a smaller halo; the blinking Clasp keeps more of both
+  float fd = smoothstep(${MARK_FADE_NEAR.toFixed(2)}, ${MARK_FADE_FAR.toFixed(2)}, -mvPosition.z) * (grow > 1.0 ? 0.5 : 1.0);
   float rCore = max(rNat, 0.5 * uMarkCore * grow * px * g);
-  // the halo: ≥ uMarkHalo px across or 2.4 × the core; none when seen from behind the cone (face → 0)
-  float rHalo = max(rCore * mix(1.0, 2.4, face), 0.5 * uMarkHalo * (0.5 + 0.5 * grow) * px * g);
+  // the halo: ≥ uMarkHalo px across or 2 × the core; none when seen from behind the cone (face → 0)
+  float rHalo = max(rCore * mix(1.0, 2.0, face), 0.5 * uMarkHalo * (0.5 + 0.5 * grow) * mix(1.0, 0.7, fd) * px * g);
   vec3 c = mvPosition.xyz + toCam * (rNat + min((rHalo - rNat) * 1.5, 0.06));
   mvPosition = vec4(c + vec3(mark.xy * rHalo, 0.0), 1.0);
   gl_Position = projectionMatrix * mvPosition;
-  vMark = vec3(mark.xy, min(s, 1.6) * mix(0.3, 1.0, face) * (grow > 1.0 && rCore > rNat ? 1.4 : 1.0));
+  vMark = vec3(mark.xy, min(s, 1.6) * mix(0.3, 1.0, face) * (grow > 1.0 && rCore > rNat ? 1.4 : 1.0) * mix(1.0, ${MARK_FADE_DIM.toFixed(2)}, fd));
   vMarkR = vec2(rCore, rHalo) / max(px, 1e-7); // core / halo radius in px
 }
 #endif`);
@@ -451,7 +457,7 @@ varying vec2 vMarkR;`)
   // halo: a tight bloom round the core + a wide faint skirt, both 0 at the disc edge
   float e = 1.0 - u * u;
   float sig = rc + 1.5;
-  float halo = (0.26 * exp(-(d * d) / (sig * sig)) + 0.1 * e * e) * e;
+  float halo = (0.15 * exp(-(d * d) / (sig * sig)) + 0.035 * e * e) * e;
   // keep the core saturated: cap its brightest channel
   float mx = max(outgoingLight.r, max(outgoingLight.g, outgoingLight.b));
   vec3 hot = outgoingLight * min(1.0, 1.5 / max(mx, 1e-4));

@@ -109,6 +109,8 @@ export function buildHuskTemplate(ctx: GameContext, skin?: EnemySkin): HuskTempl
 
 /** Dark-room mark tints (linear HDR): hostile red (the sensor's colour), status cyan (the chest LEDs' colour). */
 export const MARK_RED = tintOf(0xff1a08, 3.2), MARK_CYAN = tintOf(0x18c8ff, 2.4);
+/** The small machines' marks (husk / sentry / skitter): dimmer — a fainter halo (user fix 2026-11-19: too strong). */
+export const MARK_RED_S = tintOf(0xff1a08, 2.2), MARK_CYAN_S = tintOf(0x18c8ff, 1.7);
 
 /** Stencil ink of the skins (multiplies the library stencil's light-grey paint). */
 const LAB_INK = new THREE.Color(0.035, 0.12, 0.42), NAVY_INK = new THREE.Color(1.9, 1.9, 1.85);
@@ -403,10 +405,10 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   b.mat('red'); L(box(0.006, 0.006, 0.004), 0, 0.2, 0.1175, -4 * D);
   b.bind('spine2');
   // dark-room marks: sternum status diode (over the cyan LED row) and the spine diode in the back channel, on a housing
-  b.mark('mk_chest', new THREE.Vector3(0, 1.435, 0.1105), new THREE.Vector3(0, -0.07, 1), 0.004, MARK_CYAN, -0.35);
+  b.mark('mk_chest', new THREE.Vector3(0, 1.435, 0.1105), new THREE.Vector3(0, -0.07, 1), 0.0035, MARK_CYAN_S, -0.35);
   b.mat('frame'); L(box(0.02, 0.016, 0.008, 0.003), 0, 0.16, -0.134);
   b.mat('joint'); L(bcyl(0.0075, 0.004, 0.001, 10), 0, 0.16, -0.139, 90 * D);
-  for (const [k, c] of [['mk_back', MARK_RED], ['mk_back_s', MARK_CYAN]] as const) b.mark(k, new THREE.Vector3(0, 1.38, -0.1565), new THREE.Vector3(0, 0.12, -1), 0.0048, c, -0.6);
+  for (const [k, c] of [['mk_back', MARK_RED_S], ['mk_back_s', MARK_CYAN_S]] as const) b.mark(k, new THREE.Vector3(0, 1.38, -0.1565), new THREE.Vector3(0, 0.12, -1), 0.0038, c, -0.6);
   // shoulder yokes
   for (const s of [-1, 1]) {
     b.mat('frame');
@@ -533,7 +535,7 @@ function authorHusk(b: RigBuilder): { pistons: PistonDef[]; plates: { bone: stri
   lens(-27, SV, 0.0052, 0.0045, 0, 'red', 'eye2', 0.3);
   { // dark-room mark of the sensor: in front of the main lens, shining along it (front hemisphere)
     const p = headPt(30, SV, 0.0);
-    b.mark('mk_eye', new THREE.Vector3(p[0], p[1] + K.headY, p[2] - 0.008), new THREE.Vector3(Math.sin(27 * D), 0.05, Math.cos(27 * D)), 0.0055, MARK_RED, -0.1);
+    b.mark('mk_eye', new THREE.Vector3(p[0], p[1] + K.headY, p[2] - 0.008), new THREE.Vector3(Math.sin(27 * D), 0.05, Math.cos(27 * D)), 0.0042, MARK_RED_S, -0.1);
   }
   b.bind('head');
   // face plate: breakable. Visor slot; the glass is smashed at its left end, cracks run over brow and cheek.

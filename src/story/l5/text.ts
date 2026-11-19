@@ -41,7 +41,8 @@ export const OBJ5 = {
   ready: 'The ready room',
   radio: 'Take the radio',
   keypad: 'Open the spine door — keypad',
-  keypadCode: 'Open the spine door — 4719',
+  /** once Kessler has said the code (`l5_kes_4` heard) or after 3 wrong tries */
+  keypadCode: 'Open the spine door — door code: 4 7 1 9',
   door: "Kessler's door — the end of the spine",
   line: 'Stand on the yellow line — turn your back to the door',
   wheel: 'The gallery wheel — sub bay, west side',

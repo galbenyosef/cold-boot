@@ -48,6 +48,8 @@ try {
 const RADIO_LEAD = (() => { try { return Math.max(0, fxLead('radio')); } catch { return 0.04; } })();
 
 const QUARTERS = ['spine5', 'berths5', 'heads5', 'mess5', 'galley5', 'arm5', 'sub5'];
+/** The radio's use point sits this far above the body's top, usable from this far from the eye (user fix 2026-11-19). */
+const RADIO_LIFT = 0.12, RADIO_RADIUS = 2.5;
 const SEQ_A: [string, number][] = [['l5_kes_1', 0], ['l5_reyes_r1', 0.5], ['l5_kes_2', 0.6], ['l5_kes_3', 0.5], ['l5_kes_4', 0.7]];
 const DOOR_AFTER: [string, number][] = [['l5_kes_door_5', 0.7], ['l5_kes_door_6', 0.5], ['l5_kes_door_sunde', 0.8], ['l5_kes_door_7', 0.6]];
 /** §5.5: which scares are loud, which are exempt from spacing. */
@@ -281,7 +283,7 @@ export class ScriptL5 extends Scenes5 {
       case 'W': case 'W_lock': return OBJ5.tunnel;
       case 'V': case 'V_lock': return OBJ5.wheel;
       case 'S': case 'S_dive': return f.door && !f.checked ? OBJ5.line : OBJ5.door;
-      case 'K': return this.prog.codeWrong >= 3 ? OBJ5.keypadCode : OBJ5.keypad;
+      case 'K': return this.prog.codeWrong >= 3 || this.talk.heard.has('l5_kes_4') ? OBJ5.keypadCode : OBJ5.keypad;
       case 'D': case 'D0':
         if (this.squawked && !f.radio) return OBJ5.radio;
         if (!f.unitsIn || this.w.alive('g5_duty') > 0) return OBJ5.survive;
@@ -559,7 +561,10 @@ export class ScriptL5 extends Scenes5 {
   }
   private placeRadio(): void {
     const it = this.ctx.interactables.get('radio5');
-    if (it && this.radioPos) it.position.copy(this.radioPos);
+    // the use point a little above the body (the radio point itself stays on it: squawks, debugState)
+    if (it && this.radioPos) it.position.copy(this.radioPos).setY(this.radioPos.y + RADIO_LIFT);
+    // (user fix 2026-11-19: standing beside the body the eye is ~1.4 m above the chest — 1.6 m only worked crouched)
+    if (it) it.radius = RADIO_RADIUS;
   }
   /**
    * B2 guard: a body that fell against cover can put its chest INSIDE a collider (measured on the greybox: a forward
@@ -606,16 +611,16 @@ export class ScriptL5 extends Scenes5 {
     const p = this.radioPos;
     if (!p) return false;
     const eye = this.ctx.player.eye;
-    try {
-      if (this.ctx.physics.lineOfSight(eye, p)) return true;
-      const dir = p.clone().sub(eye);
-      const len = dir.length();
-      const hit = this.ctx.physics.raycast(eye, dir.normalize(), len);
-      if (!hit) return true;
-      const e = this.ctx.enemies.all.find((x) => x.id === this.s1Id) as unknown as { wreckBox?: THREE.Box3 } | undefined;
-      const box = e?.wreckBox?.clone().expandByScalar(0.12);
-      return !!box && box.containsPoint(hit.point);
-    } catch { return true; }
+    const e = this.ctx.enemies.all.find((x) => x.id === this.s1Id) as unknown as { wreckBox?: THREE.Box3 } | undefined;
+    const box = e?.wreckBox?.clone().expandByScalar(0.25);
+    // a clear ray to the use point or to a point a little above it (the body / its kit can hide the exact point)
+    const seen = (q: THREE.Vector3) => {
+      if (this.ctx.physics.lineOfSight(eye, q)) return true;
+      const dir = q.clone().sub(eye);
+      const hit = this.ctx.physics.raycast(eye, dir.normalize(), dir.length());
+      return !hit || (!!box && box.containsPoint(hit.point));
+    };
+    try { return seen(p.clone().setY(p.y + RADIO_LIFT)) || seen(p) || seen(p.clone().setY(p.y + 0.3)); } catch { return true; }
   }
   /** §4.3: death + 30 s, then every 25 s (4 ×), then every 40 s — until the radio is taken. */
   private async squawks(died: number): Promise<void> {
