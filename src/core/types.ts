@@ -65,6 +65,8 @@ export interface LevelInfo {
   healthFloor: number;
   /** The level the chain hands over to at this level's end; null = the end card + menu (§8.1, D19). */
   next: LevelId | null;
+  /** Stage 3d §6.1: a positional `pa` voice line uses the dock horn's falloff (`pa_dock`), not a wall speaker's. */
+  paDock?: boolean;
 }
 
 /**

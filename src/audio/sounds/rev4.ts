@@ -96,6 +96,17 @@ export const rev4Sounds: SoundDef[] = [
     },
   },
   {
+    // level 2's small hidden arms (intake.ts `intake_shoe` and the gallery vignette call `L.sfx('servo', …)`; the id was
+    // never defined — "unknown sound id" in every level-2 run until 3d IA): a short light servo whir out and back
+    id: 'servo', variants: 2, dur: 1.6, vol: 0.55, ref: 3, send: 0.9, maxVoices: 2, minInterval: 0.1, when: 'late', levels: [2],
+    render(s) {
+      const d = s.r(0.7, 0.9);
+      servo(s, 0, d, s.r(260, 320), s.r(520, 640), 0.16);
+      clack(s, d + 0.02, s.r(1800, 2400), 0.18, 0.015);
+      servo(s, d + 0.12, 0.45, s.r(560, 640), s.r(280, 340), 0.07);
+    },
+  },
+  {
     id: 'treadmill_loop', loop: true, variants: 1, dur: 4, vol: 0.4, ref: 3.5, send: 0.8, when: 'lazy',
     render(s) {
       const D = L(s, 4);

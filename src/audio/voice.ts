@@ -446,7 +446,7 @@ export class VoiceBank {
     src.connect(fade);
     const nodes: AudioNode[] = [src, fade];
     const raw = String(opts?.fx || e.fx).toLowerCase();
-    const P = (raw.startsWith('pa_dock') || (fx === 'pa' && this.eng.level === 6) ? POS.pa_dock : POS[fx]) ?? POS.clean;
+    const P = (raw.startsWith('pa_dock') || (fx === 'pa' && this.eng.paDock) ? POS.pa_dock : POS[fx]) ?? POS.clean;
     if (h.pos) {
       const dist = h.pos.distanceTo(this.eng.listener);
       const occluded = NO_OCCLUDE.has(fx) ? false : this.occluded(h.pos);

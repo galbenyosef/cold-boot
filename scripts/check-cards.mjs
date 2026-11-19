@@ -9,6 +9,10 @@ const CASES = [
   { style: 'title', lines: ['THE QUIET SIDE', 'HABITAT RING A  ·  61 HOURS AFTER THE TEST BEGAN'] },
   { style: 'intro', lines: ['ERIDU DEEP', 'A fabrication complex 2.1 km under the sea. For sixty-one hours the sublevels have been sealed for a pressure test that nobody upstairs has questioned.', 'YOU SLEPT THROUGH IT'] },
   { style: 'ending', lines: ['BIOLOGICAL SYSTEMS', '', 'TO BE CONTINUED'] },
+  { style: 'ending', lines: ['POST 4', '', 'TO BE CONTINUED'] },
+  // stage 3d W2a: the chapter end
+  { style: 'title', lines: ['END OF CHAPTER 3'] },
+  { style: 'ending', lines: ['THE TRUNK', '', 'TO BE CONTINUED'] },
 ];
 for (const [w, h] of [[2000, 1125], [1280, 720], [900, 600], [520, 800]]) {
   const p = await b.newPage({ viewport: { width: w, height: h } });

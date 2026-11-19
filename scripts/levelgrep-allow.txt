@@ -61,6 +61,7 @@ src/audio/voice.ts :: P.gain !== 1
 
 # ── stage 3b: material sets by level threshold; a loop index in a screen drawing
 src/materials/index.ts :: >= CLINICAL_FROM
+src/materials/index.ts :: >= TRUNK_FROM
 src/materials/screens4.ts :: k === 2
 
 # ── stage 3c (found by 3d K): loop / kind indices, not levels

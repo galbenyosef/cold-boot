@@ -109,7 +109,8 @@ loops and music start when the context resumes.
 
 - Revision 4 (level 2; one-shots render in the background, loops on first use; all 3D with `position`):
   - line: `belt_start` (contactor, motor wind-up, chain snaps tight, ~3.4 s), `press_slam` (valve, slam,
-    exhaust, release), `arm_reach` (fast servo + hydraulic stop), `contactor_arc` (clang, arc, bus hum rises),
+    exhaust, release), `arm_reach` (fast servo + hydraulic stop), `servo` (a small arm's light whir out and back, ~1.3 s; the intake
+    vignettes; added at 3d IA — was played but never defined), `contactor_arc` (clang, arc, bus hum rises),
     `bulkhead_grind` (≈ 4 s, ends with the seat clunk), `cell_pull` (ratchet, latch, the cell winds down).
   - booth: `intercom_click` (button + speaker pop), `intercom_static` (1.6 s burst; `loop()` it for a bed),
     `glass_bang` (fist on thick laminated glass; variant 3 is a double), `marker_squeak` (1–3 strokes).

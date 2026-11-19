@@ -84,6 +84,8 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     },
     // stage 3d D3: the chapter ends here (end card, END OF CHAPTER 3, menu)
     healthFloor: 50, next: null,
+    // the loader's PA is a horn in the chamber (positional `pa` lines → `pa_dock`)
+    paDock: true,
   },
 };
 

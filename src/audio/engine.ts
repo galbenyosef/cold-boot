@@ -76,6 +76,8 @@ export class AudioEngine {
   roomId = '';
   /** The level this page runs (selects room presets + which 'idle'/'late' sounds are pre-rendered). */
   level = 0;
+  /** `LevelInfo.paDock`: positional `pa` voice lines use the dock horn's falloff. */
+  paDock = false;
   /** Habitat mood: false = warm bed, true = cold bed (the plant AI has taken over). Only level-3 presets have a cold form. */
   cold = false;
   /** Stage 3d: level 6's last state — the quiet after the cut and the loader (`story:beat l6_quiet`). Rooms with an

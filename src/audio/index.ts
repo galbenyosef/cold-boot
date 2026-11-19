@@ -103,6 +103,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   }
   const level = levelOf(ctx);
   eng.level = level.id;
+  eng.paDock = !!level.paDock;
   await eng.preload();
   if (ctx.debug?.verbose) console.info(`[audio] pre-rendered load set in ${eng.preRenderMs.toFixed(0)} ms`);
   // the rest renders in the background once loading has moved on

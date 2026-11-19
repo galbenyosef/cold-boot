@@ -8,8 +8,11 @@
 //   kill     — default kill height −30; with `setKillY(−36)` a body at −34 is not put back and falls on; below −36 it is
 //   seam     — a capsule walking up a 28° slope slab (two triangles per face, `holdSlopes`) across its diagonal keeps its
 //              line (|Δx| < 2 cm); the slab's seams are found
-//   region   — `Interactable.requireRegion`: `allowedAt` / `pick` with the feet inside / outside the region; unknown id
-//   live     — level 6 (K stub) boots: killY −30 (W4a sets −36), water [], dock null, one collider set
+//   region   — `Interactable.requireRegion` on the real level 6's `he6_main` region: `allowedAt` / `pick` with the feet
+//              inside / outside the region; unknown id (the level's own interactables are disabled meanwhile)
+//   live     — the real level 6 boots: killY −36 (physics = `Level.killY`), water volumes, a dock arena, two collider
+//              sets (ray-only water / move-only guards), and its own water quads are ray-only (a ray down over the
+//              well stops at the surface, `raycastSolid` does not)
 //   stair    — level 5: the player walks straight up STAIR5_W on three lines (x 25.9 / 26.4 / 26.9): |Δx| < 5 cm
 //              (the 3c drift, ≈ 0.6–1.1 m west before K's seam fix); `--stair 0` skips it
 //   (W3c adds: a nav shortcut over the wet dock never ends in the channel — once its nav is merged)
@@ -29,7 +32,7 @@ async function open(q) {
   await page.waitForTimeout(500);
 }
 
-console.log('══════════ physics (level 6 stub page) ══════════');
+console.log('══════════ physics (level 6 page) ══════════');
 await open('?level=6&autostart=1&nostory=1&noenemies=1');
 const r = await page.evaluate(() => {
   const g = window.__game;
@@ -112,22 +115,41 @@ const r = await page.evaluate(() => {
     P._seamFix = true;
   }
 
-  // ── requireRegion (the live registry; the stub's room `lock6` is a region by default)
+  // ── requireRegion (the live registry; the real level 6's head-end floor region `he6_main`, x 2…22, z −180…−160)
   {
     const reg = g.interactables;
-    const mk = (id, region) => reg.add({ id, kind: 'test', position: V(0, 1.2, 0), prompt: 'test', enabled: true, requireRegion: region });
-    const a = mk('k_test_in', 'lock6'), z = mk('k_test_none', 'no_such_region');
+    out.regionKnown = !!g.level.regions?.he6_main;
+    const was = reg.all.map((i) => [i, i.enabled]);
+    for (const [i] of was) i.enabled = false;                          // the level's own interactables must not win the pick
+    const mk = (id, region) => reg.add({ id, kind: 'test', position: V(12, 1.2, -171.5), prompt: 'test', enabled: true, requireRegion: region });
+    const a = mk('k_test_in', 'he6_main'), z = mk('k_test_none', 'no_such_region');
+    const eye = V(12, 1.6, -170), fwd = V(0, -0.27, -1).normalize();
     out.region = {
-      inside: reg.allowedAt(a, V(0, 0, 3)), outside: reg.allowedAt(a, V(30, 0, 3)), unknown: reg.allowedAt(z, V(0, 0, 3)),
-      pickIn: reg.pick(V(0, 1.6, 1.5), V(0, -0.27, -1).normalize(), V(0, 0, 1.5))?.id ?? null,
-      pickNoFeet: reg.pick(V(0, 1.6, 1.5), V(0, -0.27, -1).normalize())?.id ?? null,
-      pickOut: reg.pick(V(0, 1.6, 1.5), V(0, -0.27, -1).normalize(), V(30, 0, 1.5))?.id ?? null,
+      inside: reg.allowedAt(a, V(12, 0, -168)), outside: reg.allowedAt(a, V(40, 0, -168)), unknown: reg.allowedAt(z, V(12, 0, -168)),
+      pickIn: reg.pick(eye, fwd, V(12, 0, -170))?.id ?? null,
+      pickNoFeet: reg.pick(eye, fwd)?.id ?? null,
+      pickOut: reg.pick(eye, fwd, V(40, 0, -170))?.id ?? null,
     };
     reg.remove('k_test_in'); reg.remove('k_test_none');
+    for (const [i, e] of was) i.enabled = e;
   }
 
-  // ── live level 6 stub
-  out.live = { killY: g.physics.killY, levelKillY: g.level.killY, water: g.level.water.length, dock: g.level.dock, split: g.physics._sets.split };
+  // ── the real level 6 (the live physics, not the fresh one)
+  {
+    const LP = g.physics, w = g.level.water[0];
+    let wet = null;
+    if (w) {
+      const b = w.box ?? w.bounds ?? null;
+      const cx = b ? (b.min.x + b.max.x) / 2 : null, cz = b ? (b.min.z + b.max.z) / 2 : null;
+      const sy = typeof w.surface === 'number' ? w.surface : (b ? b.max.y : null);
+      if (cx !== null && sy !== null) {
+        const o = V(cx, sy + 1.5, cz);
+        const hr = LP.raycast(o, DOWN, 40), hs = LP.raycastSolid(o, DOWN, 40);
+        wet = { surfaceY: +sy.toFixed(2), ray: hr ? +hr.point.y.toFixed(2) : null, solid: hs ? +hs.point.y.toFixed(2) : null };
+      }
+    }
+    out.live = { killY: LP.killY, levelKillY: g.level.killY, water: g.level.water.length, waterKeys: w ? Object.keys(w) : [], dock: !!g.level.dock, split: LP._sets.split, wet };
+  }
   return out;
 });
 console.log('  ', JSON.stringify(r));
@@ -148,9 +170,14 @@ check(r.killNaN === -30, 'setKillY(NaN) → −30');
 check(r.seams >= 2, `slope seams found (${r.seams})`);
 for (const s of r.slope) check(Math.abs(s.dx) < 0.02 && s.y > 0.9, `seam: up the 28° slab on x ${s.x}: Δx ${s.dx}, reached y ${s.y}`);
 check(r.slopeOff.some((s) => Math.abs(s.dx) > 0.1), `seam control: with the rule off the walks drift (Δx ${r.slopeOff.map((s) => s.dx).join(' / ')})`);
+check(r.regionKnown, 'level 6 has the region he6_main');
 check(r.region.inside && !r.region.outside && !r.region.unknown, `requireRegion allowedAt: inside ${r.region.inside}, outside ${r.region.outside}, unknown ${r.region.unknown}`);
 check(r.region.pickIn === 'k_test_in' && r.region.pickNoFeet === null && r.region.pickOut === null, `requireRegion pick: in ${r.region.pickIn}, no feet ${r.region.pickNoFeet}, out ${r.region.pickOut}`);
-check(r.live.killY === r.live.levelKillY && r.live.killY === -30 && r.live.water === 0 && r.live.dock === null && r.live.split === false, `level 6 stub: killY ${r.live.killY} (level ${r.live.levelKillY}), water ${r.live.water}, dock ${r.live.dock}, one set`);
+check(r.live.killY === r.live.levelKillY && r.live.killY === -36, `level 6: killY ${r.live.killY} (level ${r.live.levelKillY}) = −36`);
+check(r.live.water > 0 && r.live.dock === true, `level 6: water volumes ${r.live.water}, a dock arena ${r.live.dock}`);
+check(r.live.split === true, 'level 6: two collider sets (ray-only water / move-only guards)');
+check(r.live.wet && r.live.wet.ray !== null && Math.abs(r.live.wet.ray - r.live.wet.surfaceY) < 0.1 && (r.live.wet.solid === null || r.live.wet.solid < r.live.wet.surfaceY - 0.1),
+  `level 6: a ray down over the first water volume stops at its surface, raycastSolid goes below it (${JSON.stringify(r.live.wet)}; keys ${r.live.waterKeys.join(',')})`);
 
 if (args.stair !== '0') {
   console.log('══════════ STAIR5_W walk (level 5) ══════════');

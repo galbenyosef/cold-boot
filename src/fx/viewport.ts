@@ -509,18 +509,17 @@ void main() {
   }
   vec4 mv = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
-  // stage 3b D21: a fleck is drawn only when the eye sees it through the pane
-  {
-    vec3 rd = world - cameraPosition;
-    float den = dot(rd, uN);
-    float t = den < -1e-5 ? dot(uOrigin - cameraPosition, uN) / den : -1.0;
-    vec3 h = cameraPosition + rd * t - uOrigin;
-    if (t <= 0.0 || t >= 1.0 || abs(dot(h, uU)) > uHalf.x || abs(dot(h, uV)) > uHalf.y) {
-      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-      gl_PointSize = 0.0;
-      vCol = vec3(0.0); vSoft = 0.0;
-      return;
-    }
+  // stage 3b D21: a fleck is drawn only when the eye sees it through the pane (the sprite's radius is checked at the
+  // end, once its size is known: 3d IA — a big defocused fleck centred just inside the edge drew past the frame)
+  vec3 rdP = world - cameraPosition;
+  float denP = dot(rdP, uN);
+  float tP = denP < -1e-5 ? dot(uOrigin - cameraPosition, uN) / denP : -1.0;
+  vec3 hP = cameraPosition + rdP * tP - uOrigin;
+  if (tP <= 0.0 || tP >= 1.0 || abs(dot(hP, uU)) > uHalf.x || abs(dot(hP, uV)) > uHalf.y) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+    vCol = vec3(0.0); vSoft = 0.0;
+    return;
   }
   float dist = -mv.z;
   float distG = length(world - cameraPosition);
@@ -547,6 +546,13 @@ void main() {
   vCol = c * edge;
   vSoft = soft;
   gl_PointSize = min(pxc, 14.0);
+  // the whole sprite inside the pane: its radius in world units at the pane's distance
+  float rW = 0.5 * gl_PointSize * tP * length(rdP) / max(uPxScale, 1.0);
+  if (abs(dot(hP, uU)) > uHalf.x - rW || abs(dot(hP, uV)) > uHalf.y - rW) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+    vCol = vec3(0.0);
+  }
 }
 `;
 
