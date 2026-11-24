@@ -188,6 +188,19 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
         m = track(createSign(text, style, aspect, renderer.capabilities.getMaxAnisotropy()), 0.8);
         // signs are always printed on / screwed to something: never fight it
         if (!m.polygonOffset) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }
+        // phones: once a sign is on the GPU its two canvases are only dead weight (L6 holds ~170 MB of them)
+        if (ctx.debug.mobile) {
+          const mm = m;
+          for (const t of [mm.map, mm.roughnessMap]) {
+            if (!t) continue;
+            t.onUpdate = () => {
+              t.onUpdate = null;
+              const cv = t.image as HTMLCanvasElement;
+              cv.width = cv.height = 1;
+              mm.userData.signShrunk = true;
+            };
+          }
+        }
         signCache.set(key, m);
       }
       return m;

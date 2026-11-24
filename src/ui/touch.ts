@@ -365,6 +365,7 @@ export const TOUCH_CSS = `
 /* touch play: the weapon / ammo block moves to the top right (under pause) — the bottom right is the button pad */
 .cb.touchmode .weapon { right: calc(env(safe-area-inset-right) + 70px); top: calc(env(safe-area-inset-top) + 14px); bottom: auto; transform: scale(.72); transform-origin: top right; }
 .cb.touchmode .weapon.off { transform: scale(.72) translateY(-8px); }
+.cb.touchmode .cp { right: calc(env(safe-area-inset-right) + 74px); top: calc(env(safe-area-inset-top) + 86px); } /* under the ammo, not over it */
 .cb .touch .t-rotate { display: none; }
 @media (orientation: portrait) and (max-width: 600px) {
   .cb .touch .t-rotate { display: grid; place-items: center; position: absolute; inset: 0; z-index: 30; pointer-events: auto;

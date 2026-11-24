@@ -24,6 +24,7 @@ export class SignAtlas {
   /** Reserve (or reuse) a slot for a sign material made by `materials.sign()`; null if it cannot be atlased. */
   entry(key: string, style: SignStyle, src: THREE.MeshStandardMaterial): { mat: THREE.MeshStandardMaterial; rect: UvRect } | null {
     const img = src.map?.image as HTMLCanvasElement | undefined;
+    if (src.userData.signShrunk) return null; // already uploaded and its canvas freed (phones): stays a direct sign
     if (!img || !img.width || !img.height || img.width + GUTTER * 2 > WIDTH) return null;
     let a = this.styles.get(style);
     if (!a) {
