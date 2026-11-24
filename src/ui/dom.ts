@@ -190,3 +190,8 @@ export const ICONS: Record<string, { vb: string; d: string[] }> = {
     'M38 12 C37 19 40 24 46 26 L52 25 C48 22 46 18 46 12', 'M26 12 L24 19 H30 L33 12',
   ] },
 };
+
+/** Touch play (phones / tablets): hints name taps and on-screen buttons instead of keys. */
+export function touchUI(): boolean {
+  return !!(window as unknown as { __game?: { input?: { touchMode?: boolean } } }).__game?.input?.touchMode;
+}

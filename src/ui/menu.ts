@@ -1,6 +1,6 @@
 /** Main menu, settings panel and controls list (settings + controls are reused by the pause screen). */
 import type { GameContext, Quality } from '../core/types';
-import { h, button, sfx, saveSettings, type Settings, glyph, toggle } from './dom';
+import { h, button, sfx, saveSettings, type Settings, glyph, toggle, touchUI } from './dom';
 import { saveInfo, clearAllProgress, reloadInto, requestBegin, requestContinue, type SaveInfo } from './progress';
 import { FIRST_LEVEL, levelInfo, levelOf } from '../core/progress';
 
@@ -250,7 +250,7 @@ export class MainMenu {
     const g = this.freshGate = h('div', 'layer ov gate interactive grain scan', this.root.parentElement!);
     const st = h('div', 'stage', g);
     h('h2', 'glow', st, 'COLD BOOT');
-    h('div', 'lbl', st, `Click to begin  ·  ${levelInfo(FIRST_LEVEL).place}`);
+    h('div', 'lbl', st, `${touchUI() ? 'Tap' : 'Click'} to begin  ·  ${levelInfo(FIRST_LEVEL).place}`);
     void g.offsetWidth;
     g.classList.add('show');
     return new Promise((r) => {

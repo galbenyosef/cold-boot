@@ -216,7 +216,11 @@ export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
     renderer.setRenderTarget(post.viewmodel);
     renderer.setClearColor(black, 0);
     renderer.clear();
+    // the hands and gun keep their own framing when the world view is narrowed for a phone (main.ts camera.zoom)
+    const zoom = camera.zoom;
+    if (zoom !== 1) { camera.zoom = 1; camera.updateProjectionMatrix(); }
     renderer.render(scene, camera);
+    if (zoom !== 1) { camera.zoom = zoom; camera.updateProjectionMatrix(); }
     scene.matrixWorldAutoUpdate = autoUpdate;
     scene.background = bg;
     camera.layers.mask = mask;

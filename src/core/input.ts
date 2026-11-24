@@ -7,6 +7,11 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   const mouseJust = new Set<number>();
   let dx = 0, dy = 0, wheel = 0;
   let locked = false;
+  let touchMode = false;
+  const stick = { x: 0, y: 0 };
+  /** Virtual (touch) holds, kept apart from the real keyboard so a key-up never cancels a held on-screen button. */
+  const vKeys = new Set<string>();
+  const vMouse = new Set<number>();
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
@@ -31,15 +36,30 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   });
 
   return {
-    down: (c) => held.has(c),
+    down: (c) => held.has(c) || vKeys.has(c),
     pressed: (c) => justPressed.has(c),
-    mouseDown: (b) => mouseHeld.has(b),
+    mouseDown: (b) => mouseHeld.has(b) || vMouse.has(b),
     mousePressed: (b) => mouseJust.has(b),
     get mouseDX() { return dx; },
     get mouseDY() { return dy; },
     get wheel() { return wheel; },
-    get pointerLocked() { return locked; },
+    get pointerLocked() { return locked || touchMode; },
+    get touchMode() { return touchMode; },
+    set touchMode(v: boolean) { touchMode = v; if (!v) { vKeys.clear(); vMouse.clear(); stick.x = stick.y = 0; } },
+    inject(code: string, down: boolean) {
+      const m = /^Mouse(\d)$/.exec(code);
+      if (m) {
+        const b = +m[1];
+        if (down) { if (!vMouse.has(b)) mouseJust.add(b); vMouse.add(b); } else vMouse.delete(b);
+        return;
+      }
+      if (down) { if (!vKeys.has(code)) justPressed.add(code); vKeys.add(code); } else vKeys.delete(code);
+    },
+    injectLook(ddx: number, ddy: number) { dx += ddx; dy += ddy; },
+    get stick() { return stick; },
+    injectStick(x: number, y: number) { stick.x = x; stick.y = y; },
     requestPointerLock() {
+      if (touchMode) return;
       // Both the options form and the plain form may return a promise that rejects (no user gesture,
       // headless, user pressed Esc too recently) — swallow every rejection.
       const plain = () => {

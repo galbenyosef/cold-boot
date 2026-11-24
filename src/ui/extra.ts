@@ -1,5 +1,5 @@
 /** Chapter-3 UI additions (task P5): skip ring, end-card eyebrow/title, long place names. Own stylesheet, scoped under `.cb`. */
-import { h } from './dom';
+import { h, touchUI } from './dom';
 
 export const EXTRA_CSS = `
 .cb .skipring { position: absolute; right: 44px; bottom: 36px; z-index: 12; display: flex; align-items: center; gap: 12px; pointer-events: none;
@@ -40,7 +40,7 @@ export class SkipRing {
     this.el = h('div', 'skipring', parent);
     this.el.innerHTML = `<svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="${R}"/><circle class="fill" cx="11" cy="11" r="${R}" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${C.toFixed(2)}"/></svg>`;
     this.arc = this.el.querySelector('circle.fill') as SVGCircleElement;
-    h('span', 'lbl', this.el, 'Hold Space to skip');
+    h('span', 'lbl', this.el, touchUI() ? 'Hold SKIP to skip' : 'Hold Space to skip');
   }
   set(progress: number | null): void {
     if (progress == null || !Number.isFinite(progress)) { this.el.classList.remove('show', 'done'); return; }

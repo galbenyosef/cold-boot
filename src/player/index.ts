@@ -918,7 +918,7 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
 
       // ── vest strap clock and what breaks it off
       if (strap) {
-        const sprinting = (isDown('ShiftLeft') || isDown('ShiftRight') || dbgMove.sprint) && (isDown('KeyW') || dbgMove.fwd > 0);
+        const sprinting = (isDown('ShiftLeft') || isDown('ShiftRight') || dbgMove.sprint) && (isDown('KeyW') || dbgMove.fwd > 0 || ctx.input.stick.y < -0.5);
         const jumping = isPressed('Space') || dbgMove.jump;
         if (!active || sprinting || jumping || noteOpen()) endStrap(false);
         else { strap.t += dt; if (strap.t >= STRAP) endStrap(true); }
@@ -927,8 +927,10 @@ export async function createPlayer(ctx: GameContext): Promise<Player & PlayerExt
       // ── movement
       noSprintT = Math.max(0, noSprintT - dt);
       if (active) {
-        const f = (isDown('KeyW') ? 1 : 0) - (isDown('KeyS') ? 1 : 0) + dbgMove.fwd;
-        const s = (isDown('KeyD') ? 1 : 0) - (isDown('KeyA') ? 1 : 0) + dbgMove.strafe;
+        // the touch stick is analog: a small tilt walks slowly (src/ui/touch.ts)
+        const stick = ctx.input.stick;
+        const f = (isDown('KeyW') ? 1 : 0) - (isDown('KeyS') ? 1 : 0) + dbgMove.fwd - stick.y;
+        const s = (isDown('KeyD') ? 1 : 0) - (isDown('KeyA') ? 1 : 0) + dbgMove.strafe + stick.x;
         moveIn.fwd = clamp(f, -1, 1); moveIn.strafe = clamp(s, -1, 1);
         moveIn.sprint = isDown('ShiftLeft') || isDown('ShiftRight') || dbgMove.sprint;
         moveIn.jump = isPressed('Space') || dbgMove.jump;

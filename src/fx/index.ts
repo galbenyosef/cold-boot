@@ -1035,7 +1035,7 @@ export async function createFx(ctx: GameContext): Promise<FxSystemEx> {
       decals.update();
       const cam = ctx.camera;
       const h = ctx.renderer?.domElement?.height || innerHeight;
-      pixelScale.value = h / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) * 0.5));
+      pixelScale.value = (h * cam.zoom) / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) * 0.5));
       fluidTokens = Math.min(5, fluidTokens + dt * 10);
       resolveImpacts();
       flashBudget = Math.min(1, flashBudget + dt * 12);

@@ -1,7 +1,7 @@
 /** Full-screen overlays: log reader, cinematic cards, pause, death, ending, resume gate. */
 import type { GameContext, GameState } from '../core/types';
 import type { StoryInternal } from './types';
-import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings } from './dom';
+import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings, touchUI } from './dom';
 import { settingsPanel, controlsPanel, GlitchTitle } from './menu';
 import { clearLevelSave, hasCheckpoint, levelLabel, reloadInto, requestContinue } from './progress';
 import { levelOf } from '../core/progress';
@@ -51,8 +51,10 @@ export class LogReader {
     this.caret = this.body.querySelector('.caret');
     const bot = h('div', 'bot', log);
     const keys = h('div', 'keys lbl', bot);
-    const k1 = h('span', '', keys); h('span', 'key', k1, 'E'); h('span', '', k1, 'Close');
-    const k2 = h('span', '', keys); h('span', 'key', k2, 'W'); h('span', 'key', k2, 'S'); h('span', '', k2, 'Scroll');
+    const k1 = h('span', '', keys); h('span', 'key', k1, touchUI() ? '✕' : 'E'); h('span', '', k1, 'Close');
+    const k2 = h('span', '', keys);
+    if (touchUI()) h('span', '', k2, 'Drag to scroll');
+    else { h('span', 'key', k2, 'W'); h('span', 'key', k2, 'S'); h('span', '', k2, 'Scroll'); }
     h('span', 'lbl', bot, 'HALCYON DYNAMICS · INTERNAL');
     addEventListener('wheel', this.wheel, { passive: true });
   }
@@ -202,7 +204,7 @@ export class Cards {
     const style = opts.style ?? 'intro';
     const root = h('div', `layer ov card card-${style} interactive grain`, this.parent);
     const stage = h('div', 'stage', root);
-    const skip = opts.skippable !== false ? h('div', 'skip lbl', root, 'Space — skip') : null;
+    const skip = opts.skippable !== false ? h('div', 'skip lbl', root, touchUI() ? 'Tap — skip' : 'Space — skip') : null;
     let skipped = false;
     const onKey = (e: KeyboardEvent) => { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') skipped = true; };
     const onClick = () => { skipped = true; };
@@ -291,7 +293,7 @@ export class PauseMenu {
     settingsPanel(ctx, settings, this.side);
     h('div', '', this.side).style.height = '18px';
     controlsPanel(this.side);
-    this.hint = h('div', 'hint lbl', root, 'Click Resume or press Esc to continue');
+    this.hint = h('div', 'hint lbl', root, touchUI() ? 'Tap Resume to continue' : 'Click Resume or press Esc to continue');
     root.addEventListener('click', (e) => { if (e.target === root) this.resume(); });
   }
 
@@ -313,7 +315,7 @@ export class PauseMenu {
     (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart level';
     (this.loadBtn.lastChild as HTMLElement).textContent = 'Load checkpoint';
     toggle(this.loadBtn, 'hidden', !hasCheckpoint(this.ctx));
-    this.hint.textContent = 'Click Resume or press Esc to continue';
+    this.hint.textContent = touchUI() ? 'Tap Resume to continue' : 'Click Resume or press Esc to continue';
     this.root.classList.remove('hidden');
     void this.root.offsetWidth;
     this.root.classList.add('show');
@@ -340,7 +342,7 @@ export class PauseMenu {
   private load(): void {
     if (!this.confirmLoad) {
       this.confirmLoad = true;
-      (this.loadBtn.lastChild as HTMLElement).textContent = 'Load checkpoint — click to confirm';
+      (this.loadBtn.lastChild as HTMLElement).textContent = `Load checkpoint — ${touchUI() ? 'tap' : 'click'} to confirm`;
       return;
     }
     loadCheckpoint(this.ctx);
@@ -349,7 +351,7 @@ export class PauseMenu {
   private restart(): void {
     if (!this.confirmRestart) {
       this.confirmRestart = true;
-      (this.restartBtn.lastChild as HTMLElement).textContent = 'Restart level — click to confirm';
+      (this.restartBtn.lastChild as HTMLElement).textContent = `Restart level — ${touchUI() ? 'tap' : 'click'} to confirm`;
       return;
     }
     restartLevel(this.ctx);
@@ -446,7 +448,7 @@ export function resumeGate(ctx: GameContext, parent: HTMLElement, place = ''): P
   const root = h('div', 'layer ov gate interactive grain scan', parent);
   const st = h('div', 'stage', root);
   h('h2', 'glow', st, 'SIGNAL REACQUIRED');
-  h('div', 'lbl', st, ['Click to resume', levelLabel(ctx), place].filter(Boolean).join('  ·  '));
+  h('div', 'lbl', st, [touchUI() ? 'Tap to resume' : 'Click to resume', levelLabel(ctx), place].filter(Boolean).join('  ·  '));
   void root.offsetWidth;
   root.classList.add('show');
   return new Promise((resolve) => {

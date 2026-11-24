@@ -42,9 +42,12 @@ export class Keypad {
     this.statusEl = h('div', 'kp-status', panel);
     const grid = h('div', 'kp-grid', panel);
     for (const k of KEYS) {
-      this.keyEls.set(k, h('div', `kp-key${k.length > 1 ? ' fn' : ''}${k === 'ENT' ? ' ent' : ''}`, grid, k));
+      const el = h('div', `kp-key${k.length > 1 ? ' fn' : ''}${k === 'ENT' ? ' ent' : ''}`, grid, k);
+      // touch play: keys are tapped directly (there is no locked pointer driving the cursor)
+      el.addEventListener('pointerdown', (e) => { if (this.resolve && ctx.input.touchMode) { e.preventDefault(); this.press(k); } });
+      this.keyEls.set(k, el);
     }
-    h('div', 'kp-hint', panel, 'CLICK  ·  DIGITS  ·  ENTER  ·  ESC');
+    h('div', 'kp-hint', panel, ctx.input.touchMode ? 'TAP THE KEYS' : 'CLICK  ·  DIGITS  ·  ENTER  ·  ESC');
     this.cursor = h('div', 'kp-cursor', this.root);
     ctx.events.on('player:damaged', () => { if (this.resolve) this.close(); });
   }

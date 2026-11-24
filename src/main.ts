@@ -61,6 +61,7 @@ async function boot() {
       events.emit('game:state', { state, prev });
     },
   } as GameContext;
+  ctx.input.touchMode = debug.mobile; // phones / tablets: on-screen controls, no pointer lock
   (window as any).__game = ctx;
   ctx.scene.add(ctx.camera);
 
@@ -88,6 +89,9 @@ async function boot() {
 
   const onResize = () => {
     ctx.camera.aspect = innerWidth / innerHeight;
+    // phones held sideways (aspect ~2.2): the vertical 72° fov is ~115° across — far wider than mobile shooters (80–90°).
+    // camera.zoom narrows every fov alike (play, aim, cutscene shots) to MOBILE_HFOV across; never widens (iPad: 1).
+    ctx.camera.zoom = debug.mobile ? mobileZoom(ctx.camera.aspect) : 1;
     ctx.camera.updateProjectionMatrix();
     ctx.render.resize(innerWidth, innerHeight);
   };
@@ -134,3 +138,10 @@ boot().catch((e) => {
   console.error(e);
   bootStatus.textContent = 'fatal: ' + (e?.message ?? e);
 });
+
+/** Horizontal fov (degrees) a phone in landscape gets at the base 72° vertical. */
+const MOBILE_HFOV = 90;
+function mobileZoom(aspect: number): number {
+  const base = Math.tan(THREE.MathUtils.degToRad(72) / 2) * aspect; // tan(hfov/2) at zoom 1
+  return Math.max(1, base / Math.tan(THREE.MathUtils.degToRad(MOBILE_HFOV) / 2));
+}

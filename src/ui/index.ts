@@ -14,12 +14,13 @@ import { CHOIR, ENDING } from '../story/text';
 import { NoteCard } from './note';
 import { RadioStrip } from './radio';
 import { Keypad } from './keypad';
+import { TouchControls, TOUCH_CSS } from './touch';
 
 export async function createUI(ctx: GameContext): Promise<UISystem> {
   if (!document.getElementById('cb-style')) {
     const style = document.createElement('style');
     style.id = 'cb-style';
-    style.textContent = buildCss(noiseDataUrl());
+    style.textContent = buildCss(noiseDataUrl()) + TOUCH_CSS;
     document.head.appendChild(style);
   }
   const host = ctx.uiRoot;
@@ -51,6 +52,11 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
   const pause = new PauseMenu(ctx, settings, root, () => hud.roomName);
   const death = new DeathScreen(ctx, root, CHOIR.deathTaunts, () => hud.roomName);
   const ending = new EndingScreen(ctx, root, ENDING);
+  // phones / tablets: on-screen controls feeding ctx.input (src/ui/touch.ts)
+  const touch = ctx.input.touchMode
+    ? new TouchControls(ctx, root, { modal: () => (keypad.isOpen ? 'keypad' : log.isOpen ? 'log' : note.isOpen ? 'note' : null) })
+    : null;
+  if (touch) root.classList.add('touchmode');
 
   let hudWanted = true;
   const syncHud = () => hud.setVisible(hudWanted && ctx.state === 'playing');
@@ -138,6 +144,7 @@ export async function createUI(ctx: GameContext): Promise<UISystem> {
       hud.update(dt);
       subs.update(dt);
       radio.update(dt);
+      touch?.update(dt);
       const kpEsc = keypad.isOpen && ctx.input.pressed('Escape');
       keypad.update(dt);
       log.update(dt);

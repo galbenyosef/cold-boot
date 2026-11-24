@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext, PickupKind, WeaponId } from '../core/types';
-import { h, setText, toggle, Scrambler, svg, ICONS } from './dom';
+import { h, setText, toggle, Scrambler, svg, ICONS, touchUI } from './dom';
 import { BossPips } from './boss';
 import { LoaderPips } from './loader';
 import { GripMeter } from './grip';
@@ -152,7 +152,7 @@ export class Hud {
     // prompt
     this.prompt = h('div', 'prompt', root);
     h('span', 'bracket', this.prompt);
-    h('span', 'key', this.prompt, 'E');
+    h('span', 'key', this.prompt, touchUI() ? 'USE' : 'E');
     this.promptText = h('span', 'ptext', this.prompt, '');
     h('span', 'bracket r', this.prompt);
 

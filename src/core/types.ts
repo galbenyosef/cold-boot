@@ -356,11 +356,24 @@ export interface Input {
   readonly mouseDY: number;
   /** Wheel steps this frame (+1 / -1 / 0). */
   readonly wheel: number;
+  /** True while the mouse is captured — and always in touch mode (there is no pointer to capture). */
   readonly pointerLocked: boolean;
   requestPointerLock(): void;
   exitPointerLock(): void;
   /** Called by main loop at end of frame. */
   endFrame(): void;
+  /**
+   * Touch play (phones / tablets, `DebugFlags.mobile`): pointer lock is never requested and `pointerLocked` reads true.
+   * The on-screen controls (src/ui/touch.ts) feed the same codes as the keyboard / mouse through `inject` / `injectLook`.
+   */
+  touchMode: boolean;
+  /** Virtual key / button: a KeyboardEvent.code ('KeyW', 'Space'…) or 'Mouse0' / 'Mouse2'. Edge-triggers `pressed`. */
+  inject(code: string, down: boolean): void;
+  /** Virtual look movement in mouse pixels (added to `mouseDX` / `mouseDY` this frame). */
+  injectLook(dx: number, dy: number): void;
+  /** Analog move stick, each axis −1…1 (x right, y down = backwards); added to W/A/S/D by the player. 0,0 when idle. */
+  readonly stick: { readonly x: number; readonly y: number };
+  injectStick(x: number, y: number): void;
 }
 
 // ───────────────────────────────────────────────────────────── physics (core)

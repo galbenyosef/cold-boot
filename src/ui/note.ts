@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import type { GameContext } from '../core/types';
 import type { NoteStyle } from '../story/text';
-import { h, sfx, Typewriter } from './dom';
+import { h, sfx, Typewriter, touchUI } from './dom';
 
 const STYLE_LABEL: Record<NoteStyle, string> = { paper: 'NOTE', terminal: 'TERMINAL', tag: 'TAG', voice: 'PLAYBACK' };
 const WALK_AWAY = 3;
@@ -35,7 +35,7 @@ export class NoteCard {
     this.kind = h('span', 'nkind', top, 'NOTE');
     this.header = h('span', 'nhead', top, '');
     const close = h('span', 'nclose', top);
-    h('span', 'key', close, 'E');
+    h('span', 'key', close, touchUI() ? 'TAP' : 'E');
     this.body = h('div', 'nbody', this.card);
     this.tw = new Typewriter(this.body, 110);
     ctx.events.on('player:damaged', () => this.close());
