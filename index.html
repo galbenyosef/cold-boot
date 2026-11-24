@@ -11,13 +11,20 @@
       #ui { position: fixed; inset: 0; pointer-events: none; }
       /* #boot is the pre-JS loading overlay; main.ts updates #boot-status and removes #boot when loading is done */
       #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #000; color: #7d8a8f;
-              font: 12px/1.6 ui-monospace, Menlo, monospace; letter-spacing: 0.3em; text-transform: uppercase; z-index: 100; }
+              font: 12px/1.6 ui-monospace, Menlo, monospace; letter-spacing: 0.3em; text-transform: uppercase; z-index: 100;
+              transition: opacity .3s ease; }
+      #boot.done { opacity: 0; }
+      .boot-col { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+      /* src/core/bootbar.ts drives #boot-fill with transform transitions (they keep moving while the page is busy) */
+      #boot-bar { width: min(260px, 60vw); height: 1px; background: rgba(125,138,143,.22); overflow: hidden; }
+      #boot-fill { height: 100%; background: #74e4ff; box-shadow: 0 0 8px rgba(116,228,255,.7); transform-origin: left;
+                   transform: scaleX(0); will-change: transform; }
     </style>
   </head>
   <body>
     <canvas id="game"></canvas>
     <div id="ui"></div>
-    <div id="boot"><div id="boot-status">initialising</div></div>
+    <div id="boot"><div class="boot-col"><div id="boot-status">initialising</div><div id="boot-bar"><div id="boot-fill"></div></div></div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

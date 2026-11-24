@@ -503,6 +503,15 @@ export function buildCss(noise: string): string {
 @keyframes cb-pk-out { to { opacity: 0; transform: translateY(-6px); } }
 @keyframes cb-grain { 0% { transform: translate(0,0); } 20% { transform: translate(-6%,4%); } 40% { transform: translate(5%,-7%); } 60% { transform: translate(-3%,8%); } 80% { transform: translate(7%,2%); } 100% { transform: translate(0,0); } }
 @keyframes cb-scan { 0% { left: -80px; } 60%,100% { left: 100%; } }
+/* ───────────── very short screens (a phone sideways with Safari's toolbar showing, ~330 px) */
+@media (max-height: 400px) {
+  .cb .subtitle { display: none; }
+  .cb .menu .eyebrow { margin-bottom: 6px; }
+  .cb .menu .rule2 { margin: 8px 0 6px; }
+  .cb .btn { padding: 6px 0 6px 18px; font-size: 11.5px; }
+  .cb .menu .lvlline { padding-bottom: 2px; }
+  .cb .foot { display: none; }
+}
 /* ───────────── narrow screens (a phone held upright) */
 @media (max-width: 600px) {
   .cb .title { font-size: 11vw; letter-spacing: .22em; margin-right: -.22em; }
@@ -512,7 +521,7 @@ export function buildCss(noise: string): string {
 @media (max-height: 520px) {
   .cb .menu .col { left: 6vw; transform: translateY(-50%); }
   .cb .menu .eyebrow { margin-bottom: 10px; }
-  .cb .title { font-size: clamp(34px, 7vw, 64px); }
+  .cb .title { font-size: min(5.6vw, 10.5vh); }
   .cb .subtitle { margin-top: 10px; font-size: 10px; }
   .cb .menu .rule2 { margin: 12px 0 12px; }
   .cb .menu .side { right: 4vw; width: min(360px, 40vw); }
@@ -525,6 +534,66 @@ export function buildCss(noise: string): string {
   .cb .keypad .kp-panel { bottom: 50%; transform: translate(-50%, 50%) scale(.8); transform-origin: center; }
   .cb .vitals { left: calc(env(safe-area-inset-left) + 20px); bottom: 16px; transform: scale(.8); transform-origin: bottom left; }
   .cb .subs { bottom: 8vh; }
+
+  /* HUD text */
+  .cb .objective { left: calc(env(safe-area-inset-left) + 16px); top: 12px; max-width: 34vw; }
+  .cb .objective .head { margin-bottom: 5px; }
+  .cb .objective .rule { width: 80px; }
+  .cb .objective .text { font-size: 13px; line-height: 1.35; }
+  .cb .location { top: 14px; font-size: 9px; }
+  .cb .location small { margin-top: 5px; font-size: 7.5px; }
+  .cb .toast { top: 50px; padding: 6px 26px; font-size: 11px; }
+  .cb .pk { font-size: 9px; } .cb .pk b { font-size: 13px; }
+  .cb.touchmode .pickups { top: calc(env(safe-area-inset-top) + 84px); bottom: auto; right: calc(env(safe-area-inset-right) + 70px); }
+
+  /* spoken lines: one short block between the stick and the button pad */
+  .cb .subs { bottom: 92px; width: min(560px, 54vw); } /* above the vitals, clear of the stick and the pad */
+  .cb .seg button { padding: 7px 6px; letter-spacing: .14em; }
+  .cb .subs .sub { max-height: 120px; }
+  .cb .subs .sub + .sub { margin-top: 6px; }
+  .cb .subs .spk { margin-bottom: 4px; font-size: 8px; gap: 6px; }
+  .cb .subs .spk::before, .cb .subs .spk::after { width: 14px; }
+  .cb .subs .line, .cb .subs .sub.pa .line { font-size: 14px; line-height: 1.35; }
+  .cb .subs .sub.phone .line { font-size: 12.5px; }
+
+  /* notes / tablets */
+  .cb .note { bottom: auto; top: 18%; width: min(460px, 58vw); }
+  .cb .ncard { padding: 9px 14px 10px 15px; }
+  .cb .ntop { margin-bottom: 6px; font-size: 8px; }
+  .cb .nbody { font-size: 13px; line-height: 1.45; }
+
+  /* log reader */
+  .cb .log { width: min(640px, 80vw); max-height: 90vh; padding: 14px 20px 12px; }
+  .cb .log .top { margin-bottom: 6px; }
+  .cb .log h1 { margin-bottom: 8px; font-size: 16px; }
+  .cb .log .metab { padding: 6px 0; margin-bottom: 8px; font-size: 9.5px; gap: 3px 12px; }
+  .cb .log .body { font-size: 13px; line-height: 1.55; }
+  .cb .log .body.mono { font-size: 11px; }
+  .cb .log .bot { margin-top: 8px; padding-top: 8px; }
+
+  /* cards, death, ending */
+  .cb .card.card-title .big { font-size: 34px; }
+  .cb .card.card-title .rule { margin: 14px auto; }
+  .cb .card.card-title .rule.show { width: 220px; }
+  .cb .card .ln { font-size: 10px; }
+  .cb .card .ln.long { font-size: 9.5px; }
+  .cb .card .ln.statl { font-size: 9px; }
+  .cb .card .skip { right: 20px; bottom: 14px; }
+  .cb .death h2 { font-size: 40px; }
+  .cb .death .meta { margin-top: 10px; }
+  .cb .death .taunt { margin-top: 20px; min-height: 40px; max-width: 70vw; }
+  .cb .death .taunt .line { font-size: 15px; }
+  .cb .ending .title { font-size: 38px; }
+  .cb .ending .endstatus { margin-top: 14px; }
+
+  /* menus: smaller items and panels; the pause screen leaves out the controls list */
+  .cb .btn { padding: 8px 0 8px 18px; font-size: 12px; }
+  .cb .panel { padding: 14px 18px; }
+  .cb .panel h3 { margin-bottom: 12px; }
+  .cb .setting { margin-bottom: 12px; }
+  .cb .controls { gap: 6px 14px; }
+  .cb .pause .side .ctl-panel { display: none; }
+  .cb .pause .side { top: 50%; }
 }
 @keyframes cb-scanbar { 0% { top: -80px; } 100% { top: 110%; } }
 @keyframes cb-flicker { 0%, 7.9%, 8.6%, 41%, 41.6%, 73%, 100% { opacity: 1; } 8% { opacity: .55; } 8.3% { opacity: .9; } 41.3% { opacity: .7; } 73.4% { opacity: .82; } }

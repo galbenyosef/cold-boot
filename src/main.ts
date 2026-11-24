@@ -22,12 +22,15 @@ import { createPlayer } from './player';
 import { createEnemies } from './enemies';
 import { createUI } from './ui';
 import { createStory } from './story';
+import { BootBar, type BootStep } from './core/bootbar';
 
 const bootStatus = document.getElementById('boot-status')!;
-const status = async (text: string) => {
+let bar: BootBar | null = null;
+const status = async (text: string, step: BootStep) => {
   bootStatus.textContent = text;
-  // Yield so the browser can paint the status line between heavy synchronous steps.
-  await new Promise((r) => setTimeout(r, 0));
+  // Yield so the browser paints the status line and starts the bar's run towards this step's end.
+  if (bar) await bar.step(step);
+  else await new Promise((r) => setTimeout(r, 0));
 };
 
 async function boot() {
@@ -37,6 +40,7 @@ async function boot() {
   // §8.1: v1 saves / carry are discarded once (the stored level starts over), before anything reads storage.
   discardV1();
   const levelId = resolveLevel(debug);
+  bar = new BootBar(debug.mobile, levelId);
 
   const ctx = {
     canvas,
@@ -65,26 +69,26 @@ async function boot() {
   (window as any).__game = ctx;
   ctx.scene.add(ctx.camera);
 
-  await status('renderer');
+  await status('renderer', 'renderer');
   ctx.render = await createRender(ctx); // also assigns ctx.renderer
-  await status('materials');
+  await status('materials', 'materials');
   ctx.materials = await createMaterials(ctx);
-  await status('effects');
+  await status('effects', 'effects');
   ctx.fx = await createFx(ctx);
-  await status('audio');
+  await status('audio', 'audio');
   ctx.audio = await createAudio(ctx);
-  await status(levelOf(ctx).bootStatus);
+  await status(levelOf(ctx).bootStatus, 'level');
   ctx.level = await createLevel(ctx);
   ctx.physics.build(ctx.level.colliders);
   ctx.physics.setKillY(ctx.level.killY); // stage 3d B6: the level's kill height (levels 1–5: −30)
-  await status('operator');
+  await status('operator', 'player');
   ctx.player = await createPlayer(ctx);
-  await status('machines');
+  await status('machines', 'enemies');
   ctx.enemies = await createEnemies(ctx);
-  await status('interface');
+  await status('interface', 'interface');
   ctx.ui = await createUI(ctx);
   ctx.story = await createStory(ctx);
-  await status('lighting');
+  await status('lighting', 'lighting');
   await ctx.render.prepare(ctx.level.probes);
 
   const onResize = () => {
@@ -127,7 +131,9 @@ async function boot() {
   // Render one frame before revealing so shader compilation hitches hide behind the boot overlay.
   ctx.player.update(0);
   ctx.render.render(0);
-  document.getElementById('boot')?.remove();
+  bar?.done();
+  const bootEl = document.getElementById('boot');
+  if (bootEl) { bootEl.classList.add('done'); setTimeout(() => bootEl.remove(), 350); }
   ctx.ready = true;
   requestAnimationFrame((t) => { last = t; frame(t); });
 

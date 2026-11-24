@@ -85,6 +85,20 @@ export function settingsPanel(ctx: GameContext, settings: Settings, parent: HTML
   return p;
 }
 
+/** The on-screen controls (src/ui/touch.ts), named by their button labels. */
+const TOUCH_CONTROLS: [string[], string][] = [
+  [['LEFT'], 'Move (edge: run)'],
+  [['RIGHT'], 'Look (drag)'],
+  [['FIRE'], 'Fire (drag: aim)'],
+  [['AIM'], 'Aim (carbine)'],
+  [['USE'], 'Use (hold)'],
+  [['RLD'], 'Reload'],
+  [['SWAP'], 'Next weapon'],
+  [['LIGHT'], 'Flashlight'],
+  [['JUMP', 'CROUCH'], 'Jump / crouch'],
+  [['II'], 'Pause'],
+];
+
 const CONTROLS: [string[], string][] = [
   [['W', 'A', 'S', 'D'], 'Move'],
   [['SHIFT'], 'Run'],
@@ -100,10 +114,10 @@ const CONTROLS: [string[], string][] = [
 ];
 
 export function controlsPanel(parent: HTMLElement): HTMLDivElement {
-  const p = h('div', 'panel', parent);
+  const p = h('div', 'panel ctl-panel', parent);
   h('h3', '', p, 'Controls');
   const g = h('div', 'controls', p);
-  for (const [keys, label] of CONTROLS) {
+  for (const [keys, label] of touchUI() ? TOUCH_CONTROLS : CONTROLS) {
     const k = h('div', 'k', g);
     for (const key of keys) h('span', 'key', k, key);
     h('div', 'd', g, label);
