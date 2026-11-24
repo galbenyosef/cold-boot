@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import type { AudioLogEntry, AudioSystem, EnemyType, GameContext, LoopHandle, MusicState, PlayOpts, Surface, VoiceHandle } from '../core/types';
 import { AudioEngine, type LoopVoice } from './engine';
+import { setSynthRate } from './synth/core';
 import { Music, type MusicMode } from './music';
 import { Ambience } from './ambient';
 import { renderChoir } from './choir';
@@ -104,21 +105,30 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   const level = levelOf(ctx);
   eng.level = level.id;
   eng.paDock = !!level.paDock;
+  eng.lowMemory = !!ctx.debug?.mobile;
+  if (ctx.debug?.mobile) setSynthRate(24000); // phones: half the sound bank memory (bandwidth to 12 kHz)
   await eng.preload();
   if (ctx.debug?.verbose) console.info(`[audio] pre-rendered load set in ${eng.preRenderMs.toFixed(0)} ms`);
+  // Phones: background work waits until the level has finished loading — it would overlap the boot's memory peak
+  // (lighting bake / shader compile) and steal its main thread. Desktop: as soon as loading has moved on.
+  const later = (fn: () => void, ms: number) => {
+    if (!ctx.debug?.mobile) { setTimeout(fn, ms); return; }
+    const wait = () => { if (ctx.ready) setTimeout(fn, 1500 + ms); else setTimeout(wait, 250); };
+    wait();
+  };
   // the rest renders in the background once loading has moved on
-  setTimeout(() => { eng.renderIdle(); }, 200);
+  later(() => { eng.renderIdle(); }, 200);
 
   const music = new Music(eng.ctx, eng.buses.music, eng.plateIn, (id) => eng.buffers(id));
   const amb = new Ambience(eng);
   const voice = new VoiceBank(eng);
   // levels after the first start powered (level 2: the hall is held, not dead) — LEVELS[id].powerOnAtLoad
   if (level.powerOnAtLoad) amb.powerOn = true;
-  if (level.id === 4) setTimeout(() => { for (const id of WARM_L4) void eng.ensure(id); }, 2500);
-  if (level.id === 5) setTimeout(() => { for (const id of WARM_L5) void eng.ensure(id); }, 2500);
-  if (level.id === 6) setTimeout(() => { for (const id of WARM_L6) void eng.ensure(id); }, 1200);
+  if (level.id === 4) later(() => { for (const id of WARM_L4) void eng.ensure(id); }, 2500);
+  if (level.id === 5) later(() => { for (const id of WARM_L5) void eng.ensure(id); }, 2500);
+  if (level.id === 6) later(() => { for (const id of WARM_L6) void eng.ensure(id); }, 1200);
   // this level's voice files: fetch the bytes in the background (decode stays lazy)
-  setTimeout(() => { try { voice.prefetchLevel(level.id); } catch { /* ignore */ } }, 1500);
+  later(() => { try { voice.prefetchLevel(level.id); } catch { /* ignore */ } }, 1500);
   const musicTimer = setInterval(() => { if (eng.running) music.tick(); }, 100);
   void musicTimer;
 

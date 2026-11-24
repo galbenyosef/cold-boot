@@ -5,7 +5,14 @@
  * buffer sources inside the same graph.
  */
 
-export const SR = 44100;
+/** Synthesis sample rate. 44.1 kHz; phones 24 kHz (setSynthRate) — half the sound bank memory and render time. */
+export let SR = 44100;
+/** Call before the first render (createAudio). Rendered buffers play at any context rate (Web Audio resamples). */
+export function setSynthRate(sr: number): void {
+  if (sr === SR) return;
+  SR = sr;
+  noiseBufs = null;
+}
 
 export type BusName = 'sfx' | 'ambience' | 'music' | 'voice' | 'ui';
 
@@ -72,10 +79,9 @@ export function hashStr(s: string): number {
 // ───────────────────────────────────────────── shared noise + curves (context independent)
 
 let noiseBufs: Record<'white' | 'pink' | 'brown', AudioBuffer> | null = null;
-const NOISE_LEN = SR * 4;
 
 function makeNoiseBuffer(fill: (d: Float32Array, rnd: () => number) => void): AudioBuffer {
-  const b = new AudioBuffer({ length: NOISE_LEN, sampleRate: SR, numberOfChannels: 1 });
+  const b = new AudioBuffer({ length: SR * 4, sampleRate: SR, numberOfChannels: 1 });
   const d = b.getChannelData(0);
   fill(d, mulberry(1234 + d.length));
   // normalise to peak 1

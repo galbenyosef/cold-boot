@@ -112,6 +112,7 @@ function impactData(dur: number, hits: Hit[], rnd: () => number): Float32Array<A
     const i0 = Math.floor(t * SR);
     if (i0 < 0 || i0 >= len) continue;
     out[i0] += amp * 0.6 * (rnd() < 0.5 ? -1 : 1); // the contact click
+    if (f >= SR * 0.47) continue; // above Nyquist at the phones' synthesis rate: the click only
     const w = (2 * Math.PI * f) / SR, d = Math.exp(-1 / (tau * SR)), ph = rnd() * 6.283;
     const n = Math.min(len - i0, Math.floor(tau * SR * 7));
     let a = amp;

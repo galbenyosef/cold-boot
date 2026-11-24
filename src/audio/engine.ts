@@ -109,6 +109,8 @@ export class AudioEngine {
   private muffleTarget = -1;
   preRenderMs = 0;
   idleRenderMs = 0;
+  /** Phones: background renders run a couple at a time (set by createAudio from DebugFlags.mobile). */
+  lowMemory = false;
   lateRenderMs = 0;
 
   constructor() {
@@ -181,7 +183,7 @@ export class AudioEngine {
   async preload(): Promise<void> {
     // the load set honours `levels` (stage 3c: level 5's arrival sounds are needed in its first second, nowhere else)
     const defs = [...SOUND_MAP.values()].filter((d) => (d.when ?? 'load') === 'load' && (!d.levels || !this.level || d.levels.includes(this.level)));
-    this.preRenderMs = await renderMany(defs, (d, b) => this.bank.set(d.id, b), 8);
+    this.preRenderMs = await renderMany(defs, (d, b) => this.bank.set(d.id, b), this.lowMemory ? 3 : 8);
     // pre-build the IRs used most (cheap; avoids a hitch on first room switch)
     for (const n of ['corridor', 'padded', 'hall'] as IrName[]) this.ir(n);
   }
@@ -190,13 +192,19 @@ export class AudioEngine {
   renderIdle(): Promise<void> {
     const pick = (w: 'idle' | 'late') => [...SOUND_MAP.values()].filter((d) => d.when === w && !this.bank.has(d.id) && (!d.levels || d.levels.includes(this.level)));
     const t0 = performance.now();
-    return Promise.all(pick('idle').map((d) => this.ensure(d.id))).then(() => {
+    // all at once on desktop; phones a couple at a time — every render holds an OfflineAudioContext, its node graph
+    // and its output until done, and a hundred of them at once is a memory spike a phone tab does not survive
+    const idle = pick('idle');
+    const lanes = this.lowMemory ? 2 : idle.length;
+    let next = 0;
+    const lane = async () => { while (next < idle.length) await this.ensure(idle[next++].id); };
+    return Promise.all(Array.from({ length: Math.min(lanes, idle.length) }, lane)).then(() => {
       this.idleRenderMs = performance.now() - t0;
       for (const n of ['machine', 'shaft', 'dead'] as IrName[]) this.ir(n);
       return new Promise<void>((res) => setTimeout(res, 50));
     }).then(() => {
       const t1 = performance.now();
-      return renderMany(pick('late'), (d, b) => { if (!this.bank.has(d.id)) this.bank.set(d.id, b); }, 3).then(() => {
+      return renderMany(pick('late'), (d, b) => { if (!this.bank.has(d.id)) this.bank.set(d.id, b); }, this.lowMemory ? 2 : 3).then(() => {
         this.lateRenderMs = performance.now() - t1;
         this.ir('cistern');
       });

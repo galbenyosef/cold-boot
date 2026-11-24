@@ -67,6 +67,7 @@ async function boot() {
     },
   } as GameContext;
   ctx.input.touchMode = debug.mobile; // phones / tablets: on-screen controls, no pointer lock
+  if (debug.mobile) releaseOnLeave(ctx);
   (window as any).__game = ctx;
   ctx.scene.add(ctx.camera);
 
@@ -153,4 +154,17 @@ const MOBILE_HFOV = 90;
 function mobileZoom(aspect: number): number {
   const base = Math.tan(THREE.MathUtils.degToRad(72) / 2) * aspect; // tan(hfov/2) at zoom 1
   return Math.max(1, base / Math.tan(THREE.MathUtils.degToRad(MOBILE_HFOV) / 2));
+}
+
+/**
+ * Phones: every level change / restart reloads the page, and iOS Safari may still hold the old page (its GPU textures,
+ * audio buffers) while the new one boots in the same process — the new boot then runs out of memory. So on leaving,
+ * drop the WebGL context and the audio context at once; a page restored from the back/forward cache reloads instead.
+ */
+function releaseOnLeave(ctx: GameContext): void {
+  addEventListener('pagehide', () => {
+    try { (ctx.renderer?.getContext().getExtension('WEBGL_lose_context') as WEBGL_lose_context | null)?.loseContext(); } catch { /* ignore */ }
+    try { void (ctx.audio as unknown as { debug?: { engine?: { ctx?: AudioContext } } })?.debug?.engine?.ctx?.close(); } catch { /* ignore */ }
+  });
+  addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
 }
