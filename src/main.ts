@@ -21,6 +21,7 @@ import { createLevel } from './level';
 import { createPlayer } from './player';
 import { createEnemies } from './enemies';
 import { createUI } from './ui';
+import { createGamepad } from './core/gamepad';
 import { createStory } from './story';
 import { BootBar, type BootStep } from './core/bootbar';
 
@@ -102,6 +103,7 @@ async function boot() {
   addEventListener('resize', onResize);
   onResize();
 
+  const gamepad = createGamepad(ctx);
   let last = performance.now();
   let fpsAcc = 0, fpsFrames = 0;
   const frame = (now: number) => {
@@ -112,6 +114,7 @@ async function boot() {
     fpsAcc += rawDt; fpsFrames++;
     if (fpsAcc >= 0.5) { debug.fps = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
 
+    gamepad.update(dt);
     const simulating = ctx.state === 'playing' || ctx.state === 'cutscene';
     ctx.story.update(dt);
     if (simulating) {

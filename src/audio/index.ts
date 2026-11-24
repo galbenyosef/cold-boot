@@ -159,10 +159,17 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
 
   const lift = (p: THREE.Vector3, y: number, out = tmpA) => out.set(p.x, p.y + y, p.z);
 
+  let unlockedOnce = false;
   // ───────────── public API
   const sys: AudioSystem & { debug: AudioDebug } = {
     async unlock() {
       try {
+        // iOS: play as media — through the silent switch, not as a ringer-class sound (Safari 16.4+)
+        const as = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+        if (as && as.type !== 'playback') as.type = 'playback';
+        // after a phone call / Siri Safari leaves the context 'interrupted'; a resume inside a gesture brings it back
+        if (eng.ctx.state === 'running' && unlockedOnce) return;
+        unlockedOnce = true;
         if (eng.ctx.state !== 'running') await eng.ctx.resume();
         // iOS/Safari: a silent buffer from inside the gesture
         const b = eng.ctx.createBuffer(1, 1, eng.ctx.sampleRate);

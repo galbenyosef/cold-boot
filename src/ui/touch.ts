@@ -60,7 +60,6 @@ export class TouchControls {
   private looks = new Map<number, { x: number; y: number }>();
   /** Log scrolling drag (modal 'log'). */
   private scrollY: number | null = null;
-  private unlocked = false;
   private syncT = 0;
 
   constructor(private readonly ctx: GameContext, parent: HTMLElement, private readonly hooks: TouchHooks) {
@@ -310,10 +309,8 @@ export class TouchControls {
     if (this.aimOn) { this.aimOn = false; inp.inject('Mouse2', false); this.aimBtn.classList.remove('on'); }
   }
 
-  /** Web Audio on iOS starts only inside a user gesture: the first touch on the controls does it. */
+  /** Web Audio on iOS starts only inside a user gesture: touches on the controls do it (again after a call / Siri interruption). */
   private unlockAudio(): void {
-    if (this.unlocked) return;
-    this.unlocked = true;
     try { void this.ctx.audio?.unlock(); } catch { /* ignore */ }
   }
 }

@@ -333,9 +333,9 @@ export function buildCss(noise: string): string {
 .cb .btn .n { font: 500 9px/1 var(--f-mono); letter-spacing: .2em; color: var(--dim); width: 18px; }
 .cb .btn::before { content: ''; position: absolute; left: 0; top: 50%; width: 2px; height: 0; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); transform: translateY(-50%); transition: height .25s cubic-bezier(.2,.8,.2,1); }
 .cb .btn::after { content: ''; position: absolute; left: 22px; right: -40px; bottom: 4px; height: 1px; background: linear-gradient(90deg, var(--cyan-2), transparent); transform: scaleX(0); transform-origin: left; transition: transform .35s cubic-bezier(.2,.8,.2,1); }
-.cb .btn:hover, .cb .btn.sel { color: var(--fg); transform: translateX(6px); }
-.cb .btn:hover::before, .cb .btn.sel::before { height: 16px; }
-.cb .btn:hover::after, .cb .btn.sel::after { transform: scaleX(1); }
+.cb .btn:hover, .cb .btn.sel, .cb .btn.padfocus { color: var(--fg); transform: translateX(6px); }
+.cb .btn:hover::before, .cb .btn.sel::before, .cb .btn.padfocus::before { height: 16px; }
+.cb .btn:hover::after, .cb .btn.sel::after, .cb .btn.padfocus::after { transform: scaleX(1); }
 .cb .btn.primary { color: var(--fg); font-size: 16px; }
 .cb .btn.danger:hover { color: var(--red); }
 .cb .btn .where { margin-left: 4px; font: 500 9px/1 var(--f-mono); letter-spacing: .28em; text-transform: uppercase; color: var(--dim); }
