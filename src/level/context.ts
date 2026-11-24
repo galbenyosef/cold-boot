@@ -171,6 +171,8 @@ export class LevelBuild {
   finishBuilders(): number {
     let tris = 0;
     this.signAtlas.finish();
+    // Atlased signs' own canvases are copied into the atlas: release the ones nothing else renders with.
+    for (const m of this.signAtlas.sources()) if (!this.signsDirect.has(m)) releaseSign(m);
     for (const b of this.builders) {
       const g = b.build(true);
       tris += b.tris;
@@ -186,10 +188,19 @@ export class LevelBuild {
     this.instDefs.set(name, { geo: b.bake(), mat, cast });
   }
 
+  /** Sign material rendered directly (not through the atlas). */
   signMat(text: string, style: SignStyle, aspect: number): THREE.MeshStandardMaterial {
+    const m = this.signSource(text, style, aspect);
+    this.signsDirect.add(m);
+    return m;
+  }
+  /** Sign materials some mesh renders with directly — their canvases must stay. */
+  private signsDirect = new Set<THREE.Material>();
+  private signSource(text: string, style: SignStyle, aspect: number): THREE.MeshStandardMaterial {
     const a = Math.round(aspect * 4) / 4;
     const key = `${style}|${a}|${text}`;
     let m = this.signs.get(key);
+    if (m?.userData.signReleased) { this.signs.delete(key); m = undefined; }
     if (!m) {
       this.signs.set(key, (m = this.ctx.materials.sign(text, style, a)));
       // painted stencils: worn, never brighter than the surface they sit on
@@ -202,7 +213,7 @@ export class LevelBuild {
   /** Atlas slot for a sign (static zones only — must be requested before `finishBuilders`). */
   signSlot(text: string, style: SignStyle, aspect: number): { mat: THREE.MeshStandardMaterial; rect: UvRect } | null {
     const a = Math.round(aspect * 4) / 4;
-    return this.signAtlas.entry(`${a}|${text}`, style, this.signMat(text, style, aspect));
+    return this.signAtlas.entry(`${a}|${text}`, style, this.signSource(text, style, aspect));
   }
 
   private dsMats = new Map<string, THREE.MeshStandardMaterial>();
@@ -518,4 +529,15 @@ export class LevelBuild {
   navDrop(from: readonly [number, number, number], to: readonly [number, number, number]) {
     this.navDrops.push({ from: new THREE.Vector3(...from), to: new THREE.Vector3(...to) });
   }
+}
+
+/** Free a sign material's canvases (it was copied into an atlas). `materials.sign` re-creates it if asked again. */
+function releaseSign(m: THREE.MeshStandardMaterial): void {
+  for (const t of [m.map, m.roughnessMap]) {
+    if (!t) continue;
+    const img = t.image as HTMLCanvasElement | undefined;
+    if (img && 'width' in img) { img.width = 1; img.height = 1; }
+    t.dispose();
+  }
+  m.userData.signReleased = true;
 }

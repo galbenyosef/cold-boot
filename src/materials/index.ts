@@ -183,6 +183,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
     sign(text: string, style: SignStyle, aspect = 2) {
       const key = `${style}|${aspect.toFixed(3)}|${text}`;
       let m = signCache.get(key);
+      if (m?.userData.signReleased) m = undefined; // its canvases went into a level's sign atlas and were freed
       if (!m) {
         m = track(createSign(text, style, aspect, renderer.capabilities.getMaxAnisotropy()), 0.8);
         // signs are always printed on / screwed to something: never fight it

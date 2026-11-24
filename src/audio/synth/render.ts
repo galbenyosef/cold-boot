@@ -26,7 +26,9 @@ export async function renderDef(def: SoundDef): Promise<AudioBuffer[]> {
     const start = Math.floor(v * per * SR);
     const len = Math.floor((def.dur + xf) * SR);
     const chans: Float32Array[] = [];
-    for (let c = 0; c < ch; c++) chans.push(rendered.getChannelData(c).slice(start, start + len));
+    // views, not copies: `finish` edits them in place and copies the result into the final buffer, and the
+    // rendered buffer is garbage right after (a phone tab cannot afford two transient copies per sound)
+    for (let c = 0; c < ch; c++) chans.push(rendered.getChannelData(c).subarray(start, start + len));
     out.push(finish(def, chans, xf, mulberry(hashStr(def.id) * 31 + v), v));
   }
   return out;

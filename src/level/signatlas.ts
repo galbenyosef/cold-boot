@@ -42,6 +42,13 @@ export class SignAtlas {
     return { mat: a.mat, rect: slot.rect };
   }
 
+  /** Source sign materials that went into an atlas (their canvases can be released after `finish`). */
+  sources(): THREE.MeshStandardMaterial[] {
+    const out: THREE.MeshStandardMaterial[] = [];
+    for (const a of this.styles.values()) for (const s of a.slots) out.push(s.src);
+    return out;
+  }
+
   /** Draw the atlases and resolve every slot's UV rectangle. Call once, before the zones are merged. */
   finish(): void {
     for (const a of this.styles.values()) {
@@ -67,6 +74,9 @@ export class SignAtlas {
         t.generateMipmaps = true;
         t.minFilter = THREE.LinearMipmapLinearFilter;
         t.name = `sign_atlas:${a.mat.name}`;
+        // The atlas canvas is only needed for the upload; drop its pixels once they are on the GPU (an iPhone
+        // tab is killed well below what these canvases plus their GPU copies cost). No context-loss restore exists.
+        t.onUpdate = () => { t.onUpdate = null; cv.width = cv.height = 1; };
         return t;
       };
       a.mat.map = make((m) => m.map, first.map);
