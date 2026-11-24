@@ -36,7 +36,10 @@
  */
 import { hashStr, mulberry } from './synth/core';
 
-export const FX_SR = 24000;
+import { FX_SR, pitchShift, wsola } from './pitch';
+import { shiftMany } from './pitchpool';
+
+export { FX_SR, pitchShift, wsola };
 const OUT_RMS = 0.13;
 
 export type VoiceFxName = 'clean' | 'choir' | 'intercom' | 'headset' | 'unit' | 'foreman' | 'recorder' | 'pa' | 'room' | 'door' | 'screen' | 'radio' | 'throat' | 'phone';
@@ -57,57 +60,6 @@ export function parseFx(fx: string | undefined | null): { name: VoiceFxName; arg
 }
 
 // ───────────────────────────────────────────── JS DSP helpers (24 kHz)
-
-/** Pitch-preserving time stretch (WSOLA) — port of tools/voice/coldvoice/audio.py. speed > 1 → faster. */
-export function wsola(x: Float32Array, speed: number, sr = FX_SR): Float32Array {
-  if (Math.abs(speed - 1) < 1e-3 || x.length === 0) return x;
-  const N = Math.floor(sr * 0.03), Hs = N >> 1, tol = Math.floor(sr * 0.008), Ha = Hs * speed;
-  if (x.length < 2 * N) {
-    const out = new Float32Array(Math.floor(x.length / speed));
-    for (let i = 0; i < out.length; i++) out[i] = x[Math.min(x.length - 1, Math.floor(i * speed))];
-    return out;
-  }
-  const win = new Float32Array(N);
-  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
-  const xp = new Float32Array(x.length + N + 3 * tol + Hs + tol);
-  xp.set(x, tol);
-  const nFrames = Math.floor((x.length - N) / Ha) + 1;
-  const out = new Float32Array(nFrames * Hs + N);
-  let prev = 0;
-  for (let k = 0; k < nFrames; k++) {
-    const target = Math.round(k * Ha);
-    let best = 0;
-    if (k > 0) {
-      const nat = prev + Hs;
-      // decimated cross-correlation (every 2nd sample, every 2nd lag), as in the Python version
-      let bestC = -Infinity, bestJ = 0;
-      for (let j = 0; j <= tol; j++) {
-        let c = 0;
-        const r0 = target + 2 * j, t0 = nat + tol;
-        for (let i = 0; i < N; i += 2) c += xp[r0 + i] * xp[t0 + i];
-        if (c > bestC) { bestC = c; bestJ = j; }
-      }
-      best = Math.max(0, target - tol + 2 * bestJ);
-    }
-    const o = k * Hs, s = best + tol;
-    for (let i = 0; i < N; i++) out[o + i] += xp[s + i] * win[i];
-    prev = best;
-  }
-  return out.subarray(0, Math.floor(x.length / speed));
-}
-
-/** Resample (moves pitch and formants together), then WSOLA back to the original length. */
-export function pitchShift(x: Float32Array, semitones: number, sr = FX_SR): Float32Array {
-  if (Math.abs(semitones) < 1e-3) return x;
-  const r = Math.pow(2, semitones / 12);
-  const n = Math.floor((x.length - 1) / r);
-  const y = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const p = i * r, i0 = Math.floor(p), f = p - i0;
-    y[i] = x[i0] * (1 - f) + x[Math.min(x.length - 1, i0 + 1)] * f;
-  }
-  return wsola(y, 1 / r, sr);
-}
 
 /** Short gaps (fade to `floor`) at seeded positions, not in the first/last 0.25 s. */
 function gaps(d: Float32Array, rnd: () => number, count: number, minMs: number, maxMs: number, floor: number, from: number, to: number): void {
@@ -242,11 +194,21 @@ function radioBand(c: Ctx, inp: AudioNode, dst: AudioNode): void {
  * CHOIR's light layering (§6.1 `throat`, `radio:1`): the take, one −12 st copy at −14 dB (9 ms), the −5 / +4 st copies at
  * −18 dB (21 / 36 ms) — plural but close. Mono.
  */
-function lightChoir(base: Float32Array): Float32Array {
+const LIGHT_CHOIR = [[-12, -14, 0.009], [-5, -18, 0.021], [4, -18, 0.036]] as const;
+/** CHOIR's layers: [semitones, level, pan, delay, lowpass]. */
+const CHOIR_LAYERS: ReadonlyArray<readonly [number, number, number, number, number]> = [
+  [0, 1, 0, 0, 0],
+  [-5, 0.55, -0.6, 0.021, 0],
+  [4, 0.42, 0.62, 0.036, 0],
+  [-12, 0.24, 0.12, 0.009, 2600],
+  [0.35, 0.32, -0.25, 0.052, 6000],
+];
+
+function lightChoir(base: Float32Array, shifted: Map<number, Float32Array>): Float32Array {
   const out = new Float32Array(base.length + Math.ceil(0.04 * FX_SR));
   out.set(base);
-  for (const [st, dB, dt] of [[-12, -14, 0.009], [-5, -18, 0.021], [4, -18, 0.036]] as const) {
-    const d = pitchShift(base, st);
+  for (const [st, dB, dt] of LIGHT_CHOIR) {
+    const d = shifted.get(st) ?? pitchShift(base, st);
     const g = Math.pow(10, dB / 20), o = Math.floor(dt * FX_SR);
     for (let i = 0; i < d.length && i + o < out.length; i++) out[i + o] += d[i] * g;
   }
@@ -279,6 +241,10 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
   const tail = name === 'choir' ? 0.35 : name === 'recorder' ? 0.22 : name === 'intercom' || name === 'headset' ? 0.2 : name === 'radio' ? 0.24 : name === 'throat' ? 0.1 : name === 'pa' ? 0.45 : name === 'foreman' ? 0.4 : name === 'unit' ? 0.08 : name === 'door' ? 0.4 : name === 'room' ? 0.3 : name === 'phone' ? 0.06 : 0.01;
   const longest = Math.max(...src.map((d) => d.length)) / FX_SR + (name === 'foreman' ? 0.22 : 0);
   const len = Math.ceil((lead + longest + tail) * FX_SR);
+  // the pitch-shifted CHOIR layers are computed first, off the main thread (pitch.worker.ts)
+  const sts = name === 'choir' ? CHOIR_LAYERS.slice(0, Math.max(1, Math.min(5, arg ?? 5))).map((l) => l[0]).filter((st) => st !== 0)
+    : name === 'throat' || (name === 'radio' && arg === 1) ? LIGHT_CHOIR.map((l) => l[0]) : [];
+  const shifted = sts.length ? await shiftMany(base, sts) : new Map<number, Float32Array>();
   const c = new OfflineAudioContext(stereo ? 2 : 1, len, FX_SR);
   const out = gain(c, 1);
   out.connect(c.destination);
@@ -291,16 +257,8 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
     const mix = gain(c, 1);
     const tone = chain(mix, filt(c, 'highpass', 80), filt(c, 'peaking', 2600, 1, 2.5), filt(c, 'lowpass', 9500)) as AudioNode;
     tone.connect(out);
-    // [semitones, level, pan, delay, lowpass]
-    const L: Array<[number, number, number, number, number]> = [
-      [0, 1, 0, 0, 0],
-      [-5, 0.55, -0.6, 0.021, 0],
-      [4, 0.42, 0.62, 0.036, 0],
-      [-12, 0.24, 0.12, 0.009, 2600],
-      [0.35, 0.32, -0.25, 0.052, 6000],
-    ];
-    for (const [st, lv, pan, dt, lp] of L.slice(0, n)) {
-      const d = st ? pitchShift(base, st) : base;
+    for (const [st, lv, pan, dt, lp] of CHOIR_LAYERS.slice(0, n)) {
+      const d = st ? (shifted.get(st) ?? pitchShift(base, st)) : base;
       const p = c.createStereoPanner(); p.pan.value = pan;
       const g = gain(c, n === 1 ? 1 : lv);
       if (lp) chain(g, filt(c, 'lowpass', lp), p, mix); else chain(g, p, mix);
@@ -347,7 +305,7 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
     // Kessler's radio (`radio:1`: CHOIR on the channel — the light layering before the band)
     const first = gain(c, 1);
     radioBand(c, first, out);
-    const d = arg === 1 ? lightChoir(base) : base.slice();
+    const d = arg === 1 ? lightChoir(base, shifted) : base.slice();
     gaps(d, rnd, 1 + Math.floor(rnd() * 2), 25, 60, 0.15, 0.3, dur - 0.3);
     play(c, d, t0, first);
     const end = lead + dur + 0.02;
@@ -371,7 +329,7 @@ export async function renderVoiceFx(fxName: string, layers: AudioBuffer[], seedK
     burst(c, rnd, end + 0.004, 0.12, 2200, 0.7, 0.15, out);
   } else if (name === 'throat') {
     // CHOIR through a taken soldier: plural but close, from inside his collar
-    const d = lightChoir(base);
+    const d = lightChoir(base, shifted);
     const first = gain(c, 1);
     const body = chain(first, filt(c, 'highpass', 280), filt(c, 'lowpass', 3200), filt(c, 'peaking', 750, 1.2, 5),
       filt(c, 'peaking', 2400, 1.2, -6), shaper(c, 1.6)) as AudioNode;

@@ -152,6 +152,11 @@ export interface DebugFlags {
   giveAll: boolean;
   /** ?quality=low|medium|high|ultra */
   quality: Quality | null;
+  /**
+   * Phone / tablet build profile (memory and GPU budget): smaller baked textures and sign atlases, `low` quality
+   * by default. Auto-detected (iPhone / iPad / Android / touch-only device); `?mobile=1` / `?mobile=0` force it.
+   */
+  mobile: boolean;
   /** ?debug=1 — modules may draw helpers / verbose logs. */
   verbose: boolean;
   /** ?level=1…6 — force a level (REVISION 4, §8.1; unbuilt levels clamp to the highest built one); null = use saved progress. */

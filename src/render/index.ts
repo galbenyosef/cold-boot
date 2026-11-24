@@ -62,7 +62,7 @@ export interface RenderSystemEx extends RenderSystem {
 export async function createRender(ctx: GameContext): Promise<RenderSystemEx> {
   patchShaderChunks();
 
-  let quality: Quality = ctx.debug.quality ?? 'high';
+  let quality: Quality = ctx.debug.quality ?? (ctx.debug.mobile ? 'low' : 'high');
   let preset: QualityPreset = QUALITY[quality];
 
   const renderer = new THREE.WebGLRenderer({

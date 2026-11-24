@@ -36,7 +36,9 @@ export function parseDebug(): DebugFlags {
     }
   }
   const quality = q.get('quality');
+  const mobile = q.has('mobile') ? on('mobile') : detectMobile();
   return {
+    mobile,
     autostart: on('autostart'),
     spawn,
     noEnemies: on('noenemies'),
@@ -54,4 +56,14 @@ export function parseDebug(): DebugFlags {
     keypadInput: null,
     fps: 0,
   };
+}
+
+/** Phone or tablet: iOS / Android user agents, iPadOS (reports itself as a Mac with touch), or a touch-only pointer. */
+function detectMobile(): boolean {
+  try {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod|Android/i.test(ua)) return true;
+    if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return true;
+    return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+  } catch { return false; }
 }

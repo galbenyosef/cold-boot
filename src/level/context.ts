@@ -152,6 +152,7 @@ export class LevelBuild {
   private builders: Builder[] = [];
 
   constructor(readonly ctx: GameContext) {
+    this.signAtlas = new SignAtlas(ctx.debug.mobile ? 0.5 : 1); // phones: a quarter of the atlas memory
     this.root.name = 'level';
   }
 
@@ -209,7 +210,7 @@ export class LevelBuild {
     return m;
   }
 
-  private signAtlas = new SignAtlas();
+  private readonly signAtlas: SignAtlas;
   /** Atlas slot for a sign (static zones only — must be requested before `finishBuilders`). */
   signSlot(text: string, style: SignStyle, aspect: number): { mat: THREE.MeshStandardMaterial; rect: UvRect } | null {
     const a = Math.round(aspect * 4) / 4;

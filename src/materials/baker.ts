@@ -76,8 +76,12 @@ export class Baker {
     this.pools.clear();
   }
 
-  constructor(renderer: THREE.WebGLRenderer) {
+  /** Multiplies every `TexDef.size` (phones bake at half resolution). */
+  readonly sizeScale: number;
+
+  constructor(renderer: THREE.WebGLRenderer, sizeScale = 1) {
     this.renderer = renderer;
+    this.sizeScale = sizeScale;
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
     this.quad.frustumCulled = false;
     this.scene.add(this.quad);
@@ -182,7 +186,7 @@ export class Baker {
     const prevXr = r.xr.enabled;
     r.xr.enabled = false;
     r.autoClear = false;
-    const N = def.size;
+    const N = Math.max(64, Math.round(def.size * this.sizeScale));
     const prog = this.program(def.glsl, def.uniforms);
     const u = prog.uniforms;
     u.uRes.value.set(N, N);

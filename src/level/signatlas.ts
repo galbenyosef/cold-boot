@@ -18,6 +18,8 @@ const GUTTER = 6;
 
 export class SignAtlas {
   private styles = new Map<SignStyle, StyleAtlas>();
+  /** Sign canvases are packed at this scale (phones: 0.5 — a quarter of the atlas memory). */
+  constructor(private readonly scale = 1) {}
 
   /** Reserve (or reuse) a slot for a sign material made by `materials.sign()`; null if it cannot be atlased. */
   entry(key: string, style: SignStyle, src: THREE.MeshStandardMaterial): { mat: THREE.MeshStandardMaterial; rect: UvRect } | null {
@@ -31,9 +33,10 @@ export class SignAtlas {
     }
     let slot = a.byKey.get(key);
     if (!slot) {
-      const w = img.width + GUTTER * 2, h = img.height + GUTTER * 2;
+      const iw = Math.max(1, Math.round(img.width * this.scale)), ih = Math.max(1, Math.round(img.height * this.scale));
+      const w = iw + GUTTER * 2, h = ih + GUTTER * 2;
       if (a.x + w > WIDTH) { a.x = 0; a.y += a.rowH; a.rowH = 0; }
-      slot = { src, x: a.x + GUTTER, y: a.y + GUTTER, w: img.width, h: img.height, rect: { ou: 0, ov: 0, su: 1, sv: 1 } };
+      slot = { src, x: a.x + GUTTER, y: a.y + GUTTER, w: iw, h: ih, rect: { ou: 0, ov: 0, su: 1, sv: 1 } };
       a.x += w;
       a.rowH = Math.max(a.rowH, h);
       a.slots.push(slot);
@@ -65,7 +68,7 @@ export class SignAtlas {
           // stretched copy underneath fills the gutter with edge colours (keeps mips from bleeding neighbours in)
           g.drawImage(img, s.x - GUTTER, s.y - GUTTER, s.w + GUTTER * 2, s.h + GUTTER * 2);
           g.clearRect(s.x, s.y, s.w, s.h);
-          g.drawImage(img, s.x, s.y);
+          g.drawImage(img, s.x, s.y, s.w, s.h);
         }
         const t = new THREE.CanvasTexture(cv);
         t.colorSpace = like.colorSpace;

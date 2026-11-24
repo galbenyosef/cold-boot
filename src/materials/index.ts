@@ -36,7 +36,7 @@ export const LEAF_ATLAS = {
 export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary> {
   const t0 = performance.now();
   const renderer = ctx.renderer;
-  const baker = new Baker(renderer);
+  const baker = new Baker(renderer, ctx.debug.mobile ? 0.5 : 1); // phones: a quarter of the texture memory
   const profiling = typeof location !== 'undefined' && /[?&]matprofile=1/.test(location.search);
   if (profiling) baker.profile = {};
 
