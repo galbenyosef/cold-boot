@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import type { AudioLogEntry, AudioSystem, EnemyType, GameContext, LoopHandle, MusicState, PlayOpts, Surface, VoiceHandle } from '../core/types';
 import { AudioEngine, type LoopVoice } from './engine';
 import { setSynthRate } from './synth/core';
+import { enableSoundCache } from './synth/cache';
 import { Music, type MusicMode } from './music';
 import { Ambience } from './ambient';
 import { renderChoir } from './choir';
@@ -107,6 +108,8 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   eng.paDock = !!level.paDock;
   eng.lowMemory = !!ctx.debug?.mobile;
   if (ctx.debug?.mobile) setSynthRate(24000); // phones: half the sound bank memory (bandwidth to 12 kHz)
+  // phones: reloads read the sounds back instead of synthesising them (`?nocache`: always synthesise)
+  if (ctx.debug?.mobile && !/[?&]nocache\b/.test(location.search)) enableSoundCache();
   await eng.preload();
   if (ctx.debug?.verbose) console.info(`[audio] pre-rendered load set in ${eng.preRenderMs.toFixed(0)} ms`);
   // Phones: background work waits until the level has finished loading — it would overlap the boot's memory peak

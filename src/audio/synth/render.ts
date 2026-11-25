@@ -85,13 +85,13 @@ export function finish(def: SoundDef, chans: Float32Array[], xf: number, rnd: ()
 }
 
 /** Renders defs with bounded concurrency. Returns total ms. */
-export async function renderMany(defs: SoundDef[], onDone: (def: SoundDef, bufs: AudioBuffer[]) => void, concurrency = 6): Promise<number> {
+export async function renderMany(defs: SoundDef[], onDone: (def: SoundDef, bufs: AudioBuffer[]) => void, concurrency = 6, render: (d: SoundDef) => Promise<AudioBuffer[]> = renderDef): Promise<number> {
   const t0 = performance.now();
   let i = 0;
   const worker = async () => {
     while (i < defs.length) {
       const d = defs[i++];
-      try { onDone(d, await renderDef(d)); } catch (e) { console.warn(`[audio] failed to render ${d.id}`, e); }
+      try { onDone(d, await render(d)); } catch (e) { console.warn(`[audio] failed to render ${d.id}`, e); }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, defs.length) }, worker));

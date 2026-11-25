@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import type { AudioLogEntry, LoopHandle } from '../core/types';
 import { SR, type BusName, type SoundDef } from './synth/core';
 import { renderDef, renderMany } from './synth/render';
+import { cachedRender } from './synth/cache';
 import { SOUND_MAP } from './sounds';
 import { makeIR, presetFor, DEFAULT_ROOM, type IrName, type RoomPreset } from './impulses';
 
@@ -111,6 +112,8 @@ export class AudioEngine {
   idleRenderMs = 0;
   /** Phones: background renders run a couple at a time (set by createAudio from DebugFlags.mobile). */
   lowMemory = false;
+  /** Synthesis, through the IndexedDB sound cache when it is on (phones: src/audio/synth/cache.ts). */
+  private readonly render = (def: SoundDef) => cachedRender(def, renderDef);
   lateRenderMs = 0;
 
   constructor() {
@@ -183,7 +186,7 @@ export class AudioEngine {
   async preload(): Promise<void> {
     // the load set honours `levels` (stage 3c: level 5's arrival sounds are needed in its first second, nowhere else)
     const defs = [...SOUND_MAP.values()].filter((d) => (d.when ?? 'load') === 'load' && (!d.levels || !this.level || d.levels.includes(this.level)));
-    this.preRenderMs = await renderMany(defs, (d, b) => this.bank.set(d.id, b), this.lowMemory ? 3 : 8);
+    this.preRenderMs = await renderMany(defs, (d, b) => this.bank.set(d.id, b), this.lowMemory ? 3 : 8, this.render);
     // pre-build the IRs used most (cheap; avoids a hitch on first room switch)
     for (const n of ['corridor', 'padded', 'hall'] as IrName[]) this.ir(n);
   }
@@ -204,7 +207,7 @@ export class AudioEngine {
       return new Promise<void>((res) => setTimeout(res, 50));
     }).then(() => {
       const t1 = performance.now();
-      return renderMany(pick('late'), (d, b) => { if (!this.bank.has(d.id)) this.bank.set(d.id, b); }, this.lowMemory ? 2 : 3).then(() => {
+      return renderMany(pick('late'), (d, b) => { if (!this.bank.has(d.id)) this.bank.set(d.id, b); }, this.lowMemory ? 2 : 3, this.render).then(() => {
         this.lateRenderMs = performance.now() - t1;
         this.ir('cistern');
       });
@@ -217,7 +220,7 @@ export class AudioEngine {
     if (p) return p;
     const def = SOUND_MAP.get(id);
     if (!def) return Promise.resolve();
-    p = renderDef(def).then((b) => { this.bank.set(id, b); }).catch((e) => { console.warn('[audio] render failed', id, e); });
+    p = this.render(def).then((b) => { this.bank.set(id, b); }).catch((e) => { console.warn('[audio] render failed', id, e); });
     this.pending.set(id, p);
     return p;
   }
