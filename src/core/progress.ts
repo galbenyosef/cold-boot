@@ -70,6 +70,7 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     },
     // stage 3d: finishing level 5 hands over to level 6 (The Trunk)
     healthFloor: 50, next: 6,
+    radio: true,
   },
   6: {
     id: 6, tag: 'l6', built: true, title: 'THE TRUNK', place: 'The Trunk', bootStatus: 'the trunk',
@@ -86,6 +87,7 @@ export const LEVELS: Readonly<Record<LevelId, LevelInfo>> = {
     healthFloor: 50, next: null,
     // the loader's PA is a horn in the chamber (positional `pa` lines → `pa_dock`)
     paDock: true,
+    radio: true,
   },
 };
 

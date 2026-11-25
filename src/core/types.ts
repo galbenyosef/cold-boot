@@ -67,6 +67,8 @@ export interface LevelInfo {
   next: LevelId | null;
   /** Stage 3d §6.1: a positional `pa` voice line uses the dock horn's falloff (`pa_dock`), not a wall speaker's. */
   paDock?: boolean;
+  /** The player carries the radio (Q / RADIO button asks it): levels 5 and 6. */
+  radio?: boolean;
 }
 
 /**

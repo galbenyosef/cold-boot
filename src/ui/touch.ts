@@ -12,6 +12,7 @@
  *   hidden   menu, pause, death, ending, loading — those screens are tapped directly
  */
 import type { GameContext, WeaponId } from '../core/types';
+import { levelOf } from '../core/progress';
 import { h } from './dom';
 
 /** Touch pixels → mouse pixels for looking (the player's SENSITIVITY is tuned for a mouse). */
@@ -162,7 +163,7 @@ export class TouchControls {
         this.show(this.reloadBtn, !!cur);
         this.show(this.aimBtn, cur === 'carbine' || this.aimOn);
         this.show(this.swapBtn, owned.length >= 2 || (owned.length === 1 && !cur));
-        this.show(this.radioBtn, this.ctx.levelId >= 5);
+        this.show(this.radioBtn, !!levelOf(this.ctx).radio);
         if (cur !== 'carbine' && this.aimOn) { this.aimOn = false; inp.inject('Mouse2', false); this.aimBtn.classList.remove('on'); this.show(this.aimBtn, false); }
       }
     }

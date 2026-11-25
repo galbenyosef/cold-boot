@@ -67,3 +67,10 @@ src/materials/screens4.ts :: k === 2
 # ── stage 3c (found by 3d K): loop / kind indices, not levels
 src/audio/sounds/rev10.ts :: if (kind === 2)
 src/enemies/soldier/soldier.ts :: k === 2
+
+# ── phones (iOS work): not level branches
+src/audio/synth/cache.ts :: hit.vars.length !== 1
+src/core/bootbar.ts :: constructor(mobile: boolean, levelId: number)
+src/core/bootbar.ts :: cb-boot-times:${mobile ? 'm' : 'd'}:${levelId}
+src/main.ts :: new BootBar(debug.mobile, levelId)
+src/render/index.ts :: if (zoom !== 1)
