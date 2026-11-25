@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { GameContext, PickupKind, WeaponId } from '../core/types';
-import { h, setText, toggle, Scrambler, svg, ICONS, touchUI } from './dom';
+import { h, setText, toggle, Scrambler, svg, ICONS, keyLabel, deviceText } from './dom';
 import { BossPips } from './boss';
 import { LoaderPips } from './loader';
 import { GripMeter } from './grip';
@@ -61,6 +61,7 @@ export class Hud {
   private hitm: HTMLDivElement;
   private prompt: HTMLDivElement;
   private promptText: HTMLSpanElement;
+  private promptKey!: HTMLSpanElement;
   private objective: HTMLDivElement;
   private objText: HTMLDivElement;
   private objScr: Scrambler;
@@ -152,7 +153,7 @@ export class Hud {
     // prompt
     this.prompt = h('div', 'prompt', root);
     h('span', 'bracket', this.prompt);
-    h('span', 'key', this.prompt, touchUI() ? 'USE' : 'E');
+    this.promptKey = h('span', 'key', this.prompt, keyLabel('E'));
     this.promptText = h('span', 'ptext', this.prompt, '');
     h('span', 'bracket r', this.prompt);
 
@@ -195,7 +196,7 @@ export class Hud {
 
     const ev = ctx.events;
     ev.on('story:objective', (e) => this.setObjective(e.text));
-    ev.on('story:toast', (e) => this.toast(e.text));
+    ev.on('story:toast', (e) => this.toast(deviceText(e.text)));
     ev.on('pickup', (e) => this.addPickup(e.kind, e.amount));
     ev.on('weapon:fired', () => { this.spread = Math.min(1, this.spread + 0.55); });
     ev.on('player:damaged', (e) => this.damaged(e.from, e.absorbed ?? 0));
@@ -399,7 +400,7 @@ export class Hud {
     const fkey = (focus ? focus.id + '|' + focus.prompt : '') + (safe ? '|safe' : '') + (aimed ? '|aim' : '');
     if (fkey !== c.focus) {
       c.focus = fkey;
-      if (focus) setText(this.promptText, focus.prompt);
+      if (focus) { setText(this.promptText, focus.prompt); setText(this.promptKey, keyLabel('E')); }
       toggle(this.prompt, 'show', !!focus);
       toggle(this.xhair, 'off', !!focus || safe || aimed);
     }

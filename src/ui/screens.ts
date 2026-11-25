@@ -1,7 +1,7 @@
 /** Full-screen overlays: log reader, cinematic cards, pause, death, ending, resume gate. */
 import type { GameContext, GameState } from '../core/types';
 import type { StoryInternal } from './types';
-import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings, touchUI } from './dom';
+import { h, button, sfx, sleep, Typewriter, fmtTime, toggle, type Settings, touchUI, inputDevice } from './dom';
 import { settingsPanel, controlsPanel, GlitchTitle } from './menu';
 import { clearLevelSave, hasCheckpoint, levelLabel, reloadInto, requestContinue } from './progress';
 import { levelOf } from '../core/progress';
@@ -204,7 +204,7 @@ export class Cards {
     const style = opts.style ?? 'intro';
     const root = h('div', `layer ov card card-${style} interactive grain`, this.parent);
     const stage = h('div', 'stage', root);
-    const skip = opts.skippable !== false ? h('div', 'skip lbl', root, touchUI() ? 'Tap — skip' : 'Space — skip') : null;
+    const skip = opts.skippable !== false ? h('div', 'skip lbl', root, { pad: 'A — skip', touch: 'Tap — skip', kb: 'Space — skip' }[inputDevice()]) : null;
     let skipped = false;
     const onKey = (e: KeyboardEvent) => { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') skipped = true; };
     const onClick = () => { skipped = true; };
@@ -212,9 +212,17 @@ export class Cards {
     void root.offsetWidth;
     root.classList.add('show');
 
+    // a gamepad's A / the touch SKIP button arrive as virtual input, not as key events: skip on a fresh Space press
+    const inp = this.ctx.input;
+    let spaceWas = inp.down('Space');
     const wait = async (s: number) => {
       const end = performance.now() + s * 1000;
-      while (!skipped && performance.now() < end) await sleep(0.05);
+      while (!skipped && performance.now() < end) {
+        await sleep(0.05);
+        const sp = inp.down('Space');
+        if (skip && sp && !spaceWas) skipped = true;
+        spaceWas = sp;
+      }
     };
 
     const els: HTMLElement[] = [];
@@ -448,7 +456,7 @@ export function resumeGate(ctx: GameContext, parent: HTMLElement, place = ''): P
   const root = h('div', 'layer ov gate interactive grain scan', parent);
   const st = h('div', 'stage', root);
   h('h2', 'glow', st, 'SIGNAL REACQUIRED');
-  h('div', 'lbl', st, [touchUI() ? 'Tap to resume' : 'Click to resume', levelLabel(ctx), place].filter(Boolean).join('  ·  '));
+  h('div', 'lbl', st, [{ pad: 'Press A to resume', touch: 'Tap to resume', kb: 'Click to resume' }[inputDevice()], levelLabel(ctx), place].filter(Boolean).join('  ·  '));
   void root.offsetWidth;
   root.classList.add('show');
   return new Promise((resolve) => {

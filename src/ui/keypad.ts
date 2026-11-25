@@ -33,6 +33,8 @@ export class Keypad {
   private typeQueue: string[] = [];
   private typeLeft = 0;
   private bad = 0;
+  /** Touch play has no pointer: the cursor shows only once look input (a gamepad stick) moves it. */
+  private cursorOn = false;
 
   constructor(private ctx: GameContext, parent: HTMLElement) {
     this.root = h('div', 'keypad hidden', parent);
@@ -75,6 +77,8 @@ export class Keypad {
     this.cx = r.left + r.width / 2 - host.left;
     this.cy = r.top + r.height / 2 - host.top;
     this.hover = null;
+    this.cursorOn = !this.ctx.input.touchMode;
+    this.root.classList.toggle('kp-cur', this.cursorOn);
     this.render();
     const injected = this.ctx.debug.keypadInput;
     if (injected) {
@@ -141,22 +145,26 @@ export class Keypad {
     for (const c of WEAPON_KEYS) if (inp.pressed(c) || inp.down(c)) ctx.player?.consumeKey?.(c);
 
     // the pointer stays locked: deltas move the cursor, which never leaves the screen
+    if (!this.cursorOn && (inp.mouseDX || inp.mouseDY)) { this.cursorOn = true; this.root.classList.add('kp-cur'); }
     const host = this.root.getBoundingClientRect();
     this.cx = Math.max(0, Math.min(host.width, this.cx + inp.mouseDX * CURSOR_SPEED));
     this.cy = Math.max(0, Math.min(host.height, this.cy + inp.mouseDY * CURSOR_SPEED));
     this.cursor.style.transform = `translate(${this.cx.toFixed(1)}px, ${this.cy.toFixed(1)}px)`;
     let over: string | null = null;
-    const x = this.cx + host.left, y = this.cy + host.top;
-    for (const [k, el] of this.keyEls) {
-      const r = el.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) { over = k; break; }
+    if (this.cursorOn) {
+      const x = this.cx + host.left, y = this.cy + host.top;
+      for (const [k, el] of this.keyEls) {
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) { over = k; break; }
+      }
     }
     if (over !== this.hover) {
       if (this.hover) this.keyEls.get(this.hover)!.classList.remove('hover');
       if (over) this.keyEls.get(over)!.classList.add('hover');
       this.hover = over;
     }
-    if (inp.mousePressed(0) && over) this.press(over);
+    // click / gamepad trigger or A (the story has taken control away, so Space jumps nothing)
+    if ((inp.mousePressed(0) || inp.pressed('Space')) && over) this.press(over);
     if (!this.resolve) return;
 
     // E / Esc leave (not on the frame it opened: the E that opened it is still "pressed")

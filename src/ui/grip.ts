@@ -3,7 +3,7 @@
  * its first-grip `Hold E` hint, the `grip_tick` sound, and the key strip (keys held, named by id).
  */
 import type { GameContext } from '../core/types';
-import { h, toggle } from './dom';
+import { h, keyLabel, setText, toggle } from './dom';
 
 const R = 15, C = 2 * Math.PI * R;
 /** Key id → strip name (§8.3). Unknown ids are not shown (levels 1–5 keep their own prompts / toasts). */
@@ -35,6 +35,7 @@ export class GripMeter {
   private el: HTMLDivElement;
   private arc: SVGCircleElement;
   private strip: HTMLDivElement;
+  private hint: HTMLSpanElement;
   private keyEls = new Map<string, HTMLElement>();
   private lastP = -1;
   private lastTick = 0;
@@ -53,7 +54,7 @@ export class GripMeter {
     this.el = h('div', 'gripm', parent);
     this.el.innerHTML = `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="${R}"/><circle class="fill" cx="20" cy="20" r="${R}" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${C.toFixed(2)}"/></svg>`;
     this.arc = this.el.querySelector('circle.fill') as SVGCircleElement;
-    h('span', 'hint', this.el, 'HOLD E');
+    this.hint = h('span', 'hint', this.el, 'HOLD E');
     this.strip = h('div', 'keystrip', parent);
   }
 
@@ -63,6 +64,7 @@ export class GripMeter {
     const g = typeof p.gripProgress === 'number' ? p.gripProgress : -1;
     const on = g >= 0;
     if (on) {
+      if (this.lastP < 0) setText(this.hint, `HOLD ${keyLabel('E')}`); // a grip starts: name the key for this device
       const v = Math.min(1, Math.max(0, g));
       if (Math.abs(v - this.lastP) > 0.002) { this.lastP = v; this.arc.style.strokeDashoffset = (C * (1 - v)).toFixed(2); }
       // a tick at every 1/12 of the way; a release / pause does not advance, so it is silent

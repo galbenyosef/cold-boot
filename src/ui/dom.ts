@@ -195,3 +195,35 @@ export const ICONS: Record<string, { vb: string; d: string[] }> = {
 export function touchUI(): boolean {
   return !!(window as unknown as { __game?: { input?: { touchMode?: boolean } } }).__game?.input?.touchMode;
 }
+
+/** What the player plays with right now: a connected gamepad wins, then touch, then keyboard. */
+export function inputDevice(): 'pad' | 'touch' | 'kb' {
+  try { for (const g of navigator.getGamepads?.() ?? []) if (g && g.connected && g.mapping === 'standard') return 'pad'; } catch { /* ignore */ }
+  return touchUI() ? 'touch' : 'kb';
+}
+
+/** Keyboard key named in a hint → [on-screen button, gamepad button] (src/ui/touch.ts, src/core/gamepad.ts). */
+const KEY_LABELS: Record<string, [string, string]> = {
+  E: ['USE', 'RB'], F: ['LIGHT', 'LB'], R: ['RLD', 'X'], C: ['CROUCH', 'B'], Q: ['RADIO', 'D-PAD UP'],
+  SPACE: ['JUMP', 'A'], ESC: ['II', 'START'],
+};
+
+/** A keyboard key's name for the current input device ('E' → 'USE' on touch, 'RB' on a gamepad). */
+export function keyLabel(key: string): string {
+  const d = inputDevice(), l = KEY_LABELS[key.toUpperCase()];
+  return d === 'kb' || !l ? key : l[d === 'touch' ? 0 : 1];
+}
+
+/**
+ * A story hint written for the keyboard ('F  flashlight', 'Q — radio Kessler', 'C  crouch · F  light off', the WASD line)
+ * rewritten for touch / gamepad play. Only a single key letter at the start of a segment is replaced.
+ */
+export function deviceText(text: string): string {
+  const d = inputDevice();
+  if (d === 'kb') return text;
+  if (/^W A S D\b/.test(text)) return d === 'touch' ? 'LEFT THUMB  move   ·   PUSH TO THE EDGE  run' : 'LEFT STICK  move   ·   PUSH FULLY  run';
+  return text
+    .replace(/(^|·\s+)([A-Z])(?=  | — )/g, (_m, pre: string, k: string) => pre + keyLabel(k))
+    // 'CROUCH  crouch' → 'CROUCH', 'LIGHT  light off' → 'LIGHT off'
+    .replace(/(^|·\s+)([A-Z][A-Z-]+)  (\w+)/g, (m, pre: string, lab: string, w: string) => (lab.toLowerCase() === w.toLowerCase() ? pre + lab : m));
+}

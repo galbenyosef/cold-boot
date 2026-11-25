@@ -60,6 +60,7 @@ export class TouchControls {
   private looks = new Map<number, { x: number; y: number }>();
   /** Log scrolling drag (modal 'log'). */
   private scrollY: number | null = null;
+  private scrollMoved = 0;
   private syncT = 0;
 
   constructor(private readonly ctx: GameContext, parent: HTMLElement, private readonly hooks: TouchHooks) {
@@ -106,16 +107,21 @@ export class TouchControls {
     document.addEventListener('pointerdown', (e) => {
       if (this.mode !== 'modal') return;
       if (this.modal === 'note' && !(e.target as HTMLElement).closest('.t-close')) this.tap('Mouse0');
-      if (this.modal === 'log') this.scrollY = e.clientY;
+      if (this.modal === 'log') { this.scrollY = e.clientY; this.scrollMoved = 0; }
     });
     document.addEventListener('pointermove', (e) => {
       if (this.mode !== 'modal' || this.modal !== 'log' || this.scrollY === null) return;
       const d = this.scrollY - e.clientY;
       this.scrollY = e.clientY;
+      this.scrollMoved += Math.abs(d);
       if (d) dispatchEvent(new WheelEvent('wheel', { deltaY: d * 1.4 })); // LogReader scrolls on window wheel
     });
     const endScroll = () => { this.scrollY = null; };
-    document.addEventListener('pointerup', endScroll);
+    // a tap (no drag) on an open log finishes the typing, as a click does
+    document.addEventListener('pointerup', (e) => {
+      if (this.mode === 'modal' && this.modal === 'log' && this.scrollY !== null && this.scrollMoved < 8 && !(e.target as HTMLElement).closest('.t-close')) this.tap('Mouse0');
+      endScroll();
+    });
     document.addEventListener('pointercancel', endScroll);
     // the app going to the background must not leave a key held
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.releaseAll(); });

@@ -83,7 +83,12 @@ export function createGamepad(ctx: GameContext): { update(dt: number): void } {
     if (a && !aWas) {
       const b = focus ?? list[0];
       if (b) b.click();
-      else document.getElementById('ui')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); // "click to begin"
+      else {
+        // "click to begin" / a card / the resume gate: click whatever overlay sits mid-screen (it bubbles up to #ui)
+        const ui = document.getElementById('ui');
+        const at = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+        (at && ui?.contains(at) ? at : ui)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
     }
     aWas = a;
   };

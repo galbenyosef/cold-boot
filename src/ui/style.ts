@@ -280,7 +280,8 @@ export function buildCss(noise: string): string {
 .cb .keypad .kp-status { margin: 9px 0 12px; text-align: center; font: 500 9px/1 var(--f-mono); letter-spacing: .4em; color: var(--dim); }
 .cb .keypad .kp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
 .cb.touchmode .keypad .kp-panel { pointer-events: auto; }
-.cb.touchmode .keypad .kp-cursor { display: none; }
+.cb.touchmode .rstrip .rhint { display: none; }
+.cb.touchmode .keypad:not(.kp-cur) .kp-cursor { display: none; }
 .cb .keypad .kp-key { height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--faint); background: rgba(116,228,255,.035);
   font: 400 17px/1 var(--f-thin); color: var(--fg); transition: background .08s, border-color .08s, color .08s; }
 .cb .keypad .kp-key.fn { font: 600 10px/1 var(--f-mono); letter-spacing: .24em; color: var(--dim); }
@@ -544,10 +545,16 @@ export function buildCss(noise: string): string {
   .cb .location small { margin-top: 5px; font-size: 7.5px; }
   .cb .toast { top: 50px; padding: 6px 26px; font-size: 11px; }
   .cb .pk { font-size: 9px; } .cb .pk b { font-size: 13px; }
+  .cb.touchmode .keypad .kp-panel { transform: translate(-50%, 50%) scale(.95); }
+  .cb.touchmode .rstrip { top: calc(env(safe-area-inset-top) + 84px); bottom: auto; left: calc(env(safe-area-inset-left) + 16px); }
+  .cb.touchmode .keystrip { top: calc(env(safe-area-inset-top) + 110px); bottom: auto; left: calc(env(safe-area-inset-left) + 16px); }
   .cb.touchmode .pickups { top: calc(env(safe-area-inset-top) + 84px); bottom: auto; right: calc(env(safe-area-inset-right) + 70px); }
 
   /* spoken lines: one short block between the stick and the button pad */
   .cb .subs { bottom: 92px; width: min(560px, 54vw); } /* above the vitals, clear of the stick and the pad */
+  /* touch: between the left FIRE (~155 px from the left) and the button pad (~245 px wide on the right) */
+  .cb.touchmode .subs { left: calc(50% - 45px + (env(safe-area-inset-left) - env(safe-area-inset-right)) / 2);
+    width: min(560px, calc(100vw - 420px - env(safe-area-inset-left) - env(safe-area-inset-right))); }
   .cb .seg button { padding: 7px 6px; letter-spacing: .14em; }
   .cb .subs .sub { max-height: 120px; }
   .cb .subs .sub + .sub { margin-top: 6px; }
