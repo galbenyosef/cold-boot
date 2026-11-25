@@ -110,6 +110,7 @@ export async function createAudio(ctx: GameContext): Promise<AudioSystem> {
   if (ctx.debug?.mobile) setSynthRate(24000); // phones: half the sound bank memory (bandwidth to 12 kHz)
   // phones: reloads read the sounds back instead of synthesising them (`?nocache`: always synthesise)
   if (ctx.debug?.mobile && !/[?&]nocache\b/.test(location.search)) enableSoundCache();
+  await eng.loadIrs();
   await eng.preload();
   if (ctx.debug?.verbose) console.info(`[audio] pre-rendered load set in ${eng.preRenderMs.toFixed(0)} ms`);
   // Phones: background work waits until the level has finished loading — it would overlap the boot's memory peak

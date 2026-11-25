@@ -9,11 +9,11 @@
  */
 import * as THREE from 'three';
 import type { AudioLogEntry, LoopHandle } from '../core/types';
-import { SR, type BusName, type SoundDef } from './synth/core';
+import { SR, hashStr, type BusName, type SoundDef } from './synth/core';
 import { renderDef, renderMany } from './synth/render';
-import { cachedRender } from './synth/cache';
+import { cachedRender, loadBuffer, storeBuffer } from './synth/cache';
 import { SOUND_MAP } from './sounds';
-import { makeIR, presetFor, DEFAULT_ROOM, type IrName, type RoomPreset } from './impulses';
+import { makeIR, presetFor, DEFAULT_ROOM, SPECS as IR_SPECS, type IrName, type RoomPreset } from './impulses';
 
 const MAX_VOICES = 40;
 /** Stage 3c §8.11 / H14: ring size of the play log (`audio.debug.log`). */
@@ -168,9 +168,24 @@ export class AudioEngine {
 
   private ir(name: IrName): AudioBuffer {
     let b = this.irs.get(name);
-    if (!b) { b = makeIR(name, this.ctx.sampleRate); this.irs.set(name, b); }
+    if (!b) { b = makeIR(name, this.ctx.sampleRate); this.irs.set(name, b); storeBuffer(`ir:${name}`, this.irVersion, b); }
     return b;
   }
+
+  /**
+   * The room responses made on an earlier page load (sound cache, phones), so `ir()` need not make them again — the
+   * ones made at load / in the background anyway (the rest stay lazy: all of them would hold ~19 MB).
+   */
+  async loadIrs(): Promise<void> {
+    const names: IrName[] = ['corridor', 'padded', 'hall', 'machine', 'shaft', 'dead', 'cistern'];
+    await Promise.all(names.map(async (n) => {
+      if (this.irs.has(n)) return;
+      const b = await loadBuffer(`ir:${n}`, this.irVersion);
+      if (b && b.sampleRate === this.ctx.sampleRate && !this.irs.has(n)) this.irs.set(n, b);
+    }));
+  }
+
+  private get irVersion(): string { return `${this.ctx.sampleRate}|${hashStr(String(makeIR) + JSON.stringify(IR_SPECS)).toString(36)}`; }
 
   // ───────────────────────── bank
 

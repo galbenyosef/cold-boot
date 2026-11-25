@@ -99,6 +99,22 @@ export async function cachedRender(def: SoundDef, render: (d: SoundDef) => Promi
   return bufs;
 }
 
+/** Any other buffer (room impulse responses): the stored copy under `name` + `version`, or null. */
+export async function loadBuffer(name: string, version: string): Promise<AudioBuffer | null> {
+  if (!enabled) return null;
+  const db = await open();
+  if (!db) return null;
+  const hit = await get(db, `${prefix()}${name}|${version}`);
+  if (!hit || hit.vars.length !== 1) return null;
+  try { return fromPcm(hit.vars[0], hit.sr); } catch { return null; }
+}
+
+/** Store a buffer made at run time for `loadBuffer` on the next page load. */
+export function storeBuffer(name: string, version: string, b: AudioBuffer): void {
+  if (!enabled) return;
+  void open().then((db) => { if (db) put(db, `${prefix()}${name}|${version}`, { sr: b.sampleRate, vars: [toPcm(b)] }); });
+}
+
 async function prune(): Promise<void> {
   const db = await open();
   if (!db) return;

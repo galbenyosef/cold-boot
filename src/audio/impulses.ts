@@ -24,7 +24,7 @@ interface IrSpec {
   gain: number;
 }
 
-const SPECS: Record<IrName, IrSpec> = {
+export const SPECS: Record<IrName, IrSpec> = {
   padded: { len: 0.9, rt: [0.45, 0.35, 0.18], predelay: 0.004, early: 10, earlyWin: 0.025, earlyGain: 0.5, build: 0.01, gain: 0.8 },
   corridor: { len: 2.2, rt: [1.3, 1.1, 0.6], predelay: 0.006, early: 16, earlyWin: 0.05, earlyGain: 0.6, flutter: 0.0095, flutterGain: 0.35, ring: [310, 740, 1290, 2210], ringGain: 0.05, build: 0.02, gain: 1 },
   hall: { len: 5.5, rt: [5.0, 4.0, 2.2], predelay: 0.03, early: 22, earlyWin: 0.16, earlyGain: 0.45, ring: [97, 184, 431], ringGain: 0.03, build: 0.18, gain: 1.1 },
