@@ -8,6 +8,7 @@ import type { GameContext, GameState } from './core/types';
 import { createEvents } from './core/events';
 import { createInput } from './core/input';
 import { parseDebug } from './core/debug';
+import { releaseBigAllocations, trackBigAllocations } from './core/release';
 import { levelOf, resolveLevel } from './core/progress';
 import { discardV1 } from './story/save';
 import { startFacts } from './story/chain';
@@ -38,6 +39,7 @@ async function boot() {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const events = createEvents();
   const debug = parseDebug();
+  if (debug.mobile) trackBigAllocations(); // freed on pagehide (releaseOnLeave)
   // §8.1: v1 saves / carry are discarded once (the stored level starts over), before anything reads storage.
   discardV1();
   const levelId = resolveLevel(debug);
@@ -157,14 +159,16 @@ function mobileZoom(aspect: number): number {
 }
 
 /**
- * Phones: every level change / restart reloads the page, and iOS Safari may still hold the old page (its GPU textures,
- * audio buffers) while the new one boots in the same process — the new boot then runs out of memory. So on leaving,
- * drop the WebGL context and the audio context at once; a page restored from the back/forward cache reloads instead.
+ * Phones: every level change / restart reloads the page, and iOS Safari boots the new page in the same process while
+ * the old page's memory waits for a full garbage collection — the new boot then runs out of memory. So on leaving,
+ * drop the WebGL and audio contexts and free the big buffers / canvases at once (src/core/release.ts); a page restored
+ * from the back/forward cache reloads instead.
  */
 function releaseOnLeave(ctx: GameContext): void {
   addEventListener('pagehide', () => {
     try { (ctx.renderer?.getContext().getExtension('WEBGL_lose_context') as WEBGL_lose_context | null)?.loseContext(); } catch { /* ignore */ }
     try { void (ctx.audio as unknown as { debug?: { engine?: { ctx?: AudioContext } } })?.debug?.engine?.ctx?.close(); } catch { /* ignore */ }
+    try { releaseBigAllocations(ctx.scene); } catch { /* ignore */ }
   });
   addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
 }

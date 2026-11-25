@@ -644,9 +644,13 @@ function drawNavy(g: Ctx, rg: Ctx, W: number, H: number, raw: string, rand: () =
   return 165;
 }
 
+/** Sign canvas resolution factor (phones: 0.5 — a quarter of the pixels; the lettering is drawn relative to the size). */
+let SIGN_SCALE = 1;
+export function setSignScale(s: number): void { SIGN_SCALE = s; }
+
 export function createSign(text: string, style: SignStyle, aspect: number, maxAniso: number): THREE.MeshStandardMaterial {
-  const H = aspect >= 4 ? 192 : 256;
-  const W = Math.min(2048, Math.max(64, Math.round(H * aspect)));
+  const H = Math.round((aspect >= 4 ? 192 : 256) * SIGN_SCALE);
+  const W = Math.min(Math.round(2048 * SIGN_SCALE), Math.max(64, Math.round(H * aspect)));
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const rc = document.createElement('canvas'); rc.width = W; rc.height = H;
   const g = cv.getContext('2d')!; const rg = rc.getContext('2d')!;

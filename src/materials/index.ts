@@ -12,7 +12,7 @@ import { Baker, type BakedTextures } from './baker';
 import { SPECS, EMISSIVE, HABITAT_FROM, CLINICAL_FROM, NAVY_FROM, TRUNK_FROM, type MatSpec } from './defs';
 import { advanceWater, applyMacro, macroConfigOf } from './macro';
 import { DecalFactory, DECAL_COUNT } from './decals';
-import { createSign } from './signs';
+import { createSign, setSignScale } from './signs';
 import { ScreenManager } from './screens';
 import { levelOf } from '../core/progress';
 
@@ -37,6 +37,7 @@ export async function createMaterials(ctx: GameContext): Promise<MaterialLibrary
   const t0 = performance.now();
   const renderer = ctx.renderer;
   const baker = new Baker(renderer, ctx.debug.mobile ? 0.5 : 1); // phones: a quarter of the texture memory
+  setSignScale(ctx.debug.mobile ? 0.5 : 1); // and of the sign canvases
   const profiling = typeof location !== 'undefined' && /[?&]matprofile=1/.test(location.search);
   if (profiling) baker.profile = {};
 
