@@ -24,6 +24,7 @@ import { createStagePage } from '../stage/page';
 import { ScriptL6 } from './script';
 import { RULES6 } from './dialogue';
 import { END_CARD_L6, END_CARD_L6_CHAPTER, END_CARD_L6_NEXT, LOG_IDS_L6, TITLE_CARD_L6, TOAST6 } from './text';
+import { reloadPage } from '../../core/nav';
 
 export { TITLE_CARD_L6, END_CARD_L6, END_CARD_L6_CHAPTER, END_CARD_L6_NEXT };
 
@@ -79,7 +80,7 @@ export async function createStoryL6(ctx: GameContext): Promise<StorySystem> {
       }
     } catch (err) { console.error('[story] end card failed', err); }
     try { ctx.render.post.grade?.(0, 0); } catch { /* ignore */ }
-    if (mode === 'reload') { if (next !== null) goToLevel(); else location.reload(); }
+    if (mode === 'reload') { if (next !== null) goToLevel(); else reloadPage(); }
   }
 
   script = new ScriptL6(ctx, page.seq, page.director, world, page.logs, { ...page.hooks, end });

@@ -12,6 +12,7 @@ import { applyStartLoadout, carryOut, chainMode, finishLevel, goToLevel } from '
 import { createStagePage } from '../stage/page';
 import { ScriptL2 } from './script';
 import { END_CARDS, ENDING_L2, LOG_IDS_L2, TITLE_CARD_L2, TOAST2 } from './text';
+import { reloadPage } from '../../core/nav';
 
 /** Same spec as save.ts's level-2 entry (`loadSaveL2`): existing saves load unchanged. */
 const SPEC_L2: SaveSpec = { level: 2, rev: STORY_REV_L2, ids: CHECKPOINT_IDS_L2 };
@@ -51,7 +52,7 @@ export async function createStoryL2(ctx: GameContext): Promise<StorySystem> {
       await ctx.ui.showCard(lines, { style: 'ending', skippable: true, seconds: 34 });
     } catch (err) { console.error('[story] ending card failed', err); }
     if (mode !== 'reload') return;
-    if (next !== null) goToLevel(); else location.reload();
+    if (next !== null) goToLevel(); else reloadPage();
   }
 
   const script = new ScriptL2(ctx, page.seq, page.director, world, logs, { ...page.hooks, ending });

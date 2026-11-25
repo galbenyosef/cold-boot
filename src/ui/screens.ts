@@ -6,6 +6,7 @@ import { settingsPanel, controlsPanel, GlitchTitle } from './menu';
 import { clearLevelSave, hasCheckpoint, levelLabel, reloadInto, requestContinue } from './progress';
 import { levelOf } from '../core/progress';
 import { ensureExtraCss } from './extra';
+import { reloadPage } from '../core/nav';
 
 /** Reload into the stored checkpoint of this level (the story resumes behind the one-click gate). */
 function loadCheckpoint(ctx: GameContext): void {
@@ -398,7 +399,7 @@ export class DeathScreen {
       if (save.place) h('span', 'where', b, `—  ${save.place}`);
     }
     button(ctx, acts, 'Restart level', `0${n++}`, () => restartLevel(ctx), save ? 'danger' : 'primary');
-    button(ctx, acts, 'Title screen', `0${n++}`, () => location.reload());
+    button(ctx, acts, 'Title screen', `0${n++}`, () => reloadPage());
     void root.offsetWidth;
     root.classList.add('show');
     await sleep(1.4);
@@ -436,7 +437,7 @@ export class EndingScreen {
     stat('Machines stopped', String(st?.kills ?? 0));
     stat('Records recovered', `${st?.logs ?? ctx.story?.logs.size ?? 0} / ${st?.logsTotal ?? 5}`);
     const acts = h('div', 'acts', stage);
-    button(ctx, acts, 'Restart', '01', () => location.reload(), 'primary');
+    button(ctx, acts, 'Restart', '01', () => reloadPage(), 'primary');
     const credit = h('div', 'lbl credit', stage, 'Every texture, mesh and sound in this game is generated in code');
     void root.offsetWidth;
     root.classList.add('show');

@@ -25,6 +25,7 @@ import { createUI } from './ui';
 import { createGamepad } from './core/gamepad';
 import { createStory } from './story';
 import { BootBar, type BootStep } from './core/bootbar';
+import { reloadPage, setRebootPage } from './core/nav';
 
 const bootStatus = document.getElementById('boot-status')!;
 let bar: BootBar | null = null;
@@ -40,6 +41,7 @@ async function boot() {
   const events = createEvents();
   const debug = parseDebug();
   if (debug.mobile) trackBigAllocations(); // freed on pagehide (releaseOnLeave)
+  setRebootPage(debug.mobile); // level changes / restarts via reboot.html (src/core/nav.ts)
   // §8.1: v1 saves / carry are discarded once (the stored level starts over), before anything reads storage.
   discardV1();
   const levelId = resolveLevel(debug);
@@ -170,5 +172,5 @@ function releaseOnLeave(ctx: GameContext): void {
     try { void (ctx.audio as unknown as { debug?: { engine?: { ctx?: AudioContext } } })?.debug?.engine?.ctx?.close(); } catch { /* ignore */ }
     try { releaseBigAllocations(ctx.scene); } catch { /* ignore */ }
   });
-  addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
+  addEventListener('pageshow', (e) => { if (e.persisted) reloadPage(); });
 }

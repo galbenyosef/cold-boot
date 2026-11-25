@@ -21,6 +21,7 @@ import { SAVE_VERSION, clearAllProgress, clearLevelSave, loadLevelSave, requestB
 import { setStoredLevel } from '../../core/progress';
 import type { StageHooks, StageProgress } from './base';
 import type { LineLog } from './dialogue';
+import { reloadPage } from '../../core/nav';
 
 /** What the page needs of the level's script (a `StageBase` subclass has all of it). */
 export interface StageScript<P extends StageProgress, Cp extends string> {
@@ -191,7 +192,7 @@ export function createStagePage<P extends StageProgress, Cp extends string>(ctx:
         clearAllProgress();
         if (d.level !== spec.level) {
           requestBegin();
-          location.reload();
+          reloadPage();
           return;
         }
         setStoredLevel(spec.level);

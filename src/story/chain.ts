@@ -6,6 +6,7 @@ import type { CarryV2, DebugFlags, Facts, GameContext, LevelId, PickupKind, Play
 import { WEAPON_IDS } from '../core/types';
 import { levelInfo, levelOf, nextOf, setStoredLevel } from '../core/progress';
 import { clearLevelSave, loadCarryFor, makeCarry, requestContinue, writeCarry } from './save';
+import { reloadPage } from '../core/nav';
 
 /** URL parameters that force a level / its facts: dropped on a hand-over so the stored level wins. */
 const FORCING_PARAMS = ['level', 'choice', 'units', 'continue'];
@@ -56,9 +57,9 @@ export function goToLevel(): void {
     const u = new URL(location.href);
     let changed = false;
     for (const k of FORCING_PARAMS) if (u.searchParams.has(k)) { u.searchParams.delete(k); changed = true; }
-    if (changed) { location.replace(u.toString()); return; }
+    if (changed) { reloadPage(u.toString()); return; }
   } catch { /* ignore */ }
-  location.reload();
+  reloadPage();
 }
 
 /** This level's carry: the player as now, plus `ctx.facts` and `extra` facts. */

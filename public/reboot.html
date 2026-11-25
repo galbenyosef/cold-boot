@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <title>COLD BOOT</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      body { display: grid; place-items: center; color: #7d8a8f; font: 12px/1.6 ui-monospace, Menlo, monospace;
+             letter-spacing: 0.3em; text-transform: uppercase; }
+    </style>
+  </head>
+  <body>
+    <div>initialising</div>
+    <script>
+      // Phones: level changes and restarts come through this page so the old page's memory is released before the
+      // game boots again in the same process (see src/core/nav.ts). Only same-origin targets.
+      var u;
+      try { u = new URL(new URLSearchParams(location.search).get('to') || './', location.href); } catch (e) { u = new URL('./', location.href); }
+      if (u.origin !== location.origin) u = new URL('./', location.href);
+      setTimeout(function () { location.replace(u.href); }, 3000);
+    </script>
+  </body>
+</html>

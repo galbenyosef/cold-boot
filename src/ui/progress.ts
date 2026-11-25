@@ -6,6 +6,7 @@ import type { GameContext, LevelId } from '../core/types';
 import * as save from '../story/save';
 import { LEVEL_KEY, levelOf } from '../core/progress';
 import { SKIP_INTRO_KEY } from './types';
+import { reloadPage } from '../core/nav';
 
 export interface SaveInfo {
   level: LevelId;
@@ -40,9 +41,9 @@ export function reloadInto(level: LevelId | null, skipIntro = false): void {
   if (skipIntro) { try { sessionStorage.setItem(SKIP_INTRO_KEY, '1'); } catch { /* ignore */ } }
   try {
     const u = new URL(location.href);
-    if (level && u.searchParams.has('level')) { u.searchParams.delete('level'); location.replace(u.toString()); return; }
+    if (level && u.searchParams.has('level')) { u.searchParams.delete('level'); reloadPage(u.toString()); return; }
   } catch { /* ignore */ }
-  location.reload();
+  reloadPage();
 }
 
 /** Ask the next (level-1) page load to start a new run behind a one-click gate. */

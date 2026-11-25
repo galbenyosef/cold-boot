@@ -15,6 +15,7 @@ import { nextOf } from '../../core/progress';
 import { createStagePage } from '../stage/page';
 import { ScriptL3 } from './script';
 import { END_CARD_L3, END_CARD_L3_NEXT, LOG_IDS_L3, TITLE_CARD_L3, TOAST3 } from './text';
+import { reloadPage } from '../../core/nav';
 
 export async function createStoryL3(ctx: GameContext): Promise<StorySystem> {
   preload(ctx, ['l3_']);
@@ -50,7 +51,7 @@ export async function createStoryL3(ctx: GameContext): Promise<StorySystem> {
     try { await ctx.ui.showCard(card, { style: 'ending', skippable: true, seconds: next === null ? 12 : 6 }); } catch (err) { console.error('[story] end card failed', err); }
     // the post chain persists across levels: back to today's grade
     try { ctx.render.post.grade?.(0, 0); } catch { /* ignore */ }
-    if (mode === 'reload') { if (next !== null) goToLevel(); else location.reload(); }
+    if (mode === 'reload') { if (next !== null) goToLevel(); else reloadPage(); }
   }
 
   script = new ScriptL3(ctx, page.seq, page.director, world, page.logs, { ...page.hooks, end });
